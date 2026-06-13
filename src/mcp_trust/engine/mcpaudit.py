@@ -14,11 +14,13 @@ The real ``mcp-audits`` scan is a pipeline, not a single function:
 This adapter drives that pipeline and maps the result onto our engine-agnostic
 ``EngineResult`` (``RiskSummary`` + ``Finding`` list).
 
-SECURITY NOTE (honest limitation): connecting to an MCP server *launches the
-server process* (e.g. ``npx <pkg>``). This adapter does NOT yet sandbox that
-execution — scanning an untrusted server runs its code on the host. Treat the
-real-engine path as integration-gated until sandboxing lands (see SPEC roadmap).
-Run it only against servers you trust, or inside an external sandbox.
+SECURITY NOTE: connecting to an MCP server *launches the server process* (e.g.
+``npx <pkg>``), which runs third-party code. Execution is isolated by a pluggable
+``Sandbox`` (see ``engine.sandbox``): pass one to the constructor or set
+``MCP_TRUST_SANDBOX=docker`` to run untrusted servers in a locked-down container.
+The DEFAULT is ``NoSandbox`` (passthrough) to preserve the validated trusted-
+reference-server flow — that default is safe ONLY for servers you trust; scanning
+untrusted servers without ``MCP_TRUST_SANDBOX=docker`` runs their code on the host.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from typing import TypeVar
 
 from mcp_trust.core.models import Finding, RiskSummary, ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
+from mcp_trust.engine.sandbox import Sandbox, select_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +104,10 @@ class MCPAuditEngine:
     name: str = "mcpaudit"
     version: str = _FALLBACK_VERSION
 
-    def __init__(self, timeout: float = 15.0) -> None:
+    def __init__(self, timeout: float = 15.0, sandbox: Sandbox | None = None) -> None:
         self._timeout = timeout
+        # None → resolve from MCP_TRUST_SANDBOX at scan time (default: NoSandbox).
+        self._sandbox = sandbox
 
     def scan(self, source: ServerSource) -> EngineResult:
         """Run the ``mcp-audits`` pipeline against *source* and normalize results."""
@@ -117,7 +122,14 @@ class MCPAuditEngine:
                 "Run: pip install 'mcp-trust[engine]' to enable real scanning."
             ) from exc
 
-        cfg = self._build_config(source, ServerConfig, ClientType, TransportType)
+        sandbox = self._sandbox if self._sandbox is not None else select_sandbox()
+        if not sandbox.available():
+            raise ScanError(
+                f"Sandbox {sandbox.name!r} is not available on this host "
+                "(is docker installed and running?)."
+            )
+
+        cfg = self._build_config(source, ServerConfig, ClientType, TransportType, sandbox)
 
         connector = ServerConnector(timeout=self._timeout)
         analyzer = PermissionAnalyzer()
@@ -177,8 +189,13 @@ class MCPAuditEngine:
             findings=findings,
         )
 
-    def _build_config(self, source, ServerConfig, ClientType, TransportType):  # noqa: ANN001
-        """Translate a ``ServerSource`` into an mcp-audits ``ServerConfig``."""
+    def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001
+        """Translate a ``ServerSource`` into an mcp-audits ``ServerConfig``.
+
+        For stdio servers the launch command is wrapped by *sandbox* so the
+        untrusted server process runs isolated. Remote (HTTP) servers launch no
+        local process, so the sandbox does not apply.
+        """
         # config_path is a required provenance field in mcp-audits; the registry
         # is the source of this entry rather than a client config file.
         base = {
@@ -192,6 +209,7 @@ class MCPAuditEngine:
             return ServerConfig(**base, transport=TransportType.HTTP, url=source.reference)
 
         command, args = self._launch_spec(source)
+        command, args = sandbox.wrap(command, args)
         return ServerConfig(**base, transport=TransportType.STDIO, command=command, args=args)
 
     @staticmethod
