@@ -43,6 +43,21 @@ loop working end-to-end.
 | `cli/main.py` | Typer app: `scan`, `check`, `serve`, `seed`. | all of the above |
 | `catalog/seed.py` + `seed_servers.json` | Seed list of ~8–12 well-known *public* MCP servers (name, source spec, homepage). No private servers. | `core/models.py` |
 
+## Grading — calibration & roadmap
+The public A–F grade is derived only via `core.grading.grade(risk)`. It does NOT
+use the engine's raw `composite` (a capability-breadth SUM that mis-orders —
+proven by a 2026-06-13 corpus scan where an unannotated no-op server out-scored
+real filesystem/SQL servers). Instead it uses `core.grading.danger_score()`: a
+danger-weighted aggregate (shell-execution dominant; destructive/exfiltration
+down-weighted as spec-default noise) banded A–F, plus a critical-finding cap.
+
+**Known limitation → v2 (transparency axis).** A fully *unannotated* server is
+indistinguishable from a capable one on every dimension, so it is still
+over-graded. The real fix is a second axis — **transparency** (annotation
+coverage, available from the engine's `annotation_coverage`) — surfaced as a
+separate caveat, not folded into the danger grade. Until then, a poor grade on
+an unannotated server means "cannot verify safe," not "known dangerous."
+
 ## Data model (already defined in `core/models.py` — do not redefine)
 - `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are NAMES only, never values.
 - `Server{ slug, name, description, source, homepage?, added_at }`
