@@ -8,7 +8,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from mcp_trust.core import grading
@@ -199,6 +200,52 @@ def create_app(
             "message": str(grade_str),
             "color": color,
         }
+
+    # -----------------------------------------------------------------------
+    # HTML routes
+    # -----------------------------------------------------------------------
+
+    @application.get("/", response_class=HTMLResponse)
+    async def catalog_page(request: Request) -> HTMLResponse:
+        from mcp_trust.api.web import render_catalog  # noqa: PLC0415
+
+        db = _get_conn()
+        server_repo = ServerRepository(db)
+        scan_repo = ScanRepository(db)
+
+        servers = server_repo.list()
+        latest = scan_repo.latest_all()
+
+        rows = []
+        for srv in servers:
+            scan = latest.get(srv.slug)
+            rows.append(
+                {
+                    "slug": srv.slug,
+                    "name": srv.name,
+                    "grade": str(scan.grade) if scan else str(TrustGrade.UNSCANNED),
+                    "transparency": str(scan.transparency) if scan else "",
+                    "composite": scan.risk.composite if scan else None,
+                    "scanned_at": scan.scanned_at.isoformat() if scan else "",
+                }
+            )
+        return HTMLResponse(content=render_catalog(rows))
+
+    @application.get("/ui/servers/{slug}", response_class=HTMLResponse)
+    async def server_detail_page(slug: str, request: Request) -> HTMLResponse:
+        from mcp_trust.api.web import render_detail, render_not_found  # noqa: PLC0415
+
+        db = _get_conn()
+        server_repo = ServerRepository(db)
+        scan_repo = ScanRepository(db)
+
+        server = server_repo.get(slug)
+        if server is None:
+            return HTMLResponse(content=render_not_found(slug), status_code=404)
+
+        scan = scan_repo.latest(slug)
+        base_url = str(request.base_url).rstrip("/")
+        return HTMLResponse(content=render_detail(server, scan, base_url=base_url))
 
     return application
 
