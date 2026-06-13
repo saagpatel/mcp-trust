@@ -100,8 +100,17 @@ launchable server).
 - `test_api.py`: FastAPI `TestClient` — healthz, list, get-404, scan persists, badge shape.
 - `test_cli.py`: Typer `CliRunner` — seed → scan → check happy path.
 
+## Sandboxing the real-engine path
+Scanning launches the server process. `engine/sandbox.py` provides a pluggable
+`Sandbox`: `NoSandbox` (default passthrough — trusted targets only) and
+`DockerSandbox` (no network, read-only rootfs, all caps dropped,
+no-new-privileges, memory/PID/CPU limits). Set `MCP_TRUST_SANDBOX=docker`
+(+ optional `MCP_TRUST_SANDBOX_IMAGE` / `MCP_TRUST_SANDBOX_NETWORK`) to isolate
+untrusted servers. Operational caveat: `--network none` blocks launch-time
+package fetch (`npx -y`/`uvx`); for untrusted scanning bake a purpose-built
+image. Stronger isolation (gVisor, microVMs) is a roadmap option.
+
 ## Explicitly out of MVP scope (named, not silently cut)
 Auth/accounts, hosted multi-tenant dashboard, continuous monitoring/cron,
 submission moderation queue, the public marketing site, the verification-badge
-program for server authors, sandboxed execution hardening of the real engine
-path. These are the post-MVP roadmap, not part of the one loop.
+program for server authors. These are the post-MVP roadmap, not part of the one loop.

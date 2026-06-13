@@ -39,6 +39,16 @@ uv pip install -e ".[dev,engine]"
 MCP_TRUST_ENGINE=mcpaudit mcp-trust scan acme-search
 ```
 
+Scanning launches the server's process. For **untrusted** servers, isolate
+execution in a locked-down container (no network, read-only fs, dropped caps,
+resource limits):
+
+```bash
+MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan acme-search
+```
+
+The default is no sandbox (safe only for servers you trust).
+
 ## API
 
 | Method | Path | Purpose |
