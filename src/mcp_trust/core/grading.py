@@ -1,27 +1,60 @@
 """Trust-grade derivation — the registry's own normalization layer.
 
-This is registry IP, distinct from any engine's raw score. An engine gives us a
-composite risk (0–10, higher = riskier) plus findings; we translate that into a
-single public letter grade (A best, F worst) that a developer can read at a
-glance before connecting a server.
+This is registry IP, distinct from any engine's raw score. An engine reports a
+multi-dimensional risk; we translate that into a single public letter grade
+(A best, F worst) a developer can read at a glance before connecting a server.
 
-Two rules combine:
-1. Band the composite score into A–F.
-2. Apply a *critical cap*: a server with any CRITICAL finding can never grade
-   above D, regardless of how low its dimensional composite looks — a single
-   tool-poisoning or rug-pull vector is disqualifying on its own.
+WHY NOT THE ENGINE'S COMPOSITE
+------------------------------
+The scanning engine's ``composite`` is a SUM of capability dimensions, so it is
+dominated by capability *breadth*, not *danger*. Calibrated against a corpus of
+official reference servers (2026-06-13), composite-sum mis-orders badly: a no-op
+reasoning server with no I/O (whose unannotated tools trip the spec-default
+"assume capable") scored 8.6 — higher than a real filesystem server (7.7) and a
+SQL-execution server (8.0). A grade built on that is noise.
+
+WHAT WE DO INSTEAD
+------------------
+We compute a *danger-weighted* score over the dimensions, emphasizing the ones
+that actually separate risk (shell execution above all, then file/network) and
+down-weighting the default-inflated dimensions (destructive / exfiltration),
+which appear on benign servers as often as dangerous ones. On the calibration
+corpus this correctly ranks the genuinely-dangerous SQL server at the top and
+the trivial clock/fetch servers at the bottom.
+
+KNOWN LIMITATION (drives the v2 roadmap)
+----------------------------------------
+A fully unannotated server is indistinguishable from a capable one on every
+dimension, so it is still over-graded. The real fix is a second axis —
+*transparency* (annotation coverage) — surfaced as a separate caveat rather than
+folded into the danger grade. Until then, a low grade on an unannotated server
+means "cannot verify it's safe," not "known dangerous." See SPEC roadmap.
+
+Two rules combine: band the danger score into A–F, then apply a *critical cap*
+(any CRITICAL finding can never grade above D — one tool-poisoning or rug-pull
+vector is disqualifying on its own).
 """
 
 from __future__ import annotations
 
 from mcp_trust.core.models import RiskSummary, Severity, TrustGrade
 
-# Upper bound (inclusive) of composite score for each grade. Ordered best→worst.
+# Danger weights over the engine's risk dimensions. Calibrated 2026-06-13 against
+# the official reference-server corpus; see module docstring for the rationale.
+_DIM_WEIGHTS: dict[str, float] = {
+    "file_access": 1.2,
+    "network_access": 1.0,
+    "shell_execution": 2.0,
+    "destructive": 0.3,
+    "exfiltration": 0.4,
+}
+
+# Upper bound (inclusive) of the danger score for each grade. Ordered best→worst.
 _BANDS: list[tuple[float, TrustGrade]] = [
-    (1.5, TrustGrade.A),
-    (3.0, TrustGrade.B),
+    (2.0, TrustGrade.A),
+    (3.5, TrustGrade.B),
     (5.0, TrustGrade.C),
-    (7.0, TrustGrade.D),
+    (7.5, TrustGrade.D),
 ]
 
 # A server with a CRITICAL finding cannot grade better than this.
@@ -37,10 +70,17 @@ _ORDER: list[TrustGrade] = [
 ]
 
 
-def _band(composite: float) -> TrustGrade:
-    for upper, grade in _BANDS:
-        if composite <= upper:
-            return grade
+def danger_score(risk: RiskSummary) -> float:
+    """Registry danger score (0–10) — a danger-weighted aggregate of the risk
+    dimensions, distinct from the engine's breadth-dominated ``composite``."""
+    raw = sum(weight * getattr(risk, dim) for dim, weight in _DIM_WEIGHTS.items())
+    return max(0.0, min(10.0, raw))
+
+
+def _band(score: float) -> TrustGrade:
+    for upper, grade_value in _BANDS:
+        if score <= upper:
+            return grade_value
     return TrustGrade.F
 
 
@@ -51,7 +91,7 @@ def _worse(a: TrustGrade, b: TrustGrade) -> TrustGrade:
 
 def grade(risk: RiskSummary) -> TrustGrade:
     """Derive a public trust grade from a normalized risk summary."""
-    banded = _band(risk.composite)
+    banded = _band(danger_score(risk))
     if risk.count(Severity.CRITICAL) > 0:
         return _worse(banded, _CRITICAL_CAP)
     return banded

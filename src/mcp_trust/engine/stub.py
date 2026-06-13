@@ -48,12 +48,20 @@ _FINDING_TEMPLATES: list[tuple[str, str, str]] = [
 
 def _synthesize(reference: str) -> EngineResult:
     """Build a fully deterministic EngineResult from a source reference string."""
+    # Real engine dimensions live in ~[0, 3]; a per-reference "intensity" factor
+    # scales the whole vector so different references span the full A–F grade
+    # range under the calibrated (danger-weighted) grading. Deterministic.
+    intensity = _hash_int(reference, "intensity") / 10.0  # [0, 1)
+
+    def _dim(salt: str) -> float:
+        return _clamp(_hash_int(reference, salt, 0, 3) * intensity, 0.0, 3.0)
+
     dims = {
-        "file_access": _clamp(_hash_int(reference, "file_access")),
-        "network_access": _clamp(_hash_int(reference, "network_access")),
-        "shell_execution": _clamp(_hash_int(reference, "shell_execution")),
-        "destructive": _clamp(_hash_int(reference, "destructive")),
-        "exfiltration": _clamp(_hash_int(reference, "exfiltration")),
+        "file_access": _dim("file_access"),
+        "network_access": _dim("network_access"),
+        "shell_execution": _dim("shell_execution"),
+        "destructive": _dim("destructive"),
+        "exfiltration": _dim("exfiltration"),
     }
 
     # Composite = weighted average of dimensions, capped at 10.
