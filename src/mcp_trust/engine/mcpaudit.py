@@ -4,141 +4,214 @@
 This module imports it LAZILY inside ``scan`` so the rest of the registry
 imports cleanly without ``mcp-audits`` installed.
 
-Mapping:
-  ``ServerSource``  →  mcp-audits ``ServerConfig``
-  ``ServerAudit``   →  ``EngineResult`` (``RiskSummary`` + ``Finding`` list)
+The real ``mcp-audits`` scan is a pipeline, not a single function:
 
-The adapter is integration-gated: it must import cleanly and raise a clear
-``ScanError`` at runtime if ``mcp_audit`` is absent.
+    connector = ServerConnector(timeout)
+    audit     = await connector.connect(server_config)   # launches the server
+    perms     = PermissionAnalyzer().analyze_server(audit.tools)
+    risk      = RiskScorer().score_server(perms)          # -> RiskScore
+
+This adapter drives that pipeline and maps the result onto our engine-agnostic
+``EngineResult`` (``RiskSummary`` + ``Finding`` list).
+
+SECURITY NOTE (honest limitation): connecting to an MCP server *launches the
+server process* (e.g. ``npx <pkg>``). This adapter does NOT yet sandbox that
+execution — scanning an untrusted server runs its code on the host. Treat the
+real-engine path as integration-gated until sandboxing lands (see SPEC roadmap).
+Run it only against servers you trust, or inside an external sandbox.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
-from mcp_trust.core.models import Finding, RiskSummary, ServerSource, Severity
+from mcp_trust.core.models import Finding, RiskSummary, ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
 
 logger = logging.getLogger(__name__)
 
-# mcp-audits version that ships the ServerAudit/RiskScore API this adapter targets.
-_ENGINE_VERSION = "2.1.0"
+_T = TypeVar("_T")
 
-# Map mcp-audits severity strings → our Severity enum.
-_SEV_MAP: dict[str, Severity] = {
-    "critical": Severity.CRITICAL,
-    "high": Severity.HIGH,
-    "medium": Severity.MEDIUM,
-    "low": Severity.LOW,
-    "info": Severity.INFO,
-}
+# Fallback if the installed version can't be read at runtime.
+_FALLBACK_VERSION = "2.1.0"
 
-
-def _map_severity(raw: str) -> Severity:
-    return _SEV_MAP.get(raw.lower(), Severity.INFO)
+# mcp-audits PermissionFinding has no per-finding severity (severity is implied by
+# the scoring weights). We normalize confidence + category into our Severity:
+# a high-confidence destructive/exfiltration permission is the disqualifying case.
+_HIGH_CONFIDENCE = {"high", "llm"}
+_CRITICAL_CATEGORIES = {"destructive", "exfiltration"}
 
 
-def _clamp(v: float) -> float:
-    return max(0.0, min(10.0, float(v)))
+def _run_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
+    """Run an async coroutine to completion from sync code.
+
+    Uses ``asyncio.run`` when no loop is active; if called from inside a running
+    loop (e.g. an async web handler) it runs the coroutine on a worker thread
+    with its own loop, so it never collides with the caller's loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(factory())
+
+    box: dict[str, _T] = {}
+    err: dict[str, BaseException] = {}
+
+    def worker() -> None:
+        try:
+            box["v"] = asyncio.run(factory())
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread
+            err["e"] = exc
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join()
+    if "e" in err:
+        raise err["e"]
+    return box["v"]
+
+
+def _severity_for(category: str, confidence: str) -> Severity:
+    cat = category.lower()
+    conf = confidence.lower()
+    if cat in _CRITICAL_CATEGORIES and conf in _HIGH_CONFIDENCE:
+        return Severity.CRITICAL
+    if conf in _HIGH_CONFIDENCE:
+        return Severity.HIGH
+    if conf == "medium":
+        return Severity.MEDIUM
+    return Severity.LOW
+
+
+def _clamp(value: float) -> float:
+    return max(0.0, min(10.0, float(value)))
 
 
 class MCPAuditEngine:
     """Scan engine backed by the public ``mcp-audits`` package.
 
-    Raises ``ScanError`` if ``mcp-audits`` is not installed.  Install it with::
-
-        pip install 'mcp-trust[engine]'
+    Raises ``ScanError`` if ``mcp-audits`` is not installed or a scan cannot
+    complete (server unreachable, connection failed/timed out).
     """
 
     name: str = "mcpaudit"
-    version: str = _ENGINE_VERSION
+    version: str = _FALLBACK_VERSION
 
-    def scan(self, source: ServerSource) -> EngineResult:  # noqa: C901
-        """Run ``mcp-audits`` against *source* and return normalized results.
+    def __init__(self, timeout: float = 15.0) -> None:
+        self._timeout = timeout
 
-        The entire ``mcp_audit`` import is deferred here so the module loads
-        cleanly without the optional dependency.
-        """
+    def scan(self, source: ServerSource) -> EngineResult:
+        """Run the ``mcp-audits`` pipeline against *source* and normalize results."""
         try:
-            from mcp_audit.analyzer import analyze  # noqa: PLC0415
-            from mcp_audit.models import ServerConfig  # noqa: PLC0415
+            from mcp_audit.analyzer import PermissionAnalyzer  # noqa: PLC0415
+            from mcp_audit.connector import ServerConnector  # noqa: PLC0415
+            from mcp_audit.models import ClientType, ServerConfig, TransportType  # noqa: PLC0415
+            from mcp_audit.scorer import RiskScorer  # noqa: PLC0415
         except ImportError as exc:
             raise ScanError(
                 "mcp-audits is not installed. "
                 "Run: pip install 'mcp-trust[engine]' to enable real scanning."
             ) from exc
 
-        # Build mcp-audits ServerConfig from our ServerSource.
-        # mcp-audits expects: name, command, args, env (dict of key→value or None).
-        env: dict[str, str | None] = {k: None for k in source.env_keys}
+        cfg = self._build_config(source, ServerConfig, ClientType, TransportType)
+
+        connector = ServerConnector(timeout=self._timeout)
+        analyzer = PermissionAnalyzer()
+        scorer = RiskScorer()
 
         try:
-            server_cfg = ServerConfig(
-                name=source.reference,
-                command=source.command or source.reference,
-                args=source.args,
-                env=env,
-            )
+            audit = _run_sync(lambda: connector.connect(cfg))
         except Exception as exc:
-            logger.warning("ServerConfig build failed for %r: %s", source.reference, exc)
+            logger.warning("mcp-audits connect failed for %r: %s", source.reference, exc)
+            raise ScanError(f"Failed to connect to {source.reference!r}: {exc}") from exc
+
+        status = (audit.connection_status or "").lower()
+        if status in {"failed", "timeout"}:
             raise ScanError(
-                f"Failed to build ServerConfig for {source.reference!r}: {exc}"
-            ) from exc
+                f"Could not scan {source.reference!r}: connection {status}. "
+                "A trust grade requires a successful connection to enumerate tools."
+            )
 
-        # Run the mcp-audits analyzer.
-        try:
-            audit = analyze(server_cfg)
-        except Exception as exc:
-            logger.warning("mcp-audits analysis failed for %r: %s", source.reference, exc)
-            raise ScanError(f"mcp-audits analysis failed for {source.reference!r}: {exc}") from exc
-
-        # --- Map ServerAudit → our models ---
-        # audit.risk_score: RiskScore with fields:
-        #   composite, file_access, network_access, shell_execution,
-        #   destructive, exfiltration  (all numeric 0–10)
-        rs = audit.risk_score
+        permissions = analyzer.analyze_server(audit.tools)
+        risk_score = scorer.score_server(permissions)
 
         findings: list[Finding] = []
-        findings_by_severity: dict[Severity, int] = {}
-
-        # audit.capability_findings is a list of finding objects.
-        for cf in getattr(audit, "capability_findings", []):
-            sev = _map_severity(getattr(cf, "severity", "info"))
+        by_severity: dict[Severity, int] = {}
+        for perm in permissions:
+            sev = _severity_for(str(perm.category), str(perm.confidence))
             findings.append(
                 Finding(
-                    rule_id=getattr(cf, "rule_id", "MCPA000"),
-                    title=getattr(cf, "title", str(cf)),
+                    rule_id=perm.rule_id,
+                    title=perm.title,
                     severity=sev,
-                    category=getattr(cf, "category", "capability"),
-                    detail=getattr(cf, "detail", "") or "",
+                    category=str(perm.category),
+                    detail="; ".join(perm.evidence),
                 )
             )
-            findings_by_severity[sev] = findings_by_severity.get(sev, 0) + 1
+            by_severity[sev] = by_severity.get(sev, 0) + 1
 
         risk = RiskSummary(
-            composite=_clamp(rs.composite),
-            file_access=_clamp(getattr(rs, "file_access", 0)),
-            network_access=_clamp(getattr(rs, "network_access", 0)),
-            shell_execution=_clamp(getattr(rs, "shell_execution", 0)),
-            destructive=_clamp(getattr(rs, "destructive", 0)),
-            exfiltration=_clamp(getattr(rs, "exfiltration", 0)),
-            findings_by_severity=findings_by_severity,
+            composite=_clamp(risk_score.composite),
+            file_access=_clamp(risk_score.file_access),
+            network_access=_clamp(risk_score.network_access),
+            shell_execution=_clamp(risk_score.shell_execution),
+            destructive=_clamp(risk_score.destructive),
+            exfiltration=_clamp(risk_score.exfiltration),
+            findings_by_severity=by_severity,
         )
-
-        # Detect installed mcp_audit version if possible.
-        try:
-            import importlib.metadata  # noqa: PLC0415
-
-            engine_ver = importlib.metadata.version("mcp-audits")
-        except Exception:
-            engine_ver = _ENGINE_VERSION
 
         return EngineResult(
             engine_name=self.name,
-            engine_version=engine_ver,
+            engine_version=self._installed_version(),
             risk=risk,
             findings=findings,
         )
+
+    def _build_config(self, source, ServerConfig, ClientType, TransportType):  # noqa: ANN001
+        """Translate a ``ServerSource`` into an mcp-audits ``ServerConfig``."""
+        # config_path is a required provenance field in mcp-audits; the registry
+        # is the source of this entry rather than a client config file.
+        base = {
+            "name": source.reference,
+            "client": ClientType.CLAUDE_CODE,
+            "config_path": "<mcp-trust-registry>",
+            "env_keys": list(source.env_keys),
+        }
+
+        if source.kind == SourceKind.REMOTE and not source.command:
+            return ServerConfig(**base, transport=TransportType.HTTP, url=source.reference)
+
+        command, args = self._launch_spec(source)
+        return ServerConfig(**base, transport=TransportType.STDIO, command=command, args=args)
+
+    @staticmethod
+    def _launch_spec(source) -> tuple[str, list[str]]:  # noqa: ANN001
+        """Resolve (command, args) for a stdio server. Explicit command wins."""
+        if source.command:
+            return source.command, list(source.args)
+        if source.kind == SourceKind.NPM:
+            return "npx", ["-y", source.reference, *source.args]
+        if source.kind == SourceKind.PYPI:
+            return "uvx", [source.reference, *source.args]
+        if source.kind == SourceKind.BINARY:
+            return source.reference, list(source.args)
+        # GIT or anything else without an explicit command is ambiguous to launch.
+        raise ScanError(
+            f"Cannot infer a launch command for {source.reference!r} "
+            f"(kind={source.kind}); set an explicit `command` on the source."
+        )
+
+    def _installed_version(self) -> str:
+        try:
+            import importlib.metadata  # noqa: PLC0415
+
+            return importlib.metadata.version("mcp-audits")
+        except Exception:  # noqa: BLE001 - version is best-effort metadata
+            return _FALLBACK_VERSION
 
 
 # Satisfy the Protocol at import time without mcp_audit present.
