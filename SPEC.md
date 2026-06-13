@@ -67,6 +67,8 @@ an unannotated server means "cannot verify safe," not "known dangerous."
 - `TrustGrade` ∈ {A,B,C,D,F,unscanned}; derived only via `core.grading.grade(risk)`.
 
 ## API surface (MVP)
+- `GET  /` → **web** catalog page (HTML): servers + danger grade + transparency.
+- `GET  /ui/servers/{slug}` → **web** detail page (HTML): grade, transparency (+ caveat on low), findings, README badge-embed snippet. 404 page on unknown slug.
 - `GET  /healthz` → `{"status":"ok"}`
 - `GET  /servers` → `[{slug, name, grade, composite, scanned_at}]` (catalog + latest grade)
 - `GET  /servers/{slug}` → full latest `ScanRecord` + `Server` metadata; 404 if unknown.

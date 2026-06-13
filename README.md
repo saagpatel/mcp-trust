@@ -43,17 +43,25 @@ MCP_TRUST_ENGINE=mcpaudit mcp-trust scan acme-search
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET`  | `/` | **web** — public catalog page (grade + transparency per server) |
+| `GET`  | `/ui/servers/{slug}` | **web** — server detail page + README badge-embed snippet |
 | `GET`  | `/healthz` | liveness |
-| `GET`  | `/servers` | catalog + latest grade per server |
-| `GET`  | `/servers/{slug}` | full latest scan record + metadata |
+| `GET`  | `/servers` | catalog + latest grade per server (JSON) |
+| `GET`  | `/servers/{slug}` | full latest scan record + metadata (JSON) |
 | `POST` | `/servers/{slug}/scan` | scan now, persist, return record |
 | `GET`  | `/servers/{slug}/badge.json` | shields.io-compatible README badge |
 
+Every server has two orthogonal signals: a **danger grade** (A–F) and a
+**transparency level** (high/medium/low, from annotation coverage). A low grade on
+a low-transparency server means "cannot verify safe," not "known dangerous."
+
 ## Status
 
-MVP scaffold. The StubEngine path (catalog → scan → grade → persist → serve) is
-built and tested end-to-end. The `mcp-audits` real-scan adapter is built but
-integration-gated. See [`SPEC.md`](SPEC.md) for the full contract and roadmap.
+MVP. Built and tested end-to-end (86 tests): catalog → scan → danger grade +
+transparency → persist → serve, over both the default StubEngine and the live
+`mcp-audits` adapter (validated against official reference servers), plus the
+public web catalog/detail pages and the README badge-embed loop. See
+[`SPEC.md`](SPEC.md) for the full contract and roadmap.
 
 ## License
 
