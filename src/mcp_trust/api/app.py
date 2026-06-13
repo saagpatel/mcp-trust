@@ -35,6 +35,7 @@ class ServerSummary(BaseModel):
     slug: str
     name: str
     grade: str
+    transparency: str | None
     composite: float | None
     scanned_at: datetime | None
 
@@ -120,6 +121,7 @@ def create_app(
                     "slug": srv.slug,
                     "name": srv.name,
                     "grade": scan.grade if scan else TrustGrade.UNSCANNED,
+                    "transparency": scan.transparency if scan else None,
                     "composite": scan.risk.composite if scan else None,
                     "scanned_at": scan.scanned_at if scan else None,
                 }
@@ -160,6 +162,7 @@ def create_app(
             # surface as 503 so callers can distinguish from a 404/500.
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         trust_grade = grading.grade(result.risk)
+        trust_transparency = grading.transparency(result.risk)
 
         scan = ScanRecord(
             id=uuid.uuid4().hex,
@@ -167,6 +170,7 @@ def create_app(
             engine_name=result.engine_name,
             engine_version=result.engine_version,
             grade=trust_grade,
+            transparency=trust_transparency,
             risk=result.risk,
             findings=result.findings,
             scanned_at=datetime.now(tz=UTC),

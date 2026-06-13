@@ -74,9 +74,9 @@ class ScanRepository:
         self._conn.execute(
             """
             INSERT INTO scans
-                (id, server_slug, engine_name, engine_version, grade,
+                (id, server_slug, engine_name, engine_version, grade, transparency,
                  risk_json, findings_json, scanned_at, report_ref)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 scan.id,
@@ -84,6 +84,7 @@ class ScanRepository:
                 scan.engine_name,
                 scan.engine_version,
                 scan.grade,
+                scan.transparency,
                 scan.risk.model_dump_json(),
                 json.dumps([f.model_dump(mode="json") for f in scan.findings]),
                 scan.scanned_at.isoformat(),
@@ -128,7 +129,12 @@ class ScanRepository:
     def _row_to_scan(row: sqlite3.Row) -> ScanRecord:
         from pydantic import ValidationError  # noqa: PLC0415
 
-        from mcp_trust.core.models import Finding, RiskSummary, TrustGrade  # noqa: PLC0415
+        from mcp_trust.core.models import (  # noqa: PLC0415
+            Finding,
+            RiskSummary,
+            TransparencyLevel,
+            TrustGrade,
+        )
 
         try:
             risk = RiskSummary.model_validate(json.loads(row["risk_json"]))
@@ -138,12 +144,20 @@ class ScanRepository:
             # Corrupt or schema-drifted row — surface the offending id rather
             # than letting an opaque error bubble up as a 500.
             raise ValueError(f"Corrupt scan record {row['id']!r}: {exc}") from exc
+        # transparency column is back-compat (older rows default to 'high').
+        keys = row.keys()
+        transparency = (
+            TransparencyLevel(row["transparency"])
+            if "transparency" in keys and row["transparency"]
+            else TransparencyLevel.HIGH
+        )
         return ScanRecord(
             id=row["id"],
             server_slug=row["server_slug"],
             engine_name=row["engine_name"],
             engine_version=row["engine_version"],
             grade=TrustGrade(row["grade"]),
+            transparency=transparency,
             risk=risk,
             findings=findings,
             scanned_at=row["scanned_at"],

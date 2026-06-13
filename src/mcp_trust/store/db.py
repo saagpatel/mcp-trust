@@ -38,6 +38,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             engine_name    TEXT NOT NULL,
             engine_version TEXT NOT NULL,
             grade          TEXT NOT NULL,
+            transparency   TEXT NOT NULL DEFAULT 'high',
             risk_json      TEXT NOT NULL,
             findings_json  TEXT NOT NULL,
             scanned_at     TEXT NOT NULL,

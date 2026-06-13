@@ -37,13 +37,9 @@ class ServerSource(BaseModel):
 
     kind: SourceKind
     reference: str = Field(description="Package name, git URL, or endpoint URL.")
-    command: str | None = Field(
-        default=None, description="Launch command, if applicable."
-    )
+    command: str | None = Field(default=None, description="Launch command, if applicable.")
     args: list[str] = Field(default_factory=list)
-    env_keys: list[str] = Field(
-        default_factory=list, description="Required env var NAMES only."
-    )
+    env_keys: list[str] = Field(default_factory=list, description="Required env var NAMES only.")
 
 
 class Server(BaseModel):
@@ -73,9 +69,7 @@ class Finding(BaseModel):
     rule_id: str = Field(description="Engine-native rule id, e.g. 'MCP007'.")
     title: str
     severity: Severity
-    category: str = Field(
-        description="Risk dimension, e.g. 'injection', 'exfiltration'."
-    )
+    category: str = Field(description="Risk dimension, e.g. 'injection', 'exfiltration'.")
     detail: str = ""
 
 
@@ -93,6 +87,14 @@ class RiskSummary(BaseModel):
     destructive: float = Field(ge=0, le=10, default=0)
     exfiltration: float = Field(ge=0, le=10, default=0)
     findings_by_severity: dict[Severity, int] = Field(default_factory=dict)
+    annotation_coverage: float = Field(
+        ge=0,
+        le=1,
+        default=1.0,
+        description="Fraction of tools that declare behavior annotations. Drives the "
+        "transparency axis: low coverage means the danger score is inferred from "
+        "spec-defaults, not the server's own declarations.",
+    )
 
     def count(self, severity: Severity) -> int:
         return self.findings_by_severity.get(severity, 0)
@@ -109,6 +111,16 @@ class TrustGrade(StrEnum):
     UNSCANNED = "unscanned"
 
 
+class TransparencyLevel(StrEnum):
+    """Second axis, orthogonal to the danger grade: how much the server declares
+    about its own behavior. ``LOW`` means the danger grade is largely inferred —
+    "cannot verify safe", NOT "known dangerous"."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class ScanRecord(BaseModel):
     """A persisted scan result: the unit the registry stores and serves."""
 
@@ -117,6 +129,10 @@ class ScanRecord(BaseModel):
     engine_name: str
     engine_version: str
     grade: TrustGrade
+    transparency: TransparencyLevel = Field(
+        default=TransparencyLevel.HIGH,
+        description="Annotation-coverage axis, orthogonal to grade.",
+    )
     risk: RiskSummary
     findings: list[Finding] = Field(default_factory=list)
     scanned_at: datetime

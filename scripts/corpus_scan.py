@@ -14,6 +14,7 @@ import json
 import statistics
 import sys
 
+from mcp_trust.core.grading import grade, transparency
 from mcp_trust.core.models import ServerSource, SourceKind
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
 
@@ -52,6 +53,9 @@ def main() -> None:
                 "ref": ref,
                 "composite": round(rk.composite, 3),
                 "dims": {d: round(getattr(rk, d), 3) for d in _DIMS},
+                "annotation_coverage": round(rk.annotation_coverage, 3),
+                "grade": str(grade(rk)),
+                "transparency": str(transparency(rk)),
                 "n_findings": len(r.findings),
                 "by_severity": {str(k): v for k, v in rk.findings_by_severity.items()},
             }

@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_trust.core.grading import danger_score, grade
-from mcp_trust.core.models import RiskSummary, Severity, TrustGrade
+from mcp_trust.core.grading import danger_score, grade, transparency
+from mcp_trust.core.models import RiskSummary, Severity, TransparencyLevel, TrustGrade
 
 
 def _risk(score: float, **sev: int) -> RiskSummary:
@@ -69,3 +69,26 @@ def test_critical_finding_caps_at_d() -> None:
 
 def test_critical_cap_does_not_improve_a_worse_grade() -> None:
     assert grade(_risk(9.0, critical=2)) == TrustGrade.F
+
+
+@pytest.mark.parametrize(
+    ("coverage", "expected"),
+    [
+        (1.0, TransparencyLevel.HIGH),
+        (0.7, TransparencyLevel.HIGH),
+        (0.5, TransparencyLevel.MEDIUM),
+        (0.3, TransparencyLevel.MEDIUM),
+        (0.1, TransparencyLevel.LOW),
+        (0.0, TransparencyLevel.LOW),
+    ],
+)
+def test_transparency_levels(coverage: float, expected: TransparencyLevel) -> None:
+    assert transparency(RiskSummary(composite=0, annotation_coverage=coverage)) == expected
+
+
+def test_transparency_is_orthogonal_to_danger() -> None:
+    # A low-danger but fully opaque server: grade A, transparency LOW —
+    # "cannot verify safe", not "dangerous". The two axes are independent.
+    risk = RiskSummary(composite=0, network_access=0.5, annotation_coverage=0.0)
+    assert grade(risk) == TrustGrade.A
+    assert transparency(risk) == TransparencyLevel.LOW

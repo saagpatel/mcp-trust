@@ -37,7 +37,7 @@ vector is disqualifying on its own).
 
 from __future__ import annotations
 
-from mcp_trust.core.models import RiskSummary, Severity, TrustGrade
+from mcp_trust.core.models import RiskSummary, Severity, TransparencyLevel, TrustGrade
 
 # Danger weights over the engine's risk dimensions. Calibrated 2026-06-13 against
 # the official reference-server corpus; see module docstring for the rationale.
@@ -95,3 +95,24 @@ def grade(risk: RiskSummary) -> TrustGrade:
     if risk.count(Severity.CRITICAL) > 0:
         return _worse(banded, _CRITICAL_CAP)
     return banded
+
+
+# Transparency thresholds on annotation coverage (fraction of tools annotated).
+_TRANSPARENCY_HIGH = 0.7
+_TRANSPARENCY_MEDIUM = 0.3
+
+
+def transparency(risk: RiskSummary) -> TransparencyLevel:
+    """Second axis: how much the server declares about its own behavior.
+
+    This is intentionally NOT folded into the danger grade. A server can be
+    genuinely low-risk yet opaque (no annotations), or high-risk and fully
+    transparent. ``LOW`` transparency is a caveat — the danger grade is largely
+    inferred from spec-defaults — not a verdict of danger.
+    """
+    coverage = risk.annotation_coverage
+    if coverage >= _TRANSPARENCY_HIGH:
+        return TransparencyLevel.HIGH
+    if coverage >= _TRANSPARENCY_MEDIUM:
+        return TransparencyLevel.MEDIUM
+    return TransparencyLevel.LOW

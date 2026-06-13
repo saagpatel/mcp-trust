@@ -154,6 +154,7 @@ def _print_scan(record: ScanRecord) -> None:
         console.print(
             f"[bold]Server:[/bold] {record.server_slug}  "
             f"[bold]Grade:[/bold] {grade_str}  "
+            f"[bold]Transparency:[/bold] {record.transparency}  "
             f"[bold]Composite:[/bold] {composite:.1f}/10"
         )
 
@@ -171,7 +172,10 @@ def _print_scan(record: ScanRecord) -> None:
     except ImportError:
         # Plain fallback when rich is not installed.
         typer.echo(f"Server: {record.server_slug}")
-        typer.echo(f"Grade:  {grade_str}  (composite {composite:.1f}/10)")
+        typer.echo(
+            f"Grade:  {grade_str}  transparency: {record.transparency}  "
+            f"(composite {composite:.1f}/10)"
+        )
         if record.findings:
             typer.echo("Top findings:")
             for finding in record.findings[:5]:

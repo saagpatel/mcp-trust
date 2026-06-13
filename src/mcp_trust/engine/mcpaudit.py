@@ -154,6 +154,11 @@ class MCPAuditEngine:
             )
             by_severity[sev] = by_severity.get(sev, 0) + 1
 
+        # annotation_coverage drives the transparency axis (0–1). Default to 0.0
+        # when the audit doesn't report it, since absence of declared annotations
+        # is exactly the low-transparency case we want to surface.
+        coverage = float(getattr(audit, "annotation_coverage", 0.0) or 0.0)
+
         risk = RiskSummary(
             composite=_clamp(risk_score.composite),
             file_access=_clamp(risk_score.file_access),
@@ -162,6 +167,7 @@ class MCPAuditEngine:
             destructive=_clamp(risk_score.destructive),
             exfiltration=_clamp(risk_score.exfiltration),
             findings_by_severity=by_severity,
+            annotation_coverage=max(0.0, min(1.0, coverage)),
         )
 
         return EngineResult(

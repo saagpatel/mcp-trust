@@ -115,6 +115,9 @@ def _synthesize(reference: str) -> EngineResult:
         )
         findings_by_severity[severity] = findings_by_severity.get(severity, 0) + 1
 
+    # Deterministic annotation coverage in [0, 1) for the transparency axis.
+    annotation_coverage = _hash_int(reference, "annotation_coverage") / 10.0
+
     risk = RiskSummary(
         composite=composite,
         file_access=dims["file_access"],
@@ -123,6 +126,7 @@ def _synthesize(reference: str) -> EngineResult:
         destructive=dims["destructive"],
         exfiltration=dims["exfiltration"],
         findings_by_severity=findings_by_severity,
+        annotation_coverage=annotation_coverage,
     )
 
     return EngineResult(
