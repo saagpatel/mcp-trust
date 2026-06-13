@@ -10,3 +10,14 @@ build/
 *.db
 *.sqlite3
 .env
+
+# sandbox/worktree build-cache symlinks
+.build
+.cargo
+.next
+dist/
+node_modules/
+target/
+
+# agent worktree dir
+.claude/

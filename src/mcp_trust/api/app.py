@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord, TrustGrade
-from mcp_trust.engine.base import ScanEngine
+from mcp_trust.engine.base import ScanEngine, ScanError
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
@@ -95,12 +95,16 @@ def create_app(
     # Routes
     # -----------------------------------------------------------------------
 
+    # Routes are ``async def`` so they run on the single event-loop thread
+    # rather than FastAPI's threadpool — the shared SQLite connection is then
+    # only ever touched by one thread. Repository calls are fast/local.
+
     @application.get("/healthz")
-    def healthz() -> dict[str, str]:
+    async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
     @application.get("/servers", response_model=list[ServerSummary])
-    def list_servers() -> list[dict[str, Any]]:
+    async def list_servers() -> list[dict[str, Any]]:
         db = _get_conn()
         server_repo = ServerRepository(db)
         scan_repo = ScanRepository(db)
@@ -123,7 +127,7 @@ def create_app(
         return result
 
     @application.get("/servers/{slug}")
-    def get_server(slug: str) -> dict[str, Any]:
+    async def get_server(slug: str) -> dict[str, Any]:
         db = _get_conn()
         server_repo = ServerRepository(db)
         scan_repo = ScanRepository(db)
@@ -139,7 +143,7 @@ def create_app(
         }
 
     @application.post("/servers/{slug}/scan")
-    def scan_server(slug: str) -> dict[str, Any]:
+    async def scan_server(slug: str) -> dict[str, Any]:
         db = _get_conn()
         server_repo = ServerRepository(db)
         scan_repo = ScanRepository(db)
@@ -149,7 +153,12 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Server {slug!r} not found.")
 
         engine = _get_engine()
-        result = engine.scan(server.source)
+        try:
+            result = engine.scan(server.source)
+        except ScanError as exc:
+            # Engine unavailable (e.g. mcp-audits not installed) or scan failed:
+            # surface as 503 so callers can distinguish from a 404/500.
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         trust_grade = grading.grade(result.risk)
 
         scan = ScanRecord(
@@ -167,7 +176,7 @@ def create_app(
         return scan.model_dump(mode="json")
 
     @application.get("/servers/{slug}/badge.json")
-    def badge(slug: str) -> dict[str, Any]:
+    async def badge(slug: str) -> dict[str, Any]:
         db = _get_conn()
         server_repo = ServerRepository(db)
         scan_repo = ScanRepository(db)

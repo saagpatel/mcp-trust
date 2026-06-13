@@ -87,8 +87,8 @@ def test_check_after_scan(db_path) -> None:
 def test_check_no_scan_on_record(db_path) -> None:
     runner.invoke(app, ["seed", "--db", db_path])
     result = runner.invoke(app, ["check", "acme-search", "--db", db_path])
-    # Should exit 0 but report no scan.
-    assert result.exit_code == 0
+    # Non-zero exit so CI gates can distinguish "no record" from "found".
+    assert result.exit_code == 1
     assert "No scan" in result.output or "no scan" in result.output.lower()
 
 

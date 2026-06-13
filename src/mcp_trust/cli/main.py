@@ -113,7 +113,8 @@ def check(
     record = scan_repo.latest(slug)
     if record is None:
         typer.echo(f"No scan on record for {slug!r}. Run 'mcp-trust scan <slug>' to generate one.")
-        raise typer.Exit(code=0)
+        # Non-zero so CI gates can distinguish "no record" from "found, graded".
+        raise typer.Exit(code=1)
 
     _print_scan(record)
 

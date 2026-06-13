@@ -119,17 +119,25 @@ class ScanRepository:
                 GROUP BY server_slug
             ) latest ON s.server_slug = latest.server_slug
                      AND s.scanned_at = latest.max_at
+            ORDER BY s.id ASC
             """
         ).fetchall()
         return {row["server_slug"]: self._row_to_scan(row) for row in rows}
 
     @staticmethod
     def _row_to_scan(row: sqlite3.Row) -> ScanRecord:
+        from pydantic import ValidationError  # noqa: PLC0415
+
         from mcp_trust.core.models import Finding, RiskSummary, TrustGrade  # noqa: PLC0415
 
-        risk = RiskSummary.model_validate(json.loads(row["risk_json"]))
-        findings_raw = json.loads(row["findings_json"])
-        findings = [Finding.model_validate(f) for f in findings_raw]
+        try:
+            risk = RiskSummary.model_validate(json.loads(row["risk_json"]))
+            findings_raw = json.loads(row["findings_json"])
+            findings = [Finding.model_validate(f) for f in findings_raw]
+        except (json.JSONDecodeError, ValidationError) as exc:
+            # Corrupt or schema-drifted row — surface the offending id rather
+            # than letting an opaque error bubble up as a 500.
+            raise ValueError(f"Corrupt scan record {row['id']!r}: {exc}") from exc
         return ScanRecord(
             id=row["id"],
             server_slug=row["server_slug"],

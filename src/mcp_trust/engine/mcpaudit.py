@@ -14,8 +14,12 @@ The adapter is integration-gated: it must import cleanly and raise a clear
 
 from __future__ import annotations
 
+import logging
+
 from mcp_trust.core.models import Finding, RiskSummary, ServerSource, Severity
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
+
+logger = logging.getLogger(__name__)
 
 # mcp-audits version that ships the ServerAudit/RiskScore API this adapter targets.
 _ENGINE_VERSION = "2.1.0"
@@ -76,6 +80,7 @@ class MCPAuditEngine:
                 env=env,
             )
         except Exception as exc:
+            logger.warning("ServerConfig build failed for %r: %s", source.reference, exc)
             raise ScanError(
                 f"Failed to build ServerConfig for {source.reference!r}: {exc}"
             ) from exc
@@ -84,6 +89,7 @@ class MCPAuditEngine:
         try:
             audit = analyze(server_cfg)
         except Exception as exc:
+            logger.warning("mcp-audits analysis failed for %r: %s", source.reference, exc)
             raise ScanError(f"mcp-audits analysis failed for {source.reference!r}: {exc}") from exc
 
         # --- Map ServerAudit → our models ---

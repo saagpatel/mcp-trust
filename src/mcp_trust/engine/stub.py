@@ -14,9 +14,9 @@ from mcp_trust.engine.base import EngineResult, ScanEngine
 
 
 def _hash_int(text: str, salt: str, lo: int = 0, hi: int = 10) -> float:
-    """Derive a stable float in [lo, hi] from a SHA-256 of (text + salt)."""
+    """Derive a stable float in [lo, hi) from a SHA-256 of (text + salt)."""
     digest = hashlib.sha256(f"{text}:{salt}".encode()).digest()
-    # Take the first 4 bytes as an unsigned int, map to [lo, hi].
+    # Take the first 4 bytes as an unsigned int, map to [lo, hi) at 0.1 steps.
     raw = int.from_bytes(digest[:4], "big")
     span = hi - lo
     return lo + (raw % (span * 10)) / 10.0
@@ -58,13 +58,11 @@ def _synthesize(reference: str) -> EngineResult:
 
     # Composite = weighted average of dimensions, capped at 10.
     composite = _clamp(
-        
-            dims["file_access"] * 0.25
-            + dims["network_access"] * 0.20
-            + dims["shell_execution"] * 0.25
-            + dims["destructive"] * 0.20
-            + dims["exfiltration"] * 0.10
-        
+        dims["file_access"] * 0.25
+        + dims["network_access"] * 0.20
+        + dims["shell_execution"] * 0.25
+        + dims["destructive"] * 0.20
+        + dims["exfiltration"] * 0.10
     )
 
     # Number of findings: 0–3 determined by hash.
