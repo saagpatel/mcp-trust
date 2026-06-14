@@ -76,7 +76,8 @@ def main() -> None:
         for d in _DIMS:
             vals = [r["dims"][d] for r in ok]
             print(
-                f"  {d:16s} min={min(vals):.1f} max={max(vals):.1f} mean={statistics.mean(vals):.2f}",
+                f"  {d:16s} min={min(vals):.1f} max={max(vals):.1f} "
+                f"mean={statistics.mean(vals):.2f}",
                 file=sys.stderr,
             )
     for r in rows:
