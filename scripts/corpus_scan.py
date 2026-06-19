@@ -6,6 +6,9 @@ calibrated against real data rather than guessed.
 
 NOT a test. Launches real server processes. Run with the engine extra installed:
     PYTHONPATH=src python scripts/corpus_scan.py
+
+For public-launch prep, review LAUNCH-CATALOG.md first and run with the
+Docker sandbox env printed by scripts/plan_reference_scans.py.
 """
 
 from __future__ import annotations
@@ -14,22 +17,11 @@ import json
 import statistics
 import sys
 
+from reference_scan_plan import REFERENCE_SCAN_CANDIDATES
+
 from mcp_trust.core.grading import grade, transparency
 from mcp_trust.core.models import ServerSource, SourceKind
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
-
-# (label, kind, reference, args). Official reference servers that launch without
-# credentials, spanning capability profiles from trivial to kitchen-sink.
-CORPUS = [
-    ("sequential-thinking", SourceKind.NPM, "@modelcontextprotocol/server-sequential-thinking", []),
-    ("memory", SourceKind.NPM, "@modelcontextprotocol/server-memory", []),
-    ("everything", SourceKind.NPM, "@modelcontextprotocol/server-everything", []),
-    ("filesystem", SourceKind.NPM, "@modelcontextprotocol/server-filesystem", ["/tmp"]),
-    ("time", SourceKind.PYPI, "mcp-server-time", []),
-    ("fetch", SourceKind.PYPI, "mcp-server-fetch", []),
-    ("git", SourceKind.PYPI, "mcp-server-git", []),
-    ("sqlite", SourceKind.PYPI, "mcp-server-sqlite", ["--db-path", "/tmp/corpus_probe.db"]),
-]
 
 _DIMS = ("file_access", "network_access", "shell_execution", "destructive", "exfiltration")
 
@@ -37,20 +29,32 @@ _DIMS = ("file_access", "network_access", "shell_execution", "destructive", "exf
 def main() -> None:
     engine = MCPAuditEngine(timeout=90.0)
     rows: list[dict] = []
-    for label, kind, ref, args in CORPUS:
-        src = ServerSource(kind=kind, reference=ref, args=args)
-        sys.stderr.write(f"scanning {label} ...\n")
+    for candidate in REFERENCE_SCAN_CANDIDATES:
+        src = ServerSource(
+            kind=SourceKind(candidate.kind),
+            reference=candidate.reference,
+            command=candidate.command,
+            args=list(candidate.args),
+            env_keys=list(candidate.env_keys),
+        )
+        sys.stderr.write(f"scanning {candidate.slug} ...\n")
         sys.stderr.flush()
         try:
             r = engine.scan(src)
         except Exception as exc:  # noqa: BLE001 - corpus driver: record + continue
-            rows.append({"label": label, "ref": ref, "error": f"{type(exc).__name__}: {exc}"})
+            rows.append(
+                {
+                    "label": candidate.slug,
+                    "ref": candidate.reference,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
             continue
         rk = r.risk
         rows.append(
             {
-                "label": label,
-                "ref": ref,
+                "label": candidate.slug,
+                "ref": candidate.reference,
                 "composite": round(rk.composite, 3),
                 "dims": {d: round(getattr(rk, d), 3) for d in _DIMS},
                 "annotation_coverage": round(rk.annotation_coverage, 3),
@@ -76,7 +80,8 @@ def main() -> None:
         for d in _DIMS:
             vals = [r["dims"][d] for r in ok]
             print(
-                f"  {d:16s} min={min(vals):.1f} max={max(vals):.1f} mean={statistics.mean(vals):.2f}",
+                f"  {d:16s} min={min(vals):.1f} max={max(vals):.1f} "
+                f"mean={statistics.mean(vals):.2f}",
                 file=sys.stderr,
             )
     for r in rows:

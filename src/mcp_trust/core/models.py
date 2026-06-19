@@ -45,7 +45,7 @@ class ServerSource(BaseModel):
 class Server(BaseModel):
     """A catalog entry for a public MCP server."""
 
-    slug: str = Field(description="Stable URL-safe identifier, e.g. 'acme-search'.")
+    slug: str = Field(description="Stable URL-safe identifier, e.g. 'mcp-reference-time'.")
     name: str
     description: str = ""
     source: ServerSource

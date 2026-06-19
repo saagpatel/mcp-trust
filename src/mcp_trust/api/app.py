@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -32,6 +33,11 @@ _BADGE_COLORS: dict[str, str] = {
 }
 
 
+_REAL_ENGINE_NAMES = {"mcpaudit"}
+_SCAN_TOKEN_ENV = "MCP_TRUST_SCAN_TOKEN"
+_SCAN_TOKEN_HEADER = "x-mcp-trust-scan-token"
+
+
 class ServerSummary(BaseModel):
     slug: str
     name: str
@@ -39,6 +45,37 @@ class ServerSummary(BaseModel):
     transparency: str | None
     composite: float | None
     scanned_at: datetime | None
+
+
+def _is_real_scan_engine(engine: ScanEngine) -> bool:
+    return str(getattr(engine, "name", "")).lower() in _REAL_ENGINE_NAMES
+
+
+def _presented_scan_token(request: Request) -> str:
+    auth_header = request.headers.get("authorization", "")
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() == "bearer" and token:
+        return token
+    return request.headers.get(_SCAN_TOKEN_HEADER, "")
+
+
+def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
+    if not _is_real_scan_engine(engine):
+        return
+
+    expected = os.environ.get(_SCAN_TOKEN_ENV)
+    if not expected:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Real-engine scan triggering is disabled until "
+                f"{_SCAN_TOKEN_ENV} is configured."
+            ),
+        )
+
+    presented = _presented_scan_token(request)
+    if not presented or not secrets.compare_digest(presented, expected):
+        raise HTTPException(status_code=401, detail="Valid scan trigger token required.")
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +183,7 @@ def create_app(
         }
 
     @application.post("/servers/{slug}/scan")
-    async def scan_server(slug: str) -> dict[str, Any]:
+    async def scan_server(slug: str, request: Request) -> dict[str, Any]:
         db = _get_conn()
         server_repo = ServerRepository(db)
         scan_repo = ScanRepository(db)
@@ -156,6 +193,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Server {slug!r} not found.")
 
         engine = _get_engine()
+        _authorize_scan_trigger(request, engine)
         try:
             result = engine.scan(server.source)
         except ScanError as exc:

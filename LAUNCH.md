@@ -15,7 +15,7 @@ export BASE_URL="https://<your-host>"   # public URL once deployed
 ```bash
 uv venv .venv && . .venv/bin/activate
 uv pip install -e ".[dev]"
-python -m pytest -q          # expect: all pass, 2 opt-in skips
+python -m pytest -q          # expect: all pass; real-server integration stays skipped unless opted in
 ruff check src tests         # expect: All checks passed!
 ```
 
@@ -28,19 +28,23 @@ MCP_TRUST_RUN_INTEGRATION=1 python -m pytest tests/test_mcpaudit_adapter.py -q
 
 ---
 
-## 1. Seed the real catalog + calibrate bands  ⟵ do this BEFORE going public
+## 1. Scan the real seed catalog + calibrate bands  ⟵ do this BEFORE going public
 
 The grade is only meaningful against a real distribution.
 
-1. Edit `src/mcp_trust/catalog/seed_servers.json` — replace the generic demo
-   entries with real, public MCP servers (slug, name, source `{kind, reference,
-   args, env_keys}`, homepage). Keep `env_keys` to NAMES only.
-2. Load + scan with the real engine in a sandbox (see step 3 for the image):
+Use [`LAUNCH-CATALOG.md`](LAUNCH-CATALOG.md) for the current candidate list,
+source evidence, sandbox decision package, and approval gates before broadening
+the seed catalog, running real scans, or changing grading bands.
+
+1. Review `src/mcp_trust/catalog/seed_servers.json` — it currently contains the
+   approved official reference server calibration set. Keep `env_keys` to NAMES
+   only.
+2. Load + scan with the real engine in a sandbox (see step 2 for the image):
 
    ```bash
    export MCP_TRUST_DB=./registry.db
    mcp-trust seed
-   MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan <slug>   # per server
+   MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan <slug>   # per approved server
    ```
 3. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`
@@ -61,18 +65,16 @@ The default scan path launches the server process. For untrusted servers,
 Caveat: `--network none` blocks launch-time package fetch (`npx -y` / `uvx`), so
 bake the runtime (and ideally each server) into a purpose-built image.
 
-```dockerfile
-# Dockerfile.scan — runtime for sandboxed scans
-FROM node:22-slim
-RUN apt-get update && apt-get install -y --no-install-recommends python3 pipx \
-    && rm -rf /var/lib/apt/lists/* && pipx install uv
-# Optionally pre-install servers here so they run with --network none.
-```
+The repo includes `Dockerfile.scan` for the approval-gated reference corpus and
+`scripts/plan_reference_scans.py` for a dry-run plan that prints env and scan
+commands without launching servers.
 
 ```bash
-docker build -f Dockerfile.scan -t mcp-trust-scan .
+python scripts/plan_reference_scans.py
+docker build -f Dockerfile.scan -t mcp-trust-scan:reference-2026-06-19 .
 export MCP_TRUST_SANDBOX=docker
-export MCP_TRUST_SANDBOX_IMAGE=mcp-trust-scan
+export MCP_TRUST_SANDBOX_NETWORK=none
+export MCP_TRUST_SANDBOX_IMAGE=mcp-trust-scan:reference-2026-06-19
 # Use MCP_TRUST_SANDBOX_NETWORK=bridge ONLY for servers you must fetch at launch.
 ```
 
@@ -93,7 +95,13 @@ MCP_TRUST_DB=/data/registry.db MCP_TRUST_ENGINE=mcpaudit \
 For a managed host (Fly.io / Railway / Render / Cloud Run): containerize with a
 production server, mount a persistent volume for the SQLite DB, and set env:
 `MCP_TRUST_DB`, `MCP_TRUST_ENGINE=mcpaudit`, `MCP_TRUST_SANDBOX=docker`,
-`MCP_TRUST_SANDBOX_IMAGE`. Confirm `BASE_URL` resolves to the deployed app.
+`MCP_TRUST_SANDBOX_IMAGE`, and `MCP_TRUST_SCAN_TOKEN` (a high-entropy operator
+secret for API scan triggering). Confirm `BASE_URL` resolves to the deployed app.
+
+When the real engine is configured, `POST /servers/{slug}/scan` requires
+`MCP_TRUST_SCAN_TOKEN`; if the token is missing from the deployment, the endpoint
+returns 403 before launching scan work. Keep the token private, and do not route
+public traffic to scan triggering unless operator-initiated rescans are intended.
 
 ---
 
@@ -105,6 +113,7 @@ curl -s "$BASE_URL/servers" | head                  # catalog JSON
 open "$BASE_URL/"                                    # web catalog page
 open "$BASE_URL/ui/servers/<slug>"                   # detail + badge embed
 curl -s "$BASE_URL/servers/<slug>/badge.json"       # shields endpoint shape
+curl -i -X POST "$BASE_URL/servers/<slug>/scan"     # expect 401/403 without token
 ```
 
 ---
