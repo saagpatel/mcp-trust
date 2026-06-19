@@ -11,6 +11,18 @@ from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ServerRepository
 
 
+class _RejectingRealEngine:
+    name = "mcpaudit"
+    version = "test"
+
+    def scan(self, source):  # noqa: ANN001
+        raise AssertionError("scan should not run without a valid trigger token")
+
+
+class _TokenGatedRealEngine(StubEngine):
+    name = "mcpaudit"
+
+
 @pytest.fixture()
 def conn():
     c = connect(":memory:")
@@ -68,7 +80,7 @@ def test_list_servers_after_seed(seeded_client) -> None:
     resp = seeded_client.get("/servers")
     assert resp.status_code == 200
     items = resp.json()
-    assert len(items) >= 8
+    assert len(items) == 7
     # Each item must have required fields.
     for item in items:
         assert "slug" in item
@@ -99,10 +111,10 @@ def test_get_server_unknown_404(client) -> None:
 
 
 def test_get_server_known(seeded_client) -> None:
-    resp = seeded_client.get("/servers/acme-search")
+    resp = seeded_client.get("/servers/mcp-reference-time")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["server"]["slug"] == "acme-search"
+    assert body["server"]["slug"] == "mcp-reference-time"
     assert body["latest_scan"] is None
 
 
@@ -118,12 +130,12 @@ def test_scan_unknown_server_404(client) -> None:
 
 def test_scan_known_server_persists(seeded_client) -> None:
     # Scan a known server.
-    resp = seeded_client.post("/servers/acme-search/scan")
+    resp = seeded_client.post("/servers/mcp-reference-time/scan")
     assert resp.status_code == 200
     body = resp.json()
 
     # Response must include required ScanRecord fields.
-    assert body["server_slug"] == "acme-search"
+    assert body["server_slug"] == "mcp-reference-time"
     assert "id" in body
     assert "grade" in body
     assert body["grade"] in {"A", "B", "C", "D", "F"}
@@ -132,7 +144,7 @@ def test_scan_known_server_persists(seeded_client) -> None:
     assert "scanned_at" in body
 
     # Subsequent GET must return the persisted scan.
-    get_resp = seeded_client.get("/servers/acme-search")
+    get_resp = seeded_client.get("/servers/mcp-reference-time")
     assert get_resp.status_code == 200
     get_body = get_resp.json()
     assert get_body["latest_scan"] is not None
@@ -142,17 +154,70 @@ def test_scan_known_server_persists(seeded_client) -> None:
 def test_scan_updates_list_grade(seeded_client) -> None:
     # Before scan, grade is unscanned.
     before = seeded_client.get("/servers")
-    acme_before = next(s for s in before.json() if s["slug"] == "acme-search")
-    assert acme_before["grade"] == "unscanned"
+    time_before = next(s for s in before.json() if s["slug"] == "mcp-reference-time")
+    assert time_before["grade"] == "unscanned"
 
     # Scan it.
-    seeded_client.post("/servers/acme-search/scan")
+    seeded_client.post("/servers/mcp-reference-time/scan")
 
     # After scan, grade should be a real grade.
     after = seeded_client.get("/servers")
-    acme_after = next(s for s in after.json() if s["slug"] == "acme-search")
-    assert acme_after["grade"] in {"A", "B", "C", "D", "F"}
-    assert acme_after["composite"] is not None
+    time_after = next(s for s in after.json() if s["slug"] == "mcp-reference-time")
+    assert time_after["grade"] in {"A", "B", "C", "D", "F"}
+    assert time_after["composite"] is not None
+
+
+def test_real_engine_scan_without_configured_token_is_disabled(seeded_conn, monkeypatch) -> None:
+    monkeypatch.delenv("MCP_TRUST_SCAN_TOKEN", raising=False)
+    application = create_app(conn=seeded_conn, engine=_RejectingRealEngine())
+    client = TestClient(application)
+
+    resp = client.post("/servers/mcp-reference-time/scan")
+
+    assert resp.status_code == 403
+    assert "MCP_TRUST_SCAN_TOKEN" in resp.json()["detail"]
+
+
+def test_real_engine_scan_rejects_invalid_token(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_SCAN_TOKEN", "correct-token")
+    application = create_app(conn=seeded_conn, engine=_RejectingRealEngine())
+    client = TestClient(application)
+
+    resp = client.post(
+        "/servers/mcp-reference-time/scan",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Valid scan trigger token required."
+
+
+def test_real_engine_scan_accepts_bearer_token(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_SCAN_TOKEN", "correct-token")
+    application = create_app(conn=seeded_conn, engine=_TokenGatedRealEngine())
+    client = TestClient(application)
+
+    resp = client.post(
+        "/servers/mcp-reference-time/scan",
+        headers={"Authorization": "Bearer correct-token"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["server_slug"] == "mcp-reference-time"
+
+
+def test_real_engine_scan_accepts_scan_token_header(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_SCAN_TOKEN", "correct-token")
+    application = create_app(conn=seeded_conn, engine=_TokenGatedRealEngine())
+    client = TestClient(application)
+
+    resp = client.post(
+        "/servers/mcp-reference-time/scan",
+        headers={"X-MCP-Trust-Scan-Token": "correct-token"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["server_slug"] == "mcp-reference-time"
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +231,7 @@ def test_badge_unknown_server_404(client) -> None:
 
 
 def test_badge_unscanned_server(seeded_client) -> None:
-    resp = seeded_client.get("/servers/acme-search/badge.json")
+    resp = seeded_client.get("/servers/mcp-reference-time/badge.json")
     assert resp.status_code == 200
     body = resp.json()
     assert body["schemaVersion"] == 1
@@ -176,8 +241,8 @@ def test_badge_unscanned_server(seeded_client) -> None:
 
 
 def test_badge_after_scan(seeded_client) -> None:
-    seeded_client.post("/servers/acme-search/scan")
-    resp = seeded_client.get("/servers/acme-search/badge.json")
+    seeded_client.post("/servers/mcp-reference-time/scan")
+    resp = seeded_client.get("/servers/mcp-reference-time/badge.json")
     assert resp.status_code == 200
     body = resp.json()
     assert body["schemaVersion"] == 1

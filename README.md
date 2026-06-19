@@ -27,8 +27,8 @@ catalog, the public trust-grade normalization, persistence, and the lookup API.
 ```bash
 uv pip install -e ".[dev]"      # core + dev deps (runs on the built-in StubEngine)
 mcp-trust seed                  # load the seed catalog
-mcp-trust scan acme-search      # scan a catalog server, print its grade
-mcp-trust check acme-search     # look up the latest stored grade
+mcp-trust scan mcp-reference-time   # scan a catalog server, print its grade
+mcp-trust check mcp-reference-time  # look up the latest stored grade
 mcp-trust serve                 # serve the API on http://127.0.0.1:8000
 ```
 
@@ -36,7 +36,7 @@ For real scanning install the engine extra and select it:
 
 ```bash
 uv pip install -e ".[dev,engine]"
-MCP_TRUST_ENGINE=mcpaudit mcp-trust scan acme-search
+MCP_TRUST_ENGINE=mcpaudit mcp-trust scan mcp-reference-time
 ```
 
 Scanning launches the server's process. For **untrusted** servers, isolate
@@ -44,7 +44,7 @@ execution in a locked-down container (no network, read-only fs, dropped caps,
 resource limits):
 
 ```bash
-MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan acme-search
+MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan mcp-reference-time
 ```
 
 The default is no sandbox (safe only for servers you trust).
@@ -58,20 +58,28 @@ The default is no sandbox (safe only for servers you trust).
 | `GET`  | `/healthz` | liveness |
 | `GET`  | `/servers` | catalog + latest grade per server (JSON) |
 | `GET`  | `/servers/{slug}` | full latest scan record + metadata (JSON) |
-| `POST` | `/servers/{slug}/scan` | scan now, persist, return record |
+| `POST` | `/servers/{slug}/scan` | operator scan trigger; real-engine deployments require `MCP_TRUST_SCAN_TOKEN` |
 | `GET`  | `/servers/{slug}/badge.json` | shields.io-compatible README badge |
 
 Every server has two orthogonal signals: a **danger grade** (A–F) and a
 **transparency level** (high/medium/low, from annotation coverage). A low grade on
 a low-transparency server means "cannot verify safe," not "known dangerous."
 
+When the API is configured with the real `mcpaudit` engine, `POST
+/servers/{slug}/scan` is protected by `MCP_TRUST_SCAN_TOKEN`; pass it as
+`Authorization: Bearer <token>` or `X-MCP-Trust-Scan-Token`. Without that token,
+the endpoint refuses the request before launching any scan work.
+
 ## Status
 
-MVP. Built and tested end-to-end (86 tests): catalog → scan → danger grade +
-transparency → persist → serve, over both the default StubEngine and the live
-`mcp-audits` adapter (validated against official reference servers), plus the
-public web catalog/detail pages and the README badge-embed loop. See
-[`SPEC.md`](SPEC.md) for the full contract and roadmap.
+MVP. Built and tested end-to-end through the deterministic StubEngine path:
+catalog → scan → danger grade + transparency → persist → serve, plus the public
+web catalog/detail pages and the README badge-embed loop. The bundled seed
+catalog now uses official reference MCP servers for launch calibration. The live
+`mcp-audits` adapter is implemented behind an optional extra, with real-server
+integration tests gated because they launch MCP server processes. See
+[`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH.md`](LAUNCH.md) for the
+remaining public-launch gates.
 
 ## License
 

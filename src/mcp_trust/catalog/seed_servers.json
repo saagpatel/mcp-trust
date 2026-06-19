@@ -1,132 +1,93 @@
 [
-	{
-		"slug": "acme-search",
-		"name": "Acme Search",
-		"description": "Full-text search over indexed document collections via MCP.",
-		"source": {
-			"kind": "npm",
-			"reference": "@acme/mcp-search",
-			"command": "npx",
-			"args": ["-y", "@acme/mcp-search"],
-			"env_keys": ["ACME_API_KEY"]
-		},
-		"homepage": "https://example.com/acme-search"
-	},
-	{
-		"slug": "example-filesystem",
-		"name": "Example Filesystem",
-		"description": "Read and write files on the local filesystem within a sandboxed root.",
-		"source": {
-			"kind": "npm",
-			"reference": "@example/mcp-filesystem",
-			"command": "npx",
-			"args": ["-y", "@example/mcp-filesystem", "--root", "/tmp/sandbox"],
-			"env_keys": []
-		},
-		"homepage": "https://example.com/mcp-filesystem"
-	},
-	{
-		"slug": "demo-git",
-		"name": "Demo Git",
-		"description": "Git operations (log, diff, commit) exposed as MCP tools.",
-		"source": {
-			"kind": "pypi",
-			"reference": "demo-mcp-git",
-			"command": "uvx",
-			"args": ["demo-mcp-git"],
-			"env_keys": []
-		},
-		"homepage": "https://example.com/demo-git"
-	},
-	{
-		"slug": "sample-fetch",
-		"name": "Sample Fetch",
-		"description": "HTTP fetch and HTML-to-Markdown conversion for web pages.",
-		"source": {
-			"kind": "npm",
-			"reference": "@sample/mcp-fetch",
-			"command": "npx",
-			"args": ["-y", "@sample/mcp-fetch"],
-			"env_keys": []
-		},
-		"homepage": "https://example.com/sample-fetch"
-	},
-	{
-		"slug": "demo-database",
-		"name": "Demo Database",
-		"description": "Read-only SQL query interface for a demo SQLite database.",
-		"source": {
-			"kind": "pypi",
-			"reference": "demo-mcp-database",
-			"command": "uvx",
-			"args": ["demo-mcp-database", "--db", "/tmp/demo.db"],
-			"env_keys": ["DB_PASSWORD"]
-		},
-		"homepage": "https://example.com/demo-database"
-	},
-	{
-		"slug": "example-memory",
-		"name": "Example Memory",
-		"description": "Persistent key-value memory store accessible across sessions.",
-		"source": {
-			"kind": "npm",
-			"reference": "@example/mcp-memory",
-			"command": "npx",
-			"args": ["-y", "@example/mcp-memory"],
-			"env_keys": []
-		},
-		"homepage": "https://example.com/mcp-memory"
-	},
-	{
-		"slug": "sample-shell",
-		"name": "Sample Shell",
-		"description": "Sandboxed shell command execution with allow-listed commands.",
-		"source": {
-			"kind": "binary",
-			"reference": "sample-mcp-shell",
-			"command": "sample-mcp-shell",
-			"args": ["--allow", "ls,cat,echo"],
-			"env_keys": []
-		},
-		"homepage": "https://example.com/sample-shell"
-	},
-	{
-		"slug": "demo-calendar",
-		"name": "Demo Calendar",
-		"description": "Read and create calendar events via a demo calendar API.",
-		"source": {
-			"kind": "remote",
-			"reference": "https://demo-calendar.example.com/mcp",
-			"command": null,
-			"args": [],
-			"env_keys": ["CALENDAR_TOKEN"]
-		},
-		"homepage": "https://example.com/demo-calendar"
-	},
-	{
-		"slug": "example-code-runner",
-		"name": "Example Code Runner",
-		"description": "Executes code snippets in an isolated container environment.",
-		"source": {
-			"kind": "pypi",
-			"reference": "example-mcp-code-runner",
-			"command": "uvx",
-			"args": ["example-mcp-code-runner", "--timeout", "30"],
-			"env_keys": ["RUNNER_API_KEY"]
-		},
-		"homepage": "https://example.com/example-code-runner"
-	},
-	{
-		"slug": "sample-vector-store",
-		"name": "Sample Vector Store",
-		"description": "Semantic search over embeddings using a local vector store.",
-		"source": {
-			"kind": "git",
-			"reference": "https://github.com/example-org/sample-mcp-vector",
-			"command": "python",
-			"args": ["-m", "sample_mcp_vector"],
-			"env_keys": ["OPENAI_API_KEY"]
-		},
-		"homepage": "https://example.com/sample-vector-store"
-	}
+  {
+    "slug": "mcp-reference-everything",
+    "name": "MCP Reference Everything",
+    "description": "Reference MCP test server exposing broad prompts, resources, and tools for client and scanner validation.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-everything",
+      "command": "mcp-server-everything",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/everything"
+  },
+  {
+    "slug": "mcp-reference-fetch",
+    "name": "MCP Reference Fetch",
+    "description": "Reference server that fetches URLs and converts web content to Markdown.",
+    "source": {
+      "kind": "pypi",
+      "reference": "mcp-server-fetch",
+      "command": "mcp-server-fetch",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch"
+  },
+  {
+    "slug": "mcp-reference-filesystem",
+    "name": "MCP Reference Filesystem",
+    "description": "Reference server for controlled filesystem read/write access within an approved root.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-filesystem",
+      "command": "mcp-server-filesystem",
+      "args": ["/scan"],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
+  },
+  {
+    "slug": "mcp-reference-git",
+    "name": "MCP Reference Git",
+    "description": "Reference server exposing Git repository tools against a disposable fixture repo.",
+    "source": {
+      "kind": "pypi",
+      "reference": "mcp-server-git",
+      "command": "mcp-server-git",
+      "args": ["--repository", "/fixtures/repo"],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/git"
+  },
+  {
+    "slug": "mcp-reference-memory",
+    "name": "MCP Reference Memory",
+    "description": "Reference knowledge graph memory server for entities, relations, and observations.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-memory",
+      "command": "mcp-server-memory",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory"
+  },
+  {
+    "slug": "mcp-reference-sequential-thinking",
+    "name": "MCP Reference Sequential Thinking",
+    "description": "Reference reasoning helper server for structured multi-step thinking.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-sequential-thinking",
+      "command": "mcp-server-sequential-thinking",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking"
+  },
+  {
+    "slug": "mcp-reference-time",
+    "name": "MCP Reference Time",
+    "description": "Reference server for current time and timezone conversion.",
+    "source": {
+      "kind": "pypi",
+      "reference": "mcp-server-time",
+      "command": "mcp-server-time",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://pypi.org/project/mcp-server-time/"
+  }
 ]

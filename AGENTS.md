@@ -16,10 +16,11 @@ system testable without launching untrusted code.
 ## Current State
 The MVP is built and tested end to end: seed catalog, scan, grade, persist,
 serve JSON and web views, and emit shields.io-compatible badge JSON. The repo is
-currently private/pre-launch. Public launch is gated by replacing demo seed data
-with real public MCP servers, validating sandboxed real-engine scans, deploying
-the FastAPI app with persistent SQLite storage, and smoke-testing the badge loop
-against the public base URL.
+currently private/pre-launch. The seed catalog now contains official reference
+MCP servers for launch calibration. Public launch is gated by validating
+sandboxed real-engine scans, inspecting the grade distribution, deciding whether
+to broaden beyond reference servers, deploying the FastAPI app with persistent
+SQLite storage, and smoke-testing the badge loop against the public base URL.
 
 ## Stack
 - Python 3.11+
@@ -40,8 +41,8 @@ uv pip install -e ".[dev]"
 python -m pytest -q
 ruff check src tests
 mcp-trust seed
-mcp-trust scan acme-search
-mcp-trust check acme-search
+mcp-trust scan mcp-reference-time
+mcp-trust check mcp-reference-time
 mcp-trust serve
 ```
 
@@ -49,8 +50,8 @@ Run the real engine only when the target server is trusted or sandboxed:
 
 ```bash
 uv pip install -e ".[dev,engine]"
-MCP_TRUST_ENGINE=mcpaudit mcp-trust scan acme-search
-MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan acme-search
+MCP_TRUST_ENGINE=mcpaudit mcp-trust scan mcp-reference-time
+MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan mcp-reference-time
 ```
 
 Use `LAUNCH.md` as the public-launch runbook. Use `SPEC.md` as the product and
@@ -60,9 +61,11 @@ module-boundary contract.
 - Real scans launch server processes. Never scan untrusted servers without an
   isolation decision; prefer `MCP_TRUST_SANDBOX=docker` and a purpose-built
   image for public catalog scans.
-- The current seed catalog includes demo targets. Public grades are not
-  meaningful until the catalog is replaced with real public MCP servers and
-  grading bands are recalibrated against that distribution.
+- API scan triggering with the real `mcpaudit` engine is operator-gated by
+  `MCP_TRUST_SCAN_TOKEN`; public callers must not be able to launch scans.
+- The current seed catalog contains official reference servers. Public grades
+  are not meaningful until real sandbox scans run and grading bands are checked
+  against that distribution.
 - Low-transparency servers can look risky because annotations are missing; keep
   danger grade and transparency as separate signals instead of collapsing them
   into one overconfident verdict.
@@ -71,10 +74,10 @@ module-boundary contract.
   and smoke tests are green.
 
 ## Next Recommended Move
-Replace the demo seed catalog with 10-20 real public MCP servers, run sandboxed
-`mcp-audits` scans, inspect the resulting grade distribution, recalibrate bands
-if needed, and then deploy the API with persistent SQLite storage for a live
-badge-loop smoke test.
+Start Docker/Colima, build `Dockerfile.scan`, run one sandboxed `mcp-audits`
+smoke scan against `mcp-reference-time`, then run the full reference corpus,
+inspect the resulting grade distribution, recalibrate bands if needed, and
+deploy the API with persistent SQLite storage for a live badge-loop smoke test.
 
 ## Agent Operating Notes
 - Keep `core/` and `engine/base.py` contracts stable unless the spec is updated
