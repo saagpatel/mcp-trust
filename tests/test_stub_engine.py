@@ -69,16 +69,13 @@ def test_grade_variety_across_references() -> None:
     """Different references should produce at least two distinct grades."""
     engine = StubEngine()
     refs = [
-        "@acme/search",
-        "demo-git",
-        "sample-fetch",
-        "example-filesystem",
-        "demo-database",
-        "example-memory",
-        "sample-shell",
-        "demo-calendar",
-        "example-code-runner",
-        "sample-vector-store",
+        "@modelcontextprotocol/server-everything",
+        "mcp-server-fetch",
+        "@modelcontextprotocol/server-filesystem",
+        "mcp-server-git",
+        "@modelcontextprotocol/server-memory",
+        "@modelcontextprotocol/server-sequential-thinking",
+        "mcp-server-time",
         "unique-ref-xyz-123",
         "another-unique-ref-abc",
     ]

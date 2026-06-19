@@ -82,6 +82,7 @@ def scan(
     engine = select_engine(engine_name)
     result = engine.scan(server.source)
     trust_grade = grading.grade(result.risk)
+    trust_transparency = grading.transparency(result.risk)
 
     record = ScanRecord(
         id=uuid.uuid4().hex,
@@ -89,6 +90,7 @@ def scan(
         engine_name=result.engine_name,
         engine_version=result.engine_version,
         grade=trust_grade,
+        transparency=trust_transparency,
         risk=result.risk,
         findings=result.findings,
         scanned_at=datetime.now(tz=UTC),
