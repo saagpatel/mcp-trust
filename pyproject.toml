@@ -32,11 +32,11 @@ build-backend = "hatchling.build"
 packages = ["src/mcp_trust"]
 
 [tool.ruff]
-line-length = 100
 target-version = "py311"
+extend = "../ruff.toml"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+extend-select = ["B"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
