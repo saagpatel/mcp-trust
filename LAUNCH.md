@@ -55,7 +55,18 @@ the seed catalog, running real scans, or changing grading bands.
      --receipts-dir ./receipts
    ```
 
-4. Calibrate the bands against the observed distribution. Re-run the corpus
+4. Build the sanitized VM transfer bundle:
+
+   ```bash
+   python scripts/build_deploy_bundle.py \
+     --db ./registry.db \
+     --receipts-dir ./receipts
+   ```
+
+   The bundle contains a pruned `registry.db` with only latest scan rows, only
+   referenced receipt files, and a `MANIFEST.json` with hashes.
+
+5. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`
    so grades spread (don't let every capable server pile into one grade):
 
