@@ -49,18 +49,30 @@ Current decision: **NO-GO for public launch**.
   7 matching receipt artifacts, no stub latest rows.
 - `scripts/build_deploy_bundle.py` builds a sanitized transfer artifact with a
   pruned latest-scan DB, only referenced receipts, and a hashed manifest.
+- A GCE VM rehearsal is running as `mcp-trust-v1` in `saagars-project`
+  (`us-west1-b`, external IP `8.229.92.116`) with the sanitized bundle
+  installed under `/data/mcp-trust/`.
+- VM-side validation passes: 7 seeded servers, 7 latest `mcpaudit` scans,
+  7 matching receipts, no stub latest rows.
+- VM services are active: `mcp-trust.service`, `caddy`, and
+  `mcp-trust-backup.timer`.
+- First VM backup exists under `/data/mcp-trust/backups/`: SQLite DB backup and
+  receipt tarball.
+- Read-only smoke passes on the VM against both `http://127.0.0.1` and
+  `http://8.229.92.116`; `POST /servers/<slug>/scan` returns 403.
 - VM/VPS deployment package is prepared in `DEPLOY-VM.md` and `deploy/`
   templates: systemd service, Caddy reverse proxy, env example, backup timer,
   and read-only smoke script.
 
 ## Blocking Items
 
-- Pick the VM/VPS provider and final public domain.
-- Install the deployment package on the VM with persistent
-  `/data/mcp-trust/registry.db` and `/data/mcp-trust/receipts/`.
-- Run the public read-only smoke against the final HTTPS base URL.
+- Pick and point the final public domain at `8.229.92.116`.
+- Replace the rehearsal `:80` Caddy config with the final domain config and
+  confirm HTTPS certificate issuance.
+- Run the public read-only smoke against the final HTTPS base URL from outside
+  the VM. Current Codex egress policy blocks direct curl to the raw IP.
 - Create and copy at least one DB + receipt backup off-box.
-- No deployed public badge-loop smoke has happened.
+- No final-domain public badge-loop smoke has happened.
 
 ## Go Criteria
 
