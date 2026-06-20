@@ -4,7 +4,7 @@
 
 ## One-liner
 A neutral, public trust registry for MCP servers. Before a developer runs
-`<agent> mcp add some-random-server`, they can check its trust grade — like
+`<agent> mcp add some-random-server`, they can check its danger grade — like
 OSV.dev / Socket.dev / haveibeenpwned, but for the MCP servers your AI agents
 connect to.
 
@@ -12,14 +12,14 @@ connect to.
 Scanners are commoditizing fast (Snyk-acquired Invariant `mcp-scan`, Cisco MCP
 Scanner, GitHub secret-scanning MCP, Proximity). The unsaturated, defensible
 layer is the **neutral public data network**: a comprehensive, continuously
-re-scanned catalog of community MCP servers with a single readable trust grade,
+re-scanned catalog of community MCP servers with a single readable danger grade,
 queryable for free at install time. The scanning is a solved input (we wrap the
 public `mcp-audits` engine); the catalog, the normalization into a public grade,
 and the install-time check are the product.
 
 ## The one loop that must work (MVP definition of done)
 ```
-register a public MCP server  →  scan it via the engine  →  derive a trust grade
+register a public MCP server  →  scan it via the engine  →  derive a danger grade
         →  persist a ScanRecord  →  serve grade + findings at a stable URL/API
 ```
 Everything else (web UI polish, badges, monitoring, auth) is downstream of this
@@ -44,7 +44,7 @@ loop working end-to-end.
 | `catalog/seed.py` + `seed_servers.json` | Seed list of ~8–12 well-known *public* MCP servers (name, source spec, homepage). No private servers. | `core/models.py` |
 
 ## Grading — calibration & roadmap
-The public A–F grade is derived only via `core.grading.grade(risk)`. It does NOT
+The public A–F danger grade is derived only via `core.grading.grade(risk)`. It does NOT
 use the engine's raw `composite` (a capability-breadth SUM that mis-orders —
 proven by a 2026-06-13 corpus scan where an unannotated no-op server out-scored
 real filesystem/SQL servers). Instead it uses `core.grading.danger_score()`: a
@@ -56,7 +56,8 @@ indistinguishable from a capable one on every dimension, so it is still
 over-graded. The real fix is a second axis — **transparency** (annotation
 coverage, available from the engine's `annotation_coverage`) — surfaced as a
 separate caveat, not folded into the danger grade. Until then, a poor grade on
-an unannotated server means "cannot verify safe," not "known dangerous."
+an unannotated server means "cannot verify safe," not "known dangerous." Public
+copy must keep that distinction visible.
 
 ## Data model (already defined in `core/models.py` — do not redefine)
 - `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are NAMES only, never values.
@@ -72,7 +73,10 @@ an unannotated server means "cannot verify safe," not "known dangerous."
 - `GET  /healthz` → `{"status":"ok"}`
 - `GET  /servers` → `[{slug, name, grade, composite, scanned_at}]` (catalog + latest grade)
 - `GET  /servers/{slug}` → full latest `ScanRecord` + `Server` metadata; 404 if unknown.
-- `POST /servers/{slug}/scan` → run engine for that server, persist, return the new `ScanRecord`.
+- `POST /servers/{slug}/scan` → operator scan trigger. Fail-closed by default;
+  public deployments set `MCP_TRUST_PUBLIC_READONLY=1`. Local stub API demos may
+  opt in with `MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS=1`; never set that in
+  public.
 - `GET  /servers/{slug}/badge.json` → shields.io-compatible `{schemaVersion, label, message, color}` for a README badge.
 
 ## CLI surface (MVP)
@@ -86,12 +90,21 @@ SQLite (matches the substrate's house style). Two tables: `servers` (slug PK,
 JSON source) and `scans` (id PK, server_slug FK, JSON risk/findings, grade,
 scanned_at). "Latest scan per server" = most recent `scanned_at`.
 
+When `MCP_TRUST_RECEIPTS_DIR` is configured, each scan also writes a JSON receipt
+artifact and stores its portable artifact filename in `ScanRecord.report_ref`.
+Receipts are the public proof packet behind a grade: source spec, scan metadata,
+sandbox metadata, risk dimensions, findings, and caveats.
+
 ## Engine default
 The API and CLI default to `StubEngine` so the system runs out of the box.
 Selecting `MCPAuditEngine` is config-gated (`MCP_TRUST_ENGINE=mcpaudit` env or a
 `--engine` flag). The stub path is fully built + tested; the real-scan path is
 built but integration-gated (requires `pip install 'mcp-trust[engine]'` and a
 launchable server).
+
+The CLI can use the stub freely for deterministic local checks. The HTTP scan
+route is stricter: unauthenticated stub scans are disabled unless
+`MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS=1` is explicitly set.
 
 ## Tests (each module ships its own)
 - `test_grading.py` (lead — done): grade bands + critical cap.

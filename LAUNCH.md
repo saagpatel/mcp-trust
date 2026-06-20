@@ -43,10 +43,19 @@ the seed catalog, running real scans, or changing grading bands.
 
    ```bash
    export MCP_TRUST_DB=./registry.db
+   export MCP_TRUST_RECEIPTS_DIR=./receipts
    mcp-trust seed
    MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan <slug>   # per approved server
    ```
-3. Calibrate the bands against the observed distribution. Re-run the corpus
+3. Validate the DB + receipt bundle before copying or serving it:
+
+   ```bash
+   python scripts/validate_launch_state.py \
+     --db ./registry.db \
+     --receipts-dir ./receipts
+   ```
+
+4. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`
    so grades spread (don't let every capable server pile into one grade):
 
@@ -84,24 +93,50 @@ Start the Docker daemon before running the integration-gated container path.
 
 ## 3. Deploy the API
 
-Standard FastAPI app (`mcp_trust.api.app:app`).
+Recommended v1 host: a small controlled VM/VPS. Keep the public app read-only
+and run real scans as operator CLI commands against the same persistent SQLite
+DB. Public traffic must never launch an MCP server.
+
+Use [`DEPLOY-VM.md`](DEPLOY-VM.md) and the templates in [`deploy/`](deploy/) for
+the systemd service, Caddy reverse proxy, backup timer, and read-only smoke
+script.
 
 ```bash
-# Local / VM:
-MCP_TRUST_DB=/data/registry.db MCP_TRUST_ENGINE=mcpaudit \
-  uvicorn mcp_trust.api.app:app --host 0.0.0.0 --port 8000
+# VM public read-only app behind Caddy/nginx:
+MCP_TRUST_DB=/data/mcp-trust/registry.db \
+MCP_TRUST_ENGINE=mcpaudit \
+MCP_TRUST_PUBLIC_READONLY=1 \
+  uvicorn mcp_trust.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-For a managed host (Fly.io / Railway / Render / Cloud Run): containerize with a
-production server, mount a persistent volume for the SQLite DB, and set env:
-`MCP_TRUST_DB`, `MCP_TRUST_ENGINE=mcpaudit`, `MCP_TRUST_SANDBOX=docker`,
-`MCP_TRUST_SANDBOX_IMAGE`, and `MCP_TRUST_SCAN_TOKEN` (a high-entropy operator
-secret for API scan triggering). Confirm `BASE_URL` resolves to the deployed app.
+Recommended VM layout:
 
-When the real engine is configured, `POST /servers/{slug}/scan` requires
-`MCP_TRUST_SCAN_TOKEN`; if the token is missing from the deployment, the endpoint
-returns 403 before launching scan work. Keep the token private, and do not route
-public traffic to scan triggering unless operator-initiated rescans are intended.
+```text
+/opt/mcp-trust/app
+/data/mcp-trust/registry.db
+/data/mcp-trust/receipts/
+/data/mcp-trust/backups/
+/var/log/mcp-trust/
+```
+
+Operator scan shell on the VM:
+
+```bash
+export MCP_TRUST_DB=/data/mcp-trust/registry.db
+export MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts
+export MCP_TRUST_ENGINE=mcpaudit
+export MCP_TRUST_SANDBOX=docker
+export MCP_TRUST_SANDBOX_NETWORK=none
+export MCP_TRUST_SANDBOX_IMAGE=mcp-trust-scan:reference-2026-06-19
+mcp-trust scan <slug>
+```
+
+Do not set `MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS` in public. That flag is
+only for local API demos/tests. `MCP_TRUST_PUBLIC_READONLY=1` makes
+`POST /servers/{slug}/scan` return 403 before any engine can run.
+
+If a private operator API is added later, gate it with `MCP_TRUST_SCAN_TOKEN` and
+keep it off the public route. v1 should prefer SSH + CLI for scan operations.
 
 ---
 
@@ -113,7 +148,8 @@ curl -s "$BASE_URL/servers" | head                  # catalog JSON
 open "$BASE_URL/"                                    # web catalog page
 open "$BASE_URL/ui/servers/<slug>"                   # detail + badge embed
 curl -s "$BASE_URL/servers/<slug>/badge.json"       # shields endpoint shape
-curl -i -X POST "$BASE_URL/servers/<slug>/scan"     # expect 401/403 without token
+curl -i -X POST "$BASE_URL/servers/<slug>/scan"     # expect 403 public read-only
+test -f /data/mcp-trust/receipts/<receipt>.json     # receipt exists for scanned rows
 ```
 
 ---
@@ -153,6 +189,7 @@ mcp-trust check <slug> --db /data/registry.db || echo "no trust record"
 - **badges embedded** (the loop is catching)
 - authors onboarded
 - grade-regression events (the hook for future monitoring)
+- receipt views / day (whether evidence is being inspected)
 
 ---
 
