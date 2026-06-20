@@ -1,31 +1,42 @@
 # MCP Trust Registry
 
+[![CI](https://github.com/saagpatel/mcp-trust/actions/workflows/ci.yml/badge.svg)](https://github.com/saagpatel/mcp-trust/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > Check before you connect. A neutral, public danger grade for the MCP servers
 > your AI agents rely on.
 
+> **Not yet published to PyPI.** Install from source using the Quickstart below.
+
 Connecting an MCP server hands it influence over what your agent does. Tool
 poisoning, prompt injection, over-broad permissions, and rug-pull tool
-mutations are documented attack classes — and today there's no quick way to vet
+mutations are documented attack classes -- and today there's no quick way to vet
 a server before you wire it in. **MCP Trust Registry** scans public MCP servers
-and gives each one a single readable danger grade (A–F), a separate
+and gives each one a single readable danger grade (A-F), a separate
 transparency signal, and the findings behind them.
 
 Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
 
+## Prerequisites
+
+- Python >= 3.11
+- [`uv`](https://docs.astral.sh/uv/) (used for dependency management and running the project)
+
 ## How it works
 
 ```
-register a server  →  scan via engine  →  derive grade  →  persist  →  serve at a stable URL
+register a server  ->  scan via engine  ->  derive grade  ->  persist  ->  serve at a stable URL
 ```
 
 The registry does **not** reimplement vulnerability detection. It orchestrates a
-pluggable scan engine — the shipping backend wraps the public
-[`mcp-audits`](https://pypi.org/project/mcp-audits/) package — and owns the
+pluggable scan engine -- the shipping backend wraps the public
+[`mcp-audits`](https://pypi.org/project/mcp-audits/) (>=2.1) package -- and owns the
 catalog, the public trust-grade normalization, persistence, and the lookup API.
 
 ## Quickstart
 
 ```bash
+git clone https://github.com/saagpatel/mcp-trust.git && cd mcp-trust
 uv pip install -e ".[dev]"      # core + dev deps (runs on the built-in StubEngine)
 mcp-trust seed                  # load the seed catalog
 mcp-trust scan mcp-reference-time   # scan a catalog server, print its grade
@@ -54,15 +65,15 @@ The default is no sandbox (safe only for servers you trust).
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET`  | `/` | **web** — public catalog page (grade + transparency per server) |
-| `GET`  | `/ui/servers/{slug}` | **web** — server detail page + README badge-embed snippet |
+| `GET`  | `/` | **web** -- public catalog page (grade + transparency per server) |
+| `GET`  | `/ui/servers/{slug}` | **web** -- server detail page + README badge-embed snippet |
 | `GET`  | `/healthz` | liveness |
 | `GET`  | `/servers` | catalog + latest grade per server (JSON) |
 | `GET`  | `/servers/{slug}` | full latest scan record + metadata (JSON) |
 | `POST` | `/servers/{slug}/scan` | operator scan trigger; public deployments disable this route |
 | `GET`  | `/servers/{slug}/badge.json` | shields.io-compatible README badge |
 
-Every server has two orthogonal signals: a **danger grade** (A–F) and a
+Every server has two orthogonal signals: a **danger grade** (A-F) and a
 **transparency level** (high/medium/low, from annotation coverage). Automated
 grades are not endorsements, certifications, or claims that a server is
 malicious. A low grade on a low-transparency server means "cannot verify safe,"
@@ -85,14 +96,20 @@ archive a JSON receipt for each scan and store its portable artifact filename in
 
 ## Status
 
-MVP. Built and tested end-to-end through the deterministic StubEngine path:
-catalog → scan → danger grade + transparency → persist → serve, plus the public
+Pre-release. Built and tested end-to-end through the deterministic StubEngine path:
+catalog -> scan -> danger grade + transparency -> persist -> serve, plus the public
 web catalog/detail pages and the README badge-embed loop. The bundled seed
-catalog now uses official reference MCP servers for launch calibration. The live
+catalog uses official reference MCP servers. The live
 `mcp-audits` adapter is implemented behind an optional extra, with real-server
 integration tests gated because they launch MCP server processes. See
-[`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH.md`](LAUNCH.md) for the
-remaining public-launch gates.
+[`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
+for the remaining public-launch gates.
+
+## Contributing
+
+`uv.lock` is intentionally committed to the repository to ensure reproducible
+installs across environments. When adding or updating dependencies, commit the
+updated `uv.lock` alongside your `pyproject.toml` changes.
 
 ## License
 
