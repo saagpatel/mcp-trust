@@ -58,6 +58,9 @@ Current decision: **NO-GO for public launch**.
   `mcp-trust-backup.timer`.
 - First VM backup exists under `/data/mcp-trust/backups/`: SQLite DB backup and
   receipt tarball.
+- First VM backup has been copied off-box to local ignored
+  `dist/vm-backups/`: `registry-20260620T075144Z.db` and
+  `receipts-20260620T075144Z.tar.gz`.
 - Read-only smoke passes on the VM against both `http://127.0.0.1` and
   `http://8.229.92.116`; `POST /servers/<slug>/scan` returns 403.
 - VM/VPS deployment package is prepared in `DEPLOY-VM.md` and `deploy/`
@@ -71,7 +74,6 @@ Current decision: **NO-GO for public launch**.
   confirm HTTPS certificate issuance.
 - Run the public read-only smoke against the final HTTPS base URL from outside
   the VM. Current Codex egress policy blocks direct curl to the raw IP.
-- Create and copy at least one DB + receipt backup off-box.
 - No final-domain public badge-loop smoke has happened.
 
 ## Go Criteria
