@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,6 +25,14 @@ class _TokenGatedRealEngine(StubEngine):
     name = "mcpaudit"
 
 
+class _RejectingStubEngine:
+    name = "stub"
+    version = "test"
+
+    def scan(self, source):  # noqa: ANN001
+        raise AssertionError("scan should not run without explicit dev opt-in")
+
+
 @pytest.fixture()
 def conn():
     c = connect(":memory:")
@@ -41,15 +51,17 @@ def seeded_conn(conn):
 
 
 @pytest.fixture()
-def client(conn):
+def client(conn, monkeypatch):
     """TestClient backed by an in-memory DB and StubEngine."""
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
     application = create_app(conn=conn, engine=StubEngine())
     return TestClient(application)
 
 
 @pytest.fixture()
-def seeded_client(seeded_conn):
+def seeded_client(seeded_conn, monkeypatch):
     """TestClient with the seed catalog pre-loaded."""
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
     application = create_app(conn=seeded_conn, engine=StubEngine())
     return TestClient(application)
 
@@ -165,6 +177,60 @@ def test_scan_updates_list_grade(seeded_client) -> None:
     time_after = next(s for s in after.json() if s["slug"] == "mcp-reference-time")
     assert time_after["grade"] in {"A", "B", "C", "D", "F"}
     assert time_after["composite"] is not None
+
+
+def test_stub_engine_scan_without_dev_opt_in_is_disabled(seeded_conn, monkeypatch) -> None:
+    monkeypatch.delenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", raising=False)
+    monkeypatch.delenv("MCP_TRUST_SCAN_TOKEN", raising=False)
+    application = create_app(conn=seeded_conn, engine=_RejectingStubEngine())
+    client = TestClient(application)
+
+    resp = client.post("/servers/mcp-reference-time/scan")
+
+    assert resp.status_code == 403
+    assert "MCP_TRUST_SCAN_TOKEN" in resp.json()["detail"]
+
+
+def test_public_readonly_rejects_scan_before_engine_runs(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+    application = create_app(conn=seeded_conn, engine=_RejectingStubEngine())
+    client = TestClient(application)
+
+    resp = client.post("/servers/mcp-reference-time/scan")
+
+    assert resp.status_code == 403
+    assert "public read-only mode" in resp.json()["detail"]
+
+
+def test_scan_writes_receipt_when_configured(seeded_conn, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+    monkeypatch.setenv("MCP_TRUST_RECEIPTS_DIR", str(tmp_path))
+    monkeypatch.setenv("MCP_TRUST_SANDBOX", "docker")
+    monkeypatch.setenv("MCP_TRUST_SANDBOX_NETWORK", "none")
+    monkeypatch.setenv("MCP_TRUST_SANDBOX_IMAGE", "mcp-trust-scan:test")
+    application = create_app(conn=seeded_conn, engine=StubEngine())
+    client = TestClient(application)
+
+    resp = client.post("/servers/mcp-reference-time/scan")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["report_ref"] is not None
+    assert "/" not in body["report_ref"]
+    receipt_path = tmp_path / body["report_ref"]
+    assert receipt_path.exists()
+
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["format_version"] == 1
+    assert receipt["scan_id"] == body["id"]
+    assert receipt["server_slug"] == "mcp-reference-time"
+    assert receipt["scanner"]["engine_name"] == "stub"
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == "mcp-trust-scan:test"
+    assert "MCP_TRUST_SCAN_TOKEN" not in receipt
+
+    get_body = client.get("/servers/mcp-reference-time").json()
+    assert get_body["latest_scan"]["report_ref"] == body["report_ref"]
 
 
 def test_real_engine_scan_without_configured_token_is_disabled(seeded_conn, monkeypatch) -> None:

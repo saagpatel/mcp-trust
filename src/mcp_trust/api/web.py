@@ -284,14 +284,14 @@ def render_catalog(rows: list[dict]) -> str:
 
     body = (
         "<main>"
-        '<h1 class="page-title">MCP Server Trust Catalog</h1>'
+        '<h1 class="page-title">MCP Server Danger Catalog</h1>'
         '<p class="page-subtitle">'
-        "Each server is graded A–F based on observed risk. "
-        "Grades are derived from automated scans — not endorsements."
+        "Each server gets an A–F danger grade plus a separate transparency signal. "
+        "Grades come from automated scans and mean check before you connect, not endorsement."
         "</p>"
         "<table>"
         "<thead><tr>"
-        "<th>Server</th><th>Grade</th><th>Transparency</th>"
+        "<th>Server</th><th>Danger grade</th><th>Transparency</th>"
         "<th>Danger score</th><th>Last scanned</th><th></th>"
         "</tr></thead>"
         f"<tbody>{table_body}</tbody>"
@@ -359,6 +359,7 @@ def render_detail(
         f'<p style="color:#57606a;margin-top:0.2rem">{description}</p>'
         '<div class="meta-row" style="margin-top:0.6rem">'
         f"{_transparency_chip(transparency)}"
+        '<span class="chip" style="background:#57606a">automated scan</span>'
         "</div>"
         "</div>"
         "</div>"
@@ -402,6 +403,15 @@ def render_detail(
 
     hero += "</div>"  # close meta-row
 
+    hero += (
+        '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+        'border-left:3px solid #57606a;padding-left:0.75rem">'
+        "<strong>Automated danger grade:</strong> this page reports detected or "
+        "inferred risk from a scan. It is not an endorsement, certification, or "
+        "claim that the server is malicious."
+        "</p>"
+    )
+
     # Low transparency is a caveat, NOT a danger verdict — state it plainly.
     if transparency == "low":
         hero += (
@@ -423,7 +433,8 @@ def render_detail(
         '<div class="badge-box">'
         "<h3>Add this badge to your README</h3>"
         '<p style="font-size:0.85rem;color:#57606a">'
-        "Copy the Markdown below and paste it into your README or documentation:"
+        "Copy the Markdown below only if you want to link readers to the latest "
+        "danger grade and scan caveats:"
         "</p>"
         f"<pre>{escape(badge_md)}</pre>"
         '<img src="'

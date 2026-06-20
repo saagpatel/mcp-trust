@@ -31,8 +31,9 @@ def seeded_conn(conn):
 
 
 @pytest.fixture()
-def client(seeded_conn):
+def client(seeded_conn, monkeypatch):
     """TestClient backed by an in-memory seeded DB and StubEngine."""
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
     application = create_app(conn=seeded_conn, engine=StubEngine())
     return TestClient(application)
 
@@ -58,6 +59,7 @@ def test_catalog_contains_seeded_server_name(client: TestClient) -> None:
     body = resp.text
     assert "MCP Reference Time" in body
     assert "/ui/servers/" in body
+    assert "Danger grade" in body
 
 
 def test_catalog_shows_unscanned_before_scan(client: TestClient) -> None:
@@ -112,6 +114,8 @@ def test_detail_shows_transparency_after_scan(client: TestClient) -> None:
 
     resp = client.get("/ui/servers/mcp-reference-time")
     assert transparency in resp.text
+    assert "Automated danger grade" in resp.text
+    assert "not an endorsement" in resp.text
 
 
 def test_detail_contains_badge_embed_snippet(client: TestClient) -> None:

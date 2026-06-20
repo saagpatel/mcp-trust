@@ -1,0 +1,23 @@
+[Unit]
+Description=MCP Trust Registry public read-only API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mcp-trust
+Group=mcp-trust
+WorkingDirectory=/opt/mcp-trust/app
+EnvironmentFile=/etc/mcp-trust/mcp-trust.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/mcp-trust/app/.venv/bin/uvicorn mcp_trust.api.app:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/data/mcp-trust /var/log/mcp-trust
+
+[Install]
+WantedBy=multi-user.target
