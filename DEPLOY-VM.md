@@ -70,10 +70,28 @@ Do not set `MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS` on the VM.
 
 ## Seed Data And Receipts
 
-Copy a verified `registry.db` and `receipts/` bundle into `/data/mcp-trust/`.
-Scan rows should store portable receipt filenames in `report_ref`, not absolute
-paths from the machine that produced the DB.
-For a fresh VM rehearsal, seed and scan from the VM operator shell:
+Build a sanitized transfer bundle from the workstation after scans pass:
+
+```bash
+python scripts/build_deploy_bundle.py \
+  --db ./registry.db \
+  --receipts-dir ./receipts
+```
+
+Upload the resulting `dist/mcp-trust-deploy-bundle-*.tar.gz` to the VM, extract
+it, and copy its contents into `/data/mcp-trust/`:
+
+```bash
+tar -xzf mcp-trust-deploy-bundle-*.tar.gz
+sudo install -m 0644 mcp-trust-deploy-bundle-*/registry.db /data/mcp-trust/registry.db
+sudo rsync -a --delete mcp-trust-deploy-bundle-*/receipts/ /data/mcp-trust/receipts/
+sudo chown -R mcp-trust:mcp-trust /data/mcp-trust
+```
+
+The bundle DB contains only latest scan rows, so historical local rehearsal rows
+and absolute local receipt paths are not copied to the VM.
+
+For a fresh VM rehearsal that scans directly on the VM, use the operator shell:
 
 ```bash
 cd /opt/mcp-trust/app
