@@ -13,6 +13,7 @@ import typer
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord
+from mcp_trust.receipts import write_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
@@ -96,6 +97,9 @@ def scan(
         scanned_at=datetime.now(tz=UTC),
         report_ref=None,
     )
+    receipt_ref = write_scan_receipt(server, record)
+    if receipt_ref is not None:
+        record = record.model_copy(update={"report_ref": receipt_ref})
     scan_repo.record(record)
 
     _print_scan(record)

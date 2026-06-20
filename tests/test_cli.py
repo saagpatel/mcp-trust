@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from typer.testing import CliRunner
 
@@ -70,6 +72,39 @@ def test_scan_persists_computed_transparency(db_path) -> None:
     record = ScanRepository(connect(db_path)).latest("mcp-reference-time")
     assert record is not None
     assert record.transparency == TransparencyLevel.LOW
+
+
+def test_scan_writes_receipt_when_configured(db_path, tmp_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    receipts_dir = tmp_path / "receipts"
+
+    result = runner.invoke(
+        app,
+        ["scan", "mcp-reference-time", "--db", db_path],
+        env={
+            "MCP_TRUST_RECEIPTS_DIR": str(receipts_dir),
+            "MCP_TRUST_SANDBOX": "docker",
+            "MCP_TRUST_SANDBOX_NETWORK": "none",
+            "MCP_TRUST_SANDBOX_IMAGE": "mcp-trust-scan:test",
+        },
+    )
+
+    assert result.exit_code == 0, result.output
+
+    from mcp_trust.store.db import connect
+    from mcp_trust.store.repository import ScanRepository
+
+    record = ScanRepository(connect(db_path)).latest("mcp-reference-time")
+    assert record is not None
+    assert record.report_ref is not None
+    assert "/" not in record.report_ref
+    receipt_path = receipts_dir / record.report_ref
+    assert receipt_path.exists()
+
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["scan_id"] == record.id
+    assert receipt["server_slug"] == "mcp-reference-time"
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == "mcp-trust-scan:test"
 
 
 def test_scan_unknown_slug_exits_nonzero(db_path) -> None:

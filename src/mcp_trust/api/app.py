@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord, TrustGrade
 from mcp_trust.engine.base import ScanEngine, ScanError
+from mcp_trust.receipts import write_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
@@ -36,6 +37,9 @@ _BADGE_COLORS: dict[str, str] = {
 _REAL_ENGINE_NAMES = {"mcpaudit"}
 _SCAN_TOKEN_ENV = "MCP_TRUST_SCAN_TOKEN"
 _SCAN_TOKEN_HEADER = "x-mcp-trust-scan-token"
+_PUBLIC_READONLY_ENV = "MCP_TRUST_PUBLIC_READONLY"
+_ALLOW_UNAUTHENTICATED_STUB_SCANS_ENV = "MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS"
+_TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 class ServerSummary(BaseModel):
@@ -51,6 +55,10 @@ def _is_real_scan_engine(engine: ScanEngine) -> bool:
     return str(getattr(engine, "name", "")).lower() in _REAL_ENGINE_NAMES
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _TRUE_ENV_VALUES
+
+
 def _presented_scan_token(request: Request) -> str:
     auth_header = request.headers.get("authorization", "")
     scheme, _, token = auth_header.partition(" ")
@@ -60,7 +68,16 @@ def _presented_scan_token(request: Request) -> str:
 
 
 def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
-    if not _is_real_scan_engine(engine):
+    if _env_flag(_PUBLIC_READONLY_ENV):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Scan triggering is disabled in public read-only mode "
+                f"({_PUBLIC_READONLY_ENV}=1)."
+            ),
+        )
+
+    if not _is_real_scan_engine(engine) and _env_flag(_ALLOW_UNAUTHENTICATED_STUB_SCANS_ENV):
         return
 
     expected = os.environ.get(_SCAN_TOKEN_ENV)
@@ -68,7 +85,7 @@ def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
         raise HTTPException(
             status_code=403,
             detail=(
-                "Real-engine scan triggering is disabled until "
+                "Scan triggering is disabled until "
                 f"{_SCAN_TOKEN_ENV} is configured."
             ),
         )
@@ -215,6 +232,9 @@ def create_app(
             scanned_at=datetime.now(tz=UTC),
             report_ref=None,
         )
+        receipt_ref = write_scan_receipt(server, scan)
+        if receipt_ref is not None:
+            scan = scan.model_copy(update={"report_ref": receipt_ref})
         scan_repo.record(scan)
         return scan.model_dump(mode="json")
 

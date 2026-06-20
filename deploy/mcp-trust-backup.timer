@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly MCP Trust Registry backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

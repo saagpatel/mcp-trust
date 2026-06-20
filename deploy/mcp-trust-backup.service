@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up MCP Trust Registry SQLite DB and receipts
+
+[Service]
+Type=oneshot
+Environment=MCP_TRUST_DATA_DIR=/data/mcp-trust
+Environment=MCP_TRUST_DB=/data/mcp-trust/registry.db
+Environment=MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts
+Environment=MCP_TRUST_BACKUP_DIR=/data/mcp-trust/backups
+ExecStart=/opt/mcp-trust/app/deploy/backup-sqlite.sh
