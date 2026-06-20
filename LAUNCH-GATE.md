@@ -47,6 +47,8 @@ Current decision: **NO-GO for public launch**.
 - `scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`
   passes on the local launch DB: 7 seeded servers, 7 latest `mcpaudit` scans,
   7 matching receipt artifacts, no stub latest rows.
+- `scripts/build_deploy_bundle.py` builds a sanitized transfer artifact with a
+  pruned latest-scan DB, only referenced receipts, and a hashed manifest.
 - VM/VPS deployment package is prepared in `DEPLOY-VM.md` and `deploy/`
   templates: systemd service, Caddy reverse proxy, env example, backup timer,
   and read-only smoke script.
