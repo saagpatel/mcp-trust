@@ -10,6 +10,7 @@ build/
 *.db
 *.sqlite3
 .env
+receipts/
 
 # sandbox/worktree build-cache symlinks
 .build

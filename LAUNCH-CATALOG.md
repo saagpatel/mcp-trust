@@ -11,13 +11,22 @@ surface.
 - The current seed catalog contains the seven official reference server entries
   from Candidate Set A.
 - API scan triggering is token-gated for the real `mcpaudit` engine with
-  `MCP_TRUST_SCAN_TOKEN`.
+  `MCP_TRUST_SCAN_TOKEN`, and public read-only deployments can disable scan
+  triggering entirely with `MCP_TRUST_PUBLIC_READONLY=1`.
+- Scan runs can write durable JSON receipts with `MCP_TRUST_RECEIPTS_DIR`.
 - Local stub-backed verification is green.
-- No real MCP server scans have been run in this launch lane.
+- One real sandboxed smoke scan has run against `mcp-reference-time` using
+  `MCP_TRUST_SANDBOX=docker`, `MCP_TRUST_SANDBOX_NETWORK=none`, and the
+  `mcp-trust-scan:reference-2026-06-19` image. It persisted grade `A`,
+  transparency `high`, and a JSON receipt in an ephemeral `/tmp` smoke DB.
+- The full seven-server reference corpus has now run against local
+  `./registry.db` with durable receipts under `./receipts/`.
+- Current grade distribution is A=1, B=2, C=1, D=1, F=2. Transparency
+  distribution is high=3, low=4.
 - The project `.venv` has `mcp-audits 2.1.0`; adapter unit tests pass there.
-- Docker CLI is installed, but the daemon is not currently reachable. A Colima
-  start attempt failed at VM image cache/download setup, so sandbox smoke scans
-  are locally blocked until Docker/Colima is healthy.
+- Docker/Colima were repaired locally by clearing a stale broken Colima disk
+  entry and recreating the Colima VM profile. Docker is reachable through the
+  `colima` context.
 - Direct `curl` to `registry.modelcontextprotocol.io` was blocked by the local
   egress policy, so this package uses web-visible primary sources and should be
   refreshed from the official registry API once egress is allowed.
@@ -141,6 +150,24 @@ Decision options:
 
 Recommended answer: approve option 1 now, defer options 2 and 3.
 
+## Reference Corpus Result
+
+| Slug | Grade | Transparency | Composite | Notes |
+|---|---:|---|---:|---|
+| `mcp-reference-time` | A | high | 1.0 | Low-risk anchor behaved as expected. |
+| `mcp-reference-fetch` | B | low | 3.5 | Network-capable, scanned network-off. |
+| `mcp-reference-git` | B | high | 3.8 | Fixture repo only. |
+| `mcp-reference-memory` | C | low | 5.3 | Low transparency caveat applies. |
+| `mcp-reference-filesystem` | D | high | 7.7 | Controlled `/scan` root only. |
+| `mcp-reference-everything` | F | low | 8.0 | Broad reference/test surface. |
+| `mcp-reference-sequential-thinking` | F | low | 8.6 | Calibration warning: low-I/O reasoning server is heavily penalized by low transparency/default-inferred capabilities. |
+
+Interpretation: the corpus is useful enough to prove the scan/receipt loop, but
+it is not evidence that the registry should market grades as broad trust
+judgments. Current public wording keeps this as **danger grade + transparency**
+and adds stronger automated-scan / low-transparency caveats. No grading-band
+change has been made.
+
 ## Approval Gates Before Broader Seed Mutation
 
 Before broadening `seed_servers.json` beyond the current reference set, the
@@ -168,12 +195,10 @@ These files are safe prep work and do not run scans by themselves:
 
 After operator approval:
 
-1. Start or repair Docker/Colima.
-2. Build `Dockerfile.scan` as `mcp-trust-scan:reference-2026-06-19`.
-3. Run `python scripts/plan_reference_scans.py` and review the dry-run output.
-4. Run one sandboxed scan against `mcp-reference-time`.
-5. If that succeeds, run the full reference corpus and inspect grade
-   distribution before changing grading bands.
+1. Run the deployed API/web/badge smoke against persistent SQLite.
+2. Confirm public `POST /servers/<slug>/scan` returns 403 in read-only mode.
+3. Choose the first non-reference no-auth public/vendor candidates only after
+   the deployed read-only loop is green.
 
 Done for this package means a reviewer can approve or reject the first real
 scan batch without rediscovering candidate provenance, sandbox constraints, or

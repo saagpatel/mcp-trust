@@ -137,5 +137,5 @@ class ScanRecord(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     scanned_at: datetime
     report_ref: str | None = Field(
-        default=None, description="Pointer to the full engine report, if archived."
+        default=None, description="Portable receipt/report artifact reference, if archived."
     )
