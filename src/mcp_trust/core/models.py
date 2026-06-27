@@ -11,10 +11,18 @@ engines are swappable, the registry's contract is stable.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# A slug is both a URL path component and a filesystem path component, so it is
+# constrained to strict kebab-case: lowercase alphanumerics in dash-separated
+# groups, no leading/trailing dash. This forbids path separators, ``..``
+# traversal, whitespace, dots, and uppercase at the trust boundary, so a hostile
+# slug from an ingested public server list can never reach a path-join or a URL.
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class SourceKind(StrEnum):
@@ -51,6 +59,15 @@ class Server(BaseModel):
     source: ServerSource
     homepage: str | None = None
     added_at: datetime
+
+    @field_validator("slug")
+    @classmethod
+    def _validate_slug(cls, value: str) -> str:
+        if not _SLUG_RE.match(value):
+            raise ValueError(
+                f"slug must be strict kebab-case ([a-z0-9] groups joined by '-'); got {value!r}"
+            )
+        return value
 
 
 class Severity(StrEnum):

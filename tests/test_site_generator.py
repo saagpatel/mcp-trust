@@ -160,19 +160,40 @@ def test_real_scan_has_zero_demo_count(conn, tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_malicious_slug_cannot_escape_out_dir(conn, tmp_path: Path) -> None:
+def _raw_insert_server(conn, slug: str) -> None:
+    """Insert a server row directly, bypassing the model's slug validation.
+
+    Simulates a corrupt or out-of-band write: the only way a hostile slug could
+    ever land in the DB, since ``Server`` rejects it at construction.
+    """
+    conn.execute(
+        "INSERT INTO servers (slug, name, description, source_json, homepage, added_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            slug,
+            "Evil",
+            "",
+            '{"kind":"npm","reference":"@x/y","command":null,"args":[],"env_keys":[]}',
+            None,
+            datetime.now(tz=UTC).isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def test_hostile_slug_row_is_skipped_and_cannot_escape_out_dir(conn, tmp_path: Path) -> None:
     out = tmp_path / "site"
     servers = ServerRepository(conn)
     servers.upsert(_server("alpha"))
-    # A traversal slug must never cause a write outside the output directory.
-    servers.upsert(_server("../escape"))
-    servers.upsert(_server("/abs-escape"))
+    # A traversal slug written out-of-band must never produce a page or escape out_dir.
+    _raw_insert_server(conn, "../escape")
 
     build = generate_site(conn, out, base_url=BASE_URL)
 
-    # Nothing was written outside the site dir.
+    # The hostile row is dropped by the resilient repository read — no page at all.
+    assert build.server_count == 1
     assert not (tmp_path / "escape").exists()
-    assert not (tmp_path / "ui").exists()  # would appear if '../' resolved up one level
+    assert not (tmp_path / "ui").exists()  # would appear if '../' resolved up a level
     # The safe server is still generated.
     assert (out / "ui" / "servers" / "alpha" / "index.html").is_file()
     # Every manifest path stays strictly within out_dir.
