@@ -164,6 +164,36 @@ def test_server_upsert_updates_existing(server_repo) -> None:
     assert len(server_repo.list()) == 1
 
 
+def _raw_insert(conn, slug: str) -> None:
+    """Insert a row directly, bypassing the model's slug validation."""
+    conn.execute(
+        "INSERT INTO servers (slug, name, description, source_json, homepage, added_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            slug,
+            "Evil",
+            "",
+            '{"kind":"npm","reference":"@x/y","command":null,"args":[],"env_keys":[]}',
+            None,
+            datetime.now(tz=UTC).isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def test_server_list_skips_invalid_row(conn, server_repo) -> None:
+    """A hostile/corrupt row (out-of-band write) is dropped, not crashed on."""
+    server_repo.upsert(_make_server("good-slug"))
+    _raw_insert(conn, "../evil")  # path-traversal slug the model would reject
+    listed = server_repo.list()
+    assert {s.slug for s in listed} == {"good-slug"}
+
+
+def test_server_get_invalid_row_returns_none(conn, server_repo) -> None:
+    _raw_insert(conn, "../evil")
+    assert server_repo.get("../evil") is None
+
+
 # ---------------------------------------------------------------------------
 # ScanRepository tests
 # ---------------------------------------------------------------------------

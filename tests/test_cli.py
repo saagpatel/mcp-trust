@@ -160,3 +160,47 @@ def test_check_seed_scan_check_full_loop(db_path) -> None:
     assert scan_grade is not None
     assert check_grade is not None
     assert scan_grade.group(1) == check_grade.group(1)
+
+
+# ---------------------------------------------------------------------------
+# build-site
+# ---------------------------------------------------------------------------
+
+
+def test_build_site_after_seed_and_scan(db_path, tmp_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    out = tmp_path / "site"
+
+    result = runner.invoke(
+        app,
+        ["build-site", "--db", db_path, "--out", str(out), "--base-url", "https://example.test"],
+    )
+    assert result.exit_code == 0, result.output
+
+    index = out / "index.html"
+    assert index.is_file()
+    assert (out / "ui" / "servers" / "mcp-reference-time" / "index.html").is_file()
+    # Stub-scanned data must be labelled as demo on the generated site.
+    assert "DEMO DATA" in index.read_text(encoding="utf-8")
+
+
+def test_build_site_reports_counts(db_path, tmp_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    out = tmp_path / "site"
+    result = runner.invoke(
+        app,
+        ["build-site", "--db", db_path, "--out", str(out), "--base-url", "https://example.test"],
+    )
+    assert result.exit_code == 0, result.output
+    # Seven seeded servers, none scanned in this test.
+    assert "7" in result.output
+
+
+def test_build_site_warns_on_placeholder_base_url(db_path, tmp_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    out = tmp_path / "site"
+    # No --base-url → falls back to the placeholder default, which must warn.
+    result = runner.invoke(app, ["build-site", "--db", db_path, "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    assert "placeholder" in result.output.lower()

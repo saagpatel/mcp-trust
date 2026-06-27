@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 
+from pydantic import ValidationError
+
 from mcp_trust.core.models import ScanRecord, Server, ServerSource
+
+_log = logging.getLogger(__name__)
 
 
 class ServerRepository:
@@ -39,28 +44,40 @@ class ServerRepository:
         self._conn.commit()
 
     def get(self, slug: str) -> Server | None:
-        """Return the server with *slug*, or ``None`` if not found."""
+        """Return the server with *slug*, or ``None`` if not found or corrupt."""
         row = self._conn.execute("SELECT * FROM servers WHERE slug = ?", (slug,)).fetchone()
         if row is None:
             return None
         return self._row_to_server(row)
 
     def list(self) -> list[Server]:
-        """Return all servers, ordered by slug."""
+        """Return all valid servers, ordered by slug.
+
+        A row that fails model validation (corrupt JSON or an out-of-band write
+        that bypassed the model's slug guard) is skipped rather than crashing the
+        whole read, so one bad row can never poison the catalog or a site build.
+        """
         rows = self._conn.execute("SELECT * FROM servers ORDER BY slug").fetchall()
-        return [self._row_to_server(r) for r in rows]
+        servers = [self._row_to_server(r) for r in rows]
+        return [s for s in servers if s is not None]
 
     @staticmethod
-    def _row_to_server(row: sqlite3.Row) -> Server:
-        source = ServerSource.model_validate(json.loads(row["source_json"]))
-        return Server(
-            slug=row["slug"],
-            name=row["name"],
-            description=row["description"] or "",
-            source=source,
-            homepage=row["homepage"],
-            added_at=row["added_at"],
-        )
+    def _row_to_server(row: sqlite3.Row) -> Server | None:
+        try:
+            source = ServerSource.model_validate(json.loads(row["source_json"]))
+            return Server(
+                slug=row["slug"],
+                name=row["name"],
+                description=row["description"] or "",
+                source=source,
+                homepage=row["homepage"],
+                added_at=row["added_at"],
+            )
+        except (json.JSONDecodeError, ValidationError) as exc:
+            # Corrupt or schema-drifted/hostile row — drop it and surface the slug
+            # rather than letting an opaque error abort the entire read.
+            _log.warning("skipping invalid server row %r: %s", row["slug"], exc)
+            return None
 
 
 class ScanRepository:

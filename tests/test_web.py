@@ -156,3 +156,40 @@ def test_catalog_shows_scanned_server_grade(client: TestClient) -> None:
 
     catalog = client.get("/")
     assert grade in catalog.text
+
+
+# ---------------------------------------------------------------------------
+# render_detail — homepage URL scheme safety (no stored-XSS via javascript:)
+# ---------------------------------------------------------------------------
+
+
+def _detail_server(homepage: str):
+    from datetime import UTC, datetime
+
+    from mcp_trust.core.models import Server, ServerSource, SourceKind
+
+    return Server(
+        slug="x",
+        name="X",
+        description="",
+        source=ServerSource(kind=SourceKind.NPM, reference="@x/x"),
+        homepage=homepage,
+        added_at=datetime.now(tz=UTC),
+    )
+
+
+def test_detail_renders_http_homepage_as_link() -> None:
+    from mcp_trust.api.web import render_detail
+
+    html = render_detail(_detail_server("https://example.com"), None, base_url="https://t")
+    assert '<a href="https://example.com"' in html
+
+
+def test_detail_does_not_link_javascript_homepage() -> None:
+    from mcp_trust.api.web import render_detail
+
+    html = render_detail(_detail_server("javascript:alert(origin)"), None, base_url="https://t")
+    # The value must never become an href — no clickable javascript: scheme.
+    assert 'href="javascript:' not in html
+    # It is still shown (as inert, escaped text), so the page stays informative.
+    assert "javascript:alert(origin)" in html

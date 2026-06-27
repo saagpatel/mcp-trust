@@ -12,6 +12,12 @@ build/
 .env
 receipts/
 
+# generated static-site output (build artifact)
+/site/
+
+# serena language-server project cache
+.serena/
+
 # sandbox/worktree build-cache symlinks
 .build
 .cargo
