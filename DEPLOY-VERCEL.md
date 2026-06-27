@@ -66,17 +66,22 @@ re-run the badge check against the production URL.
 
 ## 4. Scheduled freshness
 
-Re-render and redeploy on a cadence so grades stay current. A scheduled job runs:
+`scripts/refresh_and_publish.sh` runs the whole loop: re-scan the corpus in the
+network-off Docker sandbox, rebuild the site, and (only if `MCP_TRUST_AUTO_DEPLOY=1`)
+deploy. Install it as a weekly launchd job:
 
 ```bash
-# scan the reference corpus (network-off Docker sandbox) → rebuild → redeploy
-# (engine env from LAUNCH-GATE.md "Next Command Lane")
-uv run python scripts/build_site.py --db ./registry.db --out site --base-url "$DOMAIN"
-cp deploy/vercel.json site/vercel.json
-vercel deploy site --prod
+bash deploy/launchd/install.sh            # weekly, Monday 09:00; deploy OFF by default
+launchctl start com.d.mcp-trust-refresh   # force one run to test
+bash deploy/launchd/uninstall.sh          # remove the job
 ```
 
-A `launchd` wrapper for this is the next slice (see the session CONTINUE).
+Deploy is opt-in: in the installed plist
+(`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist`) set
+`MCP_TRUST_SITE_BASE_URL` to your real domain and add `MCP_TRUST_AUTO_DEPLOY=1`,
+then re-run the install script. Re-scanning a version-pinned image is
+deterministic; to catch upstream drift, periodically rebuild `Dockerfile.scan`
+with current server versions.
 
 ## Safety notes
 

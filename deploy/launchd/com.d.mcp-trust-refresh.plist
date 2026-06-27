@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. Placeholders (__REPO_ROOT__, __LOG_OUT__, __LOG_ERR__, __PATH__) are
+  substituted by deploy/launchd/install.sh at install time, so this file stays
+  machine-agnostic and committable. Do not edit the installed copy here; re-run
+  install.sh instead.
+
+  Deploy is intentionally OFF: MCP_TRUST_AUTO_DEPLOY is not set. To auto-publish,
+  add it (=1) and set MCP_TRUST_SITE_BASE_URL to the real domain in the INSTALLED
+  copy (~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist), then reload.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.d.mcp-trust-refresh</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO_ROOT__/scripts/refresh_and_publish.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>1</integer>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__LOG_OUT__</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_ERR__</string>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+    <key>MCP_TRUST_SITE_BASE_URL</key>
+    <string>https://mcp-trust.example</string>
+  </dict>
+</dict>
+</plist>
