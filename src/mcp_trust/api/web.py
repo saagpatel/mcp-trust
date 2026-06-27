@@ -194,8 +194,23 @@ def _header() -> str:
     )
 
 
-def _page(title: str, body: str) -> str:
+def _banner(text: str) -> str:
+    """Render a prominent, full-width warning strip below the header.
+
+    Used to label the page's data provenance (e.g. demo/stub data) so a reader
+    can never mistake a synthetic grade for a real scan. *text* is treated as
+    untrusted and escaped.
+    """
+    return (
+        '<div role="alert" style="background:#fff3cd;border-bottom:2px solid #e0a800;'
+        "color:#664d03;padding:0.65rem 1.5rem;font-size:0.85rem;text-align:center;"
+        f'font-weight:500">{escape(text)}</div>'
+    )
+
+
+def _page(title: str, body: str, *, banner: str | None = None) -> str:
     escaped_title = escape(title)
+    banner_html = _banner(banner) if banner else ""
     return (
         "<!doctype html>"
         '<html lang="en">'
@@ -207,6 +222,7 @@ def _page(title: str, body: str) -> str:
         "</head>"
         "<body>"
         f"{_header()}"
+        f"{banner_html}"
         f"{body}"
         "</body>"
         "</html>"
@@ -235,7 +251,7 @@ def _transparency_chip(level: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def render_catalog(rows: list[dict]) -> str:
+def render_catalog(rows: list[dict], *, banner: str | None = None) -> str:
     """Render the full catalog HTML page.
 
     Parameters
@@ -298,7 +314,7 @@ def render_catalog(rows: list[dict]) -> str:
         "</table>"
         "</main>"
     )
-    return _page("MCP Trust Registry — Catalog", body)
+    return _page("MCP Trust Registry — Catalog", body, banner=banner)
 
 
 def render_detail(
@@ -306,6 +322,7 @@ def render_detail(
     record: ScanRecord | None,
     *,
     base_url: str,
+    banner: str | None = None,
 ) -> str:
     """Render the detail page for one server.
 
@@ -393,12 +410,19 @@ def render_detail(
         )
 
     if homepage:
-        hp = escape(str(homepage))
+        hp = str(homepage)
+        hp_esc = escape(hp)
+        # Only http(s) homepages become clickable links. A non-web scheme such as
+        # ``javascript:`` would survive html.escape() untouched and execute on
+        # click, so render it as inert escaped text instead — never an href.
+        scheme = hp.split(":", 1)[0].lower() if ":" in hp else ""
+        link = (
+            f'<a href="{hp_esc}" rel="noopener noreferrer">{hp_esc}</a>'
+            if scheme in ("http", "https")
+            else hp_esc
+        )
         hero += (
-            '<div class="meta-item">'
-            '<div class="meta-label">Homepage</div>'
-            f'<div><a href="{hp}" rel="noopener noreferrer">{hp}</a></div>'
-            "</div>"
+            f'<div class="meta-item"><div class="meta-label">Homepage</div><div>{link}</div></div>'
         )
 
     hero += "</div>"  # close meta-row
@@ -485,7 +509,7 @@ def render_detail(
     body = (
         f"<main>{back}<div style='margin-top:1rem'>{hero}</div>{badge_box}{findings_section}</main>"
     )
-    return _page(f"MCP Trust — {server.name}", body)
+    return _page(f"MCP Trust — {server.name}", body, banner=banner)
 
 
 def render_not_found(slug: str) -> str:

@@ -31,6 +31,12 @@ _DB_HELP = "Path to the SQLite database file."
 _DB_ENV = "MCP_TRUST_DB"
 _DB_DEFAULT = "./mcp-trust.db"
 
+_SITE_OUT_DEFAULT = "./site"
+_SITE_BASE_URL_ENV = "MCP_TRUST_SITE_BASE_URL"
+# Placeholder base URL: badge embeds only resolve once deployed at the real host,
+# so building with this default emits a warning rather than implying a live URL.
+_PLACEHOLDER_BASE_URL = "https://mcp-trust.example"
+
 
 def _open_db(db_path: str) -> tuple[sqlite3.Connection, ServerRepository, ScanRepository]:
     conn = connect(db_path)
@@ -140,6 +146,47 @@ def serve(
     # Pass DB path via environment so the module-level app picks it up.
     os.environ[_DB_ENV] = str(Path(db).resolve())
     uvicorn.run("mcp_trust.api.app:app", host=host, port=port)
+
+
+@app.command(name="build-site")
+def build_site(
+    out: Annotated[
+        str,
+        typer.Option("--out", help="Output directory for the generated static site."),
+    ] = _SITE_OUT_DEFAULT,
+    base_url: Annotated[
+        str,
+        typer.Option(
+            "--base-url",
+            envvar=_SITE_BASE_URL_ENV,
+            help="Absolute deployment URL used for badge-embed snippets.",
+        ),
+    ] = _PLACEHOLDER_BASE_URL,
+    db: Annotated[
+        str,
+        typer.Option("--db", envvar=_DB_ENV, help=_DB_HELP),
+    ] = _DB_DEFAULT,
+) -> None:
+    """Generate the static catalog site from the registry database.
+
+    Read-only with respect to scanned servers: reads the database and writes
+    HTML/JSON files. Grades from the stub engine are labelled as demo data.
+    """
+    from mcp_trust.site.generator import generate_site  # noqa: PLC0415
+
+    conn, _, _ = _open_db(db)
+    build = generate_site(conn, out, base_url=base_url)
+
+    typer.echo(
+        f"Built static site for {build.server_count} server(s) "
+        f"({build.scanned_count} scanned) → {build.out_dir} "
+        f"[{len(build.pages)} files]."
+    )
+    if base_url == _PLACEHOLDER_BASE_URL:
+        typer.echo(
+            "Note: using the placeholder --base-url; badge embeds resolve only "
+            f"once deployed at the real host (set {_SITE_BASE_URL_ENV} or --base-url).",
+        )
 
 
 # ---------------------------------------------------------------------------

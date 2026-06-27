@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord, TrustGrade
+from mcp_trust.core.provenance import is_real_engine
 from mcp_trust.engine.base import ScanEngine, ScanError
 from mcp_trust.receipts import write_scan_receipt
 from mcp_trust.store.db import connect, init_schema
@@ -34,7 +35,6 @@ _BADGE_COLORS: dict[str, str] = {
 }
 
 
-_REAL_ENGINE_NAMES = {"mcpaudit"}
 _SCAN_TOKEN_ENV = "MCP_TRUST_SCAN_TOKEN"
 _SCAN_TOKEN_HEADER = "x-mcp-trust-scan-token"
 _PUBLIC_READONLY_ENV = "MCP_TRUST_PUBLIC_READONLY"
@@ -52,7 +52,7 @@ class ServerSummary(BaseModel):
 
 
 def _is_real_scan_engine(engine: ScanEngine) -> bool:
-    return str(getattr(engine, "name", "")).lower() in _REAL_ENGINE_NAMES
+    return is_real_engine(str(getattr(engine, "name", "")))
 
 
 def _env_flag(name: str) -> bool:
@@ -72,8 +72,7 @@ def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
         raise HTTPException(
             status_code=403,
             detail=(
-                "Scan triggering is disabled in public read-only mode "
-                f"({_PUBLIC_READONLY_ENV}=1)."
+                f"Scan triggering is disabled in public read-only mode ({_PUBLIC_READONLY_ENV}=1)."
             ),
         )
 
@@ -84,10 +83,7 @@ def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
     if not expected:
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Scan triggering is disabled until "
-                f"{_SCAN_TOKEN_ENV} is configured."
-            ),
+            detail=(f"Scan triggering is disabled until {_SCAN_TOKEN_ENV} is configured."),
         )
 
     presented = _presented_scan_token(request)
