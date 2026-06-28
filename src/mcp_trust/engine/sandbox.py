@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,10 @@ class DockerSandbox:
     workdir: str = "/scan"
     tmpfs_size: str = "64m"
     user: str | None = None
+    # Non-functional dummy credentials for the credentialed-sandboxed scan mode,
+    # injected as ``-e KEY=VALUE`` so they live only inside the container, never
+    # the host env. Only ever set with network off (the engine enforces this).
+    env: dict[str, str] = field(default_factory=dict)
 
     name: ClassVar[str] = "docker"
 
@@ -110,6 +114,11 @@ class DockerSandbox:
         ]
         if self.user:
             docker_args += ["--user", self.user]
+        # Container-scoped dummy credentials (credentialed-sandboxed mode). Safe
+        # only because the network is off; the engine refuses to populate this
+        # otherwise.
+        for key, value in self.env.items():
+            docker_args += ["--env", f"{key}={value}"]
         docker_args += [self.image, command, *args]
         return "docker", docker_args
 

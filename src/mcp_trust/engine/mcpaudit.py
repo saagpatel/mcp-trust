@@ -27,15 +27,68 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from mcp_trust.core.models import Finding, RiskSummary, ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
-from mcp_trust.engine.sandbox import Sandbox, select_sandbox
+from mcp_trust.engine.credentials import build_dummy_env
+from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
 
 logger = logging.getLogger(__name__)
+
+# Opt-in credentialed-sandboxed scan mode: inject non-functional dummy values for
+# a server's required secret env keys so the cloud-API tier reaches tool
+# enumeration. "none" (default) leaves env empty; "dummy" enables injection.
+_CREDENTIALS_ENV = "MCP_TRUST_SCAN_CREDENTIALS"
+
+
+def _credentials_mode() -> str:
+    return os.environ.get(_CREDENTIALS_ENV, "none").lower()
+
+
+def _apply_dummy_credentials(sandbox: Sandbox, source: ServerSource) -> None:
+    """Inject dummy credentials for *source*'s env_keys when credentialed mode is on.
+
+    Safety invariant: dummy credentials run ONLY inside the docker sandbox with
+    network off. Injecting them while running untrusted code on the host, or with
+    a reachable network (where a real-looking token could authenticate or
+    exfiltrate), is refused. Remote (HTTP/SSE) sources connect over the live
+    network outside the sandbox, so credentialed mode does not apply to them and
+    is refused rather than silently producing a misleading "network-off" receipt.
+    No-op when the mode is off or the server needs no credentials — but a reused
+    sandbox is always reset first, so it never carries a prior scan's credentials
+    into a later (possibly no-credential) scan.
+    """
+    # Reset any prior scan's dummy env up front. Without this, the early-return
+    # paths below (mode off / no env_keys) would leave a reused sandbox emitting
+    # the previous server's --env flags.
+    if isinstance(sandbox, DockerSandbox):
+        sandbox.env = {}
+    if _credentials_mode() != "dummy" or not source.env_keys:
+        return
+    if source.kind == SourceKind.REMOTE:
+        raise ScanError(
+            "credentialed scan (MCP_TRUST_SCAN_CREDENTIALS=dummy) applies to sandboxed "
+            "stdio servers only; a remote endpoint connects over the live network and "
+            "no credentials are injected into the sandbox."
+        )
+    if not isinstance(sandbox, DockerSandbox):
+        raise ScanError(
+            "credentialed scan (MCP_TRUST_SCAN_CREDENTIALS=dummy) requires the docker "
+            "sandbox; refusing to inject credentials while running on the host."
+        )
+    if sandbox.network != "none":
+        raise ScanError(
+            "credentialed scan requires network-off (MCP_TRUST_SANDBOX_NETWORK=none); "
+            "refusing to inject credentials with a reachable network."
+        )
+    # Assign the fresh dummy env (the sandbox was reset above, so this never
+    # accumulates across scans).
+    sandbox.env = build_dummy_env(source.env_keys)
+
 
 _T = TypeVar("_T")
 
@@ -128,6 +181,7 @@ class MCPAuditEngine:
                 f"Sandbox {sandbox.name!r} is not available on this host "
                 "(is docker installed and running?)."
             )
+        _apply_dummy_credentials(sandbox, source)
 
         cfg = self._build_config(source, ServerConfig, ClientType, TransportType, sandbox)
 
