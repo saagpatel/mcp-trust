@@ -1,0 +1,2373 @@
+{
+  "schema_version": 1,
+  "generated_from_scan_at": "2026-06-28T15:28:19.986650+00:00",
+  "server_count": 15,
+  "servers": [
+    {
+      "slug": "mcp-archived-aws-kb-retrieval",
+      "name": "AWS KB Retrieval (archived)",
+      "description": "Archived official reference server for AWS Bedrock knowledge-base retrieval. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/aws-kb-retrieval-server",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 8.22,
+      "dimensions": {
+        "file_access": 0.6,
+        "network_access": 1.5,
+        "shell_execution": 2.7,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "high",
+          "category": "shell_execution"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
+        "env_keys": [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "AWS_REGION"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-brave-search",
+      "name": "Brave Search (archived)",
+      "description": "Archived official reference server for Brave Search web and local queries. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/brave-search",
+      "grade": "C",
+      "transparency": "low",
+      "danger_score": 3.54,
+      "dimensions": {
+        "file_access": 1.2,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-brave-search",
+        "env_keys": [
+          "BRAVE_API_KEY"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-everart",
+      "name": "EverArt (archived)",
+      "description": "Archived official reference server for EverArt AI image generation. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart",
+      "grade": "B",
+      "transparency": "low",
+      "danger_score": 2.82,
+      "dimensions": {
+        "file_access": 0.6,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-everart",
+        "env_keys": [
+          "EVERART_API_KEY"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-github",
+      "name": "GitHub (archived)",
+      "description": "Archived official reference server for GitHub repository, issue, and pull-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/github",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 8.76,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 1.8,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-github",
+        "env_keys": [
+          "GITHUB_PERSONAL_ACCESS_TOKEN"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-gitlab",
+      "name": "GitLab (archived)",
+      "description": "Archived official reference server for GitLab project, issue, and merge-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gitlab",
+      "grade": "D",
+      "transparency": "low",
+      "danger_score": 5.16,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-gitlab",
+        "env_keys": [
+          "GITLAB_PERSONAL_ACCESS_TOKEN"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-google-maps",
+      "name": "Google Maps (archived)",
+      "description": "Archived official reference server for Google Maps geocoding, places, and directions. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/google-maps",
+      "grade": "C",
+      "transparency": "low",
+      "danger_score": 4.26,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-google-maps",
+        "env_keys": [
+          "GOOGLE_MAPS_API_KEY"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-slack",
+      "name": "Slack (archived)",
+      "description": "Archived official reference server for Slack channel, message, and user operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/slack",
+      "grade": "D",
+      "transparency": "low",
+      "danger_score": 4.44,
+      "dimensions": {
+        "file_access": 1.2,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-slack",
+        "env_keys": [
+          "SLACK_BOT_TOKEN",
+          "SLACK_TEAM_ID"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-sqlite",
+      "name": "SQLite (archived)",
+      "description": "Archived official reference server for SQLite database queries and analysis. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://pypi.org/project/mcp-server-sqlite/",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 9.66,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 2.7,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "high",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "high",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        }
+      ],
+      "source": {
+        "kind": "pypi",
+        "reference": "mcp-server-sqlite",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-everything",
+      "name": "MCP Reference Everything",
+      "description": "Reference MCP test server exposing broad prompts, resources, and tools for client and scanner validation.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/everything",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 7.74,
+      "dimensions": {
+        "file_access": 1.2,
+        "network_access": 1.5,
+        "shell_execution": 1.8,
+        "destructive": 2.0,
+        "exfiltration": 1.5
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-everything",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-fetch",
+      "name": "MCP Reference Fetch",
+      "description": "Reference server that fetches URLs and converts web content to Markdown.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+      "grade": "B",
+      "transparency": "low",
+      "danger_score": 2.1,
+      "dimensions": {
+        "file_access": 0.0,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "source": {
+        "kind": "pypi",
+        "reference": "mcp-server-fetch",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-filesystem",
+      "name": "MCP Reference Filesystem",
+      "description": "Reference server for controlled filesystem read/write access within an approved root.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "grade": "D",
+      "transparency": "high",
+      "danger_score": 6.66,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 0.9,
+        "destructive": 2.0,
+        "exfiltration": 1.5
+      },
+      "annotation_coverage": 1.0,
+      "findings": [
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "low",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-filesystem",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-git",
+      "name": "MCP Reference Git",
+      "description": "Reference server exposing Git repository tools against a disposable fixture repo.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+      "grade": "B",
+      "transparency": "high",
+      "danger_score": 2.76,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 0.0,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 1.0,
+      "findings": [
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        }
+      ],
+      "source": {
+        "kind": "pypi",
+        "reference": "mcp-server-git",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-memory",
+      "name": "MCP Reference Memory",
+      "description": "Reference knowledge graph memory server for entities, relations, and observations.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+      "grade": "C",
+      "transparency": "low",
+      "danger_score": 4.26,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-memory",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-sequential-thinking",
+      "name": "MCP Reference Sequential Thinking",
+      "description": "Reference reasoning helper server for structured multi-step thinking.",
+      "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 8.46,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 1.8,
+        "destructive": 2.0,
+        "exfiltration": 1.5
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        }
+      ],
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-sequential-thinking",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "mcp-reference-time",
+      "name": "MCP Reference Time",
+      "description": "Reference server for current time and timezone conversion.",
+      "homepage": "https://pypi.org/project/mcp-server-time/",
+      "grade": "A",
+      "transparency": "high",
+      "danger_score": 1.2,
+      "dimensions": {
+        "file_access": 1.0,
+        "network_access": 0.0,
+        "shell_execution": 0.0,
+        "destructive": 0.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 1.0,
+      "findings": [
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        }
+      ],
+      "source": {
+        "kind": "pypi",
+        "reference": "mcp-server-time",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    }
+  ]
+}

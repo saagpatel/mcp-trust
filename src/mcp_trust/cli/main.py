@@ -148,6 +148,18 @@ def serve(
     uvicorn.run("mcp_trust.api.app:app", host=host, port=port)
 
 
+@app.command(name="mcp-serve")
+def mcp_serve() -> None:
+    """Serve the trust catalog as a read-only MCP server over stdio.
+
+    Reads the baked catalog snapshot (no database needed), so it runs anywhere
+    via `uvx mcp-trust mcp-serve`. Distinct from `serve`, which is the HTTP API.
+    """
+    from mcp_trust.mcp_server import run  # noqa: PLC0415
+
+    run()
+
+
 @app.command(name="build-site")
 def build_site(
     out: Annotated[
