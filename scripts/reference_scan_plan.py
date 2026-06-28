@@ -20,6 +20,10 @@ SANDBOX_ENV = {
     "MCP_TRUST_SANDBOX": "docker",
     "MCP_TRUST_SANDBOX_NETWORK": "none",
     "MCP_TRUST_SANDBOX_IMAGE": IMAGE_TAG,
+    # Required for the credentialed cohort (gitlab/slack/brave-search/google-maps/
+    # everart) to enumerate; a no-op for servers without env_keys, so it is safe to
+    # set for the whole corpus run.
+    "MCP_TRUST_SCAN_CREDENTIALS": "dummy",
 }
 
 
