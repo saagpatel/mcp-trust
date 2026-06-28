@@ -1,5 +1,7 @@
 # MCP Trust Registry
 
+<!-- mcp-name: io.github.saagpatel/mcp-trust -->
+
 [![CI](https://github.com/saagpatel/mcp-trust/actions/workflows/ci.yml/badge.svg)](https://github.com/saagpatel/mcp-trust/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -9,6 +11,23 @@
 **Live:** [mcp-trust.vercel.app](https://mcp-trust.vercel.app)
 
 > **Not yet published to PyPI.** Install from source using the Quickstart below.
+
+## Use as an MCP server
+
+`mcp-trust` runs as a read-only MCP server so an agent can check a server's
+danger grade *before connecting* — it serves a baked snapshot of real,
+sandboxed grades, so no database or network is needed.
+
+```bash
+mcp-trust mcp-serve          # from a source/dev install (works today)
+uvx mcp-trust mcp-serve      # once published to PyPI
+```
+
+| Tool | Description |
+|---|---|
+| `list_servers` | Every graded MCP server with its A-F grade, transparency, and danger score. |
+| `check_server` | Full grade, risk dimensions, and findings for one server by slug. |
+| `get_methodology` | How the A-F grade and transparency axis are computed, plus the honesty model. |
 
 Connecting an MCP server hands it influence over what your agent does. Tool
 poisoning, prompt injection, over-broad permissions, and rug-pull tool
