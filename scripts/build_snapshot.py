@@ -21,6 +21,7 @@ import sqlite3
 from pathlib import Path
 
 from mcp_trust.core import grading
+from mcp_trust.core.provenance import is_real_engine
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
 _OUT = Path(__file__).resolve().parents[1] / "src" / "mcp_trust" / "catalog_snapshot.json"
@@ -38,8 +39,11 @@ def build_snapshot(db_path: str) -> dict[str, object]:
     newest = ""
     for server in sorted(server_repo.list(), key=lambda s: s.slug):
         scan = latest.get(server.slug)
-        if scan is None:
-            continue  # no real grade on record -> never serve a letter
+        # Provenance boundary (core.provenance): bake ONLY real scans. A missing
+        # scan, the deterministic stub engine, or any unrecognised engine must
+        # never be served as a real public letter grade.
+        if scan is None or not is_real_engine(scan.engine_name):
+            continue
         risk = scan.risk
         scanned_at = scan.scanned_at.isoformat()
         newest = max(newest, scanned_at)

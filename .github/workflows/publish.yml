@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
+      contents: read   # checkout needs read on this (private) repo
       id-token: write  # OIDC trusted publishing
 
     steps:
