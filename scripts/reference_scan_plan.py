@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-IMAGE_TAG = "mcp-trust-scan:corpus-2026-06-27"
+IMAGE_TAG = "mcp-trust-scan:corpus-2026-06-28"
 
 SANDBOX_ENV = {
     "MCP_TRUST_ENGINE": "mcpaudit",
@@ -156,11 +156,10 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
     # --- Archived official servers (corpus expansion 2026-06-27) -------------
     # Moved to modelcontextprotocol/servers-archived; no longer maintained.
     # Network-off scans validate launch + tool enumeration only. This batch is
-    # the subset that ACTUALLY enumerates offline. Excluded because they exit at
-    # boot without credentials / a live backing service (verified 2026-06-27,
-    # all ScanError: connection failed): gitlab, slack, brave-search,
-    # google-maps, everart (token/API-key gated) and postgres, redis (need a
-    # reachable server). Re-add them if a credential-injecting scan mode lands.
+    # the subset that enumerates offline with NO credentials. The token/API-key
+    # gated archived servers (gitlab, slack, brave-search, google-maps, everart)
+    # are scanned via the credentialed-sandboxed mode below. postgres/redis stay
+    # out: they need a reachable backing service, not just a token.
     ReferenceScanCandidate(
         slug="mcp-archived-github",
         name="GitHub (archived)",
@@ -205,6 +204,88 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         args=("--db-path", "/scan/probe.db"),
         homepage="https://pypi.org/project/mcp-server-sqlite/",
         notes="Archived; creates a throwaway DB under the Docker tmpfs to enumerate.",
+    ),
+    # --- Credentialed-sandboxed archived servers (corpus expansion 2026-06-28) -
+    # Token/API-key gated. Scanned network-off with NON-FUNCTIONAL dummy values
+    # (MCP_TRUST_SCAN_CREDENTIALS=dummy) so they pass startup presence/format
+    # checks and enumerate their real tool surface; no value can authenticate
+    # because the network is off. A server that validates its token against a
+    # live API at boot will still fail closed (honest).
+    ReferenceScanCandidate(
+        slug="mcp-archived-gitlab",
+        name="GitLab (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-gitlab",
+        command="mcp-server-gitlab",
+        description=(
+            "Archived official reference server for GitLab project, issue, and "
+            "merge-request operations. Moved to modelcontextprotocol/servers-archived "
+            "and no longer actively maintained."
+        ),
+        env_keys=("GITLAB_PERSONAL_ACCESS_TOKEN",),
+        optional_env_keys=("GITLAB_API_URL",),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gitlab",
+        notes="Credentialed-sandboxed; dummy token to enumerate, network-off.",
+    ),
+    ReferenceScanCandidate(
+        slug="mcp-archived-slack",
+        name="Slack (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-slack",
+        command="mcp-server-slack",
+        description=(
+            "Archived official reference server for Slack channel, message, and user "
+            "operations. Moved to modelcontextprotocol/servers-archived and no longer "
+            "actively maintained."
+        ),
+        env_keys=("SLACK_BOT_TOKEN", "SLACK_TEAM_ID"),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/slack",
+        notes="Credentialed-sandboxed; dummy token to enumerate, network-off.",
+    ),
+    ReferenceScanCandidate(
+        slug="mcp-archived-brave-search",
+        name="Brave Search (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-brave-search",
+        command="mcp-server-brave-search",
+        description=(
+            "Archived official reference server for Brave Search web and local "
+            "queries. Moved to modelcontextprotocol/servers-archived and no longer "
+            "actively maintained."
+        ),
+        env_keys=("BRAVE_API_KEY",),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/brave-search",
+        notes="Credentialed-sandboxed; dummy API key to enumerate, network-off.",
+    ),
+    ReferenceScanCandidate(
+        slug="mcp-archived-google-maps",
+        name="Google Maps (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-google-maps",
+        command="mcp-server-google-maps",
+        description=(
+            "Archived official reference server for Google Maps geocoding, places, "
+            "and directions. Moved to modelcontextprotocol/servers-archived and no "
+            "longer actively maintained."
+        ),
+        env_keys=("GOOGLE_MAPS_API_KEY",),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/google-maps",
+        notes="Credentialed-sandboxed; dummy API key to enumerate, network-off.",
+    ),
+    ReferenceScanCandidate(
+        slug="mcp-archived-everart",
+        name="EverArt (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-everart",
+        command="mcp-server-everart",
+        description=(
+            "Archived official reference server for EverArt AI image generation. "
+            "Moved to modelcontextprotocol/servers-archived and no longer actively "
+            "maintained."
+        ),
+        env_keys=("EVERART_API_KEY",),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart",
+        notes="Credentialed-sandboxed; dummy API key to enumerate, network-off.",
     ),
 )
 
