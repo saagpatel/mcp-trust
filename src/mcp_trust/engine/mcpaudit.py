@@ -58,8 +58,15 @@ def _apply_dummy_credentials(sandbox: Sandbox, source: ServerSource) -> None:
     exfiltrate), is refused. Remote (HTTP/SSE) sources connect over the live
     network outside the sandbox, so credentialed mode does not apply to them and
     is refused rather than silently producing a misleading "network-off" receipt.
-    No-op when the mode is off or the server needs no credentials.
+    No-op when the mode is off or the server needs no credentials — but a reused
+    sandbox is always reset first, so it never carries a prior scan's credentials
+    into a later (possibly no-credential) scan.
     """
+    # Reset any prior scan's dummy env up front. Without this, the early-return
+    # paths below (mode off / no env_keys) would leave a reused sandbox emitting
+    # the previous server's --env flags.
+    if isinstance(sandbox, DockerSandbox):
+        sandbox.env = {}
     if _credentials_mode() != "dummy" or not source.env_keys:
         return
     if source.kind == SourceKind.REMOTE:
@@ -78,8 +85,8 @@ def _apply_dummy_credentials(sandbox: Sandbox, source: ServerSource) -> None:
             "credentialed scan requires network-off (MCP_TRUST_SANDBOX_NETWORK=none); "
             "refusing to inject credentials with a reachable network."
         )
-    # Overwrite (never merge): each scan gets exactly its own server's dummy env,
-    # so a reused sandbox can't accumulate keys across scans.
+    # Assign the fresh dummy env (the sandbox was reset above, so this never
+    # accumulates across scans).
     sandbox.env = build_dummy_env(source.env_keys)
 
 

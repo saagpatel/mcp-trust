@@ -45,7 +45,16 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
         "Low transparency means cannot verify safe, not known dangerous.",
         "Network-off sandboxing may suppress behavior that requires live egress.",
     ]
-    if os.environ.get(_CREDENTIALS_MODE_ENV, "none").lower() == "dummy":
+    # Gate the caveat on ACTUAL injection, not just the global mode: credentials
+    # are only injected for a server that declares env_keys, scanned by the real
+    # engine (the stub never launches a sandbox). Without this, a no-credential
+    # scan run during a dummy-mode batch would record false provenance.
+    injected_credentials = (
+        os.environ.get(_CREDENTIALS_MODE_ENV, "none").lower() == "dummy"
+        and bool(server.source.env_keys)
+        and scan.engine_name == "mcpaudit"
+    )
+    if injected_credentials:
         caveats.append(
             "Scanned with injected non-functional dummy credentials (network-off): "
             "the enumerated tool surface is real; no live authentication or egress "
