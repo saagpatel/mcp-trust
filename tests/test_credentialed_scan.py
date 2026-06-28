@@ -134,6 +134,27 @@ def test_credentials_dummy_overwrites_not_accumulates(monkeypatch: pytest.Monkey
     assert set(sb.env) == {"SLACK_BOT_TOKEN"}
 
 
+def test_credentials_clears_stale_env_on_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A reused sandbox must shed prior dummy creds on a later no-op scan, or it
+    # would emit the previous server's --env flags.
+    monkeypatch.setenv("MCP_TRUST_SCAN_CREDENTIALS", "dummy")
+    sb = DockerSandbox()
+    _apply_dummy_credentials(sb, _src())
+    assert sb.env  # populated by the credentialed scan
+
+    # Mode turned off on the next scan -> stale env cleared.
+    monkeypatch.delenv("MCP_TRUST_SCAN_CREDENTIALS", raising=False)
+    _apply_dummy_credentials(sb, _src())
+    assert sb.env == {}
+
+    # Re-inject, then a source with no env_keys (mode on) -> also cleared.
+    monkeypatch.setenv("MCP_TRUST_SCAN_CREDENTIALS", "dummy")
+    _apply_dummy_credentials(sb, _src())
+    assert sb.env
+    _apply_dummy_credentials(sb, ServerSource(kind=SourceKind.NPM, reference="x"))
+    assert sb.env == {}
+
+
 # --- receipt honesty -----------------------------------------------------------
 
 
@@ -178,4 +199,35 @@ def test_receipt_records_credentialed_caveat_not_values(monkeypatch: pytest.Monk
 def test_receipt_has_no_credentialed_caveat_when_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MCP_TRUST_SCAN_CREDENTIALS", raising=False)
     receipt = build_scan_receipt(_server(), _scan())
+    assert not any("dummy credentials" in c for c in receipt["caveats"])
+
+
+def test_receipt_no_caveat_for_no_envkeys_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Dummy mode on, but this server declares no env_keys -> nothing was injected,
+    # so the receipt must not claim credentials were.
+    monkeypatch.setenv("MCP_TRUST_SCAN_CREDENTIALS", "dummy")
+    server = Server(
+        slug="no-creds",
+        name="No Creds",
+        source=ServerSource(kind=SourceKind.NPM, reference="@acme/server"),
+        added_at=datetime(2026, 6, 28),
+    )
+    receipt = build_scan_receipt(server, _scan())
+    assert not any("dummy credentials" in c for c in receipt["caveats"])
+
+
+def test_receipt_no_caveat_for_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Dummy mode on and the server has env_keys, but the stub engine never launches
+    # a sandbox, so no injection happened -> no caveat.
+    monkeypatch.setenv("MCP_TRUST_SCAN_CREDENTIALS", "dummy")
+    stub_scan = ScanRecord(
+        id="cafef00d",
+        server_slug="acme-server",
+        engine_name="stub",
+        engine_version="0",
+        grade=TrustGrade.C,
+        risk=RiskSummary(composite=5.0),
+        scanned_at=datetime(2026, 6, 28),
+    )
+    receipt = build_scan_receipt(_server(), stub_scan)
     assert not any("dummy credentials" in c for c in receipt["caveats"])
