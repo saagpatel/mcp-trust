@@ -18,10 +18,14 @@ from mcp_trust.core.models import ScanRecord, Server
 _RECEIPTS_DIR_ENV = "MCP_TRUST_RECEIPTS_DIR"
 _SCAN_APPROVAL_REF_ENV = "MCP_TRUST_SCAN_APPROVAL_REF"
 _SCANNER_GIT_REF_ENV = "MCP_TRUST_SCANNER_GIT_REF"
+_CREDENTIALS_MODE_ENV = "MCP_TRUST_SCAN_CREDENTIALS"
 _SANDBOX_ENV_KEYS = (
     "MCP_TRUST_SANDBOX",
     "MCP_TRUST_SANDBOX_IMAGE",
     "MCP_TRUST_SANDBOX_NETWORK",
+    # The credentialed-scan MODE name (e.g. "dummy") is provenance, not a secret;
+    # dummy credential VALUES live only in the container and are never recorded.
+    _CREDENTIALS_MODE_ENV,
 )
 
 
@@ -35,6 +39,18 @@ def receipts_dir_from_env() -> Path | None:
 
 def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
     """Build the public proof packet for one persisted scan."""
+    caveats = [
+        "Automated scan output is not an endorsement.",
+        "Danger grade and transparency are separate signals.",
+        "Low transparency means cannot verify safe, not known dangerous.",
+        "Network-off sandboxing may suppress behavior that requires live egress.",
+    ]
+    if os.environ.get(_CREDENTIALS_MODE_ENV, "none").lower() == "dummy":
+        caveats.append(
+            "Scanned with injected non-functional dummy credentials (network-off): "
+            "the enumerated tool surface is real; no live authentication or egress "
+            "occurred, and dummy credential values are never recorded."
+        )
     return {
         "format_version": 1,
         "scan_id": scan.id,
@@ -51,12 +67,7 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
         "approval": {
             "approval_ref": os.environ.get(_SCAN_APPROVAL_REF_ENV),
         },
-        "caveats": [
-            "Automated scan output is not an endorsement.",
-            "Danger grade and transparency are separate signals.",
-            "Low transparency means cannot verify safe, not known dangerous.",
-            "Network-off sandboxing may suppress behavior that requires live egress.",
-        ],
+        "caveats": caveats,
     }
 
 
