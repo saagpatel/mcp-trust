@@ -6,6 +6,8 @@
 > Check before you connect. A neutral, public danger grade for the MCP servers
 > your AI agents rely on.
 
+**Live:** [mcp-trust.vercel.app](https://mcp-trust.vercel.app)
+
 > **Not yet published to PyPI.** Install from source using the Quickstart below.
 
 Connecting an MCP server hands it influence over what your agent does. Tool
@@ -96,14 +98,20 @@ archive a JSON receipt for each scan and store its portable artifact filename in
 
 ## Status
 
-Pre-release. Built and tested end-to-end through the deterministic StubEngine path:
-catalog -> scan -> danger grade + transparency -> persist -> serve, plus the public
-web catalog/detail pages and the README badge-embed loop. The bundled seed
-catalog uses official reference MCP servers. The live
-`mcp-audits` adapter is implemented behind an optional extra, with real-server
-integration tests gated because they launch MCP server processes. See
+**Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
+generated catalog, regenerated from the local registry. The seven official
+reference MCP servers carry real `mcp-audits` grades from network-off Docker
+sandbox scans (distribution A/B/B/C/D/F/F). Every grade is labeled by
+provenance, so demo/stub data can never read as a real scan, and an unscanned
+server never shows a letter grade.
+
+The static front door is the low-ops launch path (see
+[`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
+[`deploy/launchd/`](deploy/launchd/) re-scans, rebuilds, and optionally
+redeploys (deploy is opt-in). The live FastAPI service + VM path remains
+documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
-for the remaining public-launch gates.
+for launch history.
 
 ## Contributing
 
