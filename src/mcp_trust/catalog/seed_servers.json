@@ -33,7 +33,9 @@
       "kind": "npm",
       "reference": "@modelcontextprotocol/server-filesystem",
       "command": "mcp-server-filesystem",
-      "args": ["/scan"],
+      "args": [
+        "/scan"
+      ],
       "env_keys": []
     },
     "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
@@ -46,7 +48,10 @@
       "kind": "pypi",
       "reference": "mcp-server-git",
       "command": "mcp-server-git",
-      "args": ["--repository", "/fixtures/repo"],
+      "args": [
+        "--repository",
+        "/fixtures/repo"
+      ],
       "env_keys": []
     },
     "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/git"
@@ -89,5 +94,53 @@
       "env_keys": []
     },
     "homepage": "https://pypi.org/project/mcp-server-time/"
+  },
+  {
+    "slug": "mcp-archived-github",
+    "name": "GitHub (archived)",
+    "description": "Archived official reference server for GitHub repository, issue, and pull-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-github",
+      "command": "mcp-server-github",
+      "args": [],
+      "env_keys": [
+        "GITHUB_PERSONAL_ACCESS_TOKEN"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/github"
+  },
+  {
+    "slug": "mcp-archived-aws-kb-retrieval",
+    "name": "AWS KB Retrieval (archived)",
+    "description": "Archived official reference server for AWS Bedrock knowledge-base retrieval. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
+      "command": "mcp-server-aws-kb-retrieval",
+      "args": [],
+      "env_keys": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/aws-kb-retrieval-server"
+  },
+  {
+    "slug": "mcp-archived-sqlite",
+    "name": "SQLite (archived)",
+    "description": "Archived official reference server for SQLite database queries and analysis. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "pypi",
+      "reference": "mcp-server-sqlite",
+      "command": "mcp-server-sqlite",
+      "args": [
+        "--db-path",
+        "/scan/probe.db"
+      ],
+      "env_keys": []
+    },
+    "homepage": "https://pypi.org/project/mcp-server-sqlite/"
   }
 ]

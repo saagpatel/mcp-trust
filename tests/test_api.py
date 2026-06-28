@@ -92,7 +92,10 @@ def test_list_servers_after_seed(seeded_client) -> None:
     resp = seeded_client.get("/servers")
     assert resp.status_code == 200
     items = resp.json()
-    assert len(items) == 7
+    # The catalog reflects the bundled seed (reference + scannable-archived cohorts).
+    from mcp_trust.catalog.seed import load_seed
+
+    assert len(items) == len(load_seed())
     # Each item must have required fields.
     for item in items:
         assert "slug" in item
