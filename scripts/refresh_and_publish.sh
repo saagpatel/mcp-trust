@@ -49,6 +49,10 @@ export MCP_TRUST_SANDBOX=docker
 export MCP_TRUST_SANDBOX_NETWORK=none
 export MCP_TRUST_SANDBOX_IMAGE="${IMAGE}"
 export MCP_TRUST_RECEIPTS_DIR="${RECEIPTS}"
+# Credentialed-sandboxed servers (gitlab/slack/brave-search/google-maps/everart)
+# need non-functional dummy values to enumerate network-off; a no-op for servers
+# without env_keys. Without this the refresh would regress those grades to errors.
+export MCP_TRUST_SCAN_CREDENTIALS="${MCP_TRUST_SCAN_CREDENTIALS:-dummy}"
 
 # Seed if empty, then re-scan every catalog server (real, sandboxed, persisted).
 uv run mcp-trust seed >/dev/null
