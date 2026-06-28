@@ -41,18 +41,27 @@ RUN uv tool install --python python3 "mcp-server-fetch==${SERVER_FETCH_VERSION}"
 
 # --- Archived official reference servers (corpus expansion 2026-06-27) ---
 # Moved to modelcontextprotocol/servers-archived and no longer maintained.
-# Only the subset that ACTUALLY enumerates network-off is baked (github,
-# aws-kb-retrieval, sqlite). The credential-gated ones (gitlab, slack,
-# brave-search, google-maps, everart) exit at boot without a token, so baking
-# them would be dead weight — re-add if a credential-injecting scan mode lands.
 # Baked because the sandbox blocks registry fetches at scan time (`npx -y` /
 # `uvx` would fail without a pre-installed binary). npm archived releases are
 # frozen so they're unpinned; mcp-server-sqlite is pinned because PyPI is mutable.
+#
+# github, aws-kb-retrieval, sqlite enumerate network-off with NO credentials.
 RUN npm install --global \
     "@modelcontextprotocol/server-github" \
     "@modelcontextprotocol/server-aws-kb-retrieval"
 
 RUN uv tool install --python python3 "mcp-server-sqlite==2025.4.25"
+
+# --- Credentialed-sandboxed archived servers (corpus expansion 2026-06-28) ---
+# Token/API-key gated. Now baked so the credentialed-sandboxed scan mode
+# (MCP_TRUST_SCAN_CREDENTIALS=dummy) can launch them network-off with
+# non-functional dummy values and enumerate their real tool surface.
+RUN npm install --global \
+    "@modelcontextprotocol/server-gitlab" \
+    "@modelcontextprotocol/server-slack" \
+    "@modelcontextprotocol/server-brave-search" \
+    "@modelcontextprotocol/server-google-maps" \
+    "@modelcontextprotocol/server-everart"
 
 RUN mkdir -p /fixtures/repo \
     && git init /fixtures/repo \

@@ -142,5 +142,81 @@
       "env_keys": []
     },
     "homepage": "https://pypi.org/project/mcp-server-sqlite/"
+  },
+  {
+    "slug": "mcp-archived-gitlab",
+    "name": "GitLab (archived)",
+    "description": "Archived official reference server for GitLab project, issue, and merge-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-gitlab",
+      "command": "mcp-server-gitlab",
+      "args": [],
+      "env_keys": [
+        "GITLAB_PERSONAL_ACCESS_TOKEN"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gitlab"
+  },
+  {
+    "slug": "mcp-archived-slack",
+    "name": "Slack (archived)",
+    "description": "Archived official reference server for Slack channel, message, and user operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-slack",
+      "command": "mcp-server-slack",
+      "args": [],
+      "env_keys": [
+        "SLACK_BOT_TOKEN",
+        "SLACK_TEAM_ID"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/slack"
+  },
+  {
+    "slug": "mcp-archived-brave-search",
+    "name": "Brave Search (archived)",
+    "description": "Archived official reference server for Brave Search web and local queries. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-brave-search",
+      "command": "mcp-server-brave-search",
+      "args": [],
+      "env_keys": [
+        "BRAVE_API_KEY"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/brave-search"
+  },
+  {
+    "slug": "mcp-archived-google-maps",
+    "name": "Google Maps (archived)",
+    "description": "Archived official reference server for Google Maps geocoding, places, and directions. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-google-maps",
+      "command": "mcp-server-google-maps",
+      "args": [],
+      "env_keys": [
+        "GOOGLE_MAPS_API_KEY"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/google-maps"
+  },
+  {
+    "slug": "mcp-archived-everart",
+    "name": "EverArt (archived)",
+    "description": "Archived official reference server for EverArt AI image generation. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+    "source": {
+      "kind": "npm",
+      "reference": "@modelcontextprotocol/server-everart",
+      "command": "mcp-server-everart",
+      "args": [],
+      "env_keys": [
+        "EVERART_API_KEY"
+      ]
+    },
+    "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart"
   }
 ]
