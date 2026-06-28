@@ -28,7 +28,7 @@ def test_reference_scan_plan_is_network_off_and_complete() -> None:
     assert payload["sandbox_env"]["MCP_TRUST_ENGINE"] == "mcpaudit"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX"] == "docker"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX_NETWORK"] == "none"
-    assert len(payload["candidates"]) == 7
+    assert len(payload["candidates"]) == 10  # 7 reference + 3 scannable archived
 
     slugs = {candidate["slug"] for candidate in payload["candidates"]}
     assert "mcp-reference-time" in slugs
@@ -71,6 +71,6 @@ def test_reference_scan_shell_plan_is_dry_run_text() -> None:
 
     assert "Dry-run only" in text
     assert "docker build -f Dockerfile.scan" in text
-    assert text.count("mcp-trust scan ") == 7
+    assert text.count("mcp-trust scan ") == 10
     assert "docker run" not in text
     assert "MCP_TRUST_SCAN_TOKEN" not in text

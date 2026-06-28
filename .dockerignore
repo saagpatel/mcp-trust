@@ -1,0 +1,19 @@
+# Dockerfile.scan copies nothing from the build context (only the uv binaries
+# from a build stage), so none of this would reach the image anyway — but keep
+# the context small and never hand the local registry DB / receipts to the
+# Docker daemon.
+.venv/
+.git/
+registry.db
+*.db
+receipts/
+site/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.serena/
+node_modules/
+dist/
+build/

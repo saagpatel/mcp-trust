@@ -27,12 +27,17 @@ def test_seed_happy_path(db_path) -> None:
     result = runner.invoke(app, ["seed", "--db", db_path])
     assert result.exit_code == 0, result.output
     assert "Seeded" in result.output
-    # Current launch seed contains the seven approved reference servers.
+    # Seed bundles the reference + scannable-archived cohorts; assert the reported
+    # count matches the catalog source of truth rather than a magic number.
+    import json
     import re
+    from pathlib import Path
 
+    seed_path = Path(__file__).resolve().parents[1] / "src/mcp_trust/catalog/seed_servers.json"
+    expected = len(json.loads(seed_path.read_text(encoding="utf-8")))
     match = re.search(r"Seeded (\d+) server", result.output)
     assert match is not None
-    assert int(match.group(1)) == 7
+    assert int(match.group(1)) == expected
 
 
 def test_seed_idempotent(db_path) -> None:
@@ -193,8 +198,11 @@ def test_build_site_reports_counts(db_path, tmp_path) -> None:
         ["build-site", "--db", db_path, "--out", str(out), "--base-url", "https://example.test"],
     )
     assert result.exit_code == 0, result.output
-    # Seven seeded servers, none scanned in this test.
-    assert "7" in result.output
+    # Reports the seeded server count (catalog source of truth); none scanned here.
+    from mcp_trust.catalog.seed import load_seed
+
+    assert f"{len(load_seed())} server(s)" in result.output
+    assert "0 scanned" in result.output
 
 
 def test_build_site_warns_on_placeholder_base_url(db_path, tmp_path) -> None:

@@ -1,4 +1,9 @@
-"""Approval-gated reference scan corpus for public-launch preparation.
+"""Approval-gated scan corpus for the public catalog.
+
+Two cohorts share one network-off image: the maintained official *reference*
+servers and the *archived* official servers (moved to
+modelcontextprotocol/servers-archived). ``seed_servers.json`` is the projection
+of this typed plan; a test keeps the two in lockstep.
 
 This module is data-only. Importing it must not open the database, import the
 real engine, start Docker, or launch MCP server processes.
@@ -8,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-IMAGE_TAG = "mcp-trust-scan:reference-2026-06-19"
+IMAGE_TAG = "mcp-trust-scan:corpus-2026-06-27"
 
 SANDBOX_ENV = {
     "MCP_TRUST_ENGINE": "mcpaudit",
@@ -82,8 +87,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         description="Reference server that fetches URLs and converts web content to Markdown.",
         homepage="https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
         notes=(
-            "Network-capable server; network-off scans validate launch and "
-            "tool enumeration only."
+            "Network-capable server; network-off scans validate launch and tool enumeration only."
         ),
     ),
     ReferenceScanCandidate(
@@ -93,8 +97,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         reference="@modelcontextprotocol/server-filesystem",
         command="mcp-server-filesystem",
         description=(
-            "Reference server for controlled filesystem read/write access within an "
-            "approved root."
+            "Reference server for controlled filesystem read/write access within an approved root."
         ),
         args=("/scan",),
         homepage="https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
@@ -107,8 +110,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         reference="mcp-server-git",
         command="mcp-server-git",
         description=(
-            "Reference server exposing Git repository tools against a disposable "
-            "fixture repo."
+            "Reference server exposing Git repository tools against a disposable fixture repo."
         ),
         args=("--repository", "/fixtures/repo"),
         homepage="https://github.com/modelcontextprotocol/servers/tree/main/src/git",
@@ -121,8 +123,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         reference="@modelcontextprotocol/server-memory",
         command="mcp-server-memory",
         description=(
-            "Reference knowledge graph memory server for entities, relations, and "
-            "observations."
+            "Reference knowledge graph memory server for entities, relations, and observations."
         ),
         optional_env_keys=("MEMORY_FILE_PATH",),
         homepage="https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
@@ -151,6 +152,59 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         optional_env_keys=("LOCAL_TIMEZONE",),
         homepage="https://pypi.org/project/mcp-server-time/",
         notes="Expected low-danger anchor for first sandboxed smoke scan.",
+    ),
+    # --- Archived official servers (corpus expansion 2026-06-27) -------------
+    # Moved to modelcontextprotocol/servers-archived; no longer maintained.
+    # Network-off scans validate launch + tool enumeration only. This batch is
+    # the subset that ACTUALLY enumerates offline. Excluded because they exit at
+    # boot without credentials / a live backing service (verified 2026-06-27,
+    # all ScanError: connection failed): gitlab, slack, brave-search,
+    # google-maps, everart (token/API-key gated) and postgres, redis (need a
+    # reachable server). Re-add them if a credential-injecting scan mode lands.
+    ReferenceScanCandidate(
+        slug="mcp-archived-github",
+        name="GitHub (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-github",
+        command="mcp-server-github",
+        description=(
+            "Archived official reference server for GitHub repository, issue, and "
+            "pull-request operations. Moved to modelcontextprotocol/servers-archived "
+            "and no longer actively maintained."
+        ),
+        env_keys=("GITHUB_PERSONAL_ACCESS_TOKEN",),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/github",
+        notes="Archived; tool enumeration expected without a token (calls would fail).",
+    ),
+    ReferenceScanCandidate(
+        slug="mcp-archived-aws-kb-retrieval",
+        name="AWS KB Retrieval (archived)",
+        kind="npm",
+        reference="@modelcontextprotocol/server-aws-kb-retrieval",
+        command="mcp-server-aws-kb-retrieval",
+        description=(
+            "Archived official reference server for AWS Bedrock knowledge-base "
+            "retrieval. Moved to modelcontextprotocol/servers-archived and no longer "
+            "actively maintained."
+        ),
+        env_keys=("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"),
+        homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/aws-kb-retrieval-server",
+        notes="Archived; tool enumeration expected without AWS credentials.",
+    ),
+    ReferenceScanCandidate(
+        slug="mcp-archived-sqlite",
+        name="SQLite (archived)",
+        kind="pypi",
+        reference="mcp-server-sqlite",
+        command="mcp-server-sqlite",
+        description=(
+            "Archived official reference server for SQLite database queries and "
+            "analysis. Moved to modelcontextprotocol/servers-archived and no longer "
+            "actively maintained."
+        ),
+        args=("--db-path", "/scan/probe.db"),
+        homepage="https://pypi.org/project/mcp-server-sqlite/",
+        notes="Archived; creates a throwaway DB under the Docker tmpfs to enumerate.",
     ),
 )
 

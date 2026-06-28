@@ -2,14 +2,16 @@
 """Regenerate the static MCP Trust catalog from the registry database.
 
 This is the low-ops "rebuild the catalog" entrypoint, mirroring the
-portfolio-index static-generator pattern. It runs the full demo pipeline:
+portfolio-index static-generator pattern. It runs:
 
-    seed (if empty) → stub-scan unscanned servers → build static site → verify
+    seed (if empty) → [optional: --demo-fill] → build static site → verify
 
-SAFETY: this pipeline uses the deterministic ``StubEngine`` only. It performs no
-network I/O and never executes an untrusted MCP server. Real, sandboxed scans
-(the ``mcpaudit`` engine) remain an explicit, separately-gated step; the grades
-this script produces are demo data and are labelled as such on every page.
+HONEST BY DEFAULT: the rebuild fabricates no grades. A server with no real scan
+on record is rendered as ``unscanned`` (no letter grade), never invented. The
+deterministic ``StubEngine`` only runs when ``--demo-fill`` is passed (for local
+demos), and every grade it produces is loudly labelled as demo data on every
+page. Real grades come from the separately-gated, sandboxed ``mcpaudit`` engine
+run via ``mcp-trust scan`` before this script — those are preserved untouched.
 
 Usage::
 
@@ -68,7 +70,7 @@ def _stub_scan_unscanned(server_repo: ServerRepository, scan_repo: ScanRepositor
     return scanned
 
 
-def _verify(build, *, servers) -> list[str]:
+def _verify(build, *, servers, scanned_slugs) -> list[str]:
     """Return a list of verification failures (empty == passed)."""
     failures: list[str] = []
     out = build.out_dir
@@ -89,8 +91,15 @@ def _verify(build, *, servers) -> list[str]:
             failures.append(f"detail page missing for {server.slug}")
         if not badge.is_file():
             failures.append(f"badge.json missing for {server.slug}")
-        elif "message" not in json.loads(badge.read_text(encoding="utf-8")):
+            continue
+        message = json.loads(badge.read_text(encoding="utf-8")).get("message")
+        if message is None:
             failures.append(f"badge.json malformed for {server.slug}")
+        elif server.slug not in scanned_slugs and message != "unscanned":
+            # Honesty floor: a server with no scan must never show a letter grade.
+            failures.append(
+                f"{server.slug} has no scan but badge says {message!r}, not 'unscanned'"
+            )
 
     return failures
 
@@ -104,6 +113,15 @@ def main(argv: list[str] | None = None) -> int:
         default=_PLACEHOLDER_BASE_URL,
         help="Absolute deployment URL for badge-embed snippets.",
     )
+    parser.add_argument(
+        "--demo-fill",
+        action="store_true",
+        help=(
+            "Stub-scan any server with no real scan so it gets a (loudly "
+            "labelled) demo grade. For local demos only — OFF by default so the "
+            "production rebuild never fabricates a grade."
+        ),
+    )
     args = parser.parse_args(argv)
 
     with closing(connect(args.db)) as conn:
@@ -115,9 +133,13 @@ def main(argv: list[str] | None = None) -> int:
             seeded = seed_into(server_repo)
             print(f"Seeded {seeded} server(s) into {args.db}.")
 
-        newly_scanned = _stub_scan_unscanned(server_repo, scan_repo)
-        if newly_scanned:
-            print(f"Stub-scanned {newly_scanned} previously-unscanned server(s).")
+        if args.demo_fill:
+            newly_scanned = _stub_scan_unscanned(server_repo, scan_repo)
+            if newly_scanned:
+                print(
+                    f"Stub-scanned {newly_scanned} previously-unscanned server(s) "
+                    "(--demo-fill: grades are demo data, labelled on every page)."
+                )
 
         build = generate_site(conn, args.out, base_url=args.base_url)
         print(
@@ -125,7 +147,11 @@ def main(argv: list[str] | None = None) -> int:
             f"({build.scanned_count} scanned) → {build.out_dir} [{len(build.pages)} files]."
         )
 
-        failures = _verify(build, servers=server_repo.list())
+        failures = _verify(
+            build,
+            servers=server_repo.list(),
+            scanned_slugs=set(scan_repo.latest_all()),
+        )
 
     if failures:
         print("VERIFY FAILED:", file=sys.stderr)
