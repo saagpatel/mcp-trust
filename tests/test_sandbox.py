@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from mcp_trust.core.models import ServerSource, SourceKind
+from mcp_trust.engine.base import ScanError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
 from mcp_trust.engine.sandbox import (
     DockerSandbox,
@@ -109,9 +110,11 @@ def test_engine_resolves_per_server_sandbox_image(monkeypatch: pytest.MonkeyPatc
     assert isinstance(default, DockerSandbox)
     assert default.image == "corpus-default:1"
 
-    # An explicitly injected sandbox always wins (test/CLI injection seam).
+    # An explicitly injected sandbox wins the SANDBOX CHOICE (test/CLI injection
+    # seam) — but trust enforcement still applies, so use a trusted source.
     injected = NoSandbox()
-    assert MCPAuditEngine(sandbox=injected)._resolve_sandbox(pinned) is injected
+    trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)
+    assert MCPAuditEngine(sandbox=injected)._resolve_sandbox(trusted) is injected
 
 
 def test_engine_wraps_launch_through_sandbox() -> None:
@@ -124,3 +127,26 @@ def test_engine_wraps_launch_through_sandbox() -> None:
     wrapped_cmd, wrapped_args = DockerSandbox().wrap(base_cmd, base_args)
     assert wrapped_cmd == "docker"
     assert wrapped_args[-4:] == ["npx", "-y", "@acme/server", "--x"]
+
+
+def test_engine_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fail-closed: an untrusted stdio source with no sandbox (default NoSandbox)
+    # must raise rather than launch third-party code on the host.
+    monkeypatch.delenv("MCP_TRUST_SANDBOX", raising=False)
+    engine = MCPAuditEngine()
+
+    untrusted = ServerSource(kind=SourceKind.NPM, reference="@acme/untrusted")
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        engine._resolve_sandbox(untrusted)
+
+    # An injected NoSandbox cannot bypass the trust gate for an untrusted source.
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        MCPAuditEngine(sandbox=NoSandbox())._resolve_sandbox(untrusted)
+
+    # A trusted source may use NoSandbox — the vetted reference-server flow.
+    trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)
+    assert isinstance(engine._resolve_sandbox(trusted), NoSandbox)
+
+    # A remote (no-launch) source is exempt — no local process is spawned.
+    remote = ServerSource(kind=SourceKind.REMOTE, reference="https://example.com/mcp")
+    assert isinstance(engine._resolve_sandbox(remote), NoSandbox)

@@ -91,7 +91,7 @@ def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("mcp_audit.connector.ServerConnector.connect", fake_connect)
     monkeypatch.setattr("mcp_audit.scorer.RiskScorer.score_server", fake_score)
 
-    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server")
+    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
     with pytest.raises(ScanError, match="unexpected result shape"):
         MCPAuditEngine().scan(src)
 
@@ -104,7 +104,11 @@ def test_integration_scan_reference_server() -> None:
     from mcp_trust.core.grading import grade
     from mcp_trust.core.models import TrustGrade
 
-    src = ServerSource(kind=SourceKind.NPM, reference="@modelcontextprotocol/server-everything")
+    src = ServerSource(
+        kind=SourceKind.NPM,
+        reference="@modelcontextprotocol/server-everything",
+        trusted=True,
+    )
     result = MCPAuditEngine(timeout=60.0).scan(src)
     assert result.engine_name == "mcpaudit"
     assert 0.0 <= result.risk.composite <= 10.0

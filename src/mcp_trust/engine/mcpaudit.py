@@ -18,9 +18,10 @@ SECURITY NOTE: connecting to an MCP server *launches the server process* (e.g.
 ``npx <pkg>``), which runs third-party code. Execution is isolated by a pluggable
 ``Sandbox`` (see ``engine.sandbox``): pass one to the constructor or set
 ``MCP_TRUST_SANDBOX=docker`` to run untrusted servers in a locked-down container.
-The DEFAULT is ``NoSandbox`` (passthrough) to preserve the validated trusted-
-reference-server flow — that default is safe ONLY for servers you trust; scanning
-untrusted servers without ``MCP_TRUST_SANDBOX=docker`` runs their code on the host.
+The sandbox default is ``NoSandbox`` (passthrough), so this engine is FAIL-CLOSED:
+scanning a source that is not marked ``trusted`` without an explicit sandbox raises
+rather than launching third-party code on the host. Only a vetted reference server
+(``ServerSource.trusted=True``) may be scanned on the host via ``NoSandbox``.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ from mcp_trust.core.models import (
 )
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
 from mcp_trust.engine.credentials import build_dummy_env
-from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
+from mcp_trust.engine.sandbox import DockerSandbox, NoSandbox, Sandbox, select_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -198,10 +199,29 @@ class MCPAuditEngine:
         self._sandbox = sandbox
 
     def _resolve_sandbox(self, source: ServerSource) -> Sandbox:
-        """Resolve the sandbox for one scan: injected > per-server image > env."""
+        """Resolve the sandbox for one scan: injected > per-server image > env.
+
+        Fail-closed for untrusted sources: a stdio source that launches a local
+        process may only be scanned inside a sandbox. If resolution yields
+        ``NoSandbox`` (the default when ``MCP_TRUST_SANDBOX`` is unset) it is
+        allowed ONLY for a source explicitly marked ``trusted``; otherwise this
+        raises rather than silently running third-party code on the host. Remote
+        (HTTP) sources launch no local process, so the gate does not apply.
+        """
         if self._sandbox is not None:
-            return self._sandbox
-        return select_sandbox(image=source.sandbox_image)
+            sandbox = self._sandbox
+        else:
+            sandbox = select_sandbox(image=source.sandbox_image)
+        launches_process = not (source.kind == SourceKind.REMOTE and not source.command)
+        if launches_process and isinstance(sandbox, NoSandbox) and not source.trusted:
+            raise ScanError(
+                f"Refusing to scan untrusted source {source.reference!r} without a "
+                "sandbox: launching its process would run third-party code on the "
+                "host with the host environment. Set MCP_TRUST_SANDBOX=docker to "
+                "isolate it, or mark the source trusted for the vetted "
+                "reference-server flow."
+            )
+        return sandbox
 
     def scan(self, source: ServerSource) -> EngineResult:
         """Run the ``mcp-audits`` pipeline against *source* and normalize results."""
