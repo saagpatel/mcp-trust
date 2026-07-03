@@ -58,10 +58,12 @@ def _load_servers(db_path: Path) -> dict[str, dict[str, Any]]:
     return servers
 
 
-def _version_from_slug(slug: str) -> str:
+def _version_from_slug(slug: str, *, registry_type: str = "npm") -> str:
     match = _VERSION_SUFFIX_RE.search(slug)
     if match is None:
         raise ValueError(f"cannot infer exact package version from slug {slug!r}")
+    if registry_type.lower() != "npm":
+        return match.group(1).replace("-", ".")
     segments = match.group(1).split("-")
     # Semver: up to three leading numeric segments form the release core;
     # anything after is a dot-separated prerelease tail (e.g. the slug suffix
@@ -93,7 +95,7 @@ def _record_from_receipt(
     if source != receipt_source:
         raise ValueError(f"receipt {receipt_path} source does not match DB source for {slug!r}")
 
-    version = _version_from_slug(slug)
+    version = _version_from_slug(slug, registry_type=str(source["kind"]))
     package = PackageSource(
         registry_type=str(source["kind"]),
         identifier=str(source["reference"]),
