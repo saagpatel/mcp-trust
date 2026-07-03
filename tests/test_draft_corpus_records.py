@@ -130,6 +130,20 @@ def test_build_record_set_from_temp_db_and_receipt(tmp_path: Path) -> None:
     assert record.receipt.receipt_ref == "receipts/com-example-server-1-2-3-scan1.json"
 
 
+def test_version_from_slug_handles_release_and_prerelease() -> None:
+    module = _load_module("draft_corpus_records_ver", SCRIPTS / "draft_corpus_records.py")
+
+    assert module._version_from_slug("com-example-server-1-2-3") == "1.2.3"
+    assert module._version_from_slug("com-kogcat-kogcat-mcp-0-46-2") == "0.46.2"
+    # Prerelease tails are dot-separated identifiers after the release core,
+    # never part of it (npm resolves 0.5.0-beta.11, not 0.5.0.beta.11).
+    assert (
+        module._version_from_slug("com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11")
+        == "0.5.0-beta.11"
+    )
+    assert module._version_from_slug("com-example-server-2-0-0-rc-1") == "2.0.0-rc.1"
+
+
 def test_draft_corpus_records_cli_writes_valid_json(tmp_path: Path, capsys) -> None:
     db = tmp_path / "scan.db"
     receipts = tmp_path / "receipts"

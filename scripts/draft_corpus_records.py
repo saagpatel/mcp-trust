@@ -28,7 +28,7 @@ from mcp_trust.corpus.records import (
 )
 from mcp_trust.corpus.registry import CandidateMode, Freshness
 
-_VERSION_SUFFIX_RE = re.compile(r"-(\d+(?:-\d+)+(?:-[a-z0-9]+)?)$")
+_VERSION_SUFFIX_RE = re.compile(r"-(\d+(?:-\d+)+(?:-[a-z0-9]+)*)$")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -62,7 +62,17 @@ def _version_from_slug(slug: str) -> str:
     match = _VERSION_SUFFIX_RE.search(slug)
     if match is None:
         raise ValueError(f"cannot infer exact package version from slug {slug!r}")
-    return match.group(1).replace("-", ".")
+    segments = match.group(1).split("-")
+    # Semver: up to three leading numeric segments form the release core;
+    # anything after is a dot-separated prerelease tail (e.g. the slug suffix
+    # "0-5-0-beta-11" must become "0.5.0-beta.11", not "0.5.0.beta.11").
+    core: list[str] = []
+    while segments and segments[0].isdigit() and len(core) < 3:
+        core.append(segments.pop(0))
+    version = ".".join(core)
+    if segments:
+        version += "-" + ".".join(segments)
+    return version
 
 
 def _record_from_receipt(
