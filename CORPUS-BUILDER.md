@@ -152,6 +152,22 @@ Safety invariants:
 - Registry metadata alone must never populate grade, transparency, tool count,
   schema hashes, or findings.
 
+Use `scripts/draft_corpus_records.py` to convert an already-approved isolated
+temp scan lane into a review-only record set:
+
+```bash
+uv run python scripts/draft_corpus_records.py \
+  --db tmp/registry-live-batch-20260628.db \
+  --receipts-dir tmp/live-batch-receipts-20260702-evidence \
+  --out tmp/live-batch-corpus-records-20260702.json
+```
+
+This writes only the requested JSON artifact and prints an operator summary. It
+does not scan, install, authenticate, edit `seed_servers.json`, update
+`registry.db`, publish records, or deploy. The output remains temp evidence
+until an explicit promotion decision changes record statuses and integrates a
+public catalog path.
+
 ## Approval Gate
 
 Moving from candidate manifest to live scans requires a concrete approved batch:

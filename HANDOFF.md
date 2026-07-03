@@ -82,6 +82,15 @@ rather than editing `seed_servers.json` directly. Keep the 8 temp live-scan
 candidates non-public until each record has explicit source review, scan mode,
 approval reference, receipt evidence, and caveats.
 
+`scripts/draft_corpus_records.py` now creates the review-only bridge artifact
+from the temp scan lane. Current generated draft:
+
+- `tmp/live-batch-corpus-records-20260702.json`
+- 8 records, all `scanned-temp`
+- mode: `no-auth-sandboxed`
+- receipt-backed grade summary: C=2, F=6
+- published records: 0
+
 The next corpus expansion should stay small and approval-gated:
 
 - no-auth sandboxed entries first;
