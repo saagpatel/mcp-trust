@@ -168,6 +168,24 @@ does not scan, install, authenticate, edit `seed_servers.json`, update
 until an explicit promotion decision changes record statuses and integrates a
 public catalog path.
 
+Use `scripts/promote_corpus_records.py` only after that explicit review decision
+exists. It promotes named, receipt-backed `scanned-temp` records into another
+review-only JSON artifact:
+
+```bash
+uv run python scripts/promote_corpus_records.py \
+  --input tmp/live-batch-corpus-records-20260702.json \
+  --promote com-mythsensus-mythsensus-mcp-0-2-1 \
+  --promote eu-regulatoryai-sovereign-ai-act-mcp-1-2-0 \
+  --promotion-ref first-live-corpus-promotion-review-20260702 \
+  --defer-unpromoted \
+  --out tmp/live-batch-published-review-20260702.json
+```
+
+This still does not edit `seed_servers.json`, update `registry.db`, rebuild
+`catalog_snapshot.json`, deploy, publish badges, or claim certification. It is
+the last review artifact before a separately approved catalog integration.
+
 ## Approval Gate
 
 Moving from candidate manifest to live scans requires a concrete approved batch:
