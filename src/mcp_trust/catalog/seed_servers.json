@@ -360,5 +360,93 @@
       "sandbox_image": "mcp-trust-batch3:20260703"
     },
     "homepage": "https://github.com/nickjlamb/redacta"
+  },
+  {
+    "slug": "io-github-microsoft-playwright-mcp-0-0-77",
+    "name": "io.github.microsoft/playwright-mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. The F grade is a capability grade: browser automation carries destructive-operation, network-access, and file-read capability, declared with full tool annotations (high transparency).",
+    "source": {
+      "kind": "npm",
+      "reference": "@playwright/mcp",
+      "command": "playwright-mcp",
+      "args": [],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch4:20260703"
+    },
+    "homepage": "https://github.com/microsoft/playwright-mcp"
+  },
+  {
+    "slug": "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+    "name": "io.github.ChromeDevTools/chrome-devtools-mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Vendor's own startup notice warns that the server exposes browser content to MCP clients, collects usage statistics by default (opt-out flag), and may send trace URLs to the Google CrUX API.",
+    "source": {
+      "kind": "npm",
+      "reference": "chrome-devtools-mcp",
+      "command": "chrome-devtools-mcp",
+      "args": [],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch4:20260703"
+    },
+    "homepage": "https://github.com/ChromeDevTools/chrome-devtools-mcp"
+  },
+  {
+    "slug": "io-github-discourse-mcp-0-2-9",
+    "name": "io.github.discourse/mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Low transparency: no tool annotations, so the capability surface cannot be verified safe; a first-party vendor scope does not imply a safe capability surface.",
+    "source": {
+      "kind": "npm",
+      "reference": "@discourse/mcp",
+      "command": "discourse-mcp",
+      "args": [],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch4:20260703"
+    },
+    "homepage": "https://github.com/discourse/discourse-mcp"
+  },
+  {
+    "slug": "io-github-ui5-webcomponents-react-mcp-server-2-23-2",
+    "name": "io.github.UI5/webcomponents-react-mcp-server",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "@ui5/webcomponents-react-mcp",
+      "command": "ui5-wcr-mcp",
+      "args": [],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch4:20260703"
+    },
+    "homepage": "https://github.com/UI5/webcomponents-react"
+  },
+  {
+    "slug": "io-github-nvidia-elements-2-1-4",
+    "name": "io.github.NVIDIA/elements",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "@nvidia-elements/cli",
+      "command": "nve",
+      "args": [
+        "mcp"
+      ],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch4:20260703"
+    },
+    "homepage": "https://github.com/NVIDIA/elements"
+  },
+  {
+    "slug": "io-github-basicmachines-co-basic-memory-0-22-1",
+    "name": "io.github.basicmachines-co/basic-memory",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "pypi",
+      "reference": "basic-memory",
+      "command": "basic-memory",
+      "args": [
+        "mcp"
+      ],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch4:20260703"
+    },
+    "homepage": "https://github.com/basicmachines-co/basic-memory"
   }
 ]

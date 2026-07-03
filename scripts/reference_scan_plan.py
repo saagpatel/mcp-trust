@@ -513,6 +513,139 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         ),
         sandbox_image="mcp-trust-batch3:20260703",
     ),
+    # Batch-4 Registry-derived cohort, integrated 2026-07-03 after operator
+    # approval (promotion ref batch4-live-corpus-promotion-20260703; review
+    # evidence tmp/batch4-promotion-review-20260703.md). All six are baked only
+    # into the batch-4 image (node:24-slim base with HOME=/scan), hence the
+    # per-server sandbox_image pins.
+    ReferenceScanCandidate(
+        slug="io-github-microsoft-playwright-mcp-0-0-77",
+        name="io.github.microsoft/playwright-mcp",
+        kind="npm",
+        reference="@playwright/mcp",
+        command="playwright-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats. "
+            "The F grade is a capability grade: browser automation carries "
+            "destructive-operation, network-access, and file-read capability, "
+            "declared with full tool annotations (high transparency)."
+        ),
+        homepage="https://github.com/microsoft/playwright-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.0.77 "
+            "is encoded in the catalog slug. First-party Microsoft npm scope. "
+            "Publishing first-pass F/high-transparency evidence was explicitly "
+            "operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch4:20260703",
+    ),
+    ReferenceScanCandidate(
+        slug="io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+        name="io.github.ChromeDevTools/chrome-devtools-mcp",
+        kind="npm",
+        reference="chrome-devtools-mcp",
+        command="chrome-devtools-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats. "
+            "Vendor's own startup notice warns that the server exposes browser "
+            "content to MCP clients, collects usage statistics by default "
+            "(opt-out flag), and may send trace URLs to the Google CrUX API."
+        ),
+        homepage="https://github.com/ChromeDevTools/chrome-devtools-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 1.5.0 "
+            "is encoded in the catalog slug. First-party Chrome DevTools "
+            "(Google) package. Publishing first-pass F/high-transparency "
+            "evidence was explicitly operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch4:20260703",
+    ),
+    ReferenceScanCandidate(
+        slug="io-github-discourse-mcp-0-2-9",
+        name="io.github.discourse/mcp",
+        kind="npm",
+        reference="@discourse/mcp",
+        command="discourse-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats. "
+            "Low transparency: no tool annotations, so the capability surface "
+            "cannot be verified safe; a first-party vendor scope does not imply "
+            "a safe capability surface."
+        ),
+        homepage="https://github.com/discourse/discourse-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.2.9 "
+            "is encoded in the catalog slug. First-party Discourse npm scope. "
+            "Publishing first-pass F/low-transparency evidence was explicitly "
+            "operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch4:20260703",
+    ),
+    ReferenceScanCandidate(
+        slug="io-github-ui5-webcomponents-react-mcp-server-2-23-2",
+        name="io.github.UI5/webcomponents-react-mcp-server",
+        kind="npm",
+        reference="@ui5/webcomponents-react-mcp",
+        command="ui5-wcr-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/UI5/webcomponents-react",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 2.23.2 "
+            "is encoded in the catalog slug. First-party SAP UI5 documentation/"
+            "scaffolding surface (shell-execution capability at medium). "
+            "Publishing first-pass C/high-transparency evidence was explicitly "
+            "operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch4:20260703",
+    ),
+    ReferenceScanCandidate(
+        slug="io-github-nvidia-elements-2-1-4",
+        name="io.github.NVIDIA/elements",
+        kind="npm",
+        reference="@nvidia-elements/cli",
+        command="nve",
+        args=("mcp",),
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/NVIDIA/elements",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 2.1.4 "
+            "is encoded in the catalog slug. First-party NVIDIA npm scope; "
+            "launches via the registry-declared 'nve mcp' positional. "
+            "Publishing first-pass F/high-transparency evidence was explicitly "
+            "operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch4:20260703",
+    ),
+    ReferenceScanCandidate(
+        slug="io-github-basicmachines-co-basic-memory-0-22-1",
+        name="io.github.basicmachines-co/basic-memory",
+        kind="pypi",
+        reference="basic-memory",
+        command="basic-memory",
+        args=("mcp",),
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/basicmachines-co/basic-memory",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.22.1 "
+            "is encoded in the catalog slug. Local-first Markdown knowledge "
+            "base; file read/write capability is its core purpose. Publishing "
+            "first-pass B/high-transparency evidence was explicitly "
+            "operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch4:20260703",
+    ),
 )
 
 
