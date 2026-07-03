@@ -30,7 +30,8 @@ uv run python scripts/build_site.py \
   --db ./registry.db \
   --out site \
   --base-url "$DOMAIN"
-# Expect: "Built static site for 17 server(s) (17 scanned) ... VERIFY OK"
+# Expect the current seeded/scanned count, for example:
+# "Built static site for 19 server(s) (19 scanned) ... VERIFY OK"
 ```
 
 Ship the deploy config with the rendered output so headers/CSP/clean-URLs apply:
@@ -47,7 +48,7 @@ vercel deploy site                 # prints a preview URL
 
 Open the preview URL and confirm, on the real grades:
 
-- Catalog (`/`) lists all 17 servers with A–F grades and **no `DEMO DATA` banner**
+- Catalog (`/`) lists all seeded servers with A–F grades and **no `DEMO DATA` banner**
   (real scans → no demo label).
 - A detail page (`/ui/servers/mcp-reference-filesystem`) renders the grade,
   transparency, findings, and the badge-embed snippet.

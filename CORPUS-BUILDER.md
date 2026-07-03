@@ -216,12 +216,12 @@ Moving from candidate manifest to live scans requires a concrete approved batch:
 
 ## Current Local Evidence State
 
-As of 2026-07-02, the local launch corpus has evidence parity:
+As of 2026-07-03, the local launch corpus has evidence parity:
 
-- `./registry.db` contains 17 seeded servers.
+- `./registry.db` contains 19 seeded servers.
 - The latest row for each seeded server is a real `mcpaudit` scan.
 - Each latest scan has `evidence_json`.
-- `./receipts/` contains matching latest receipts for all 17 rows.
+- `./receipts/` contains matching latest receipts for all 19 rows.
 - Launch validation passes with:
 
 ```bash
@@ -239,12 +239,14 @@ evidence lane:
 - Receipts: `./tmp/live-batch-receipts-20260702-evidence/`
 - Approval ref: `first-live-corpus-batch-20260628-evidence-rerun`
 
-As of the approved two-entry integration, only these candidates have been
+As of the approved four-entry integration, these candidates have been
 integrated into the local public catalog evidence path:
 
 - `com-mythsensus-mythsensus-mcp-0-2-1`
 - `eu-regulatoryai-sovereign-ai-act-mcp-1-2-0`
+- `com-pulsemcp-image-diff-0-1-3`
+- `com-seanwinslow-intent-engineering-0-2-0`
 
-The remaining six candidates stay deferred. Do not copy them into the public
+The remaining four candidates stay deferred. Do not copy them into the public
 catalog, assign public meaning, or publish their grades until a separate
 integration decision is approved.

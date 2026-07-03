@@ -313,6 +313,40 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         ),
     ),
     ReferenceScanCandidate(
+        slug="com-pulsemcp-image-diff-0-1-3",
+        name="com.pulsemcp/image-diff",
+        kind="npm",
+        reference="@pulsemcp/image-diff-mcp-server",
+        command="image-diff-mcp-server",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/pulsemcp/mcp-servers",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.1.3 "
+            "is encoded in the catalog slug and covered by temp receipt evidence. "
+            "Source mapping was reviewed against the monorepo tag/path."
+        ),
+    ),
+    ReferenceScanCandidate(
+        slug="com-seanwinslow-intent-engineering-0-2-0",
+        name="com.seanwinslow/intent-engineering",
+        kind="npm",
+        reference="@swins/intent-engineering-mcp",
+        command="intent-engineering-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/seanwinslow28/sw-mcp-intent-engineering",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.2.0 "
+            "is encoded in the catalog slug and covered by temp receipt evidence. "
+            "Source mapping was reviewed against the v0.2.0 source tag."
+        ),
+    ),
+    ReferenceScanCandidate(
         slug="eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
         name="eu.regulatoryai/sovereign-ai-act-mcp",
         kind="npm",

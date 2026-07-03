@@ -1,20 +1,22 @@
 # MCP Trust — Session Handoff
 
-_Last updated: 2026-07-02. Repo: `main` tracking `origin/main`; working tree has
-in-flight evidence/corpus-builder changes plus regenerated local scan artifacts._
+_Last updated: 2026-07-03. Repo: `codex/integrate-near-next-corpus`; working
+tree has in-flight two-entry near-next catalog integration changes plus
+regenerated local scan artifacts._
 
 ## Live / Local State
 
-- Public site `https://mcp-trust.vercel.app` now serves the 17-server static
+- Public site `https://mcp-trust.vercel.app` still serves the 17-server static
   catalog. Production deploy `dpl_5dZZXHtBCKEVGxqcpBUq4esX4xax` was promoted
-  after preview/local smoke.
-- Local launch catalog now has 17 seeded servers and 17 latest real `mcpaudit`
+  after preview/local smoke. The near-next 19-server catalog has not been
+  deployed yet.
+- Local launch catalog now has 19 seeded servers and 19 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
   `python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`.
-- Latest grade distribution: A=1, B=3, C=3, D=3, F=7.
-- Transparency distribution: high=3, low=14.
-- Evidence parity is complete for the launch corpus: all 17 latest scan rows have
+- Latest grade distribution: A=1, B=3, C=5, D=3, F=7.
+- Transparency distribution: high=3, low=16.
+- Evidence parity is complete for the launch corpus: all 19 latest scan rows have
   `evidence_json`, and latest receipts include public-safe tool readback
   evidence.
 
@@ -43,6 +45,11 @@ in-flight evidence/corpus-builder changes plus regenerated local scan artifacts.
   and generated site:
   `com.mythsensus/mythsensus-mcp` and
   `eu.regulatoryai/sovereign-ai-act-mcp`.
+- Integrated the next two source-mapped Registry-derived no-auth sandboxed
+  corpus entries into the local seed catalog, registry DB, receipts, baked
+  snapshot, and generated site:
+  `com.pulsemcp/image-diff` and
+  `com.seanwinslow/intent-engineering`. This has not been deployed.
 
 ## Important Evidence
 
@@ -73,8 +80,8 @@ The first approved no-auth Registry live-scan batch was rerun in a temp lane:
 - Receipts: `./tmp/live-batch-receipts-20260702-evidence/`
 - Approval ref: `first-live-corpus-batch-20260628-evidence-rerun`
 
-Two of those 8 candidates are now integrated into the local public catalog
-evidence path; the other 6 remain reviewed temp/deferred evidence until a
+Four of those 8 candidates are now integrated into the local public catalog
+evidence path; the other 4 remain reviewed temp/deferred evidence until a
 separate corpus-integration decision is made.
 
 ## Registry Corpus Decision
@@ -120,14 +127,14 @@ for launch source specs, compare against `seed_servers.json`, and list the seed,
 scan, receipt, snapshot, site, deploy, and badge approvals still required. It
 does not mutate any of those surfaces.
 
-The approved two-entry integration has now been applied locally:
+The approved four-entry integration has now been applied locally:
 
-- `src/mcp_trust/catalog/seed_servers.json` contains 17 entries.
-- `./registry.db` contains latest `mcpaudit` scan rows for all 17 seeded slugs.
-- `./receipts/` contains matching latest receipts for all 17 seeded slugs.
-- `src/mcp_trust/catalog_snapshot.json` contains 17 real scanned entries.
-- `site/` was rebuilt locally for 17 servers, includes `site/vercel.json`, and
-  was deployed to Vercel production.
+- `src/mcp_trust/catalog/seed_servers.json` contains 19 entries.
+- `./registry.db` contains latest `mcpaudit` scan rows for all 19 seeded slugs.
+- `./receipts/` contains matching latest receipts for all 19 seeded slugs.
+- `src/mcp_trust/catalog_snapshot.json` contains 19 real scanned entries.
+- `site/` was rebuilt locally for 19 servers.
+- The 19-server site has not been deployed to Vercel production.
 
 The next corpus expansion should stay small and approval-gated:
 
@@ -140,7 +147,7 @@ The next corpus expansion should stay small and approval-gated:
 
 ## Current Verification
 
-Last verified after the two-entry local catalog integration:
+Last verified after the four-entry local catalog integration:
 
 ```bash
 python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts
@@ -156,8 +163,8 @@ Results:
 
 ## Next Recommended Move
 
-Monitor the 17-server production catalog and keep the weekly freshness lane
-ready. The two near-next deferred candidates (`com.pulsemcp/image-diff` and
-`com.seanwinslow/intent-engineering`) now have source mapping recorded in
-`CORPUS-NEAR-NEXT-REVIEW.md`; keep both deferred until separate public-catalog
-integration approval is given. The review did not prove reproducible builds.
+Review and optionally deploy the 19-server static catalog. Production still
+serves the prior 17-server deployment until that deploy is approved and
+completed. The remaining deferred Registry-derived candidates are
+`ai.adeu/adeu`, `ai.ravenmcp/raven-mcp`, `com.kage-core/kage`, and
+`com.kogcat/kogcat-mcp`.
