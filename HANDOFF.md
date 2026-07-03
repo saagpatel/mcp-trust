@@ -5,8 +5,9 @@ in-flight evidence/corpus-builder changes plus regenerated local scan artifacts.
 
 ## Live / Local State
 
-- Public site remains `https://mcp-trust.vercel.app`; no deploy was run in this
-  lane.
+- Public site `https://mcp-trust.vercel.app` now serves the 17-server static
+  catalog. Production deploy `dpl_5dZZXHtBCKEVGxqcpBUq4esX4xax` was promoted
+  after preview/local smoke.
 - Local launch catalog now has 17 seeded servers and 17 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
@@ -125,8 +126,8 @@ The approved two-entry integration has now been applied locally:
 - `./registry.db` contains latest `mcpaudit` scan rows for all 17 seeded slugs.
 - `./receipts/` contains matching latest receipts for all 17 seeded slugs.
 - `src/mcp_trust/catalog_snapshot.json` contains 17 real scanned entries.
-- `site/` was rebuilt locally for 17 servers and includes `site/vercel.json`.
-- Public deployment has not been run in this lane.
+- `site/` was rebuilt locally for 17 servers, includes `site/vercel.json`, and
+  was deployed to Vercel production.
 
 The next corpus expansion should stay small and approval-gated:
 
@@ -155,7 +156,8 @@ Results:
 
 ## Next Recommended Move
 
-Review the two-entry public catalog integration diff, then commit/PR/merge if
-the 17-server local launch checks remain green. After merge, the next operator
-decision is whether to deploy the rebuilt static `site/` output to Vercel and
-run the public badge smoke.
+Monitor the 17-server production catalog and keep the weekly freshness lane
+ready. The next expansion decision is whether to manually review the two
+near-next deferred candidates (`com.pulsemcp/image-diff` and
+`com.seanwinslow/intent-engineering`) for source mapping and possible
+promotion.
