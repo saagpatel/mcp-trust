@@ -69,6 +69,33 @@ def test_scan_raises_clear_error_without_engine() -> None:
         MCPAuditEngine().scan(src)
 
 
+@pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
+def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An upstream attribute rename must surface as ScanError, not raw AttributeError.
+
+    Simulates mcp-audits changing its result shape (here: RiskScore losing its
+    fields) after a successful connect — the analyze/score/map stretch must
+    normalize that into the registry's one engine-failure contract.
+    """
+
+    class _Stub:
+        connection_status = "connected"
+        tools: list = []
+
+    async def fake_connect(self: object, cfg: object) -> _Stub:
+        return _Stub()
+
+    def fake_score(self: object, permissions: object) -> object:
+        return object()  # no .composite / dimensions — a renamed-field upstream
+
+    monkeypatch.setattr("mcp_audit.connector.ServerConnector.connect", fake_connect)
+    monkeypatch.setattr("mcp_audit.scorer.RiskScorer.score_server", fake_score)
+
+    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server")
+    with pytest.raises(ScanError, match="unexpected result shape"):
+        MCPAuditEngine().scan(src)
+
+
 @pytest.mark.skipif(
     not (_HAS_ENGINE and os.environ.get("MCP_TRUST_RUN_INTEGRATION") == "1"),
     reason="opt-in: needs mcp-audits + MCP_TRUST_RUN_INTEGRATION=1 (launches a real server)",

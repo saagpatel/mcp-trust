@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "generated_from_scan_at": "2026-07-03T02:50:56.284271+00:00",
+  "generated_from_scan_at": "2026-07-03T09:46:13.094309+00:00",
   "server_count": 19,
   "servers": [
     {
       "slug": "com-mythsensus-mythsensus-mcp-0-2-1",
       "name": "com.mythsensus/mythsensus-mcp",
-      "description": "Registry candidate: consensus from divination systems.",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
       "homepage": "https://github.com/PattrickChenforclaudeuse/mythsensus-mcp",
-      "grade": "F",
+      "grade": "B",
       "transparency": "low",
-      "danger_score": 7.74,
+      "danger_score": 3.42,
       "dimensions": {
-        "file_access": 1.2,
+        "file_access": 0.6,
         "network_access": 1.5,
-        "shell_execution": 1.8,
+        "shell_execution": 0.0,
         "destructive": 2.0,
         "exfiltration": 1.5
       },
@@ -33,16 +33,22 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP002",
-          "title": "File write capability",
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
           "severity": "medium",
-          "category": "file_write"
+          "category": "exfiltration"
         },
         {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "medium",
-          "category": "shell_execution"
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
         },
         {
           "rule_id": "MCP006",
@@ -65,50 +71,8 @@
         {
           "rule_id": "MCP001",
           "title": "File read capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "medium",
-          "category": "shell_execution"
-        },
-        {
-          "rule_id": "MCP006",
-          "title": "Data exfiltration capability",
-          "severity": "medium",
-          "category": "exfiltration"
-        },
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
-          "rule_id": "MCP003",
-          "title": "Network access capability",
-          "severity": "low",
-          "category": "network"
-        },
-        {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP005",
@@ -185,13 +149,13 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
       "slug": "com-pulsemcp-image-diff-0-1-3",
       "name": "com.pulsemcp/image-diff",
-      "description": "Registry candidate: programmatic image comparison.",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
       "homepage": "https://github.com/pulsemcp/mcp-servers",
       "grade": "C",
       "transparency": "low",
@@ -220,7 +184,7 @@
         {
           "rule_id": "MCP001",
           "title": "File read capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "file_read"
         },
         {
@@ -256,19 +220,19 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
       "slug": "com-seanwinslow-intent-engineering-0-2-0",
       "name": "com.seanwinslow/intent-engineering",
-      "description": "Registry candidate: agent intent spec audit and scaffolding.",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
       "homepage": "https://github.com/seanwinslow28/sw-mcp-intent-engineering",
-      "grade": "C",
+      "grade": "B",
       "transparency": "low",
-      "danger_score": 3.54,
+      "danger_score": 3.18,
       "dimensions": {
-        "file_access": 1.2,
+        "file_access": 0.9,
         "network_access": 1.5,
         "shell_execution": 0.0,
         "destructive": 2.0,
@@ -293,12 +257,6 @@
           "title": "File read capability",
           "severity": "high",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP005",
@@ -363,23 +321,23 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
       "slug": "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
       "name": "eu.regulatoryai/sovereign-ai-act-mcp",
-      "description": "Registry candidate: EU AI Act classification.",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
       "homepage": "https://github.com/saidbazyar/sovereign-ai-act-mcp",
-      "grade": "F",
+      "grade": "C",
       "transparency": "low",
-      "danger_score": 7.68,
+      "danger_score": 3.78,
       "dimensions": {
         "file_access": 0.9,
         "network_access": 1.5,
-        "shell_execution": 1.8,
+        "shell_execution": 0.0,
         "destructive": 2.0,
-        "exfiltration": 2.25
+        "exfiltration": 1.5
       },
       "annotation_coverage": 0.0,
       "findings": [
@@ -396,12 +354,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "medium",
-          "category": "shell_execution"
-        },
-        {
           "rule_id": "MCP005",
           "title": "Destructive operation capability",
           "severity": "low",
@@ -412,12 +364,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP006",
-          "title": "Data exfiltration capability",
-          "severity": "critical",
-          "category": "exfiltration"
         },
         {
           "rule_id": "MCP005",
@@ -466,12 +412,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "low",
-          "category": "file_write"
         }
       ],
       "evidence": {
@@ -518,7 +458,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -526,172 +466,6 @@
       "name": "AWS KB Retrieval (archived)",
       "description": "Archived official reference server for AWS Bedrock knowledge-base retrieval. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
       "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/aws-kb-retrieval-server",
-      "grade": "F",
-      "transparency": "low",
-      "danger_score": 8.22,
-      "dimensions": {
-        "file_access": 0.6,
-        "network_access": 1.5,
-        "shell_execution": 2.7,
-        "destructive": 2.0,
-        "exfiltration": 0.0
-      },
-      "annotation_coverage": 0.0,
-      "findings": [
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
-          "rule_id": "MCP003",
-          "title": "Network access capability",
-          "severity": "low",
-          "category": "network"
-        },
-        {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "medium",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "high",
-          "category": "shell_execution"
-        }
-      ],
-      "evidence": {
-        "tool_count": 1,
-        "tools": [
-          {
-            "name": "retrieve_from_aws_kb",
-            "has_input_schema": true,
-            "input_schema_sha256": "ba97950f20f287f9ead28b918529b51464fdf356196c01f47cf146d14f67fe84",
-            "has_annotations": false
-          }
-        ],
-        "prompt_count": 0,
-        "resource_count": 0,
-        "schema_hash_algorithm": "sha256"
-      },
-      "source": {
-        "kind": "npm",
-        "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
-        "env_keys": [
-          "AWS_ACCESS_KEY_ID",
-          "AWS_SECRET_ACCESS_KEY",
-          "AWS_REGION"
-        ]
-      },
-      "engine": "mcpaudit",
-      "engine_version": "2.1.0",
-      "requires_credentials": true
-    },
-    {
-      "slug": "mcp-archived-brave-search",
-      "name": "Brave Search (archived)",
-      "description": "Archived official reference server for Brave Search web and local queries. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
-      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/brave-search",
-      "grade": "C",
-      "transparency": "low",
-      "danger_score": 3.54,
-      "dimensions": {
-        "file_access": 1.2,
-        "network_access": 1.5,
-        "shell_execution": 0.0,
-        "destructive": 2.0,
-        "exfiltration": 0.0
-      },
-      "annotation_coverage": 0.0,
-      "findings": [
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
-          "rule_id": "MCP003",
-          "title": "Network access capability",
-          "severity": "low",
-          "category": "network"
-        },
-        {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
-          "rule_id": "MCP003",
-          "title": "Network access capability",
-          "severity": "low",
-          "category": "network"
-        },
-        {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        }
-      ],
-      "evidence": {
-        "tool_count": 2,
-        "tools": [
-          {
-            "name": "brave_web_search",
-            "has_input_schema": true,
-            "input_schema_sha256": "33a5016eb1992c105c657d7cd43c61a7eade498724ad64a2c9612b03e80d8a77",
-            "has_annotations": false
-          },
-          {
-            "name": "brave_local_search",
-            "has_input_schema": true,
-            "input_schema_sha256": "0b8cdb053a84e29606617aec3889b6b85742c546ff1adafbd6d18ed577aa4d89",
-            "has_annotations": false
-          }
-        ],
-        "prompt_count": 0,
-        "resource_count": 0,
-        "schema_hash_algorithm": "sha256"
-      },
-      "source": {
-        "kind": "npm",
-        "reference": "@modelcontextprotocol/server-brave-search",
-        "env_keys": [
-          "BRAVE_API_KEY"
-        ]
-      },
-      "engine": "mcpaudit",
-      "engine_version": "2.1.0",
-      "requires_credentials": true
-    },
-    {
-      "slug": "mcp-archived-everart",
-      "name": "EverArt (archived)",
-      "description": "Archived official reference server for EverArt AI image generation. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
-      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart",
       "grade": "B",
       "transparency": "low",
       "danger_score": 2.82,
@@ -727,6 +501,148 @@
         "tool_count": 1,
         "tools": [
           {
+            "name": "retrieve_from_aws_kb",
+            "has_input_schema": true,
+            "input_schema_sha256": "ba97950f20f287f9ead28b918529b51464fdf356196c01f47cf146d14f67fe84",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
+        "env_keys": [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "AWS_REGION"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.3.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-brave-search",
+      "name": "Brave Search (archived)",
+      "description": "Archived official reference server for Brave Search web and local queries. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/brave-search",
+      "grade": "B",
+      "transparency": "low",
+      "danger_score": 3.18,
+      "dimensions": {
+        "file_access": 0.9,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        }
+      ],
+      "evidence": {
+        "tool_count": 2,
+        "tools": [
+          {
+            "name": "brave_web_search",
+            "has_input_schema": true,
+            "input_schema_sha256": "33a5016eb1992c105c657d7cd43c61a7eade498724ad64a2c9612b03e80d8a77",
+            "has_annotations": false
+          },
+          {
+            "name": "brave_local_search",
+            "has_input_schema": true,
+            "input_schema_sha256": "0b8cdb053a84e29606617aec3889b6b85742c546ff1adafbd6d18ed577aa4d89",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-brave-search",
+        "env_keys": [
+          "BRAVE_API_KEY"
+        ]
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.3.0",
+      "requires_credentials": true
+    },
+    {
+      "slug": "mcp-archived-everart",
+      "name": "EverArt (archived)",
+      "description": "Archived official reference server for EverArt AI image generation. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
+      "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart",
+      "grade": "B",
+      "transparency": "low",
+      "danger_score": 2.1,
+      "dimensions": {
+        "file_access": 0.0,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 0.0
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "evidence": {
+        "tool_count": 1,
+        "tools": [
+          {
             "name": "generate_image",
             "has_input_schema": true,
             "input_schema_sha256": "b795aa9c8303c1d768408b1293496c86a6094feffc345793637b8b260c6ec776",
@@ -745,7 +661,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": true
     },
     {
@@ -753,13 +669,13 @@
       "name": "GitHub (archived)",
       "description": "Archived official reference server for GitHub repository, issue, and pull-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
       "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/github",
-      "grade": "F",
+      "grade": "D",
       "transparency": "low",
-      "danger_score": 8.76,
+      "danger_score": 5.16,
       "dimensions": {
         "file_access": 1.8,
         "network_access": 1.5,
-        "shell_execution": 1.8,
+        "shell_execution": 0.0,
         "destructive": 2.0,
         "exfiltration": 2.25
       },
@@ -824,12 +740,6 @@
           "title": "File write capability",
           "severity": "high",
           "category": "file_write"
-        },
-        {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "medium",
-          "category": "shell_execution"
         },
         {
           "rule_id": "MCP005",
@@ -956,12 +866,6 @@
           "title": "File read capability",
           "severity": "medium",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "high",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP005",
@@ -1394,7 +1298,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": true
     },
     {
@@ -1647,7 +1551,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": true
     },
     {
@@ -1657,9 +1561,9 @@
       "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/google-maps",
       "grade": "C",
       "transparency": "low",
-      "danger_score": 4.26,
+      "danger_score": 3.54,
       "dimensions": {
-        "file_access": 1.8,
+        "file_access": 1.2,
         "network_access": 1.5,
         "shell_execution": 0.0,
         "destructive": 2.0,
@@ -1680,12 +1584,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
           "rule_id": "MCP005",
           "title": "Destructive operation capability",
           "severity": "low",
@@ -1696,12 +1594,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP005",
@@ -1744,12 +1636,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "high",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP005",
@@ -1840,7 +1726,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": true
     },
     {
@@ -1909,12 +1795,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
           "rule_id": "MCP006",
           "title": "Data exfiltration capability",
           "severity": "medium",
@@ -1961,12 +1841,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
         },
         {
           "rule_id": "MCP005",
@@ -2064,7 +1938,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": true
     },
     {
@@ -2074,11 +1948,11 @@
       "homepage": "https://pypi.org/project/mcp-server-sqlite/",
       "grade": "F",
       "transparency": "low",
-      "danger_score": 9.66,
+      "danger_score": 7.86,
       "dimensions": {
         "file_access": 1.8,
         "network_access": 1.5,
-        "shell_execution": 2.7,
+        "shell_execution": 1.8,
         "destructive": 2.0,
         "exfiltration": 0.0
       },
@@ -2105,7 +1979,7 @@
         {
           "rule_id": "MCP004",
           "title": "Shell execution capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "shell_execution"
         },
         {
@@ -2135,7 +2009,7 @@
         {
           "rule_id": "MCP004",
           "title": "Shell execution capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "shell_execution"
         },
         {
@@ -2267,7 +2141,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -2275,13 +2149,13 @@
       "name": "MCP Reference Everything",
       "description": "Reference MCP test server exposing broad prompts, resources, and tools for client and scanner validation.",
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/everything",
-      "grade": "F",
+      "grade": "B",
       "transparency": "low",
-      "danger_score": 7.74,
+      "danger_score": 3.42,
       "dimensions": {
-        "file_access": 1.2,
+        "file_access": 0.6,
         "network_access": 1.5,
-        "shell_execution": 1.8,
+        "shell_execution": 0.0,
         "destructive": 2.0,
         "exfiltration": 1.5
       },
@@ -2300,12 +2174,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
           "rule_id": "MCP005",
           "title": "Destructive operation capability",
           "severity": "low",
@@ -2342,12 +2210,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "medium",
-          "category": "file_read"
-        },
-        {
           "rule_id": "MCP005",
           "title": "Destructive operation capability",
           "severity": "low",
@@ -2360,12 +2222,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
           "rule_id": "MCP005",
           "title": "Destructive operation capability",
           "severity": "low",
@@ -2376,12 +2232,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP006",
@@ -2426,18 +2276,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
           "rule_id": "MCP006",
           "title": "Data exfiltration capability",
           "severity": "medium",
@@ -2468,24 +2306,6 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "medium",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "medium",
-          "category": "shell_execution"
-        },
-        {
           "rule_id": "MCP005",
           "title": "Destructive operation capability",
           "severity": "low",
@@ -2496,18 +2316,6 @@
           "title": "Network access capability",
           "severity": "low",
           "category": "network"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
-          "rule_id": "MCP004",
-          "title": "Shell execution capability",
-          "severity": "medium",
-          "category": "shell_execution"
         },
         {
           "rule_id": "MCP005",
@@ -2524,20 +2332,8 @@
         {
           "rule_id": "MCP001",
           "title": "File read capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
-        },
-        {
-          "rule_id": "MCP006",
-          "title": "Data exfiltration capability",
-          "severity": "medium",
-          "category": "exfiltration"
         }
       ],
       "evidence": {
@@ -2632,7 +2428,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -2685,7 +2481,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -2712,10 +2508,16 @@
           "category": "file_read"
         },
         {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
+          "rule_id": "MCP003",
+          "title": "Network access capability",
           "severity": "low",
-          "category": "destructive"
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
         },
         {
           "rule_id": "MCP003",
@@ -2730,12 +2532,6 @@
           "category": "file_read"
         },
         {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
           "rule_id": "MCP003",
           "title": "Network access capability",
           "severity": "low",
@@ -2746,30 +2542,6 @@
           "title": "File read capability",
           "severity": "low",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
-          "rule_id": "MCP003",
-          "title": "Network access capability",
-          "severity": "low",
-          "category": "network"
-        },
-        {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "low",
-          "category": "file_read"
-        },
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
         },
         {
           "rule_id": "MCP003",
@@ -2846,7 +2618,7 @@
         {
           "rule_id": "MCP002",
           "title": "File write capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "file_write"
         },
         {
@@ -2856,12 +2628,6 @@
           "category": "file_read"
         },
         {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
           "rule_id": "MCP003",
           "title": "Network access capability",
           "severity": "low",
@@ -2874,12 +2640,6 @@
           "category": "file_read"
         },
         {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
           "rule_id": "MCP003",
           "title": "Network access capability",
           "severity": "low",
@@ -2890,12 +2650,6 @@
           "title": "File read capability",
           "severity": "low",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
         },
         {
           "rule_id": "MCP003",
@@ -2934,12 +2688,6 @@
           "category": "file_read"
         },
         {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
           "rule_id": "MCP003",
           "title": "Network access capability",
           "severity": "low",
@@ -2952,12 +2700,6 @@
           "category": "file_read"
         },
         {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
-        },
-        {
           "rule_id": "MCP003",
           "title": "Network access capability",
           "severity": "low",
@@ -2968,12 +2710,6 @@
           "title": "File read capability",
           "severity": "low",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP005",
-          "title": "Destructive operation capability",
-          "severity": "low",
-          "category": "destructive"
         },
         {
           "rule_id": "MCP003",
@@ -3080,7 +2816,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -3159,12 +2895,6 @@
           "title": "File read capability",
           "severity": "medium",
           "category": "file_read"
-        },
-        {
-          "rule_id": "MCP002",
-          "title": "File write capability",
-          "severity": "medium",
-          "category": "file_write"
         },
         {
           "rule_id": "MCP001",
@@ -3289,7 +3019,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -3540,7 +3270,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -3550,9 +3280,9 @@
       "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
       "grade": "F",
       "transparency": "low",
-      "danger_score": 8.46,
+      "danger_score": 7.74,
       "dimensions": {
-        "file_access": 1.8,
+        "file_access": 1.2,
         "network_access": 1.5,
         "shell_execution": 1.8,
         "destructive": 2.0,
@@ -3573,15 +3303,9 @@
           "category": "network"
         },
         {
-          "rule_id": "MCP001",
-          "title": "File read capability",
-          "severity": "high",
-          "category": "file_read"
-        },
-        {
           "rule_id": "MCP002",
           "title": "File write capability",
-          "severity": "high",
+          "severity": "medium",
           "category": "file_write"
         },
         {
@@ -3617,7 +3341,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     },
     {
@@ -3676,7 +3400,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.1.0",
+      "engine_version": "2.3.0",
       "requires_credentials": false
     }
   ]

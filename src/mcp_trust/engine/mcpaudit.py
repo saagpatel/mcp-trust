@@ -237,46 +237,59 @@ class MCPAuditEngine:
                 "A trust grade requires a successful connection to enumerate tools."
             )
 
-        permissions = analyzer.analyze_server(audit.tools)
-        risk_score = scorer.score_server(permissions)
+        # The analyze -> score -> map stretch reads mcp-audits objects by bare
+        # attribute access, so an upstream field rename would otherwise surface
+        # as a raw AttributeError mid-scan. Normalize any such drift into
+        # ScanError — the registry's one engine-failure contract.
+        try:
+            permissions = analyzer.analyze_server(audit.tools)
+            risk_score = scorer.score_server(permissions)
 
-        findings: list[Finding] = []
-        by_severity: dict[Severity, int] = {}
-        for perm in permissions:
-            sev = _severity_for(str(perm.category), str(perm.confidence))
-            findings.append(
-                Finding(
-                    rule_id=perm.rule_id,
-                    title=perm.title,
-                    severity=sev,
-                    category=str(perm.category),
-                    detail="; ".join(perm.evidence),
+            findings: list[Finding] = []
+            by_severity: dict[Severity, int] = {}
+            for perm in permissions:
+                sev = _severity_for(str(perm.category), str(perm.confidence))
+                findings.append(
+                    Finding(
+                        rule_id=perm.rule_id,
+                        title=perm.title,
+                        severity=sev,
+                        category=str(perm.category),
+                        detail="; ".join(perm.evidence),
+                    )
                 )
+                by_severity[sev] = by_severity.get(sev, 0) + 1
+
+            # annotation_coverage drives the transparency axis (0–1). Default to 0.0
+            # when the audit doesn't report it, since absence of declared annotations
+            # is exactly the low-transparency case we want to surface.
+            coverage = float(getattr(audit, "annotation_coverage", 0.0) or 0.0)
+
+            risk = RiskSummary(
+                composite=_clamp(risk_score.composite),
+                file_access=_clamp(risk_score.file_access),
+                network_access=_clamp(risk_score.network_access),
+                shell_execution=_clamp(risk_score.shell_execution),
+                destructive=_clamp(risk_score.destructive),
+                exfiltration=_clamp(risk_score.exfiltration),
+                findings_by_severity=by_severity,
+                annotation_coverage=max(0.0, min(1.0, coverage)),
             )
-            by_severity[sev] = by_severity.get(sev, 0) + 1
-
-        # annotation_coverage drives the transparency axis (0–1). Default to 0.0
-        # when the audit doesn't report it, since absence of declared annotations
-        # is exactly the low-transparency case we want to surface.
-        coverage = float(getattr(audit, "annotation_coverage", 0.0) or 0.0)
-
-        risk = RiskSummary(
-            composite=_clamp(risk_score.composite),
-            file_access=_clamp(risk_score.file_access),
-            network_access=_clamp(risk_score.network_access),
-            shell_execution=_clamp(risk_score.shell_execution),
-            destructive=_clamp(risk_score.destructive),
-            exfiltration=_clamp(risk_score.exfiltration),
-            findings_by_severity=by_severity,
-            annotation_coverage=max(0.0, min(1.0, coverage)),
-        )
+            evidence = _build_evidence(audit)
+        except Exception as exc:
+            logger.warning("mcp-audits analyze/map failed for %r: %s", source.reference, exc)
+            raise ScanError(
+                f"mcp-audits returned an unexpected result shape while scanning "
+                f"{source.reference!r}: {exc}. The installed mcp-audits version is "
+                "likely incompatible with this registry build."
+            ) from exc
 
         return EngineResult(
             engine_name=self.name,
             engine_version=self._installed_version(),
             risk=risk,
             findings=findings,
-            evidence=_build_evidence(audit),
+            evidence=evidence,
         )
 
     def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001
