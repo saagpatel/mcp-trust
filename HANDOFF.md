@@ -91,6 +91,19 @@ from the temp scan lane. Current generated draft:
 - receipt-backed grade summary: C=2, F=6
 - published records: 0
 
+`scripts/promote_corpus_records.py` now creates a guarded promotion artifact from
+reviewed corpus records. It promotes only explicitly named receipt-backed
+`scanned-temp` records and writes a new JSON file. It does not edit
+`seed_servers.json`, update `registry.db`, rebuild `catalog_snapshot.json`,
+deploy, publish badges, or certify a server.
+
+Current promotion review evidence is local-only under `tmp/`:
+
+- `tmp/live-batch-promotion-review-20260702.md`
+- recommended first promotion cohort:
+  `com.mythsensus/mythsensus-mcp` and
+  `eu.regulatoryai/sovereign-ai-act-mcp`
+
 The next corpus expansion should stay small and approval-gated:
 
 - no-auth sandboxed entries first;
