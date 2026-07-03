@@ -353,7 +353,7 @@ wheels = [
 
 [[package]]
 name = "mcp-audits"
-version = "2.1.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -364,9 +364,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9e/1a/325c259e6361dd0c5d22cbe57ab8fc2db8af658d94b4031ceefe83c7ab8e/mcp_audits-2.1.0.tar.gz", hash = "sha256:2cc4576c97f566e28743abf467878920ebc4b00865c4cb219e6f54a570453c97", size = 118343, upload-time = "2026-06-12T10:34:12.209Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/e9/b15b0c3a9a30a8468944c3f993b6cd427f8885cc840528c642139598b74d/mcp_audits-2.3.0.tar.gz", hash = "sha256:4c1331830495eb910e804e088fea120abb2e825dd6b13db110aacbe86b1ec7a4", size = 125168, upload-time = "2026-07-03T07:52:22.923Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/72/39/a1fbdeed30161c4b27ca1438f9fe5b65e6ccec1c79c1b41467de2d9b5e52/mcp_audits-2.1.0-py3-none-any.whl", hash = "sha256:9a248a1cfc5b07ad3ec6ae205837f1997177518f0ce8048e5ff8a70268eb9db1", size = 135314, upload-time = "2026-06-12T10:34:10.945Z" },
+    { url = "https://files.pythonhosted.org/packages/16/7c/f2339cd96904c1ef57b89648c2eb9d769f16cbbbb3cf736074732f46349b/mcp_audits-2.3.0-py3-none-any.whl", hash = "sha256:066d72cf9d840cef80d44447d224ca1ec4b01a41f1b4a90556b40473b70c89d4", size = 144500, upload-time = "2026-07-03T07:52:21.391Z" },
 ]
 
 [[package]]
