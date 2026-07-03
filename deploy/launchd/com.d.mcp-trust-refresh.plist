@@ -6,9 +6,10 @@
   machine-agnostic and committable. Do not edit the installed copy here; re-run
   install.sh instead.
 
-  Deploy is intentionally OFF: MCP_TRUST_AUTO_DEPLOY is not set. To auto-publish,
-  add it (=1) and set MCP_TRUST_SITE_BASE_URL to the real domain in the INSTALLED
-  copy (~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist), then reload.
+  Deploy is intentionally OFF: MCP_TRUST_AUTO_DEPLOY is not set. The base URL
+  defaults to the production domain so badge snippets stay stable. To
+  auto-publish, add MCP_TRUST_AUTO_DEPLOY (=1) in the INSTALLED copy
+  (~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist), then reload.
 -->
 <plist version="1.0">
 <dict>
@@ -38,7 +39,7 @@
     <key>PATH</key>
     <string>__PATH__</string>
     <key>MCP_TRUST_SITE_BASE_URL</key>
-    <string>https://mcp-trust.example</string>
+    <string>https://mcp-trust.vercel.app</string>
   </dict>
 </dict>
 </plist>
