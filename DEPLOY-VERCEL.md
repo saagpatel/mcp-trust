@@ -17,7 +17,8 @@ schedule (see `Scheduled freshness`), not from Vercel's Git integration.
 
 - The Vercel CLI is installed and you are logged in (`vercel login`).
 - A Vercel project exists (or accept the prompts on first `vercel` run).
-- A domain you control, to set `--base-url` (badge embeds resolve against it).
+- A final public URL for `--base-url` (currently
+  `https://mcp-trust.vercel.app`) so badge embeds resolve against the live host.
 
 ## 1. Build the static site from real data
 
@@ -25,7 +26,7 @@ schedule (see `Scheduled freshness`), not from Vercel's Git integration.
 live host. The build is read-only against `registry.db`; it never scans.
 
 ```bash
-DOMAIN="https://<your-domain>"
+DOMAIN="https://mcp-trust.vercel.app"
 uv run python scripts/build_site.py \
   --db ./registry.db \
   --out site \
@@ -78,9 +79,10 @@ bash deploy/launchd/uninstall.sh          # remove the job
 ```
 
 Deploy is opt-in: in the installed plist
-(`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist`) set
-`MCP_TRUST_SITE_BASE_URL` to your real domain and add `MCP_TRUST_AUTO_DEPLOY=1`,
-then re-run the install script. Re-scanning a version-pinned image is
+(`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist`) keep
+`MCP_TRUST_SITE_BASE_URL` pointed at the production domain and add
+`MCP_TRUST_AUTO_DEPLOY=1`, then re-run the install script. Re-scanning a
+version-pinned image is
 deterministic; to catch upstream drift, periodically rebuild `Dockerfile.scan`
 with current server versions.
 

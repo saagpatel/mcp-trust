@@ -51,6 +51,6 @@ echo "Logs:     tail -F ${LOG_DIR}/${LABEL}.out ${LOG_DIR}/${LABEL}.err"
 echo "Run now:  launchctl start ${LABEL}"
 echo
 echo "Deploy is OFF by default. To auto-publish, edit ${DEST}:"
-echo "  - set MCP_TRUST_SITE_BASE_URL to your real domain"
 echo "  - add EnvironmentVariables key MCP_TRUST_AUTO_DEPLOY = 1"
+echo "  - keep MCP_TRUST_SITE_BASE_URL at https://mcp-trust.vercel.app unless changing domains"
 echo "  then: bash deploy/launchd/uninstall.sh && bash deploy/launchd/install.sh"

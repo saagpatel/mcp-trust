@@ -163,5 +163,7 @@ Results:
 ## Next Recommended Move
 
 Monitor the 19-server production catalog and keep the weekly freshness lane
-ready. The remaining deferred Registry-derived candidates are `ai.adeu/adeu`,
+ready. The repo-owned freshness defaults use the current production base URL and
+`mcp-trust-scan:corpus-2026-06-28`, with auto-deploy still opt-in. The
+remaining deferred Registry-derived candidates are `ai.adeu/adeu`,
 `ai.ravenmcp/raven-mcp`, `com.kage-core/kage`, and `com.kogcat/kogcat-mcp`.

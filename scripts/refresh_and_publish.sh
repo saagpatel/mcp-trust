@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Freshness loop for the static MCP Trust catalog:
-#   re-scan the reference corpus (network-off Docker sandbox) -> rebuild the
+#   re-scan the launch corpus (network-off Docker sandbox) -> rebuild the
 #   static site -> (opt-in) deploy to Vercel.
 #
 # Designed to run from launchd/cron OR by hand. Re-scanning surfaces grade
@@ -14,8 +14,8 @@
 # Config (env, with safe defaults):
 #   MCP_TRUST_DB                 registry SQLite path        (default ./registry.db)
 #   MCP_TRUST_SITE_OUT           static output dir           (default ./site)
-#   MCP_TRUST_SITE_BASE_URL      deploy URL for badge embeds (default placeholder)
-#   MCP_TRUST_SANDBOX_IMAGE      prebuilt scan image         (default reference image)
+#   MCP_TRUST_SITE_BASE_URL      deploy URL for badge embeds (default production URL)
+#   MCP_TRUST_SANDBOX_IMAGE      prebuilt scan image         (default corpus image)
 #   MCP_TRUST_RECEIPTS_DIR       receipt archive dir         (default ./receipts)
 #   MCP_TRUST_AUTO_DEPLOY        "1" to run `vercel deploy`  (default off)
 set -euo pipefail
@@ -27,8 +27,8 @@ cd "${REPO_ROOT}"
 
 DB="${MCP_TRUST_DB:-./registry.db}"
 OUT="${MCP_TRUST_SITE_OUT:-./site}"
-BASE_URL="${MCP_TRUST_SITE_BASE_URL:-https://mcp-trust.example}"
-IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:reference-2026-06-19}"
+BASE_URL="${MCP_TRUST_SITE_BASE_URL:-https://mcp-trust.vercel.app}"
+IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:corpus-2026-06-28}"
 RECEIPTS="${MCP_TRUST_RECEIPTS_DIR:-./receipts}"
 
 log() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
