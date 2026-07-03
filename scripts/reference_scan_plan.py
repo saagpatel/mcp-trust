@@ -425,7 +425,11 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         command="kage-graph-mcp",
         description=(
             "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
-            "limited to controlled first-pass scan evidence and receipt caveats."
+            "limited to controlled first-pass scan evidence and receipt caveats. "
+            "Provenance caveat: the npm package declares no repository/homepage "
+            "and the source repo has no exact version tag; the package/source "
+            "binding rests on an untagged release commit with matching "
+            "package-file hashes."
         ),
         homepage="https://github.com/kage-core/Kage",
         notes=(
@@ -445,7 +449,11 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         command="kogcat-mcp",
         description=(
             "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
-            "limited to controlled first-pass scan evidence and receipt caveats."
+            "limited to controlled first-pass scan evidence and receipt caveats. "
+            "Provenance caveat: the wheel metadata declares no source/project URL "
+            "and the source repo has no exact version tag; the package/source "
+            "binding rests on byte-for-byte runtime-file hash matches on the "
+            "default branch."
         ),
         homepage="https://github.com/KogCat/cc-kogcat",
         notes=(

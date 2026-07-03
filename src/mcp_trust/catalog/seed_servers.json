@@ -306,7 +306,7 @@
   {
     "slug": "com-kage-core-kage-2-3-0",
     "name": "com.kage-core/kage",
-    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Provenance caveat: the npm package declares no repository/homepage and the source repo has no exact version tag; the package/source binding rests on an untagged release commit with matching package-file hashes.",
     "source": {
       "kind": "npm",
       "reference": "@kage-core/kage-graph-mcp",
@@ -320,7 +320,7 @@
   {
     "slug": "com-kogcat-kogcat-mcp-0-46-2",
     "name": "com.kogcat/kogcat-mcp",
-    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Provenance caveat: the wheel metadata declares no source/project URL and the source repo has no exact version tag; the package/source binding rests on byte-for-byte runtime-file hash matches on the default branch.",
     "source": {
       "kind": "pypi",
       "reference": "kogcat-mcp",

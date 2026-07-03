@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_from_scan_at": "2026-07-03T10:12:19.647829+00:00",
+  "generated_from_scan_at": "2026-07-03T10:16:27.606286+00:00",
   "server_count": 23,
   "servers": [
     {
@@ -904,7 +904,7 @@
     {
       "slug": "com-kage-core-kage-2-3-0",
       "name": "com.kage-core/kage",
-      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Provenance caveat: the npm package declares no repository/homepage and the source repo has no exact version tag; the package/source binding rests on an untagged release commit with matching package-file hashes.",
       "homepage": "https://github.com/kage-core/Kage",
       "grade": "F",
       "transparency": "low",
@@ -2421,7 +2421,7 @@
     {
       "slug": "com-kogcat-kogcat-mcp-0-46-2",
       "name": "com.kogcat/kogcat-mcp",
-      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Provenance caveat: the wheel metadata declares no source/project URL and the source repo has no exact version tag; the package/source binding rests on byte-for-byte runtime-file hash matches on the default branch.",
       "homepage": "https://github.com/KogCat/cc-kogcat",
       "grade": "C",
       "transparency": "low",
