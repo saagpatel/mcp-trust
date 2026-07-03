@@ -25,7 +25,12 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from mcp_trust.api.web import render_catalog, render_detail, render_not_found
+from mcp_trust.api.web import (
+    render_catalog,
+    render_detail,
+    render_methodology,
+    render_not_found,
+)
 from mcp_trust.core.models import TrustGrade
 from mcp_trust.core.provenance import ScanProvenance, classify
 from mcp_trust.site.badges import badge_payload
@@ -140,6 +145,10 @@ def generate_site(
     index_path = out_dir / "index.html"
     _write(index_path, render_catalog(rows, banner=_DEMO_BANNER if demo_count else None))
     pages.append(index_path)
+
+    methodology_path = out_dir / "ui" / "methodology" / "index.html"
+    _write(methodology_path, render_methodology())
+    pages.append(methodology_path)
 
     notfound_path = out_dir / "404.html"
     _write(notfound_path, render_not_found("unknown"))
