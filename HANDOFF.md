@@ -103,6 +103,15 @@ Current promotion review evidence is local-only under `tmp/`:
 - recommended first promotion cohort:
   `com.mythsensus/mythsensus-mcp` and
   `eu.regulatoryai/sovereign-ai-act-mcp`
+- `tmp/live-batch-published-review-20260702.json`
+  marks those two records `published` inside a review artifact only; the other
+  six records are `deferred`.
+
+`scripts/plan_corpus_catalog_integration.py` now creates the next no-write
+integration plan from that reviewed promotion artifact. It can read the temp DB
+for launch source specs, compare against `seed_servers.json`, and list the seed,
+scan, receipt, snapshot, site, deploy, and badge approvals still required. It
+does not mutate any of those surfaces.
 
 The next corpus expansion should stay small and approval-gated:
 

@@ -186,6 +186,22 @@ This still does not edit `seed_servers.json`, update `registry.db`, rebuild
 `catalog_snapshot.json`, deploy, publish badges, or claim certification. It is
 the last review artifact before a separately approved catalog integration.
 
+Use `scripts/plan_corpus_catalog_integration.py` to turn that reviewed
+promotion artifact into a no-write integration plan:
+
+```bash
+uv run python scripts/plan_corpus_catalog_integration.py \
+  --input tmp/live-batch-published-review-20260702.json \
+  --source-db tmp/registry-live-batch-20260628.db \
+  --out tmp/live-batch-catalog-integration-plan-20260702.json
+```
+
+The planner reads the current seed catalog and, when supplied, the isolated temp
+DB source specs. It prints which published records would become seed entries,
+which are blocked or already seeded, which deferred records remain parked, and
+which follow-up approvals are required. It still does not write public catalog,
+database, snapshot, site, deployment, or badge state.
+
 ## Approval Gate
 
 Moving from candidate manifest to live scans requires a concrete approved batch:
