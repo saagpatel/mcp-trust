@@ -15,7 +15,9 @@ dependencies = [
 
 [project.optional-dependencies]
 # Real scanning backend. Without it, the registry runs on the StubEngine.
-engine = ["mcp-audits>=2.1.0"]
+# Upper bound: a major bump of the scan engine is a contract change that must
+# fail at resolve time, not as an AttributeError mid-scan.
+engine = ["mcp-audits>=2.1.0,<3"]
 dev = [
     "pytest>=8.0",
     "httpx>=0.27",
