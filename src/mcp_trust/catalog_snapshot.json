@@ -1,8 +1,2674 @@
 {
   "schema_version": 1,
-  "generated_from_scan_at": "2026-07-03T09:46:13.094309+00:00",
-  "server_count": 19,
+  "generated_from_scan_at": "2026-07-03T10:16:27.606286+00:00",
+  "server_count": 23,
   "servers": [
+    {
+      "slug": "ai-adeu-adeu-1-7-1",
+      "name": "ai.adeu/adeu",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+      "homepage": "https://github.com/dealfluence/adeu",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 10.0,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 2.7,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "high",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "low",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        }
+      ],
+      "evidence": {
+        "tool_count": 9,
+        "tools": [
+          {
+            "name": "read_docx",
+            "has_input_schema": true,
+            "input_schema_sha256": "0d5a52917a891f6267b00051712010e4f2fc8068f74bdc625525730a75ec2248",
+            "has_annotations": false
+          },
+          {
+            "name": "process_document_batch",
+            "has_input_schema": true,
+            "input_schema_sha256": "981905480b2a96c9181a01810f0b511b6860412dcb6189b01128bd48f441f80c",
+            "has_annotations": false
+          },
+          {
+            "name": "accept_all_changes",
+            "has_input_schema": true,
+            "input_schema_sha256": "3aaf7ba12ec658ac92cc56e1bb91aef27a00fe2742bda751240f3e5204cb52ce",
+            "has_annotations": false
+          },
+          {
+            "name": "diff_docx_files",
+            "has_input_schema": true,
+            "input_schema_sha256": "dc4fee9240dc5cb12dfc8c65b3097c088d81643b77deb7186b5ab60f1b4c5cab",
+            "has_annotations": false
+          },
+          {
+            "name": "finalize_document",
+            "has_input_schema": true,
+            "input_schema_sha256": "102e5fdd6cb2713798ef41f5c628802ee396ed837906142fc88b1aad36fb146d",
+            "has_annotations": false
+          },
+          {
+            "name": "login_to_adeu_cloud",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "logout_of_adeu_cloud",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "search_and_fetch_emails",
+            "has_input_schema": true,
+            "input_schema_sha256": "9fc29ed9bc881ccc6fc8dd19691083402c9cbc02be748b2c52c0667aac77fd02",
+            "has_annotations": false
+          },
+          {
+            "name": "create_email_draft",
+            "has_input_schema": true,
+            "input_schema_sha256": "0fd7be173337e0e426ceec0ef4dbb230bb071ba5da9b63d589fa1f73293be6cb",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "@adeu/mcp-server",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.3.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "ai-ravenmcp-raven-mcp-1-3-3",
+      "name": "ai.ravenmcp/raven-mcp",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+      "homepage": "https://github.com/rhinocap/raven-mcp",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 9.84,
+      "dimensions": {
+        "file_access": 1.2,
+        "network_access": 1.5,
+        "shell_execution": 2.7,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "low",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "low",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "high",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "evidence": {
+        "tool_count": 27,
+        "tools": [
+          {
+            "name": "get_principles",
+            "has_input_schema": true,
+            "input_schema_sha256": "2d8b8d7290a6106f3567724c214431559d421bdb05b2f17cf04fcfe1bff574de",
+            "has_annotations": false
+          },
+          {
+            "name": "get_pattern",
+            "has_input_schema": true,
+            "input_schema_sha256": "2a65bf161af8d9c0bc06bcb69b82be26912430250c1e1876d509d2b13d43577d",
+            "has_annotations": false
+          },
+          {
+            "name": "get_business_strategy",
+            "has_input_schema": true,
+            "input_schema_sha256": "f298cb57cf675275c94311423f9e9adb257f7e2584aed6c4b8186766bef7fea0",
+            "has_annotations": false
+          },
+          {
+            "name": "evaluate_design",
+            "has_input_schema": true,
+            "input_schema_sha256": "a6fdf7abeaac608a4075ea0901a0d55c49cac1e7b36d851b6d910330e3c74f54",
+            "has_annotations": false
+          },
+          {
+            "name": "search_knowledge",
+            "has_input_schema": true,
+            "input_schema_sha256": "3cae70a9fbb055b11f4b567634e3529080ab1becf5ada90317d4f0f8f0f22b1f",
+            "has_annotations": false
+          },
+          {
+            "name": "get_checklist",
+            "has_input_schema": true,
+            "input_schema_sha256": "67a5083470278afbe040ea25477c280c88743da33519911d6e704990d765d2cd",
+            "has_annotations": false
+          },
+          {
+            "name": "get_d4d_framework",
+            "has_input_schema": true,
+            "input_schema_sha256": "1ee3028bd0a063091b0d8f45012bd80b85d1656658fd4e421834f8df65b5c166",
+            "has_annotations": false
+          },
+          {
+            "name": "list_design_systems",
+            "has_input_schema": true,
+            "input_schema_sha256": "cb05841cbae29e6775cbb5426a70d9bb21512b33cc548971361d200281adad40",
+            "has_annotations": false
+          },
+          {
+            "name": "get_design_system",
+            "has_input_schema": true,
+            "input_schema_sha256": "25d7ef66f92a161ca7207c3b5436e82a4553c3dda8d2d9a6fa6b01cdda12092a",
+            "has_annotations": false
+          },
+          {
+            "name": "compose_system",
+            "has_input_schema": true,
+            "input_schema_sha256": "590f89a78b218497bc909522116a3673326946436e7ce53e1c57f044f4b302c0",
+            "has_annotations": false
+          },
+          {
+            "name": "audit_page",
+            "has_input_schema": true,
+            "input_schema_sha256": "d05db60e9499811a8c774e27fcdbf6a792ad53b993cf2cb232d351c6ab9014c0",
+            "has_annotations": false
+          },
+          {
+            "name": "get_brand_system",
+            "has_input_schema": true,
+            "input_schema_sha256": "9cb02ff02da7089f615c8fa5a8eee39a88a95426bb8f2b79464588ff5a8fee5d",
+            "has_annotations": false
+          },
+          {
+            "name": "generate_design_system",
+            "has_input_schema": true,
+            "input_schema_sha256": "1edf34ac4e3f8c57950685cb5b6def469c650c39bd2694c10ca7245d90b00ffb",
+            "has_annotations": false
+          },
+          {
+            "name": "audit_layout",
+            "has_input_schema": true,
+            "input_schema_sha256": "98e1b17f21ec623f42e91817111192f325d683aea0bccc3b83b419a51dbe1a84",
+            "has_annotations": false
+          },
+          {
+            "name": "list_content_systems",
+            "has_input_schema": true,
+            "input_schema_sha256": "0d9c2e253f2c61e22e4b5f0f365a8cac9c5668b8b6ade13f2dadf69e9bcd4531",
+            "has_annotations": false
+          },
+          {
+            "name": "get_content_system",
+            "has_input_schema": true,
+            "input_schema_sha256": "4cb0a1187b27f4c60efd33c7d1051609ac6ade70bfcb1803d8e3eaa17f2c2193",
+            "has_annotations": false
+          },
+          {
+            "name": "get_content_principles",
+            "has_input_schema": true,
+            "input_schema_sha256": "0557f859379cf38bd7602c8df230a6542424296d0954e024a4ef624341fe255f",
+            "has_annotations": false
+          },
+          {
+            "name": "get_content_pattern",
+            "has_input_schema": true,
+            "input_schema_sha256": "bcc6b910b9eaf0e227abcf8e4f211208c30df7c8a634cc67696d5a72b7f839fc",
+            "has_annotations": false
+          },
+          {
+            "name": "get_research_method",
+            "has_input_schema": true,
+            "input_schema_sha256": "f5920b90226e17b2893a6a5716ae800d6bcc7f325f4633a2a025f802bf7e23ba",
+            "has_annotations": false
+          },
+          {
+            "name": "get_metrics_framework",
+            "has_input_schema": true,
+            "input_schema_sha256": "828ec7d13fce739a8451f50038c68f84e3972b66d386cc82112b94d313d72593",
+            "has_annotations": false
+          },
+          {
+            "name": "get_service_pattern",
+            "has_input_schema": true,
+            "input_schema_sha256": "44c9bbf68f7ca72e52bce269e834530f8370739a44dcb9ff72f81d9a40e80937",
+            "has_annotations": false
+          },
+          {
+            "name": "get_service_standard",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "generate_service_blueprint",
+            "has_input_schema": true,
+            "input_schema_sha256": "2a1fa001a96d35ef69d3e13f99661528978bbb06d955bcdc8dfc71d5181f2e04",
+            "has_annotations": false
+          },
+          {
+            "name": "get_brand_principles",
+            "has_input_schema": true,
+            "input_schema_sha256": "753c462c5bf10f85e6b00f67c718a45d7736e66547edecdbdd54cdcb6cbece9e",
+            "has_annotations": false
+          },
+          {
+            "name": "get_brand_trends",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "raven_reflect",
+            "has_input_schema": true,
+            "input_schema_sha256": "002ac1b6937312a9e1a9930c6bbbdce03a2c60c8b8f43ff911be757243250978",
+            "has_annotations": false
+          },
+          {
+            "name": "raven_register",
+            "has_input_schema": true,
+            "input_schema_sha256": "74092a32c6b544cefa7e03c17af2ffb406d720257363a524c9f0d11a2e0fe693",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "raven-mcp",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.3.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "com-kage-core-kage-2-3-0",
+      "name": "com.kage-core/kage",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Provenance caveat: the npm package declares no repository/homepage and the source repo has no exact version tag; the package/source binding rests on an untagged release commit with matching package-file hashes.",
+      "homepage": "https://github.com/kage-core/Kage",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 8.76,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 1.8,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "low",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        }
+      ],
+      "evidence": {
+        "tool_count": 66,
+        "tools": [
+          {
+            "name": "kage_context",
+            "has_input_schema": true,
+            "input_schema_sha256": "f24e6983e6b5377527c05366a9457ed3852bad978a0309b3ef77d68246eca5b8",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_search",
+            "has_input_schema": true,
+            "input_schema_sha256": "2b61e0def322122e37e44a7a38237941203766da9c456bf029b2176f4e19eca9",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_fetch",
+            "has_input_schema": true,
+            "input_schema_sha256": "c1e0b440d3cf83ef880d1d92410a09e6868b0a7a332dd071ea2674f5938c8bf5",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_list_domains",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_recall",
+            "has_input_schema": true,
+            "input_schema_sha256": "f623bd41f6d2915b87566a891ee7ac965748b081d8719a1b80cc2f00b82e95a0",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_graph",
+            "has_input_schema": true,
+            "input_schema_sha256": "da3d6fb169ee0308c74c4f14c953c3190b1c7a800bac490dc389aae3fece4518",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_graph_registry",
+            "has_input_schema": true,
+            "input_schema_sha256": "4503e4724b97d23f1eeb14ec89e5ae855b295d8c59e6b1f8bca8400b435b7525",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_code_graph",
+            "has_input_schema": true,
+            "input_schema_sha256": "048ce3ba84281a90c89728b635704aaae57f19cc4cceec864580facba7ab476b",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_risk",
+            "has_input_schema": true,
+            "input_schema_sha256": "ae6d6a7bc47a8101679ab41820469bbee063e33713eb6879244e3284d9b46944",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_dependency_path",
+            "has_input_schema": true,
+            "input_schema_sha256": "c6a97d95824e179ea748c20e2afa32ab9b5f526c14e5272c14121c1f50e9c61a",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_cleanup_candidates",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_reviewers",
+            "has_input_schema": true,
+            "input_schema_sha256": "ed85b10c2fd0eb147c43d92cab67d225ed2aa09afc8549da55778ff7218633a9",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_contributors",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_profile",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_xray",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_capabilities",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_context_slots",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_context_slot_set",
+            "has_input_schema": true,
+            "input_schema_sha256": "58f1ea9468f9cbff39ad84785551b867ce22c6d743e239dfcd96d802579e0415",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_context_slot_delete",
+            "has_input_schema": true,
+            "input_schema_sha256": "6a5fec0aad2492d88fe993929b6ec9119ada875d4d40aab52a3e9e8cdd0b94b0",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_decisions",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_code_index",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_structural_index",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_docs_search",
+            "has_input_schema": true,
+            "input_schema_sha256": "53518796d043de91623abc80c45e845279b71e88cf33afcd2268b640f8e7f7af",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_metrics",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_access",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_module_health",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_graph_insights",
+            "has_input_schema": true,
+            "input_schema_sha256": "8c19525dc087ea2c2519c22c878879f9be50284777e27e5445d53ddca4993c66",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_workspace",
+            "has_input_schema": true,
+            "input_schema_sha256": "7f86d8f09e5bcb651e4b440ac2e332d710edb4ed5c3f9dba84099b59b86e1010",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_workspace_recall",
+            "has_input_schema": true,
+            "input_schema_sha256": "4e483650a54091d6fcbb6bfc8510506fa8e445e5b6bdffdff58d8e9d997c5374",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_audit",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_inbox",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_refresh",
+            "has_input_schema": true,
+            "input_schema_sha256": "0dd4eda95ed66576efe6c7d7c3cb68c776f2dc02e13c5799d9ea05c933f97d7b",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_workflow",
+            "has_input_schema": true,
+            "input_schema_sha256": "c8a1ac469a826ea3547ac220c7bbfdcd6b58080d4ec596ff2a0149c5ccb9b699",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_pr_summarize",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_pr_check",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_reconcile",
+            "has_input_schema": true,
+            "input_schema_sha256": "6ea693528678cfd5df0657735145849b5f7a9e220b31af252b994cce30281f2e",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_quality",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_lifecycle",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_timeline",
+            "has_input_schema": true,
+            "input_schema_sha256": "94f71daf215059ed8a2afe446b3dbe4aed58a7ff1a3106e5821f010e7837a06a",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_lineage",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_audit",
+            "has_input_schema": true,
+            "input_schema_sha256": "a39a712a824644ef8832bb95a44ca685361f9485571e8df7194583216c29e3f3",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_memory_handoff",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_supersede",
+            "has_input_schema": true,
+            "input_schema_sha256": "5352d38150454ebdb479a0214830897077b2f8239db62ec8094eabd7f19752ed",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_conflicts",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_benchmark",
+            "has_input_schema": true,
+            "input_schema_sha256": "880b63a0d2d13a550d15bbecc1e427eca52e4ffbaab769ec441237f7f7adf6e5",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_benchmark_compare",
+            "has_input_schema": true,
+            "input_schema_sha256": "daec23c136001fab5d93179f2ea90ff1319623f4e1c487ae60f962b195ab889b",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_setup_agent",
+            "has_input_schema": true,
+            "input_schema_sha256": "5809449d39b8d2998e2c84df44b7afd7e152bb34e37b8be876d92d57511db615",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_setup_doctor",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_verify_agent",
+            "has_input_schema": true,
+            "input_schema_sha256": "95509f0aba60c3a388350a4dff4b08f332f935d9c3203e008b3baa3320206b18",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_graph_visual",
+            "has_input_schema": true,
+            "input_schema_sha256": "a39a712a824644ef8832bb95a44ca685361f9485571e8df7194583216c29e3f3",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_branch_overlay",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_learn",
+            "has_input_schema": true,
+            "input_schema_sha256": "09c00f6e565366e5dcad8a196b2330e193ea97563bd272b67d70b25aa6751149",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_capture",
+            "has_input_schema": true,
+            "input_schema_sha256": "24a8dba6ba8e9b277c9ac5a12b41a0b638d10d48149286b8f2105a1e5a13edbc",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_verify_citations",
+            "has_input_schema": true,
+            "input_schema_sha256": "720680baebff6f0eb42c08656dec264a2a7a64e096fcb81afe69af4af2c936ac",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_compact",
+            "has_input_schema": true,
+            "input_schema_sha256": "5015da47fbe7f37c8bc1209069e7e75feea1e7db545c16694535032e687ab29d",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_observe",
+            "has_input_schema": true,
+            "input_schema_sha256": "74c7b9f9626487a21769dd25960698934ad8bab95803eb427a9b700d33d6ab42",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_distill",
+            "has_input_schema": true,
+            "input_schema_sha256": "e94f767c8ebc4e750c42ec38a3e8dce470fe56cc9dd24065e01278a50b8cc08f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_sessions",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_learning_ledger",
+            "has_input_schema": true,
+            "input_schema_sha256": "6ea693528678cfd5df0657735145849b5f7a9e220b31af252b994cce30281f2e",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_session_replay",
+            "has_input_schema": true,
+            "input_schema_sha256": "6ea693528678cfd5df0657735145849b5f7a9e220b31af252b994cce30281f2e",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_feedback",
+            "has_input_schema": true,
+            "input_schema_sha256": "838fa62987ee766b4e019adcaf5af907326e90b6f7cb05675f0bfb5de9e0e2c7",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_install_policy",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_validate",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_registry_recommend",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_review_artifact",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          },
+          {
+            "name": "kage_propose_from_diff",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc96c316dc95fe5bb1d3e77d92477b9aa8de9c7950feba65994a686679ea807f",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "@kage-core/kage-graph-mcp",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.3.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "com-kogcat-kogcat-mcp-0-46-2",
+      "name": "com.kogcat/kogcat-mcp",
+      "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Provenance caveat: the wheel metadata declares no source/project URL and the source repo has no exact version tag; the package/source binding rests on byte-for-byte runtime-file hash matches on the default branch.",
+      "homepage": "https://github.com/KogCat/cc-kogcat",
+      "grade": "C",
+      "transparency": "low",
+      "danger_score": 4.86,
+      "dimensions": {
+        "file_access": 1.8,
+        "network_access": 1.5,
+        "shell_execution": 0.0,
+        "destructive": 2.0,
+        "exfiltration": 1.5
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "high",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        }
+      ],
+      "evidence": {
+        "tool_count": 9,
+        "tools": [
+          {
+            "name": "search",
+            "has_input_schema": true,
+            "input_schema_sha256": "c5e13303a485bd4acf9def56819e3bdbab280daf7cfcfb4e4f5caa605a601a6a",
+            "has_annotations": false
+          },
+          {
+            "name": "node",
+            "has_input_schema": true,
+            "input_schema_sha256": "7df2fc6ffc08acd9ca62d6cb40d125f5bf22878cb3ec867f9a9e638f3f18b349",
+            "has_annotations": false
+          },
+          {
+            "name": "edges",
+            "has_input_schema": true,
+            "input_schema_sha256": "40fdab92c4e3d7b5c08f5b2a8ab9bc9d067f83fe8dd00076e2214c161191e3ec",
+            "has_annotations": false
+          },
+          {
+            "name": "calibrate",
+            "has_input_schema": true,
+            "input_schema_sha256": "8829325663c7abbac84df7a0df14041870b200b3c22dae6aa4577b3606c91afd",
+            "has_annotations": false
+          },
+          {
+            "name": "calibrate_review",
+            "has_input_schema": true,
+            "input_schema_sha256": "033ada1ab9d6d48a0073e74b8e919755fc5342b20425fd6e70c6c2ec37099a8b",
+            "has_annotations": false
+          },
+          {
+            "name": "memory_save",
+            "has_input_schema": true,
+            "input_schema_sha256": "6974bb0dfd4e261b32b97f76690e4d973892f60ff362f4d39c9017ce1466811c",
+            "has_annotations": false
+          },
+          {
+            "name": "memory_delete",
+            "has_input_schema": true,
+            "input_schema_sha256": "098974972159a1c508b6fed6baed3bba04cd70d4ee9bbe30f926fb1db0188008",
+            "has_annotations": false
+          },
+          {
+            "name": "memory_list",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "memory_get",
+            "has_input_schema": true,
+            "input_schema_sha256": "098974972159a1c508b6fed6baed3bba04cd70d4ee9bbe30f926fb1db0188008",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "pypi",
+        "reference": "kogcat-mcp",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.3.0",
+      "requires_credentials": false
+    },
     {
       "slug": "com-mythsensus-mythsensus-mcp-0-2-1",
       "name": "com.mythsensus/mythsensus-mcp",

@@ -28,7 +28,7 @@ def test_reference_scan_plan_is_network_off_and_complete() -> None:
     assert payload["sandbox_env"]["MCP_TRUST_ENGINE"] == "mcpaudit"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX"] == "docker"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX_NETWORK"] == "none"
-    assert len(payload["candidates"]) == 19
+    assert len(payload["candidates"]) == 23
 
     slugs = {candidate["slug"] for candidate in payload["candidates"]}
     assert "mcp-reference-time" in slugs
@@ -73,6 +73,11 @@ def test_registry_derived_candidates_pin_live_batch_sandbox_image() -> None:
         "com-pulsemcp-image-diff-0-1-3",
         "com-seanwinslow-intent-engineering-0-2-0",
         "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+        # Deferred-cohort integration (operator-approved 2026-07-03).
+        "ai-adeu-adeu-1-7-1",
+        "ai-ravenmcp-raven-mcp-1-3-3",
+        "com-kage-core-kage-2-3-0",
+        "com-kogcat-kogcat-mcp-0-46-2",
     }
 
     for slug in live_batch_only:
@@ -108,6 +113,6 @@ def test_reference_scan_shell_plan_is_dry_run_text() -> None:
 
     assert "Dry-run only" in text
     assert "docker build -f Dockerfile.scan" in text
-    assert text.count("mcp-trust scan ") == 19
+    assert text.count("mcp-trust scan ") == 23
     assert "docker run" not in text
     assert "MCP_TRUST_SCAN_TOKEN" not in text

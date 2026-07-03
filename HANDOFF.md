@@ -5,15 +5,26 @@ regenerated local scan artifacts._
 
 ## Live / Local State
 
-- Public site `https://mcp-trust.vercel.app` now serves the 19-server static
-  catalog. Production deploy `dpl_ErxnVWYH1d9T4pHAqNKmj7Y65TNc` was promoted
-  after local rendered-site smoke and production readback.
-- Local launch catalog now has 19 seeded servers and 19 latest real `mcpaudit`
+- Public site `https://mcp-trust.vercel.app` now serves the **23-server** static
+  catalog on engine `mcpaudit 2.3.0`. Production deploy
+  `dpl_F9y4uvb7sfESGS8Daq4RFfhMQeNS` (2026-07-03) followed the full-corpus
+  2.3.0 regrade (12/19 de-escalated, F 7→2) and the deferred-cohort
+  integration: `ai.adeu/adeu` (F), `ai.ravenmcp/raven-mcp` (F),
+  `com.kage-core/kage` (F), `com.kogcat/kogcat-mcp` (C), all low-transparency,
+  operator-approved 2026-07-03 per the preconditions in
+  `CORPUS-DEFERRED-REVIEW.md` (promotion artifact
+  `tmp/live-batch-published-review-20260703-deferred-cohort.json`,
+  ref `deferred-cohort-operator-approval-20260703`). No Registry-derived
+  candidates remain deferred.
+- Servers baked only into `mcp-trust-live-batch:20260628` carry a per-server
+  `sandbox_image` pin in the seed source (PR #37), so the whole-corpus refresh
+  scans 23/23 with the corpus default env — no silent stale grades.
+- Local launch catalog now has 23 seeded servers and 23 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
   `python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`.
-- Latest grade distribution: A=1, B=3, C=5, D=3, F=7.
-- Transparency distribution: high=3, low=16.
+- Latest grade distribution: A=1, B=8, C=5, D=4, F=5.
+- Transparency distribution: high=3, low=20.
 - Evidence parity is complete for the launch corpus: all 19 latest scan rows have
   `evidence_json`, and latest receipts include public-safe tool readback
   evidence.
@@ -70,18 +81,6 @@ Dummy credential values were injected only inside the network-off container and
 are not persisted. Receipts record env key names and the dummy-credential caveat,
 not values.
 
-## Temp Live-Scan Batch
-
-The first approved no-auth Registry live-scan batch was rerun in a temp lane:
-
-- DB: `./tmp/registry-live-batch-20260628.db`
-- Receipts: `./tmp/live-batch-receipts-20260702-evidence/`
-- Approval ref: `first-live-corpus-batch-20260628-evidence-rerun`
-
-Four of those 8 candidates are now integrated into the local public catalog
-evidence path; the other 4 remain reviewed temp/deferred evidence until a
-separate corpus-integration decision is made.
-
 ## Registry Corpus Decision
 
 The official MCP Registry is a discovery, provenance, and staleness feed only.
@@ -89,10 +88,21 @@ It does not declare actual runtime tools, prompts, resources, input schemas, or
 annotations. Do not infer danger grades from Registry metadata. Public grades
 must come from controlled live readback evidence plus explicit receipt caveats.
 
-The next integration step should use `PublicCorpusRecord` / `CorpusRecordSet`
-rather than editing `seed_servers.json` directly. Keep the 8 temp live-scan
-candidates non-public until each record has explicit source review, scan mode,
-approval reference, receipt evidence, and caveats.
+The original approved no-auth Registry live-scan batch was rerun in a temp lane:
+
+- DB: `./tmp/registry-live-batch-20260628.db`
+- Receipts: `./tmp/live-batch-receipts-20260702-evidence/`
+- Approval ref: `first-live-corpus-batch-20260628-evidence-rerun`
+
+All 8 candidates from that lane are now integrated into the local public catalog
+evidence path. The last 4 (`ai.adeu/adeu`, `ai.ravenmcp/raven-mcp`,
+`com.kage-core/kage`, and `com.kogcat/kogcat-mcp`) were promoted after explicit
+operator approval on 2026-07-03; no Registry-derived candidates remain deferred.
+
+Future integration steps should use `PublicCorpusRecord` / `CorpusRecordSet`
+rather than editing `seed_servers.json` directly. Keep any newly discovered
+candidate non-public until it has explicit source review, scan mode, approval
+reference, receipt evidence, and public caveats.
 
 `scripts/draft_corpus_records.py` now creates the review-only bridge artifact
 from the temp scan lane. Current generated draft:
@@ -109,7 +119,7 @@ reviewed corpus records. It promotes only explicitly named receipt-backed
 `seed_servers.json`, update `registry.db`, rebuild `catalog_snapshot.json`,
 deploy, publish badges, or certify a server.
 
-Current promotion review evidence is local-only under `tmp/`:
+Earlier promotion review evidence is local-only under `tmp/`:
 
 - `tmp/live-batch-promotion-review-20260702.md`
 - recommended first promotion cohort:
@@ -125,7 +135,7 @@ for launch source specs, compare against `seed_servers.json`, and list the seed,
 scan, receipt, snapshot, site, deploy, and badge approvals still required. It
 does not mutate any of those surfaces.
 
-The approved four-entry integration has now been applied locally:
+The first approved four-entry integration was applied locally:
 
 - `src/mcp_trust/catalog/seed_servers.json` contains 19 entries.
 - `./registry.db` contains latest `mcpaudit` scan rows for all 19 seeded slugs.
@@ -134,6 +144,16 @@ The approved four-entry integration has now been applied locally:
 - `site/` was rebuilt locally for 19 servers.
 - The 19-server site was deployed to Vercel production as
   `dpl_ErxnVWYH1d9T4pHAqNKmj7Y65TNc`.
+
+The deferred-cohort integration has also been applied and deployed:
+
+- `src/mcp_trust/catalog/seed_servers.json` contains 23 entries.
+- `./registry.db` contains latest `mcpaudit` scan rows for all 23 seeded slugs.
+- `./receipts/` contains matching latest receipts for all 23 seeded slugs.
+- `src/mcp_trust/catalog_snapshot.json` contains 23 real scanned entries.
+- `site/` was rebuilt locally for 23 servers.
+- The 23-server site was deployed to Vercel production as
+  `dpl_F9y4uvb7sfESGS8Daq4RFfhMQeNS`.
 
 The next corpus expansion should stay small and approval-gated:
 
@@ -144,19 +164,14 @@ The next corpus expansion should stay small and approval-gated:
   egress;
 - diverse but boring capability coverage.
 
-The remaining deferred Registry-derived candidates were source-reviewed in
-`CORPUS-DEFERRED-REVIEW.md`. Keep all four out of the public catalog for now:
-
-- `ai.adeu/adeu` and `ai.ravenmcp/raven-mcp` have exact source tags and
-  package/source metadata matches, but publishing their `F` / low-transparency
-  first-pass evidence needs an explicit public-risk approval.
-- `com.kage-core/kage` and `com.kogcat/kogcat-mcp` now have stronger source
-  matches, but remain blocked until an explicit no-tag/no-package-source caveat
-  decision is approved.
+`CORPUS-DEFERRED-REVIEW.md` records the source-review and approval basis for the
+four deferred-cohort entries. For Kage and Kogcat, keep the no-tag/no-package-
+source provenance caveats visible in public catalog descriptions and receipt
+caveats; do not collapse them to a normal homepage-only source claim.
 
 ## Current Verification
 
-Last verified after the four-entry local catalog integration:
+Last verified after the 23-server deferred-cohort catalog integration:
 
 ```bash
 python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts
@@ -167,16 +182,17 @@ uv run --all-extras --frozen ruff check src scripts tests
 Results:
 
 - launch-state validation passed;
-- `209 passed, 2 skipped`;
+- `214 passed, 2 skipped`;
 - Ruff passed.
 
 ## Next Recommended Move
 
-Monitor the 19-server production catalog and keep the weekly freshness lane
+Monitor the 23-server production catalog and keep the weekly freshness lane
 ready. The repo-owned freshness defaults use the current production base URL and
-`mcp-trust-scan:corpus-2026-06-28`, with auto-deploy still opt-in. The
-remaining deferred Registry-derived candidates are `ai.adeu/adeu`,
-`ai.ravenmcp/raven-mcp`, `com.kage-core/kage`, and `com.kogcat/kogcat-mcp`.
+`mcp-trust-scan:corpus-2026-06-28`, with auto-deploy still opt-in. The 8
+Registry-derived live-batch servers are baked only into
+`mcp-trust-live-batch:20260628`, so preserve their per-server `sandbox_image`
+pins during refresh or catalog edits.
 
 ## Local Scheduler Checkpoint
 
