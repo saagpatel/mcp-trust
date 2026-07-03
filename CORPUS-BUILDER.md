@@ -127,6 +127,31 @@ Receipts must exclude credential values, raw token-bearing configs, private
 paths, arbitrary tool-call outputs, private prompts, source snippets, raw
 operator logs, and claims of certification.
 
+## Reviewed Corpus Records
+
+Candidate manifests are not public catalog records. The reviewed bridge is
+`mcp_trust.corpus.records`:
+
+- `PublicCorpusRecord` stores a reviewed candidate identity, exact package/source
+  reference, recommended scan mode, freshness state, dedupe keys, approval
+  notes, and optional receipt evidence.
+- `ReceiptEvidenceRef` is the only place a grade can enter this layer. It
+  requires a receipt reference, approval ref, scan mode, scanned timestamp,
+  grade, transparency, tool count, and sandbox metadata.
+- `CorpusRecordSet` is a versioned collection for operator review or future
+  static publishing.
+- `summarize_corpus_records()` gives an operator summary without reading raw
+  receipt contents or inventing grades.
+
+Safety invariants:
+
+- A record can be `proposed` or `approved-for-scan` without a receipt.
+- A `published` record must have receipt-backed scan evidence.
+- Receipt scan mode must match the reviewed recommended mode.
+- No-auth sandboxed records require an exact package version.
+- Registry metadata alone must never populate grade, transparency, tool count,
+  schema hashes, or findings.
+
 ## Approval Gate
 
 Moving from candidate manifest to live scans requires a concrete approved batch:
