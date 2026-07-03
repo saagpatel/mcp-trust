@@ -123,8 +123,7 @@ snapshot contains 19 real `mcp-audits` grades from network-off Docker sandbox
 scans, including four reviewed Registry-derived no-auth sandboxed entries.
 Every grade is labeled by provenance, so demo/stub data can never read as a
 real scan, and an unscanned server never shows a letter grade. The current
-production deployment is still the prior 17-server static catalog until the
-19-server site is explicitly deployed.
+production deployment is the 19-server static catalog.
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under

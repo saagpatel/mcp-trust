@@ -1,15 +1,13 @@
 # MCP Trust — Session Handoff
 
-_Last updated: 2026-07-03. Repo: `codex/integrate-near-next-corpus`; working
-tree has in-flight two-entry near-next catalog integration changes plus
+_Last updated: 2026-07-03. Repo: `main` tracking `origin/main`; working tree has
 regenerated local scan artifacts._
 
 ## Live / Local State
 
-- Public site `https://mcp-trust.vercel.app` still serves the 17-server static
-  catalog. Production deploy `dpl_5dZZXHtBCKEVGxqcpBUq4esX4xax` was promoted
-  after preview/local smoke. The near-next 19-server catalog has not been
-  deployed yet.
+- Public site `https://mcp-trust.vercel.app` now serves the 19-server static
+  catalog. Production deploy `dpl_ErxnVWYH1d9T4pHAqNKmj7Y65TNc` was promoted
+  after local rendered-site smoke and production readback.
 - Local launch catalog now has 19 seeded servers and 19 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
@@ -49,7 +47,7 @@ regenerated local scan artifacts._
   corpus entries into the local seed catalog, registry DB, receipts, baked
   snapshot, and generated site:
   `com.pulsemcp/image-diff` and
-  `com.seanwinslow/intent-engineering`. This has not been deployed.
+  `com.seanwinslow/intent-engineering`.
 
 ## Important Evidence
 
@@ -134,7 +132,8 @@ The approved four-entry integration has now been applied locally:
 - `./receipts/` contains matching latest receipts for all 19 seeded slugs.
 - `src/mcp_trust/catalog_snapshot.json` contains 19 real scanned entries.
 - `site/` was rebuilt locally for 19 servers.
-- The 19-server site has not been deployed to Vercel production.
+- The 19-server site was deployed to Vercel production as
+  `dpl_ErxnVWYH1d9T4pHAqNKmj7Y65TNc`.
 
 The next corpus expansion should stay small and approval-gated:
 
@@ -163,8 +162,6 @@ Results:
 
 ## Next Recommended Move
 
-Review and optionally deploy the 19-server static catalog. Production still
-serves the prior 17-server deployment until that deploy is approved and
-completed. The remaining deferred Registry-derived candidates are
-`ai.adeu/adeu`, `ai.ravenmcp/raven-mcp`, `com.kage-core/kage`, and
-`com.kogcat/kogcat-mcp`.
+Monitor the 19-server production catalog and keep the weekly freshness lane
+ready. The remaining deferred Registry-derived candidates are `ai.adeu/adeu`,
+`ai.ravenmcp/raven-mcp`, `com.kage-core/kage`, and `com.kogcat/kogcat-mcp`.
