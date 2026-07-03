@@ -218,10 +218,10 @@ Moving from candidate manifest to live scans requires a concrete approved batch:
 
 As of 2026-07-02, the local launch corpus has evidence parity:
 
-- `./registry.db` contains 15 seeded servers.
+- `./registry.db` contains 17 seeded servers.
 - The latest row for each seeded server is a real `mcpaudit` scan.
 - Each latest scan has `evidence_json`.
-- `./receipts/` contains matching latest receipts for all 15 rows.
+- `./receipts/` contains matching latest receipts for all 17 rows.
 - Launch validation passes with:
 
 ```bash
@@ -232,12 +232,19 @@ The evidence-parity rescan used approval ref
 `launch-corpus-evidence-parity-20260702`, Docker sandboxing, runtime network
 disabled, and the image `mcp-trust-scan:corpus-2026-06-28`.
 
-The first 8 Registry-derived no-auth candidates remain a temp reviewed evidence
-lane, not public catalog records:
+The first 8 Registry-derived no-auth candidates began as a temp reviewed
+evidence lane:
 
 - DB: `./tmp/registry-live-batch-20260628.db`
 - Receipts: `./tmp/live-batch-receipts-20260702-evidence/`
 - Approval ref: `first-live-corpus-batch-20260628-evidence-rerun`
 
-Do not copy those candidates into the public catalog, assign public meaning, or
-publish their grades until a separate integration decision is approved.
+As of the approved two-entry integration, only these candidates have been
+integrated into the local public catalog evidence path:
+
+- `com-mythsensus-mythsensus-mcp-0-2-1`
+- `eu-regulatoryai-sovereign-ai-act-mcp-1-2-0`
+
+The remaining six candidates stay deferred. Do not copy them into the public
+catalog, assign public meaning, or publish their grades until a separate
+integration decision is approved.

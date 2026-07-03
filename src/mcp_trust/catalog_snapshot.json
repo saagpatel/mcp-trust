@@ -1,8 +1,348 @@
 {
   "schema_version": 1,
   "generated_from_scan_at": "2026-07-03T02:50:56.284271+00:00",
-  "server_count": 15,
+  "server_count": 17,
   "servers": [
+    {
+      "slug": "com-mythsensus-mythsensus-mcp-0-2-1",
+      "name": "com.mythsensus/mythsensus-mcp",
+      "description": "Registry candidate: consensus from divination systems.",
+      "homepage": "https://github.com/PattrickChenforclaudeuse/mythsensus-mcp",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 7.74,
+      "dimensions": {
+        "file_access": 1.2,
+        "network_access": 1.5,
+        "shell_execution": 1.8,
+        "destructive": 2.0,
+        "exfiltration": 1.5
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "medium",
+          "category": "file_write"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "medium",
+          "category": "file_read"
+        }
+      ],
+      "evidence": {
+        "tool_count": 5,
+        "tools": [
+          {
+            "name": "calculate_cosmic_score",
+            "has_input_schema": true,
+            "input_schema_sha256": "40fbd2fa763a86018b9038d1037a0302c9043646af0420dfc151fecebd31a266",
+            "has_annotations": false
+          },
+          {
+            "name": "get_deep_reading",
+            "has_input_schema": true,
+            "input_schema_sha256": "1e1d0fbbc3a263a01b6a4b8a378e19816e898116c455cea236bfeb45dc293057",
+            "has_annotations": false
+          },
+          {
+            "name": "list_26_systems",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "daily_blessing",
+            "has_input_schema": true,
+            "input_schema_sha256": "647eb205ceb9d144c6d929c09c834c5ebf77ed12829c9578a13a9da9f793f479",
+            "has_annotations": false
+          },
+          {
+            "name": "about_mythsensus_engine",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "mythsensus-mcp",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
+    {
+      "slug": "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+      "name": "eu.regulatoryai/sovereign-ai-act-mcp",
+      "description": "Registry candidate: EU AI Act classification.",
+      "homepage": "https://github.com/saidbazyar/sovereign-ai-act-mcp",
+      "grade": "F",
+      "transparency": "low",
+      "danger_score": 7.68,
+      "dimensions": {
+        "file_access": 0.9,
+        "network_access": 1.5,
+        "shell_execution": 1.8,
+        "destructive": 2.0,
+        "exfiltration": 2.25
+      },
+      "annotation_coverage": 0.0,
+      "findings": [
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP004",
+          "title": "Shell execution capability",
+          "severity": "medium",
+          "category": "shell_execution"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "critical",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP001",
+          "title": "File read capability",
+          "severity": "high",
+          "category": "file_read"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP006",
+          "title": "Data exfiltration capability",
+          "severity": "medium",
+          "category": "exfiltration"
+        },
+        {
+          "rule_id": "MCP005",
+          "title": "Destructive operation capability",
+          "severity": "low",
+          "category": "destructive"
+        },
+        {
+          "rule_id": "MCP003",
+          "title": "Network access capability",
+          "severity": "low",
+          "category": "network"
+        },
+        {
+          "rule_id": "MCP002",
+          "title": "File write capability",
+          "severity": "low",
+          "category": "file_write"
+        }
+      ],
+      "evidence": {
+        "tool_count": 5,
+        "tools": [
+          {
+            "name": "classify_ai_system",
+            "has_input_schema": true,
+            "input_schema_sha256": "10482676c38619e7ac33177209b11422a3afbe09058aa6029bb4ee879da3f7f3",
+            "has_annotations": false
+          },
+          {
+            "name": "lookup_article",
+            "has_input_schema": true,
+            "input_schema_sha256": "49fdc66f93c628e5d59744c89078a8739e49c1ea0fbb569357b9c76286ea44c1",
+            "has_annotations": false
+          },
+          {
+            "name": "search_eu_ai_act",
+            "has_input_schema": true,
+            "input_schema_sha256": "76fccb1e6de092334312c6a8d37a9baae362d93835accf30f802baac8a939f5b",
+            "has_annotations": false
+          },
+          {
+            "name": "get_compliance_deadlines",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "review_feature",
+            "has_input_schema": true,
+            "input_schema_sha256": "f25cae297572ccec50fe7f636defd98c6cf281430c66dc3cba5a075c472c0418",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
+      "source": {
+        "kind": "npm",
+        "reference": "sovereign-ai-act-mcp",
+        "env_keys": []
+      },
+      "engine": "mcpaudit",
+      "engine_version": "2.1.0",
+      "requires_credentials": false
+    },
     {
       "slug": "mcp-archived-aws-kb-retrieval",
       "name": "AWS KB Retrieval (archived)",

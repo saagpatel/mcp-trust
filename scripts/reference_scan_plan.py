@@ -291,6 +291,43 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         homepage="https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart",
         notes="Credentialed-sandboxed; dummy API key to enumerate, network-off.",
     ),
+    # --- Registry-derived no-auth sandboxed corpus (2026-07-02) ---------------
+    # Selected from the official MCP Registry as discovery/provenance metadata,
+    # then scanned in an approved network-off temp lane. Registry metadata is
+    # not tool-surface truth; these entries are included only because receipt
+    # evidence exists for the exact versioned slug.
+    ReferenceScanCandidate(
+        slug="com-mythsensus-mythsensus-mcp-0-2-1",
+        name="com.mythsensus/mythsensus-mcp",
+        kind="npm",
+        reference="mythsensus-mcp",
+        command="mythsensus-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/PattrickChenforclaudeuse/mythsensus-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.2.1 "
+            "is encoded in the catalog slug and covered by temp receipt evidence."
+        ),
+    ),
+    ReferenceScanCandidate(
+        slug="eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+        name="eu.regulatoryai/sovereign-ai-act-mcp",
+        kind="npm",
+        reference="sovereign-ai-act-mcp",
+        command="sovereign-ai-act-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/saidbazyar/sovereign-ai-act-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 1.2.0 "
+            "is encoded in the catalog slug and covered by temp receipt evidence."
+        ),
+    ),
 )
 
 

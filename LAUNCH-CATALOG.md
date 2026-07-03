@@ -8,8 +8,9 @@ surface.
 
 ## Verified Local State
 
-- The current seed catalog contains the seven official reference server entries
-  from Candidate Set A.
+- The current seed catalog contains the official reference server entries,
+  approved archived official calibration entries, and the first two reviewed
+  Registry-derived no-auth sandboxed corpus entries.
 - API scan triggering is token-gated for the real `mcpaudit` engine with
   `MCP_TRUST_SCAN_TOKEN`, and public read-only deployments can disable scan
   triggering entirely with `MCP_TRUST_PUBLIC_READONLY=1`.
