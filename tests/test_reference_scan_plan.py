@@ -28,7 +28,7 @@ def test_reference_scan_plan_is_network_off_and_complete() -> None:
     assert payload["sandbox_env"]["MCP_TRUST_ENGINE"] == "mcpaudit"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX"] == "docker"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX_NETWORK"] == "none"
-    assert len(payload["candidates"]) == 25
+    assert len(payload["candidates"]) == 31
 
     slugs = {candidate["slug"] for candidate in payload["candidates"]}
     assert "mcp-reference-time" in slugs
@@ -81,6 +81,13 @@ def test_registry_derived_candidates_pin_their_batch_sandbox_image() -> None:
         # Batch-3 cohort (operator-approved 2026-07-03).
         "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11": "mcp-trust-batch3:20260703",
         "io-github-nickjlamb-redacta-mcp-1-2-1": "mcp-trust-batch3:20260703",
+        # Batch-4 cohort (operator-approved 2026-07-03).
+        "io-github-microsoft-playwright-mcp-0-0-77": "mcp-trust-batch4:20260703",
+        "io-github-chromedevtools-chrome-devtools-mcp-1-5-0": "mcp-trust-batch4:20260703",
+        "io-github-discourse-mcp-0-2-9": "mcp-trust-batch4:20260703",
+        "io-github-ui5-webcomponents-react-mcp-server-2-23-2": "mcp-trust-batch4:20260703",
+        "io-github-nvidia-elements-2-1-4": "mcp-trust-batch4:20260703",
+        "io-github-basicmachines-co-basic-memory-0-22-1": "mcp-trust-batch4:20260703",
     }
 
     for slug, image in pinned_images.items():
@@ -116,6 +123,6 @@ def test_reference_scan_shell_plan_is_dry_run_text() -> None:
 
     assert "Dry-run only" in text
     assert "docker build -f Dockerfile.scan" in text
-    assert text.count("mcp-trust scan ") == 25
+    assert text.count("mcp-trust scan ") == 31
     assert "docker run" not in text
     assert "MCP_TRUST_SCAN_TOKEN" not in text

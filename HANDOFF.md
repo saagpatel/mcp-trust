@@ -1,35 +1,42 @@
 # MCP Trust — Session Handoff
 
-_Last updated: 2026-07-03 (engine 2.4.0 regrade). Repo: `main` tracking
-`origin/main`; working tree has regenerated local scan artifacts._
+_Last updated: 2026-07-03 (batch-4 integration). Repo: `feat/corpus-batch4`;
+working tree has regenerated local scan artifacts._
 
 ## Live / Local State
 
-- Public site `https://mcp-trust.vercel.app` now serves the **25-server** static
-  catalog on engine `mcpaudit 2.4.0` (locked floor `>=2.4.0,<3`; full-corpus
-  regrade 2026-07-03 was grade-neutral — warnings-as-data is additive, detection
-  unchanged; 25/25 rescanned, zero WARNs, distribution identical). The prior
-  deploy `dpl_4fh9WYwnwsb4PAYQ2PKBjirKLzb2` (2026-07-03) followed the batch-3
-  integration: `com.microsoft/powerbi-modeling-mcp` 0.5.0-beta.11 (F, low
-  transparency; first-party Microsoft scope, prerelease caveat) and
-  `io.github.nickjlamb/redacta-mcp` 1.2.1 (C, low transparency),
+- Public site `https://mcp-trust.vercel.app` now serves the **31-server** static
+  catalog on engine `mcpaudit 2.4.0` (deploy
+  `dpl_CiU45YrkdWFtQCeTPyCUzpghCLrg`, 2026-07-03, alias verified). The batch-4
+  integration added six first-party / recognizable-vendor entries,
   operator-approved 2026-07-03 (promotion ref
-  `batch3-live-corpus-promotion-20260703`, review evidence
-  `tmp/batch3-promotion-review-20260703.md`). Four batch-3 candidates failed
-  closed with documented evidence (gk-cli and black-duck require runtime
-  downloads; agentmetal and mcp-safeguard are broken as published) — no public
-  entries, no grades; evidence stays local under `tmp/`.
+  `batch4-live-corpus-promotion-20260703`, review evidence
+  `tmp/batch4-promotion-review-20260703.md`):
+  `io.github.microsoft/playwright-mcp` 0.0.77 (F, high transparency),
+  `io.github.ChromeDevTools/chrome-devtools-mcp` 1.5.0 (F, high),
+  `io.github.discourse/mcp` 0.2.9 (F, low),
+  `io.github.UI5/webcomponents-react-mcp-server` 2.23.2 (C, high),
+  `io.github.NVIDIA/elements` 2.1.4 (F, high), and
+  `io.github.basicmachines-co/basic-memory` 0.22.1 (B, high). Two batch-4
+  candidates failed closed with documented evidence
+  (kubernetes-mcp-server requires a live kubeconfig — backing-service lane;
+  haiku-rag's registry metadata declares a `serve` command its shipped CLI
+  lacks — broken-as-published lane); no public entries, no grades; evidence
+  stays local under `tmp/`. Discovery feed: 2026-07-03 Registry fetch
+  (10,000 servers), curation `tmp/curate_batch4.py` (2,747 eligible → 417
+  vendor-deduped → 8 scanned → 6 published).
 - Purpose-built image pins: the 8 live-batch servers pin
   `mcp-trust-live-batch:20260628`; the 2 batch-3 servers pin
-  `mcp-trust-batch3:20260703` (node:24-slim base, `HOME=/scan` for the
-  read-only sandbox fs, .NET invariant globalization). The whole-corpus refresh
-  scans 25/25 under the corpus default env — no silent stale grades.
-- Local launch catalog now has 25 seeded servers and 25 latest real `mcpaudit`
+  `mcp-trust-batch3:20260703`; the 6 batch-4 servers pin
+  `mcp-trust-batch4:20260703` (node:24-slim + uv, `HOME=/scan` for the
+  read-only sandbox fs). The whole-corpus refresh scans 31/31 under the
+  corpus default env — no silent stale grades.
+- Local launch catalog now has 31 seeded servers and 31 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
   `python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`.
-- Latest grade distribution: A=1, B=8, C=6, D=4, F=6.
-- Transparency distribution: high=3, low=22.
+- Latest grade distribution: A=1, B=9, C=7, D=4, F=10.
+- Transparency distribution: high=8, low=23.
 - Evidence parity is complete for the launch corpus: all latest scan rows have
   `evidence_json`, and latest receipts include public-safe tool readback
   evidence.
