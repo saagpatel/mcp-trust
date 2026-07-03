@@ -1,13 +1,15 @@
 # MCP Trust — Session Handoff
 
-_Last updated: 2026-07-03 (batch-3 integration). Repo: `main` tracking
+_Last updated: 2026-07-03 (engine 2.4.0 regrade). Repo: `main` tracking
 `origin/main`; working tree has regenerated local scan artifacts._
 
 ## Live / Local State
 
 - Public site `https://mcp-trust.vercel.app` now serves the **25-server** static
-  catalog on engine `mcpaudit 2.3.0`. Production deploy
-  `dpl_4fh9WYwnwsb4PAYQ2PKBjirKLzb2` (2026-07-03) followed the batch-3
+  catalog on engine `mcpaudit 2.4.0` (locked floor `>=2.4.0,<3`; full-corpus
+  regrade 2026-07-03 was grade-neutral — warnings-as-data is additive, detection
+  unchanged; 25/25 rescanned, zero WARNs, distribution identical). The prior
+  deploy `dpl_4fh9WYwnwsb4PAYQ2PKBjirKLzb2` (2026-07-03) followed the batch-3
   integration: `com.microsoft/powerbi-modeling-mcp` 0.5.0-beta.11 (F, low
   transparency; first-party Microsoft scope, prerelease caveat) and
   `io.github.nickjlamb/redacta-mcp` 1.2.1 (C, low transparency),
