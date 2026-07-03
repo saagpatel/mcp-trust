@@ -353,7 +353,7 @@ wheels = [
 
 [[package]]
 name = "mcp-audits"
-version = "2.3.0"
+version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -364,9 +364,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/91/e9/b15b0c3a9a30a8468944c3f993b6cd427f8885cc840528c642139598b74d/mcp_audits-2.3.0.tar.gz", hash = "sha256:4c1331830495eb910e804e088fea120abb2e825dd6b13db110aacbe86b1ec7a4", size = 125168, upload-time = "2026-07-03T07:52:22.923Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/be/6159de76161b95980ff25ce73a422fb4240d06a8108cf150ac7d4f0c5bb4/mcp_audits-2.4.0.tar.gz", hash = "sha256:a7dd4733d3413d15fabcd2d8aa763b2b95b237b8af99b50d507b98a716a7641d", size = 128999, upload-time = "2026-07-03T13:06:34.36Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/16/7c/f2339cd96904c1ef57b89648c2eb9d769f16cbbbb3cf736074732f46349b/mcp_audits-2.3.0-py3-none-any.whl", hash = "sha256:066d72cf9d840cef80d44447d224ca1ec4b01a41f1b4a90556b40473b70c89d4", size = 144500, upload-time = "2026-07-03T07:52:21.391Z" },
+    { url = "https://files.pythonhosted.org/packages/59/af/d29fddb1939321d4e2c8a24de63a72c01ff2a1121f0f8f5b93930d96e76e/mcp_audits-2.4.0-py3-none-any.whl", hash = "sha256:5a2e18c9271d381a5d5482f7baf2bcd64cd52bdbdfd14cc501c32334b0aac66a", size = 148500, upload-time = "2026-07-03T13:06:32.964Z" },
 ]
 
 [[package]]
@@ -396,7 +396,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.27.0,<2" },
-    { name = "mcp-audits", marker = "extra == 'engine'", specifier = ">=2.1.0,<3" },
+    { name = "mcp-audits", marker = "extra == 'engine'", specifier = ">=2.4.0,<3" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_from_scan_at": "2026-07-03T11:40:37.259062+00:00",
+  "generated_from_scan_at": "2026-07-03T13:21:05.779941+00:00",
   "server_count": 25,
   "servers": [
     {
@@ -293,7 +293,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -898,7 +898,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -2415,7 +2415,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -2666,7 +2666,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -3421,7 +3421,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -3570,7 +3570,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -3641,7 +3641,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -3742,7 +3742,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -3879,7 +3879,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -3986,7 +3986,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -4049,7 +4049,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -4134,7 +4134,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -4189,7 +4189,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -4826,7 +4826,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -5079,7 +5079,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -5254,7 +5254,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -5466,7 +5466,7 @@
         ]
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": true
     },
     {
@@ -5669,7 +5669,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -5956,7 +5956,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -6009,7 +6009,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -6344,7 +6344,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -6547,7 +6547,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -6798,7 +6798,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -6869,7 +6869,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     },
     {
@@ -6928,7 +6928,7 @@
         "env_keys": []
       },
       "engine": "mcpaudit",
-      "engine_version": "2.3.0",
+      "engine_version": "2.4.0",
       "requires_credentials": false
     }
   ]
