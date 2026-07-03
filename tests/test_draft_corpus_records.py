@@ -144,6 +144,15 @@ def test_version_from_slug_handles_release_and_prerelease() -> None:
     assert module._version_from_slug("com-example-server-2-0-0-rc-1") == "2.0.0-rc.1"
 
 
+def test_version_from_slug_preserves_non_npm_numeric_release_segments() -> None:
+    module = _load_module("draft_corpus_records_pypi", SCRIPTS / "draft_corpus_records.py")
+
+    assert (
+        module._version_from_slug("org-example-server-1-2-3-4", registry_type="pypi")
+        == "1.2.3.4"
+    )
+
+
 def test_draft_corpus_records_cli_writes_valid_json(tmp_path: Path, capsys) -> None:
     db = tmp_path / "scan.db"
     receipts = tmp_path / "receipts"
