@@ -167,3 +167,17 @@ ready. The repo-owned freshness defaults use the current production base URL and
 `mcp-trust-scan:corpus-2026-06-28`, with auto-deploy still opt-in. The
 remaining deferred Registry-derived candidates are `ai.adeu/adeu`,
 `ai.ravenmcp/raven-mcp`, `com.kage-core/kage`, and `com.kogcat/kogcat-mcp`.
+
+## Local Scheduler Checkpoint
+
+As of 2026-07-03, the weekly LaunchAgent is installed locally at
+`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist` and loaded under
+`launchctl`:
+
+- schedule: Monday 09:00 local time;
+- state at install verification: loaded, not running, zero runs;
+- working directory: `/Users/d/Projects/mcp-trust`;
+- base URL: `https://mcp-trust.vercel.app`;
+- auto-deploy: off (`MCP_TRUST_AUTO_DEPLOY` is not set).
+
+No manual refresh run was started during installation verification.
