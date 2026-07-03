@@ -52,11 +52,17 @@ def test_docker_network_is_configurable() -> None:
     assert "bridge" in args
 
 
-def test_docker_optional_user_flag() -> None:
-    _, with_user = DockerSandbox(user="1000:1000").wrap("npx", ["x"])
-    assert "--user" in with_user and "1000:1000" in with_user
-    _, without = DockerSandbox().wrap("npx", ["x"])
-    assert "--user" not in without
+def test_docker_runs_non_root_by_default() -> None:
+    _, default_args = DockerSandbox().wrap("npx", ["x"])
+    assert "--user" in default_args and "1000:1000" in default_args
+    # HOME/TMPDIR point at the writable tmpfs so the unprivileged user can run.
+    assert "HOME=/scan" in default_args and "TMPDIR=/scan" in default_args
+    # Explicit override is honored.
+    _, custom = DockerSandbox(user="65534:65534").wrap("npx", ["x"])
+    assert "65534:65534" in custom
+    # Opt out to root (for an image that requires it) with user=None.
+    _, rooted = DockerSandbox(user=None).wrap("npx", ["x"])
+    assert "--user" not in rooted
 
 
 def test_select_sandbox_by_name_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
