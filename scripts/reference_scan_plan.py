@@ -465,6 +465,54 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         ),
         sandbox_image="mcp-trust-live-batch:20260628",
     ),
+    # Batch-3 Registry-derived cohort, integrated 2026-07-03 after operator
+    # approval (promotion ref batch3-live-corpus-promotion-20260703; review
+    # evidence tmp/batch3-promotion-review-20260703.md). Both are baked only
+    # into the batch-3 image (node:24-slim base with HOME=/scan and .NET
+    # invariant globalization), hence the per-server sandbox_image pins.
+    ReferenceScanCandidate(
+        slug="com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+        name="com.microsoft/powerbi-modeling-mcp",
+        kind="npm",
+        reference="@microsoft/powerbi-modeling-mcp",
+        command="powerbi-modeling-mcp",
+        args=("--start",),
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats. "
+            "Prerelease caveat: the scanned artifact is a beta version "
+            "(0.5.0-beta.11); a first-party vendor scope does not imply a safe "
+            "capability surface."
+        ),
+        homepage="https://github.com/microsoft/powerbi-modeling-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact prerelease "
+            "version 0.5.0-beta.11 is encoded in the catalog slug. First-party "
+            "Microsoft npm scope. Publishing first-pass F/low-transparency "
+            "evidence (file-write + exfiltration capability, no tool "
+            "annotations) was explicitly operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch3:20260703",
+    ),
+    ReferenceScanCandidate(
+        slug="io-github-nickjlamb-redacta-mcp-1-2-1",
+        name="io.github.nickjlamb/redacta-mcp",
+        kind="npm",
+        reference="redacta-mcp",
+        command="redacta-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/nickjlamb/redacta",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 1.2.1 is "
+            "encoded in the catalog slug. Local PII pseudonymisation tool "
+            "surface. Publishing first-pass C/low-transparency evidence was "
+            "explicitly operator-approved."
+        ),
+        sandbox_image="mcp-trust-batch3:20260703",
+    ),
 )
 
 

@@ -330,5 +330,35 @@
       "sandbox_image": "mcp-trust-live-batch:20260628"
     },
     "homepage": "https://github.com/KogCat/cc-kogcat"
+  },
+  {
+    "slug": "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+    "name": "com.microsoft/powerbi-modeling-mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats. Prerelease caveat: the scanned artifact is a beta version (0.5.0-beta.11); a first-party vendor scope does not imply a safe capability surface.",
+    "source": {
+      "kind": "npm",
+      "reference": "@microsoft/powerbi-modeling-mcp",
+      "command": "powerbi-modeling-mcp",
+      "args": [
+        "--start"
+      ],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch3:20260703"
+    },
+    "homepage": "https://github.com/microsoft/powerbi-modeling-mcp"
+  },
+  {
+    "slug": "io-github-nickjlamb-redacta-mcp-1-2-1",
+    "name": "io.github.nickjlamb/redacta-mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "redacta-mcp",
+      "command": "redacta-mcp",
+      "args": [],
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-batch3:20260703"
+    },
+    "homepage": "https://github.com/nickjlamb/redacta"
   }
 ]
