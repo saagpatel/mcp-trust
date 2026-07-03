@@ -157,7 +157,8 @@ Results:
 ## Next Recommended Move
 
 Monitor the 17-server production catalog and keep the weekly freshness lane
-ready. The next expansion decision is whether to manually review the two
-near-next deferred candidates (`com.pulsemcp/image-diff` and
-`com.seanwinslow/intent-engineering`) for source mapping and possible
-promotion.
+ready. The two near-next deferred candidates (`com.pulsemcp/image-diff` and
+`com.seanwinslow/intent-engineering`) now have a source-mapping review note in
+`CORPUS-NEAR-NEXT-REVIEW.md`; keep both deferred until the npm tarballs are
+manually tied back to their Registry-derived source repositories and a separate
+public-catalog integration approval is given.
