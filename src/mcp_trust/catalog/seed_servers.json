@@ -233,6 +233,32 @@
     "homepage": "https://github.com/PattrickChenforclaudeuse/mythsensus-mcp"
   },
   {
+    "slug": "com-pulsemcp-image-diff-0-1-3",
+    "name": "com.pulsemcp/image-diff",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "@pulsemcp/image-diff-mcp-server",
+      "command": "image-diff-mcp-server",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/pulsemcp/mcp-servers"
+  },
+  {
+    "slug": "com-seanwinslow-intent-engineering-0-2-0",
+    "name": "com.seanwinslow/intent-engineering",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "@swins/intent-engineering-mcp",
+      "command": "intent-engineering-mcp",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/seanwinslow28/sw-mcp-intent-engineering"
+  },
+  {
     "slug": "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
     "name": "eu.regulatoryai/sovereign-ai-act-mcp",
     "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
