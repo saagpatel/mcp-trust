@@ -29,6 +29,7 @@ import sys
 import uuid
 from contextlib import closing
 from datetime import UTC, datetime
+from pathlib import Path
 
 from mcp_trust.catalog.seed import seed_into
 from mcp_trust.core import grading
@@ -40,7 +41,13 @@ from mcp_trust.store.repository import ScanRepository, ServerRepository
 
 _DEFAULT_DB = "./registry.db"
 _DEFAULT_OUT = "./site"
+_DEFAULT_CORRECTIONS = "./corrections.json"
 _PLACEHOLDER_BASE_URL = "https://mcp-trust.example"
+_GOVERNANCE_PAGES = (
+    ("ui", "methodology", "index.html"),
+    ("ui", "dispute", "index.html"),
+    ("ui", "corrections", "index.html"),
+)
 
 
 def _stub_scan_unscanned(server_repo: ServerRepository, scan_repo: ScanRepository) -> int:
@@ -71,6 +78,19 @@ def _stub_scan_unscanned(server_repo: ServerRepository, scan_repo: ScanRepositor
     return scanned
 
 
+def _load_corrections(path: str) -> list[dict]:
+    """Load the public corrections log. Missing file = empty log; a malformed
+    file fails the build loudly rather than silently publishing without it."""
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    loaded = json.loads(raw)
+    if not isinstance(loaded, list):
+        raise ValueError(f"corrections log must be a JSON list, got {type(loaded).__name__}")
+    return loaded
+
+
 def _verify(build, *, servers, scanned_slugs) -> list[str]:
     """Return a list of verification failures (empty == passed)."""
     failures: list[str] = []
@@ -84,6 +104,13 @@ def _verify(build, *, servers, scanned_slugs) -> list[str]:
 
     if not (out / "404.html").is_file():
         failures.append("404.html is missing")
+
+    # Governance floor: the methodology, dispute, and corrections pages must
+    # ship with every build — a public grade without its disclosure surface
+    # fails the build, it doesn't quietly deploy.
+    for rel_path in _GOVERNANCE_PAGES:
+        if not out.joinpath(*rel_path).is_file():
+            failures.append(f"governance page missing: {'/'.join(rel_path)}")
 
     for server in servers:
         detail = out / "ui" / "servers" / server.slug / "index.html"
@@ -115,6 +142,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Absolute deployment URL for badge-embed snippets.",
     )
     parser.add_argument(
+        "--corrections",
+        default=_DEFAULT_CORRECTIONS,
+        help="Path to the public corrections-log JSON (a list; missing file = empty log).",
+    )
+    parser.add_argument(
         "--demo-fill",
         action="store_true",
         help=(
@@ -142,10 +174,18 @@ def main(argv: list[str] | None = None) -> int:
                     "(--demo-fill: grades are demo data, labelled on every page)."
                 )
 
-        build = generate_site(conn, args.out, base_url=args.base_url)
+        corrections = _load_corrections(args.corrections)
+        build = generate_site(
+            conn,
+            args.out,
+            base_url=args.base_url,
+            now=datetime.now(tz=UTC),
+            corrections=corrections,
+        )
         print(
             f"Built static site for {build.server_count} server(s) "
-            f"({build.scanned_count} scanned) → {build.out_dir} [{len(build.pages)} files]."
+            f"({build.scanned_count} scanned, {build.stale_count} stale) "
+            f"→ {build.out_dir} [{len(build.pages)} files]."
         )
 
         failures = _verify(

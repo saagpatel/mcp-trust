@@ -6,6 +6,9 @@ static site:
 - ``index.html``                       — the catalog table (``/``)
 - ``ui/servers/<slug>/index.html``     — one detail page per server
 - ``servers/<slug>/badge.json``        — one shields.io endpoint per server
+- ``ui/methodology/index.html``        — grading methodology (governance)
+- ``ui/dispute/index.html``            — dispute / right-of-reply policy
+- ``ui/corrections/index.html``        — public corrections log
 - ``404.html``                         — generic not-found page
 
 Paths mirror the absolute links the ``web`` renderers already emit, so on a
@@ -23,9 +26,18 @@ import json
 import shutil
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-from mcp_trust.api.web import render_catalog, render_detail, render_not_found
+from mcp_trust.api.web import (
+    render_catalog,
+    render_corrections,
+    render_detail,
+    render_dispute,
+    render_methodology,
+    render_not_found,
+)
+from mcp_trust.core.governance import is_stale
 from mcp_trust.core.models import TrustGrade
 from mcp_trust.core.provenance import ScanProvenance, classify
 from mcp_trust.site.badges import badge_payload
@@ -53,6 +65,7 @@ class SiteBuild:
     server_count: int
     scanned_count: int
     demo_count: int
+    stale_count: int = 0
 
 
 def _write(path: Path, content: str) -> None:
@@ -76,6 +89,8 @@ def generate_site(
     out_dir: str | Path,
     *,
     base_url: str,
+    now: datetime | None = None,
+    corrections: list[dict] | None = None,
 ) -> SiteBuild:
     """Generate the static catalog from *conn* into *out_dir*.
 
@@ -89,9 +104,16 @@ def generate_site(
     base_url:
         Absolute deployment base URL (no trailing slash needed) used to build
         shields.io badge-embed snippets, e.g. ``https://mcp-trust.example``.
+    now:
+        Build timestamp used for grade-staleness rendering. Defaults to the
+        current UTC time; tests pass a fixed value for determinism.
+    corrections:
+        Public corrections-log entries (see :func:`render_corrections`).
     """
     out_dir = Path(out_dir)
     base_url = base_url.rstrip("/")
+    if now is None:
+        now = datetime.now(tz=UTC)
     server_repo = ServerRepository(conn)
     scan_repo = ScanRepository(conn)
 
@@ -105,6 +127,7 @@ def generate_site(
     server_count = 0
     scanned_count = 0
     demo_count = 0
+    stale_count = 0
     rows: list[dict] = []
 
     for srv in servers:
@@ -115,6 +138,9 @@ def generate_site(
             scanned_count += 1
         if provenance is ScanProvenance.DEMO:
             demo_count += 1
+        stale = scan is not None and is_stale(scan.scanned_at, now)
+        if stale:
+            stale_count += 1
 
         grade = str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
         rows.append(
@@ -130,16 +156,35 @@ def generate_site(
 
         page_banner = _DEMO_BANNER if provenance is ScanProvenance.DEMO else None
         detail_path = out_dir / "ui" / "servers" / srv.slug / "index.html"
-        _write(detail_path, render_detail(srv, scan, base_url=base_url, banner=page_banner))
+        _write(
+            detail_path,
+            render_detail(srv, scan, base_url=base_url, banner=page_banner, now=now),
+        )
         pages.append(detail_path)
 
         badge_path = out_dir / "servers" / srv.slug / "badge.json"
-        _write(badge_path, json.dumps(badge_payload(grade, provenance), indent=2) + "\n")
+        _write(
+            badge_path,
+            json.dumps(badge_payload(grade, provenance, stale=stale), indent=2) + "\n",
+        )
         pages.append(badge_path)
 
     index_path = out_dir / "index.html"
-    _write(index_path, render_catalog(rows, banner=_DEMO_BANNER if demo_count else None))
+    _write(
+        index_path,
+        render_catalog(rows, banner=_DEMO_BANNER if demo_count else None, now=now),
+    )
     pages.append(index_path)
+
+    # Governance pages: methodology, dispute policy, corrections log.
+    for rel_path, content in (
+        (("ui", "methodology", "index.html"), render_methodology()),
+        (("ui", "dispute", "index.html"), render_dispute()),
+        (("ui", "corrections", "index.html"), render_corrections(corrections or [])),
+    ):
+        page_path = out_dir.joinpath(*rel_path)
+        _write(page_path, content)
+        pages.append(page_path)
 
     notfound_path = out_dir / "404.html"
     _write(notfound_path, render_not_found("unknown"))
@@ -151,4 +196,5 @@ def generate_site(
         server_count=server_count,
         scanned_count=scanned_count,
         demo_count=demo_count,
+        stale_count=stale_count,
     )

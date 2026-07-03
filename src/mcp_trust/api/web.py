@@ -19,9 +19,15 @@ Row shape used by :func:`render_catalog`:
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from html import escape
 
-from mcp_trust.core.models import ScanRecord, Server
+from mcp_trust.core import grading
+from mcp_trust.core.governance import DISPUTE_SLA_DAYS, DISPUTE_URL, STALE_AFTER_DAYS, is_stale
+from mcp_trust.core.models import ScanRecord, Server, SourceKind
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Grade → visual colour (matches badge.json route)
@@ -190,6 +196,10 @@ def _header() -> str:
         '<header class="site-header">'
         '<span class="logo">MCP Trust Registry</span>'
         '<span class="tagline">Check before you connect</span>'
+        '<nav style="margin-left:auto;font-size:0.85rem;display:flex;gap:1rem">'
+        '<a href="/ui/methodology">Methodology</a>'
+        '<a href="/ui/dispute">Dispute a grade</a>'
+        "</nav>"
         "</header>"
     )
 
@@ -234,9 +244,12 @@ def _page(title: str, body: str, *, banner: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _grade_pill(grade: str) -> str:
-    color = _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
-    return f'<span class="pill" style="background:{escape(color)}">{escape(grade.upper())}</span>'
+def _grade_pill(grade: str, *, stale: bool = False) -> str:
+    """Grade pill. A stale grade greys out and is labelled — it must never
+    read as a current verdict (governance staleness policy)."""
+    color = _GRADE_CSS["unscanned"] if stale else _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
+    label = f"{grade.upper()} (stale)" if stale else grade.upper()
+    return f'<span class="pill" style="background:{escape(color)}">{escape(label)}</span>'
 
 
 def _transparency_chip(level: str) -> str:
@@ -246,12 +259,69 @@ def _transparency_chip(level: str) -> str:
     return f'<span class="chip" style="background:{escape(color)}">{escape(level)}</span>'
 
 
+def _provenance_card(server: Server, record: ScanRecord | None) -> str:
+    """Provenance & dispute card: how this entry got listed, exactly what was
+    scanned, and the standing dispute path for the graded party."""
+    source = server.source
+    kind = source.kind
+    ref = escape(str(source.reference))
+
+    items: list[str] = [
+        "<li><strong>Listing basis:</strong> operator-listed from a public catalog. "
+        "This entry was not submitted by its vendor.</li>"
+    ]
+    if record is None:
+        items.append(
+            f"<li><strong>Scan target:</strong> the {escape(str(kind))} artifact "
+            f"<code>{ref}</code>. Not yet scanned.</li>"
+        )
+    elif kind is SourceKind.REMOTE:
+        items.append(
+            f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
+        )
+    else:
+        items.append(
+            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+            f"artifact <code>{ref}</code>, installed and scanned locally inside a "
+            "network-isolated sandbox. No vendor-hosted infrastructure was "
+            "contacted.</li>"
+        )
+    if source.env_keys:
+        keys = ", ".join(f"<code>{escape(key)}</code>" for key in source.env_keys)
+        items.append(
+            "<li><strong>Credentials:</strong> this server declares required "
+            f"environment variables ({keys}). Scans never use real credentials; at "
+            "most inert placeholder values are injected inside the sandbox.</li>"
+        )
+    else:
+        items.append("<li><strong>Credentials:</strong> none declared, none used.</li>")
+    items.append(
+        "<li><strong>Dispute:</strong> vendor or maintainer of this server? "
+        '<a href="/ui/dispute">Dispute this grade</a> — first response within '
+        f"{DISPUTE_SLA_DAYS} days.</li>"
+    )
+
+    return (
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">'
+        "Provenance &amp; dispute</h2>"
+        '<ul style="font-size:0.875rem;padding-left:1.1rem;display:grid;gap:0.4rem">'
+        + "".join(items)
+        + "</ul></div>"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public render functions
 # ---------------------------------------------------------------------------
 
 
-def render_catalog(rows: list[dict], *, banner: str | None = None) -> str:
+def render_catalog(
+    rows: list[dict],
+    *,
+    banner: str | None = None,
+    now: datetime | None = None,
+) -> str:
     """Render the full catalog HTML page.
 
     Parameters
@@ -280,16 +350,32 @@ def render_catalog(rows: list[dict], *, banner: str | None = None) -> str:
             grade = str(row.get("grade", "unscanned"))
             transparency = str(row.get("transparency", ""))
             composite = row.get("composite")
-            scanned_at = escape(str(row.get("scanned_at", "") or ""))
+            scanned_at_raw = str(row.get("scanned_at", "") or "")
+            scanned_at = escape(scanned_at_raw)
+
+            stale = False
+            if now is not None and scanned_at_raw and grade != "unscanned":
+                try:
+                    stale = is_stale(datetime.fromisoformat(scanned_at_raw), now)
+                except ValueError:
+                    # Renders as not-stale rather than crashing the catalog,
+                    # but never silently: staleness is a trust surface.
+                    _log.warning(
+                        "unparseable scanned_at %r for %s; staleness unknown",
+                        scanned_at_raw,
+                        slug,
+                    )
 
             composite_str = f"{composite:.1f}" if composite is not None else "—"
             scanned_str = scanned_at[:19].replace("T", " ") if scanned_at else "—"
+            if stale:
+                scanned_str += " (stale)"
 
             parts.append(
                 "<tr>"
                 f'<td><a href="/ui/servers/{slug}">{name}</a>'
                 f'<br><small style="color:#57606a;font-size:0.78rem">{slug}</small></td>'
-                f"<td>{_grade_pill(grade)}</td>"
+                f"<td>{_grade_pill(grade, stale=stale)}</td>"
                 f"<td>{_transparency_chip(transparency)}</td>"
                 f'<td style="font-variant-numeric:tabular-nums">{escape(composite_str)}</td>'
                 f'<td style="font-size:0.82rem;color:#57606a">{escape(scanned_str)}</td>'
@@ -323,6 +409,7 @@ def render_detail(
     *,
     base_url: str,
     banner: str | None = None,
+    now: datetime | None = None,
 ) -> str:
     """Render the detail page for one server.
 
@@ -361,9 +448,21 @@ def render_detail(
         engine_version = "—"
         findings = []
 
-    grade_color = _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
+    stale = record is not None and now is not None and is_stale(record.scanned_at, now)
+
+    grade_color = (
+        _GRADE_CSS["unscanned"] if stale else _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
+    )
     composite_str = f"{composite_val:.1f}" if composite_val is not None else "—"
     scanned_str = scanned_at_raw[:19].replace("T", " ") if scanned_at_raw else "Never"
+    if stale:
+        scanned_str += " (stale)"
+
+    stale_chip = (
+        '<span class="chip" style="background:#8b949e">stale — pending re-scan</span>'
+        if stale
+        else ""
+    )
 
     # --- Hero card ---
     hero = (
@@ -377,6 +476,7 @@ def render_detail(
         '<div class="meta-row" style="margin-top:0.6rem">'
         f"{_transparency_chip(transparency)}"
         '<span class="chip" style="background:#57606a">automated scan</span>'
+        f"{stale_chip}"
         "</div>"
         "</div>"
         "</div>"
@@ -427,12 +527,21 @@ def render_detail(
 
     hero += "</div>"  # close meta-row
 
+    scan_basis = ""
+    if record is not None and source is not None:
+        scan_basis = (
+            f" It reflects the {escape(str(source.kind))} artifact "
+            f"<code>{escape(str(source.reference))}</code> as scanned on "
+            f"{escape(scanned_str)} and may not describe later releases."
+        )
     hero += (
         '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
         'border-left:3px solid #57606a;padding-left:0.75rem">'
-        "<strong>Automated danger grade:</strong> this page reports detected or "
-        "inferred risk from a scan. It is not an endorsement, certification, or "
-        "claim that the server is malicious."
+        "<strong>Automated danger grade:</strong> an automated opinion derived from "
+        'the disclosed checks on the <a href="/ui/methodology">methodology page</a> — '
+        "not a statement of fact about the vendor, and not an endorsement, "
+        "certification, or claim that the server is malicious."
+        f"{scan_basis}"
         "</p>"
     )
 
@@ -444,6 +553,16 @@ def render_detail(
             "<strong>Low transparency:</strong> this server declares few or no tool "
             "behavior annotations, so the danger score is inferred from defaults. "
             "Treat as <em>cannot verify safe</em> — not necessarily dangerous."
+            "</p>"
+        )
+
+    if stale:
+        hero += (
+            '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+            'border-left:3px solid #8b949e;padding-left:0.75rem">'
+            f"<strong>Stale grade:</strong> this scan is more than {STALE_AFTER_DAYS} "
+            "days old and the grade is pending re-scan. The server may have changed "
+            "since; treat the grade as historical, not current."
             "</p>"
         )
 
@@ -503,11 +622,15 @@ def render_detail(
         "</div>"
     )
 
+    # --- Provenance & dispute card ---
+    provenance_card = _provenance_card(server, record)
+
     # --- Back link ---
     back = '<p><a href="/">← Back to catalog</a></p>'
 
     body = (
-        f"<main>{back}<div style='margin-top:1rem'>{hero}</div>{badge_box}{findings_section}</main>"
+        f"<main>{back}<div style='margin-top:1rem'>{hero}</div>"
+        f"{provenance_card}{badge_box}{findings_section}</main>"
     )
     return _page(f"MCP Trust — {server.name}", body, banner=banner)
 
@@ -525,3 +648,182 @@ def render_not_found(slug: str) -> str:
         "</main>"
     )
     return _page("MCP Trust — Not Found", body)
+
+
+def render_methodology() -> str:
+    """Render the public grading-methodology page.
+
+    Built from :func:`mcp_trust.core.grading.methodology` so the published
+    description can never drift from the code that actually grades.
+    """
+    method = grading.methodology()
+
+    weight_rows = "".join(
+        f"<tr><td><code>{escape(dim)}</code></td>"
+        f'<td style="font-variant-numeric:tabular-nums">{weight:.1f}</td></tr>'
+        for dim, weight in method["dimension_weights"].items()
+    )
+    band_rows = "".join(
+        f"<tr><td>{_grade_pill(grade_value)}</td>"
+        f'<td style="font-variant-numeric:tabular-nums">≤ {upper:.1f}</td></tr>'
+        for upper, grade_value in method["bands"]
+    )
+    band_rows += f"<tr><td>{_grade_pill('F')}</td><td>above the D band</td></tr>"
+
+    body = (
+        "<main>"
+        '<p><a href="/">← Back to catalog</a></p>'
+        '<h1 class="page-title" style="margin-top:1rem">Grading methodology</h1>'
+        '<p class="page-subtitle">'
+        "Every grade on this site is an automated, dated, reproducible "
+        "<strong>opinion</strong> derived from the disclosed checks below — not a "
+        "statement of fact about a vendor, and never a claim that a server is "
+        "malicious.</p>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">What is scanned</h2>'
+        '<p style="font-size:0.875rem">'
+        "The published package artifact (npm, PyPI, or equivalent) is installed and "
+        "launched locally inside a network-isolated sandbox, and its declared MCP "
+        "surface (tools, prompts, resources, annotations) is read back. No "
+        "vendor-hosted infrastructure is contacted. Scans never use real "
+        "credentials; where a server requires environment variables, at most inert "
+        "placeholder values are injected inside the sandbox. Each detail page "
+        "shows the engine name, engine version, artifact reference, and scan "
+        "date, so any published grade can be independently re-derived against "
+        "the same artifact version.</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">Danger score</h2>'
+        '<p style="font-size:0.875rem;margin-bottom:0.75rem">'
+        "The engine reports risk per capability dimension (0–10). The registry "
+        "aggregates them with danger weights — emphasizing the dimensions that "
+        f"separate real risk. Calibrated {escape(method['calibrated'])}.</p>"
+        "<table><thead><tr><th>Dimension</th><th>Weight</th></tr></thead>"
+        f"<tbody>{weight_rows}</tbody></table>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">Grade bands</h2>'
+        "<table><thead><tr><th>Grade</th><th>Danger score</th></tr></thead>"
+        f"<tbody>{band_rows}</tbody></table>"
+        '<p style="font-size:0.875rem;margin-top:0.75rem">'
+        "<strong>Critical cap:</strong> any CRITICAL finding caps the grade at "
+        f"{escape(method['critical_cap'])} regardless of score — a single "
+        "tool-poisoning or rug-pull vector is disqualifying on its own.</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">'
+        "Transparency — and what a low grade does NOT mean</h2>"
+        '<p style="font-size:0.875rem">'
+        "Transparency is a separate axis: the fraction of a server's tools that "
+        "declare behavior annotations "
+        f"(high ≥ {method['transparency_high']:.0%}, "
+        f"medium ≥ {method['transparency_medium']:.0%}). "
+        "A fully unannotated server is indistinguishable from a maximally capable "
+        "one, so its danger score is inferred from spec-defaults. "
+        "<strong>A failing grade on a low-transparency server means "
+        "<em>cannot verify it is safe</em> — not <em>known dangerous</em>.</strong> "
+        "That caveat is stated on every affected page.</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">Grade freshness</h2>'
+        '<p style="font-size:0.875rem">'
+        f"A grade older than {STALE_AFTER_DAYS} days is marked <em>stale</em> on "
+        "its page and badge, greys out, and is treated as historical until "
+        "re-scanned. Vendors ship fixes; a grade never outlives its evidence "
+        "silently.</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">'
+        "Disagree with a grade?</h2>"
+        '<p style="font-size:0.875rem">'
+        'See the <a href="/ui/dispute">dispute &amp; correction policy</a>. '
+        'Published corrections live in the <a href="/ui/corrections">corrections '
+        "log</a>.</p>"
+        "</div>"
+        "</main>"
+    )
+    return _page("MCP Trust — Grading Methodology", body)
+
+
+def render_dispute() -> str:
+    """Render the dispute / right-of-reply policy page."""
+    body = (
+        "<main>"
+        '<p><a href="/">← Back to catalog</a></p>'
+        '<h1 class="page-title" style="margin-top:1rem">Dispute a grade</h1>'
+        '<p class="page-subtitle">'
+        "Vendors and maintainers of any listed server have a standing "
+        "right of reply.</p>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">How to dispute</h2>'
+        '<p style="font-size:0.875rem">'
+        f'Open a <a href="{escape(DISPUTE_URL)}" rel="noopener noreferrer">grade-dispute '
+        "issue</a> naming the server, the grade or finding you dispute, and — if the "
+        "server has changed — the release that addresses it.</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">What happens next</h2>'
+        '<ol style="font-size:0.875rem;padding-left:1.1rem;display:grid;gap:0.4rem">'
+        f"<li>First response within <strong>{DISPUTE_SLA_DAYS} days</strong>.</li>"
+        "<li>The server is re-scanned against its latest release with the current "
+        "engine, in the same disclosed sandbox configuration.</li>"
+        "<li>If the grade changes, the entry is updated and the change is recorded "
+        'in the public <a href="/ui/corrections">corrections log</a>.</li>'
+        "<li>If the grade stands, the finding-level evidence is reviewed manually; "
+        "the vendor's reply is published alongside the entry either way.</li>"
+        "<li>A grade that cannot be reproduced from the disclosed method is "
+        "withdrawn, not defended.</li>"
+        "</ol>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">Scope</h2>'
+        '<p style="font-size:0.875rem">'
+        "Grades are automated opinions about a specific artifact version at a "
+        'specific time (see the <a href="/ui/methodology">methodology</a>). '
+        "Disputes about the method itself are welcome through the same channel.</p>"
+        "</div>"
+        "</main>"
+    )
+    return _page("MCP Trust — Dispute a Grade", body)
+
+
+def render_corrections(corrections: list[dict]) -> str:
+    """Render the public corrections log.
+
+    Each entry: ``{"date": str, "slug": str, "summary": str, "resolution": str}``.
+    """
+    if not corrections:
+        table = (
+            '<p style="color:#57606a;font-size:0.9rem">No corrections recorded yet. '
+            "Grade changes that result from disputes or re-scans are logged here "
+            "permanently.</p>"
+        )
+    else:
+        rows = "".join(
+            "<tr>"
+            f"<td>{escape(str(entry.get('date', '')))}</td>"
+            f'<td><a href="/ui/servers/{escape(str(entry.get("slug", "")))}">'
+            f"{escape(str(entry.get('slug', '')))}</a></td>"
+            f"<td>{escape(str(entry.get('summary', '')))}</td>"
+            f"<td>{escape(str(entry.get('resolution', '')))}</td>"
+            "</tr>"
+            for entry in corrections
+        )
+        table = (
+            "<table><thead><tr>"
+            "<th>Date</th><th>Server</th><th>Correction</th><th>Resolution</th>"
+            f"</tr></thead><tbody>{rows}</tbody></table>"
+        )
+
+    body = (
+        "<main>"
+        '<p><a href="/">← Back to catalog</a></p>'
+        '<h1 class="page-title" style="margin-top:1rem">Corrections log</h1>'
+        '<p class="page-subtitle">'
+        "Every published grade change arising from a dispute, re-scan, or "
+        "discovered error — kept public so the registry is held to its own "
+        "standard.</p>"
+        f'<div class="card">{table}</div>'
+        "</main>"
+    )
+    return _page("MCP Trust — Corrections Log", body)

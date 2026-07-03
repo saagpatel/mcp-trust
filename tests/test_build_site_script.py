@@ -65,3 +65,65 @@ def test_demo_fill_opt_in_labels_demo_data(tmp_path: Path) -> None:
     assert "DEMO DATA" in index  # opt-in stub fill must be loudly labelled
     badge = (out / "servers" / "mcp-reference-time" / "badge.json").read_text(encoding="utf-8")
     assert "(demo)" in badge  # the fabricated grade is marked demo, not bare
+
+
+def test_build_emits_governance_pages(tmp_path: Path) -> None:
+    """Every build ships the methodology, dispute, and corrections pages."""
+    db = tmp_path / "registry.db"
+    out = tmp_path / "site"
+
+    rc = build_site.main(["--db", str(db), "--out", str(out), "--base-url", "https://x.example"])
+
+    assert rc == 0
+    for rel in ("ui/methodology", "ui/dispute", "ui/corrections"):
+        assert (out / rel / "index.html").is_file(), f"{rel} page missing from build"
+
+
+def test_load_corrections_missing_file_is_empty_log(tmp_path: Path) -> None:
+    assert build_site._load_corrections(str(tmp_path / "nope.json")) == []
+
+
+def test_load_corrections_valid_list_loads(tmp_path: Path) -> None:
+    path = tmp_path / "corrections.json"
+    path.write_text('[{"date": "2026-07-03", "slug": "x"}]', encoding="utf-8")
+    assert build_site._load_corrections(str(path)) == [{"date": "2026-07-03", "slug": "x"}]
+
+
+def test_load_corrections_malformed_shape_fails_loudly(tmp_path: Path) -> None:
+    path = tmp_path / "corrections.json"
+    path.write_text('{"not": "a list"}', encoding="utf-8")
+    try:
+        build_site._load_corrections(str(path))
+    except ValueError as exc:
+        assert "JSON list" in str(exc)
+    else:
+        raise AssertionError("malformed corrections log must fail the build, not pass silently")
+
+
+def test_corrections_flag_renders_entries(tmp_path: Path) -> None:
+    """A committed corrections entry lands on the built corrections page."""
+    db = tmp_path / "registry.db"
+    out = tmp_path / "site"
+    corrections = tmp_path / "corrections.json"
+    corrections.write_text(
+        '[{"date": "2026-07-03", "slug": "mcp-reference-time",'
+        ' "summary": "test entry", "resolution": "F to C"}]',
+        encoding="utf-8",
+    )
+
+    rc = build_site.main(
+        [
+            "--db",
+            str(db),
+            "--out",
+            str(out),
+            "--base-url",
+            "https://x.example",
+            "--corrections",
+            str(corrections),
+        ]
+    )
+
+    assert rc == 0
+    html = (out / "ui" / "corrections" / "index.html").read_text(encoding="utf-8")
+    assert "test entry" in html

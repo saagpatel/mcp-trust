@@ -116,3 +116,19 @@ def transparency(risk: RiskSummary) -> TransparencyLevel:
     if coverage >= _TRANSPARENCY_MEDIUM:
         return TransparencyLevel.MEDIUM
     return TransparencyLevel.LOW
+
+
+def methodology() -> dict:
+    """Public description of the grading method, for rendering.
+
+    Presentation layers build the methodology page from THIS structure so the
+    published description can never drift from the code that grades.
+    """
+    return {
+        "dimension_weights": dict(_DIM_WEIGHTS),
+        "bands": [(upper, str(grade_value)) for upper, grade_value in _BANDS],
+        "critical_cap": str(_CRITICAL_CAP),
+        "transparency_high": _TRANSPARENCY_HIGH,
+        "transparency_medium": _TRANSPARENCY_MEDIUM,
+        "calibrated": "2026-06-13, against the official reference-server corpus",
+    }
