@@ -100,6 +100,69 @@ def test_load_corrections_malformed_shape_fails_loudly(tmp_path: Path) -> None:
         raise AssertionError("malformed corrections log must fail the build, not pass silently")
 
 
+def test_load_masked_slugs_missing_file_means_no_masking(tmp_path: Path) -> None:
+    assert build_site._load_masked_slugs(str(tmp_path / "nope.json")) == set()
+
+
+def test_load_masked_slugs_rejects_non_string_entries(tmp_path: Path) -> None:
+    path = tmp_path / "masked-grades.json"
+    path.write_text('["ok-slug", 42]', encoding="utf-8")
+    try:
+        build_site._load_masked_slugs(str(path))
+    except ValueError as exc:
+        assert "slug strings" in str(exc)
+    else:
+        raise AssertionError("non-string masked entries must fail the build loudly")
+
+
+def test_masked_typo_slug_fails_the_build(tmp_path: Path) -> None:
+    """A mask the operator ordered must never silently not-apply."""
+    db = tmp_path / "registry.db"
+    out = tmp_path / "site"
+    masked = tmp_path / "masked-grades.json"
+    masked.write_text('["no-such-server-slug"]', encoding="utf-8")
+
+    rc = build_site.main(
+        [
+            "--db",
+            str(db),
+            "--out",
+            str(out),
+            "--base-url",
+            "https://x.example",
+            "--masked-grades",
+            str(masked),
+        ]
+    )
+
+    assert rc == 1  # verify gate catches the typo
+
+
+def test_masked_scanned_server_badge_reads_under_review(tmp_path: Path) -> None:
+    db = tmp_path / "registry.db"
+    out = tmp_path / "site"
+    masked = tmp_path / "masked-grades.json"
+    masked.write_text('["mcp-reference-time"]', encoding="utf-8")
+
+    rc = build_site.main(
+        [
+            "--db",
+            str(db),
+            "--out",
+            str(out),
+            "--base-url",
+            "https://x.example",
+            "--demo-fill",
+            "--masked-grades",
+            str(masked),
+        ]
+    )
+
+    assert rc == 0
+    badge = (out / "servers" / "mcp-reference-time" / "badge.json").read_text(encoding="utf-8")
+    assert "under review" in badge
+
+
 def test_corrections_flag_renders_entries(tmp_path: Path) -> None:
     """A committed corrections entry lands on the built corrections page."""
     db = tmp_path / "registry.db"

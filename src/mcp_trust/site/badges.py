@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mcp_trust.core.governance import MASKED_BADGE_MESSAGE
 from mcp_trust.core.provenance import ScanProvenance
 
 # shields.io named colours per grade. Single source of truth: the live badge
@@ -28,13 +29,15 @@ def badge_payload(
     provenance: ScanProvenance,
     *,
     stale: bool = False,
+    masked: bool = False,
 ) -> dict[str, Any]:
     """Build a shields.io *endpoint* JSON payload for one server's grade.
 
     The ``message`` is honesty-gated by *provenance*: ``UNSCANNED`` → ``unscanned``,
     ``DEMO`` → ``"<grade> (demo)"``, ``REAL`` → the bare grade letter. A *stale*
     real grade is suffixed ``(stale)`` and greys out — a badge embedded in a
-    README must never present an expired scan as a current verdict.
+    README must never present an expired scan as a current verdict. A *masked*
+    grade (operator-withheld pending governance review) shows no letter at all.
     """
     grade_str = str(grade)
 
@@ -43,6 +46,14 @@ def badge_payload(
             "schemaVersion": 1,
             "label": "mcp trust",
             "message": "unscanned",
+            "color": "lightgrey",
+        }
+
+    if masked:
+        return {
+            "schemaVersion": 1,
+            "label": "mcp trust",
+            "message": MASKED_BADGE_MESSAGE,
             "color": "lightgrey",
         }
 

@@ -66,6 +66,7 @@ class SiteBuild:
     scanned_count: int
     demo_count: int
     stale_count: int = 0
+    masked_count: int = 0
 
 
 def _write(path: Path, content: str) -> None:
@@ -91,6 +92,7 @@ def generate_site(
     base_url: str,
     now: datetime | None = None,
     corrections: list[dict] | None = None,
+    masked_slugs: set[str] | None = None,
 ) -> SiteBuild:
     """Generate the static catalog from *conn* into *out_dir*.
 
@@ -109,11 +111,18 @@ def generate_site(
         current UTC time; tests pass a fixed value for determinism.
     corrections:
         Public corrections-log entries (see :func:`render_corrections`).
+    masked_slugs:
+        Slugs whose published grade is operator-withheld pending governance
+        review: pages and badges render "withheld / under review" instead of
+        the letter grade. Slugs must exist in the catalog (the build script's
+        verify gate enforces this).
     """
     out_dir = Path(out_dir)
     base_url = base_url.rstrip("/")
     if now is None:
         now = datetime.now(tz=UTC)
+    if masked_slugs is None:
+        masked_slugs = set()
     server_repo = ServerRepository(conn)
     scan_repo = ScanRepository(conn)
 
@@ -128,6 +137,7 @@ def generate_site(
     scanned_count = 0
     demo_count = 0
     stale_count = 0
+    masked_count = 0
     rows: list[dict] = []
 
     for srv in servers:
@@ -141,6 +151,9 @@ def generate_site(
         stale = scan is not None and is_stale(scan.scanned_at, now)
         if stale:
             stale_count += 1
+        masked = srv.slug in masked_slugs and scan is not None
+        if masked:
+            masked_count += 1
 
         grade = str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
         rows.append(
@@ -151,6 +164,7 @@ def generate_site(
                 "transparency": str(scan.transparency) if scan else "",
                 "composite": scan.risk.composite if scan else None,
                 "scanned_at": scan.scanned_at.isoformat() if scan else "",
+                "masked": masked,
             }
         )
 
@@ -158,14 +172,15 @@ def generate_site(
         detail_path = out_dir / "ui" / "servers" / srv.slug / "index.html"
         _write(
             detail_path,
-            render_detail(srv, scan, base_url=base_url, banner=page_banner, now=now),
+            render_detail(srv, scan, base_url=base_url, banner=page_banner, now=now, masked=masked),
         )
         pages.append(detail_path)
 
         badge_path = out_dir / "servers" / srv.slug / "badge.json"
         _write(
             badge_path,
-            json.dumps(badge_payload(grade, provenance, stale=stale), indent=2) + "\n",
+            json.dumps(badge_payload(grade, provenance, stale=stale, masked=masked), indent=2)
+            + "\n",
         )
         pages.append(badge_path)
 
@@ -197,4 +212,5 @@ def generate_site(
         scanned_count=scanned_count,
         demo_count=demo_count,
         stale_count=stale_count,
+        masked_count=masked_count,
     )

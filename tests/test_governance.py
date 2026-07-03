@@ -31,10 +31,12 @@ from mcp_trust.api.web import (
 )
 from mcp_trust.core.governance import DISPUTE_URL, STALE_AFTER_DAYS, is_stale
 from mcp_trust.core.models import (
+    Finding,
     RiskSummary,
     ScanRecord,
     Server,
     ServerSource,
+    Severity,
     SourceKind,
     TransparencyLevel,
     TrustGrade,
@@ -379,3 +381,114 @@ def test_live_badge_route_labels_demo_scans(conn, client):
 
     payload = client.get("/servers/demo-server/badge.json").json()
     assert payload["message"] == "F (demo)"
+
+
+# ---------------------------------------------------------------------------
+# Grade masking — operator-withheld grades pending governance review
+# ---------------------------------------------------------------------------
+
+
+def test_badge_masked_shows_no_letter():
+    payload = badge_payload("F", ScanProvenance.REAL, masked=True)
+    assert payload["message"] == "under review"
+    assert payload["color"] == "lightgrey"
+    assert "F" not in payload["message"]
+
+
+def test_badge_masked_wins_over_stale_and_demo():
+    assert badge_payload("F", ScanProvenance.REAL, stale=True, masked=True)["message"] == (
+        "under review"
+    )
+    assert badge_payload("F", ScanProvenance.DEMO, masked=True)["message"] == "under review"
+
+
+def test_badge_unscanned_wins_over_masked():
+    payload = badge_payload("unscanned", ScanProvenance.UNSCANNED, masked=True)
+    assert payload["message"] == "unscanned"
+
+
+def test_detail_masked_withholds_grade_score_and_findings():
+    record = _real_scan().model_copy(
+        update={
+            "findings": [
+                Finding(
+                    rule_id="MCP007",
+                    title="Shell execution capability",
+                    severity=Severity.CRITICAL,
+                    category="shell",
+                )
+            ]
+        }
+    )
+    html = render_detail(_server(), record, base_url=BASE_URL, now=NOW, masked=True)
+    assert "Grade withheld:" in html
+    assert "under governance review" in html
+    assert ">withheld<" in html  # danger score cell
+    assert "Finding detail is withheld" in html
+    assert "MCP007" not in html  # finding detail really is gone
+    assert "No findings on record" not in html  # must not read as a clean scan
+    assert '<div class="grade-big" style="background:#8b949e">—</div>' in html
+    # Dispute path and scan metadata stay disclosed.
+    assert '<a href="/ui/dispute">' in html
+    assert "mcpaudit" in html
+
+
+def test_detail_masked_suppresses_stale_marker():
+    html = render_detail(
+        _server(), _real_scan(scanned_at=STALE_AT), base_url=BASE_URL, now=NOW, masked=True
+    )
+    assert "Grade withheld:" in html
+    assert "(stale)" not in html
+
+
+def test_detail_masked_ignored_for_unscanned():
+    html = render_detail(_server(), None, base_url=BASE_URL, now=NOW, masked=True)
+    assert "Grade withheld:" not in html
+    assert "UNSCANNED" in html
+
+
+def test_catalog_masked_row_hides_grade_and_score():
+    row = _catalog_row(FRESH_AT) | {"masked": True}
+    html = render_catalog([row], now=NOW)
+    assert ">masked<" in html
+    assert 'class="pill" style="background:#8b949e"' in html
+    assert "8.0" not in html
+
+
+def test_generator_masks_listed_slugs(conn, tmp_path):
+    server_repo = ServerRepository(conn)
+    scan_repo = ScanRepository(conn)
+    server_repo.upsert(_server("masked-server"))
+    server_repo.upsert(_server("open-server"))
+    scan_repo.record(_real_scan("masked-server", scanned_at=FRESH_AT))
+    scan_repo.record(_real_scan("open-server", scanned_at=FRESH_AT))
+
+    build = generate_site(
+        conn, tmp_path, base_url=BASE_URL, now=NOW, masked_slugs={"masked-server"}
+    )
+
+    assert build.masked_count == 1
+    masked_badge = json.loads(
+        (tmp_path / "servers" / "masked-server" / "badge.json").read_text(encoding="utf-8")
+    )
+    assert masked_badge["message"] == "under review"
+    open_badge = json.loads(
+        (tmp_path / "servers" / "open-server" / "badge.json").read_text(encoding="utf-8")
+    )
+    assert open_badge["message"] == "F"
+    detail = (tmp_path / "ui" / "servers" / "masked-server" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "Grade withheld:" in detail
+
+
+def test_app_masks_badge_and_detail_routes(conn):
+    ServerRepository(conn).upsert(_server("masked-server"))
+    ScanRepository(conn).record(_real_scan("masked-server", scanned_at=FRESH_AT))
+    masked_client = TestClient(create_app(conn=conn, masked_slugs={"masked-server"}))
+
+    badge = masked_client.get("/servers/masked-server/badge.json").json()
+    assert badge["message"] == "under review"
+
+    detail = masked_client.get("/ui/servers/masked-server").text
+    assert "Grade withheld:" in detail

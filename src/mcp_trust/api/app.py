@@ -88,6 +88,7 @@ def create_app(
     conn: sqlite3.Connection | None = None,
     engine: ScanEngine | None = None,
     corrections: list[dict] | None = None,
+    masked_slugs: set[str] | None = None,
 ) -> FastAPI:
     """Build and return a configured ``FastAPI`` instance.
 
@@ -102,7 +103,11 @@ def create_app(
     corrections:
         Public corrections-log entries rendered at ``/ui/corrections``.
         ``None`` renders an empty log.
+    masked_slugs:
+        Slugs whose published grade is operator-withheld pending governance
+        review (pages and badges render "withheld / under review").
     """
+    _masked: set[str] = masked_slugs or set()
     # Resolve dependencies lazily so module-level ``app`` doesn't open a DB
     # at import time in test environments.
     _conn: sqlite3.Connection | None = conn
@@ -239,10 +244,12 @@ def create_app(
 
         scan = scan_repo.latest(slug)
         # Single payload path with the static badge files (site.badges), so the
-        # live embed endpoint can never diverge on provenance or staleness.
+        # live embed endpoint can never diverge on provenance, staleness, or
+        # operator masking.
         stale = scan is not None and is_stale(scan.scanned_at, datetime.now(tz=UTC))
+        masked = slug in _masked and scan is not None
         grade_str = str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
-        return badge_payload(grade_str, classify(scan), stale=stale)
+        return badge_payload(grade_str, classify(scan), stale=stale, masked=masked)
 
     # -----------------------------------------------------------------------
     # HTML routes
@@ -270,6 +277,7 @@ def create_app(
                     "transparency": str(scan.transparency) if scan else "",
                     "composite": scan.risk.composite if scan else None,
                     "scanned_at": scan.scanned_at.isoformat() if scan else "",
+                    "masked": srv.slug in _masked and scan is not None,
                 }
             )
         return HTMLResponse(content=render_catalog(rows, now=datetime.now(tz=UTC)))
@@ -289,7 +297,13 @@ def create_app(
         scan = scan_repo.latest(slug)
         base_url = str(request.base_url).rstrip("/")
         return HTMLResponse(
-            content=render_detail(server, scan, base_url=base_url, now=datetime.now(tz=UTC))
+            content=render_detail(
+                server,
+                scan,
+                base_url=base_url,
+                now=datetime.now(tz=UTC),
+                masked=slug in _masked,
+            )
         )
 
     @application.get("/ui/methodology", response_class=HTMLResponse)

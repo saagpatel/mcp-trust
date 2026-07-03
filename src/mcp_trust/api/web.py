@@ -244,9 +244,12 @@ def _page(title: str, body: str, *, banner: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _grade_pill(grade: str, *, stale: bool = False) -> str:
+def _grade_pill(grade: str, *, stale: bool = False, masked: bool = False) -> str:
     """Grade pill. A stale grade greys out and is labelled — it must never
-    read as a current verdict (governance staleness policy)."""
+    read as a current verdict (governance staleness policy). A masked grade
+    (operator-withheld pending governance review) shows no letter at all."""
+    if masked:
+        return f'<span class="pill" style="background:{_GRADE_CSS["unscanned"]}">masked</span>'
     color = _GRADE_CSS["unscanned"] if stale else _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
     label = f"{grade.upper()} (stale)" if stale else grade.upper()
     return f'<span class="pill" style="background:{escape(color)}">{escape(label)}</span>'
@@ -350,6 +353,7 @@ def render_catalog(
             grade = str(row.get("grade", "unscanned"))
             transparency = str(row.get("transparency", ""))
             composite = row.get("composite")
+            masked = bool(row.get("masked", False))
             scanned_at_raw = str(row.get("scanned_at", "") or "")
             scanned_at = escape(scanned_at_raw)
 
@@ -366,16 +370,18 @@ def render_catalog(
                         slug,
                     )
 
-            composite_str = f"{composite:.1f}" if composite is not None else "—"
+            composite_str = (
+                "—" if masked else (f"{composite:.1f}" if composite is not None else "—")
+            )
             scanned_str = scanned_at[:19].replace("T", " ") if scanned_at else "—"
-            if stale:
+            if stale and not masked:
                 scanned_str += " (stale)"
 
             parts.append(
                 "<tr>"
                 f'<td><a href="/ui/servers/{slug}">{name}</a>'
                 f'<br><small style="color:#57606a;font-size:0.78rem">{slug}</small></td>'
-                f"<td>{_grade_pill(grade, stale=stale)}</td>"
+                f"<td>{_grade_pill(grade, stale=stale, masked=masked)}</td>"
                 f"<td>{_transparency_chip(transparency)}</td>"
                 f'<td style="font-variant-numeric:tabular-nums">{escape(composite_str)}</td>'
                 f'<td style="font-size:0.82rem;color:#57606a">{escape(scanned_str)}</td>'
@@ -410,6 +416,7 @@ def render_detail(
     base_url: str,
     banner: str | None = None,
     now: datetime | None = None,
+    masked: bool = False,
 ) -> str:
     """Render the detail page for one server.
 
@@ -423,6 +430,12 @@ def render_detail(
     base_url:
         Absolute base URL of the deployment, e.g. ``"https://mcptrust.dev"``.
         Used to build the shields.io badge embed snippet. Must NOT end with ``/``.
+    now:
+        Timestamp for grade-staleness rendering; ``None`` disables staleness.
+    masked:
+        Operator-withheld grade (masked-grades list): the letter grade, danger
+        score, and finding detail are withheld pending governance review; scan
+        metadata and the dispute path stay disclosed.
     """
     # --- Extract server fields ---
     name = escape(str(server.name))
@@ -449,41 +462,50 @@ def render_detail(
         findings = []
 
     stale = record is not None and now is not None and is_stale(record.scanned_at, now)
+    masked = masked and record is not None  # nothing to withhold on an unscanned entry
 
+    grade_display = "—" if masked else grade.upper()
     grade_color = (
-        _GRADE_CSS["unscanned"] if stale else _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
+        _GRADE_CSS["unscanned"]
+        if stale or masked
+        else _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
     )
     composite_str = f"{composite_val:.1f}" if composite_val is not None else "—"
+    danger_cell = "withheld" if masked else f"{escape(composite_str)} / 10"
     scanned_str = scanned_at_raw[:19].replace("T", " ") if scanned_at_raw else "Never"
-    if stale:
+    if stale and not masked:
         scanned_str += " (stale)"
 
-    stale_chip = (
-        '<span class="chip" style="background:#8b949e">stale — pending re-scan</span>'
-        if stale
-        else ""
-    )
+    if masked:
+        status_chip = (
+            '<span class="chip" style="background:#8b949e">'
+            "grade withheld — under governance review</span>"
+        )
+    elif stale:
+        status_chip = '<span class="chip" style="background:#8b949e">stale — pending re-scan</span>'
+    else:
+        status_chip = ""
 
     # --- Hero card ---
     hero = (
         '<div class="card">'
         '<div class="grade-hero">'
         f'<div class="grade-big" style="background:{escape(grade_color)}">'
-        f"{escape(grade.upper())}</div>"
+        f"{escape(grade_display)}</div>"
         "<div>"
         f'<h1 style="font-size:1.5rem;font-weight:700">{name}</h1>'
         f'<p style="color:#57606a;margin-top:0.2rem">{description}</p>'
         '<div class="meta-row" style="margin-top:0.6rem">'
         f"{_transparency_chip(transparency)}"
         '<span class="chip" style="background:#57606a">automated scan</span>'
-        f"{stale_chip}"
+        f"{status_chip}"
         "</div>"
         "</div>"
         "</div>"
         '<div class="meta-row">'
         '<div class="meta-item">'
         '<div class="meta-label">Danger score</div>'
-        f"<div>{escape(composite_str)} / 10</div>"
+        f"<div>{danger_cell}</div>"
         "</div>"
         '<div class="meta-item">'
         '<div class="meta-label">Transparency</div>'
@@ -556,7 +578,19 @@ def render_detail(
             "</p>"
         )
 
-    if stale:
+    if masked:
+        hero += (
+            '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+            'border-left:3px solid #8b949e;padding-left:0.75rem">'
+            "<strong>Grade withheld:</strong> this entry's grade is temporarily "
+            "withheld while the registry completes provenance verification and "
+            "governance review of its published grades. The scan metadata above "
+            "stays disclosed, and the dispute channel below remains open; the "
+            "grade returns when review completes, with any change recorded in "
+            'the <a href="/ui/corrections">corrections log</a>.'
+            "</p>"
+        )
+    elif stale:
         hero += (
             '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
             'border-left:3px solid #8b949e;padding-left:0.75rem">'
@@ -587,7 +621,14 @@ def render_detail(
     )
 
     # --- Findings table ---
-    if findings:
+    # A masked entry must not read as a clean scan: finding detail is withheld
+    # explicitly, never rendered as "No findings on record."
+    if masked:
+        findings_table = (
+            '<p style="color:#57606a;font-size:0.9rem">Finding detail is withheld '
+            "while this entry's grade is under governance review.</p>"
+        )
+    elif findings:
         finding_rows: list[str] = []
         for f in findings:
             sev = escape(str(f.severity))

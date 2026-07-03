@@ -24,6 +24,11 @@ DISPUTE_SLA_DAYS = 14
 # Public dispute channel. The repo is public; issues are open to graded vendors.
 DISPUTE_URL = "https://github.com/saagpatel/mcp-trust/issues/new?labels=grade-dispute"
 
+# Badge message for an entry whose published grade is temporarily withheld
+# (operator-listed in masked-grades.json) pending provenance verification and
+# governance review. Neutral, vendor-facing wording by design.
+MASKED_BADGE_MESSAGE = "under review"
+
 
 def is_stale(
     scanned_at: datetime,
