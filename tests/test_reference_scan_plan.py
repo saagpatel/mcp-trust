@@ -61,6 +61,43 @@ def test_seed_catalog_matches_reference_scan_plan() -> None:
     assert seed == [candidate.seed_preview() for candidate in plan.REFERENCE_SCAN_CANDIDATES]
 
 
+def test_registry_derived_candidates_pin_live_batch_sandbox_image() -> None:
+    # These four are baked only into the live-batch image, not the corpus image.
+    # Without a per-server pin, a whole-corpus refresh launches them network-off
+    # in an image that lacks their binary — the scan fails and the freshness
+    # lane silently keeps their stale grades.
+    plan = _load_module("reference_scan_plan", SCRIPTS / "reference_scan_plan.py")
+    by_slug = {c.slug: c for c in plan.REFERENCE_SCAN_CANDIDATES}
+    live_batch_only = {
+        "com-mythsensus-mythsensus-mcp-0-2-1",
+        "com-pulsemcp-image-diff-0-1-3",
+        "com-seanwinslow-intent-engineering-0-2-0",
+        "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+    }
+
+    for slug in live_batch_only:
+        candidate = by_slug[slug]
+        assert candidate.sandbox_image == "mcp-trust-live-batch:20260628"
+        # The pin must survive projection into the seed catalog's source spec.
+        assert candidate.source_preview()["sandbox_image"] == "mcp-trust-live-batch:20260628"
+
+    for slug, candidate in by_slug.items():
+        if slug not in live_batch_only:
+            assert candidate.sandbox_image == ""
+            assert "sandbox_image" not in candidate.source_preview()
+
+    # And it must survive the seed LOADER too — load_seed constructs
+    # ServerSource field-by-field, which silently dropped the pin once already.
+    from mcp_trust.catalog.seed import load_seed
+
+    loaded = {server.slug: server for server in load_seed()}
+    for slug in live_batch_only:
+        assert loaded[slug].source.sandbox_image == "mcp-trust-live-batch:20260628"
+    for slug, server in loaded.items():
+        if slug not in live_batch_only:
+            assert server.source.sandbox_image is None
+
+
 def test_reference_scan_shell_plan_is_dry_run_text() -> None:
     _load_module("reference_scan_plan", SCRIPTS / "reference_scan_plan.py")
     planner = _load_module("plan_reference_scans", SCRIPTS / "plan_reference_scans.py")

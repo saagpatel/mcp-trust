@@ -123,11 +123,14 @@ class DockerSandbox:
         return "docker", docker_args
 
 
-def select_sandbox(name: str | None = None) -> Sandbox:
+def select_sandbox(name: str | None = None, image: str | None = None) -> Sandbox:
     """Select a sandbox by name (or ``MCP_TRUST_SANDBOX`` env; default ``none``).
 
-    Raises ``ValueError`` for an unknown name. Availability is the caller's to
-    check via ``sandbox.available()`` so the engine can surface a clean error.
+    ``image`` is a per-server override (a server baked into a purpose-built
+    image must scan against it); when unset, the ``MCP_TRUST_SANDBOX_IMAGE``
+    corpus default applies. Raises ``ValueError`` for an unknown name.
+    Availability is the caller's to check via ``sandbox.available()`` so the
+    engine can surface a clean error.
     """
     resolved = (name or os.environ.get("MCP_TRUST_SANDBOX", "none")).lower()
     if resolved == "none":
@@ -138,7 +141,7 @@ def select_sandbox(name: str | None = None) -> Sandbox:
         return NoSandbox()
     if resolved == "docker":
         return DockerSandbox(
-            image=os.environ.get("MCP_TRUST_SANDBOX_IMAGE", "node:22-slim"),
+            image=image or os.environ.get("MCP_TRUST_SANDBOX_IMAGE", "node:22-slim"),
             network=os.environ.get("MCP_TRUST_SANDBOX_NETWORK", "none"),
         )
     raise ValueError(f"Unknown sandbox {resolved!r} (expected 'none' or 'docker').")

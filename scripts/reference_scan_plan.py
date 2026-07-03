@@ -40,15 +40,23 @@ class ReferenceScanCandidate:
     optional_env_keys: tuple[str, ...] = ()
     homepage: str = ""
     notes: str = ""
+    # Purpose-built network-off image this server is baked into, when it is NOT
+    # in the corpus default image. Projected into the seed source so a
+    # whole-corpus refresh scans it against the right image instead of silently
+    # keeping a stale grade. Empty = corpus default.
+    sandbox_image: str = ""
 
     def source_preview(self) -> dict[str, object]:
-        return {
+        preview: dict[str, object] = {
             "kind": self.kind,
             "reference": self.reference,
             "command": self.command,
             "args": list(self.args),
             "env_keys": list(self.env_keys),
         }
+        if self.sandbox_image:
+            preview["sandbox_image"] = self.sandbox_image
+        return preview
 
     def seed_preview(self) -> dict[str, object]:
         return {
@@ -311,6 +319,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
             "Registry-derived no-auth sandboxed candidate; exact version 0.2.1 "
             "is encoded in the catalog slug and covered by temp receipt evidence."
         ),
+        sandbox_image="mcp-trust-live-batch:20260628",
     ),
     ReferenceScanCandidate(
         slug="com-pulsemcp-image-diff-0-1-3",
@@ -328,6 +337,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
             "is encoded in the catalog slug and covered by temp receipt evidence. "
             "Source mapping was reviewed against the monorepo tag/path."
         ),
+        sandbox_image="mcp-trust-live-batch:20260628",
     ),
     ReferenceScanCandidate(
         slug="com-seanwinslow-intent-engineering-0-2-0",
@@ -345,6 +355,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
             "is encoded in the catalog slug and covered by temp receipt evidence. "
             "Source mapping was reviewed against the v0.2.0 source tag."
         ),
+        sandbox_image="mcp-trust-live-batch:20260628",
     ),
     ReferenceScanCandidate(
         slug="eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
@@ -361,6 +372,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
             "Registry-derived no-auth sandboxed candidate; exact version 1.2.0 "
             "is encoded in the catalog slug and covered by temp receipt evidence."
         ),
+        sandbox_image="mcp-trust-live-batch:20260628",
     ),
 )
 
