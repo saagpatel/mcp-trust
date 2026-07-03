@@ -92,8 +92,8 @@ class ScanRepository:
             """
             INSERT INTO scans
                 (id, server_slug, engine_name, engine_version, grade, transparency,
-                 risk_json, findings_json, scanned_at, report_ref)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_json, findings_json, evidence_json, scanned_at, report_ref)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 scan.id,
@@ -104,6 +104,7 @@ class ScanRepository:
                 scan.transparency,
                 scan.risk.model_dump_json(),
                 json.dumps([f.model_dump(mode="json") for f in scan.findings]),
+                scan.evidence.model_dump_json() if scan.evidence is not None else None,
                 scan.scanned_at.isoformat(),
                 scan.report_ref,
             ),
@@ -149,6 +150,7 @@ class ScanRepository:
         from mcp_trust.core.models import (  # noqa: PLC0415
             Finding,
             RiskSummary,
+            ScanEvidence,
             TransparencyLevel,
             TrustGrade,
         )
@@ -168,6 +170,12 @@ class ScanRepository:
             if "transparency" in keys and row["transparency"]
             else TransparencyLevel.HIGH
         )
+        evidence = None
+        if "evidence_json" in keys and row["evidence_json"]:
+            try:
+                evidence = ScanEvidence.model_validate(json.loads(row["evidence_json"]))
+            except (json.JSONDecodeError, ValidationError) as exc:
+                raise ValueError(f"Corrupt scan evidence {row['id']!r}: {exc}") from exc
         return ScanRecord(
             id=row["id"],
             server_slug=row["server_slug"],
@@ -177,6 +185,7 @@ class ScanRepository:
             transparency=transparency,
             risk=risk,
             findings=findings,
+            evidence=evidence,
             scanned_at=row["scanned_at"],
             report_ref=row["report_ref"],
         )

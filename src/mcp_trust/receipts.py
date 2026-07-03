@@ -66,6 +66,7 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
         "server_slug": scan.server_slug,
         "server": server.model_dump(mode="json"),
         "scan": scan.model_dump(mode="json"),
+        "evidence": scan.evidence.model_dump(mode="json") if scan.evidence else None,
         "danger_score": grading.danger_score(scan.risk),
         "sandbox": {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)},
         "scanner": {

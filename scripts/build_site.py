@@ -62,6 +62,7 @@ def _stub_scan_unscanned(server_repo: ServerRepository, scan_repo: ScanRepositor
                 transparency=grading.transparency(result.risk),
                 risk=result.risk,
                 findings=result.findings,
+                evidence=result.evidence,
                 scanned_at=datetime.now(tz=UTC),
                 report_ref=None,
             )

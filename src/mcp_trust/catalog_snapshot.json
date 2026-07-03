@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_from_scan_at": "2026-06-28T15:28:19.986650+00:00",
+  "generated_from_scan_at": "2026-07-03T02:50:56.284271+00:00",
   "server_count": 15,
   "servers": [
     {
@@ -45,6 +45,20 @@
           "category": "shell_execution"
         }
       ],
+      "evidence": {
+        "tool_count": 1,
+        "tools": [
+          {
+            "name": "retrieve_from_aws_kb",
+            "has_input_schema": true,
+            "input_schema_sha256": "ba97950f20f287f9ead28b918529b51464fdf356196c01f47cf146d14f67fe84",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
@@ -124,6 +138,26 @@
           "category": "file_write"
         }
       ],
+      "evidence": {
+        "tool_count": 2,
+        "tools": [
+          {
+            "name": "brave_web_search",
+            "has_input_schema": true,
+            "input_schema_sha256": "33a5016eb1992c105c657d7cd43c61a7eade498724ad64a2c9612b03e80d8a77",
+            "has_annotations": false
+          },
+          {
+            "name": "brave_local_search",
+            "has_input_schema": true,
+            "input_schema_sha256": "0b8cdb053a84e29606617aec3889b6b85742c546ff1adafbd6d18ed577aa4d89",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-brave-search",
@@ -171,6 +205,20 @@
           "category": "file_read"
         }
       ],
+      "evidence": {
+        "tool_count": 1,
+        "tools": [
+          {
+            "name": "generate_image",
+            "has_input_schema": true,
+            "input_schema_sha256": "b795aa9c8303c1d768408b1293496c86a6094feffc345793637b8b260c6ec776",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 1,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-everart",
@@ -656,6 +704,170 @@
           "category": "network"
         }
       ],
+      "evidence": {
+        "tool_count": 26,
+        "tools": [
+          {
+            "name": "create_or_update_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "8557e3b84eb46a2284f569a8bffc84c4eba2f8b879664deb690b31308ff00754",
+            "has_annotations": false
+          },
+          {
+            "name": "search_repositories",
+            "has_input_schema": true,
+            "input_schema_sha256": "28ac466cfe581e51a54740bffd75c1ff1ecc1b1821b78ad2ee7d2ae78c13962d",
+            "has_annotations": false
+          },
+          {
+            "name": "create_repository",
+            "has_input_schema": true,
+            "input_schema_sha256": "f590d77090120a014b9b6865ad45fb169c6e345cfbefad5d997f81c9ff57741e",
+            "has_annotations": false
+          },
+          {
+            "name": "get_file_contents",
+            "has_input_schema": true,
+            "input_schema_sha256": "7591de041ba0f24ed827c9bd2b528fee10503f0a04acb8250f83ac396d4e0d1d",
+            "has_annotations": false
+          },
+          {
+            "name": "push_files",
+            "has_input_schema": true,
+            "input_schema_sha256": "0c04a7c2390498f3e3f839e8d1517ca79c342552849819f435382e0807c34cc8",
+            "has_annotations": false
+          },
+          {
+            "name": "create_issue",
+            "has_input_schema": true,
+            "input_schema_sha256": "b06130f66f945f4ca2bc4474340c7f934c5e7b10168978fb8f507ecc146c091b",
+            "has_annotations": false
+          },
+          {
+            "name": "create_pull_request",
+            "has_input_schema": true,
+            "input_schema_sha256": "1b584db8e1f38ced183c5a1edef5a2b2b891bd6893c00d7d63714a33638036da",
+            "has_annotations": false
+          },
+          {
+            "name": "fork_repository",
+            "has_input_schema": true,
+            "input_schema_sha256": "a98da6e4f1433a533b5b3caaf3891e7e177d66636d07d2fb728339ea2fb1e75e",
+            "has_annotations": false
+          },
+          {
+            "name": "create_branch",
+            "has_input_schema": true,
+            "input_schema_sha256": "e4f58a46a50c75c2c3374f1dac5fff0b37174ef54f782aea1301e6a546722b75",
+            "has_annotations": false
+          },
+          {
+            "name": "list_commits",
+            "has_input_schema": true,
+            "input_schema_sha256": "ce60b258f0f6de3187bb98ca12ca247a163530f5b57f2307c4396df3f0bebc0c",
+            "has_annotations": false
+          },
+          {
+            "name": "list_issues",
+            "has_input_schema": true,
+            "input_schema_sha256": "c8076a1100515a28d46616911046d5fc673d413ac1a3eec6a2ee923c021c7dc2",
+            "has_annotations": false
+          },
+          {
+            "name": "update_issue",
+            "has_input_schema": true,
+            "input_schema_sha256": "70e547ffa32bc4d63b88264f5d9f99290f0226f529a314525eb350bb93d3465a",
+            "has_annotations": false
+          },
+          {
+            "name": "add_issue_comment",
+            "has_input_schema": true,
+            "input_schema_sha256": "fa058d1607afc6274a474ed085e41642097a1229ea977a69f86d31cd09908813",
+            "has_annotations": false
+          },
+          {
+            "name": "search_code",
+            "has_input_schema": true,
+            "input_schema_sha256": "d879c3ee51f498aee27bd0523b444d39ab0d3312eb6280b38c3b72f61b4bb69d",
+            "has_annotations": false
+          },
+          {
+            "name": "search_issues",
+            "has_input_schema": true,
+            "input_schema_sha256": "bf8b3753194a654b1f7f3a406306b69f46a5541df149799d233adb4e5606b3b3",
+            "has_annotations": false
+          },
+          {
+            "name": "search_users",
+            "has_input_schema": true,
+            "input_schema_sha256": "4f9de7a940a7e99f27a0ca5d9c6e9a84495f355309feb4b6fb62331207f86f3f",
+            "has_annotations": false
+          },
+          {
+            "name": "get_issue",
+            "has_input_schema": true,
+            "input_schema_sha256": "282d6482299e93d9235718015f3b6f556e9cb29fc847d88f90a8a99cc69b855d",
+            "has_annotations": false
+          },
+          {
+            "name": "get_pull_request",
+            "has_input_schema": true,
+            "input_schema_sha256": "1b6162edef8210ec9d3f648211311e6a6edd6625934e877f512403446a3c0dbb",
+            "has_annotations": false
+          },
+          {
+            "name": "list_pull_requests",
+            "has_input_schema": true,
+            "input_schema_sha256": "46ece9245f6e82ff79f5b49c071b972b82e5908b5855be8cc4c476d9fc0d1959",
+            "has_annotations": false
+          },
+          {
+            "name": "create_pull_request_review",
+            "has_input_schema": true,
+            "input_schema_sha256": "5db127e52eb30852922d3a750cc73d7e4d7bf1a4c55e2863b1fd48361dd92093",
+            "has_annotations": false
+          },
+          {
+            "name": "merge_pull_request",
+            "has_input_schema": true,
+            "input_schema_sha256": "dde18ca7fe684932f705af50c6e7ae5d0367ec051269f5d16c649f149b82bf3a",
+            "has_annotations": false
+          },
+          {
+            "name": "get_pull_request_files",
+            "has_input_schema": true,
+            "input_schema_sha256": "1b6162edef8210ec9d3f648211311e6a6edd6625934e877f512403446a3c0dbb",
+            "has_annotations": false
+          },
+          {
+            "name": "get_pull_request_status",
+            "has_input_schema": true,
+            "input_schema_sha256": "1b6162edef8210ec9d3f648211311e6a6edd6625934e877f512403446a3c0dbb",
+            "has_annotations": false
+          },
+          {
+            "name": "update_pull_request_branch",
+            "has_input_schema": true,
+            "input_schema_sha256": "20a07977a4420bea98b9d8ad678261d54183e6e1ff90bdd8a9674e04693fdefc",
+            "has_annotations": false
+          },
+          {
+            "name": "get_pull_request_comments",
+            "has_input_schema": true,
+            "input_schema_sha256": "1b6162edef8210ec9d3f648211311e6a6edd6625934e877f512403446a3c0dbb",
+            "has_annotations": false
+          },
+          {
+            "name": "get_pull_request_reviews",
+            "has_input_schema": true,
+            "input_schema_sha256": "1b6162edef8210ec9d3f648211311e6a6edd6625934e877f512403446a3c0dbb",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-github",
@@ -847,6 +1059,68 @@
           "category": "file_write"
         }
       ],
+      "evidence": {
+        "tool_count": 9,
+        "tools": [
+          {
+            "name": "create_or_update_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "search_repositories",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "create_repository",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "get_file_contents",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "push_files",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "create_issue",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "create_merge_request",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "fork_repository",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          },
+          {
+            "name": "create_branch",
+            "has_input_schema": true,
+            "input_schema_sha256": "d03c54f3209978faa97a15da835462ec5e01a40c5e9d54bb6d859999ac2ccd22",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-gitlab",
@@ -990,6 +1264,56 @@
           "category": "file_write"
         }
       ],
+      "evidence": {
+        "tool_count": 7,
+        "tools": [
+          {
+            "name": "maps_geocode",
+            "has_input_schema": true,
+            "input_schema_sha256": "6f70d8cde2a32a66046095c835c37bf9a55bfa1e85d5de3efd7f8831dcd29786",
+            "has_annotations": false
+          },
+          {
+            "name": "maps_reverse_geocode",
+            "has_input_schema": true,
+            "input_schema_sha256": "305d47e6ecb4356781ef991d76d4f8c5ede1f72a3d770724d9c807ddd39a75d6",
+            "has_annotations": false
+          },
+          {
+            "name": "maps_search_places",
+            "has_input_schema": true,
+            "input_schema_sha256": "3f343036b9511380b0fda54a55f0a30e4e202de5d821d6d6cd890f6e2a3a8e5a",
+            "has_annotations": false
+          },
+          {
+            "name": "maps_place_details",
+            "has_input_schema": true,
+            "input_schema_sha256": "5d1fa41fef5c46ec8222130b58f94bad7747809d4dbb5ec9ee756169c774c85d",
+            "has_annotations": false
+          },
+          {
+            "name": "maps_distance_matrix",
+            "has_input_schema": true,
+            "input_schema_sha256": "d7fdbfb4450342a09e3f2664ae6256fdd544206ac12247e526113bce51af8316",
+            "has_annotations": false
+          },
+          {
+            "name": "maps_elevation",
+            "has_input_schema": true,
+            "input_schema_sha256": "e94fe065ea931059debe266b7ec49f3f79226723c72925119f81445bcd0c010c",
+            "has_annotations": false
+          },
+          {
+            "name": "maps_directions",
+            "has_input_schema": true,
+            "input_schema_sha256": "65aad8696ac3314a1fa9207e6cc8d24c72cee0b80755140def528fbe692e21cf",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-google-maps",
@@ -1157,6 +1481,62 @@
           "category": "network"
         }
       ],
+      "evidence": {
+        "tool_count": 8,
+        "tools": [
+          {
+            "name": "slack_list_channels",
+            "has_input_schema": true,
+            "input_schema_sha256": "5ce4237c7eaf50289fa9218527257a1807e2b4b120f8b1334784552c803bad68",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_post_message",
+            "has_input_schema": true,
+            "input_schema_sha256": "ffa06b3a5dca3461162847d48c3c10db05baff1e6b34b678f5b2ccbe1f07470e",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_reply_to_thread",
+            "has_input_schema": true,
+            "input_schema_sha256": "a3867620f65ecc56e383dd0b82e229db194f568963d436e05ef7a4fad2026650",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_add_reaction",
+            "has_input_schema": true,
+            "input_schema_sha256": "3c600a9bb773c81e7d744c39e2ff8145f25c475708ccbff0849c7d3cf449ea8a",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_get_channel_history",
+            "has_input_schema": true,
+            "input_schema_sha256": "57e8cb1e88f072f5f159d41e73f2d34ffb0c4ceef8009c16e387bc703d0f3b94",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_get_thread_replies",
+            "has_input_schema": true,
+            "input_schema_sha256": "4e5a7e791057d28553b152f2957c1b87c6d9bd77b3f299678c591dcb0a94841c",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_get_users",
+            "has_input_schema": true,
+            "input_schema_sha256": "6c2ed60e0941b89f868e56803cb30aa85e8dc6e7c6f249879cbc9460c31ffdca",
+            "has_annotations": false
+          },
+          {
+            "name": "slack_get_user_profile",
+            "has_input_schema": true,
+            "input_schema_sha256": "918d05e26d73e0adb56f9fa2d46d731cfed578bb0e3c257d907c6a068e0955c1",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-slack",
@@ -1319,6 +1699,50 @@
           "category": "file_write"
         }
       ],
+      "evidence": {
+        "tool_count": 6,
+        "tools": [
+          {
+            "name": "read_query",
+            "has_input_schema": true,
+            "input_schema_sha256": "991adb5dff15e2b173837367c3f391c1a7a1901168cc9677deff755c07303b8a",
+            "has_annotations": false
+          },
+          {
+            "name": "write_query",
+            "has_input_schema": true,
+            "input_schema_sha256": "335b081f8028a304e55106c1fc221b8d045cab067fa1b04a027cf3550dfc591b",
+            "has_annotations": false
+          },
+          {
+            "name": "create_table",
+            "has_input_schema": true,
+            "input_schema_sha256": "e9061b0c2b2cc138b4f6998e566f1e3ac6516f75f65284c70d74258cf7b0c3cd",
+            "has_annotations": false
+          },
+          {
+            "name": "list_tables",
+            "has_input_schema": true,
+            "input_schema_sha256": "efddc7bd8bbcef73a14eb1ace1ffdaec81e518ef1e13c1e9271d0b8acb694a49",
+            "has_annotations": false
+          },
+          {
+            "name": "describe_table",
+            "has_input_schema": true,
+            "input_schema_sha256": "b423e0671fc803b07eabc5908c6b55aa2329a51f81ec0a8ea6c7973b765d9b2a",
+            "has_annotations": false
+          },
+          {
+            "name": "append_insight",
+            "has_input_schema": true,
+            "input_schema_sha256": "60d511d26c2f5e2908a8949d1a272d833bc005a824a7012fbbe50d73508ec82f",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 1,
+        "resource_count": 1,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "pypi",
         "reference": "mcp-server-sqlite",
@@ -1598,6 +2022,92 @@
           "category": "exfiltration"
         }
       ],
+      "evidence": {
+        "tool_count": 13,
+        "tools": [
+          {
+            "name": "echo",
+            "has_input_schema": true,
+            "input_schema_sha256": "1aa8b29a8830e1be4e1c763a6e519d135b89cfc28583a468b4f38b3419555825",
+            "has_annotations": false
+          },
+          {
+            "name": "get-annotated-message",
+            "has_input_schema": true,
+            "input_schema_sha256": "57f4dd11a285d33c473261572c76d809fc1ac7a23a6a27fcc23bd9385cdf30ee",
+            "has_annotations": false
+          },
+          {
+            "name": "get-env",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "get-resource-links",
+            "has_input_schema": true,
+            "input_schema_sha256": "7242aecd29ebd0c97857195e953c411169fbba648610db62a03787183e432a80",
+            "has_annotations": false
+          },
+          {
+            "name": "get-resource-reference",
+            "has_input_schema": true,
+            "input_schema_sha256": "5b259e26eb339248197b22525ab4a0b289c4fc836d580933d23f8ca8c8a6f089",
+            "has_annotations": false
+          },
+          {
+            "name": "get-structured-content",
+            "has_input_schema": true,
+            "input_schema_sha256": "f25089e2d87565a64b6f28841515a7d01e1ef84ef60239f58ae674d1e2adbc08",
+            "has_annotations": false
+          },
+          {
+            "name": "get-sum",
+            "has_input_schema": true,
+            "input_schema_sha256": "bd2eb3becf3057ecc9a0d7fc81854dc51416c0b134bca9942442786619277634",
+            "has_annotations": false
+          },
+          {
+            "name": "get-tiny-image",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "gzip-file-as-resource",
+            "has_input_schema": true,
+            "input_schema_sha256": "7551a380d06c727578759485ee15cd0ef61c6e39eab6ac1a253d8c0fc27db3d5",
+            "has_annotations": false
+          },
+          {
+            "name": "toggle-simulated-logging",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "toggle-subscriber-updates",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "trigger-long-running-operation",
+            "has_input_schema": true,
+            "input_schema_sha256": "5f435c8a24b4c6462c769cc7d3aa41d1b7959017d230cb4191063f0adc08fc84",
+            "has_annotations": false
+          },
+          {
+            "name": "simulate-research-query",
+            "has_input_schema": true,
+            "input_schema_sha256": "525f7e40fd12e8022495518ca786686b683b46fd18e7069addadef4df0310d94",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 4,
+        "resource_count": 7,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-everything",
@@ -1637,6 +2147,20 @@
           "category": "network"
         }
       ],
+      "evidence": {
+        "tool_count": 1,
+        "tools": [
+          {
+            "name": "fetch",
+            "has_input_schema": true,
+            "input_schema_sha256": "ccf108c2895e365b58df3e083b0785ce492eb987a0ca1f44c710ee1056927b4f",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 1,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "pypi",
         "reference": "mcp-server-fetch",
@@ -1940,6 +2464,98 @@
           "category": "network"
         }
       ],
+      "evidence": {
+        "tool_count": 14,
+        "tools": [
+          {
+            "name": "read_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "d035cd0c9ce05f046ecb5eefa5c6c6c355c96b198cd00824c3a9e0dd91aa89b8",
+            "has_annotations": true
+          },
+          {
+            "name": "read_text_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "d035cd0c9ce05f046ecb5eefa5c6c6c355c96b198cd00824c3a9e0dd91aa89b8",
+            "has_annotations": true
+          },
+          {
+            "name": "read_media_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "fc64d952de15bbe83e841a79d32385e4708e9758079b84dd233e485ce3c34720",
+            "has_annotations": true
+          },
+          {
+            "name": "read_multiple_files",
+            "has_input_schema": true,
+            "input_schema_sha256": "725ce07791beba80842b7322c0bfece72ba66b4ff3c3dfecf74f3401ce9d125e",
+            "has_annotations": true
+          },
+          {
+            "name": "write_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "ce17c85e8a5883552a11555f9b893de497fadab965a5c7935c0cb8f3c55b91d6",
+            "has_annotations": true
+          },
+          {
+            "name": "edit_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "88459ef670b139a12a3e0335ae0a4584dd892f60f45f565b545e1004d7565dd5",
+            "has_annotations": true
+          },
+          {
+            "name": "create_directory",
+            "has_input_schema": true,
+            "input_schema_sha256": "fc64d952de15bbe83e841a79d32385e4708e9758079b84dd233e485ce3c34720",
+            "has_annotations": true
+          },
+          {
+            "name": "list_directory",
+            "has_input_schema": true,
+            "input_schema_sha256": "fc64d952de15bbe83e841a79d32385e4708e9758079b84dd233e485ce3c34720",
+            "has_annotations": true
+          },
+          {
+            "name": "list_directory_with_sizes",
+            "has_input_schema": true,
+            "input_schema_sha256": "8d6f5d6dcaa186f44c30e5d278419c2559f6032a3455fc3fdbe4865910b35941",
+            "has_annotations": true
+          },
+          {
+            "name": "directory_tree",
+            "has_input_schema": true,
+            "input_schema_sha256": "99ea8d9c9e9241d82937687caaa04b622eff094f2ba194cd7c8ee3e43dc6ed9c",
+            "has_annotations": true
+          },
+          {
+            "name": "move_file",
+            "has_input_schema": true,
+            "input_schema_sha256": "621218ed9bc38b6cde9c6dc003583fb5778e5076bb28e25634b9070b33264682",
+            "has_annotations": true
+          },
+          {
+            "name": "search_files",
+            "has_input_schema": true,
+            "input_schema_sha256": "5b5a1eaeb940a6cfdd01f018784754be5204da54959a26b19ee5d00231636cc1",
+            "has_annotations": true
+          },
+          {
+            "name": "get_file_info",
+            "has_input_schema": true,
+            "input_schema_sha256": "fc64d952de15bbe83e841a79d32385e4708e9758079b84dd233e485ce3c34720",
+            "has_annotations": true
+          },
+          {
+            "name": "list_allowed_directories",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": true
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-filesystem",
@@ -2069,6 +2685,86 @@
           "category": "file_read"
         }
       ],
+      "evidence": {
+        "tool_count": 12,
+        "tools": [
+          {
+            "name": "git_status",
+            "has_input_schema": true,
+            "input_schema_sha256": "e3eb0910a0b7d725877173b42aa54849c5a978932a2192e3f814a9d92794db25",
+            "has_annotations": true
+          },
+          {
+            "name": "git_diff_unstaged",
+            "has_input_schema": true,
+            "input_schema_sha256": "f6d9cece66ac042e727f712545825c152c5d6dc39c944dc99c3319b3464bd5db",
+            "has_annotations": true
+          },
+          {
+            "name": "git_diff_staged",
+            "has_input_schema": true,
+            "input_schema_sha256": "edcbb5d9ac0831c9d613d55e28fc6e5a446313ce413a7bb6fba7ba11d5cc6d5b",
+            "has_annotations": true
+          },
+          {
+            "name": "git_diff",
+            "has_input_schema": true,
+            "input_schema_sha256": "3028417740cd7f02a8ada0da7f65571b0a98309b3b308c5226ad40dbeeea2eb0",
+            "has_annotations": true
+          },
+          {
+            "name": "git_commit",
+            "has_input_schema": true,
+            "input_schema_sha256": "292f379542fc33ea01f62648f50aab4b07518bb7614f79895e9a77639043f3c3",
+            "has_annotations": true
+          },
+          {
+            "name": "git_add",
+            "has_input_schema": true,
+            "input_schema_sha256": "b4964794372fb87d87e2d0d04d5c8771f1ba8fe23701ae9574d2831036e18055",
+            "has_annotations": true
+          },
+          {
+            "name": "git_reset",
+            "has_input_schema": true,
+            "input_schema_sha256": "5e4fc873d15789835f724f59e69d268a2d3cb614605712363eb16549ce0c6563",
+            "has_annotations": true
+          },
+          {
+            "name": "git_log",
+            "has_input_schema": true,
+            "input_schema_sha256": "6a12081f35d8069ddca7d1e70de8c4181cbb0475098b23cb24b13f8ad385240e",
+            "has_annotations": true
+          },
+          {
+            "name": "git_create_branch",
+            "has_input_schema": true,
+            "input_schema_sha256": "a729d00b7ca12f742eace3e299d98df0290c382a2fa54033f487aaefa787b0ed",
+            "has_annotations": true
+          },
+          {
+            "name": "git_checkout",
+            "has_input_schema": true,
+            "input_schema_sha256": "516dc2e905ce6d79254be1035b338c26992f1c8e66a4e5d88d7b6a7485833969",
+            "has_annotations": true
+          },
+          {
+            "name": "git_show",
+            "has_input_schema": true,
+            "input_schema_sha256": "5ba0f464a65a0e4d67c6944e157bdf9fc35447b568ac17f11db31e7adc4716f4",
+            "has_annotations": true
+          },
+          {
+            "name": "git_branch",
+            "has_input_schema": true,
+            "input_schema_sha256": "57d04063c4a36858343773eb6928ffd7a2e52a4d95545a310845d8facdc0211c",
+            "has_annotations": true
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "pypi",
         "reference": "mcp-server-git",
@@ -2258,6 +2954,68 @@
           "category": "file_read"
         }
       ],
+      "evidence": {
+        "tool_count": 9,
+        "tools": [
+          {
+            "name": "create_entities",
+            "has_input_schema": true,
+            "input_schema_sha256": "c54813f3fc7a076c950320c90489cec6add7482d695e23e43f2b30b8f2b9f083",
+            "has_annotations": false
+          },
+          {
+            "name": "create_relations",
+            "has_input_schema": true,
+            "input_schema_sha256": "5df4fdc93cbf199dff73ccc802d5cca510bd37eb7d99e0949fc0a17b261a65d3",
+            "has_annotations": false
+          },
+          {
+            "name": "add_observations",
+            "has_input_schema": true,
+            "input_schema_sha256": "73c9d2bfd98581b3be93976c78e44389209f2f9ec63e8652fd9e84795616842b",
+            "has_annotations": false
+          },
+          {
+            "name": "delete_entities",
+            "has_input_schema": true,
+            "input_schema_sha256": "a1bac527df1c3bd311c9c2bf2e9a9cf8ae5e266b690bd6c97d4a62e4af2dc731",
+            "has_annotations": false
+          },
+          {
+            "name": "delete_observations",
+            "has_input_schema": true,
+            "input_schema_sha256": "6b96624fc9e8cfbb92d8c7672e16fe06218216634815f892c8027cf7162f8ea7",
+            "has_annotations": false
+          },
+          {
+            "name": "delete_relations",
+            "has_input_schema": true,
+            "input_schema_sha256": "17985b44074691e832f8548bf2efc55af3256f9c52d3398c8ddc20141f2b0697",
+            "has_annotations": false
+          },
+          {
+            "name": "read_graph",
+            "has_input_schema": true,
+            "input_schema_sha256": "7a014b717a77aac971ea0ab5c0ff47bb13e6cae7ef9442d9dedb15ce36381b15",
+            "has_annotations": false
+          },
+          {
+            "name": "search_nodes",
+            "has_input_schema": true,
+            "input_schema_sha256": "71205bf235256b270ba5b0e20bdc6729c241f73ac81828077c76630fbcbaf6b6",
+            "has_annotations": false
+          },
+          {
+            "name": "open_nodes",
+            "has_input_schema": true,
+            "input_schema_sha256": "70aeb8f52abf632f4798453c1b731e1b3e0c8f967e1fdbfb4b00a8d193e5a1c0",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-memory",
@@ -2321,6 +3079,20 @@
           "category": "exfiltration"
         }
       ],
+      "evidence": {
+        "tool_count": 1,
+        "tools": [
+          {
+            "name": "sequentialthinking",
+            "has_input_schema": true,
+            "input_schema_sha256": "bc2bcac34793982f4be4d766c6155aab9ed2c63758adadb6a1a38becf548ad59",
+            "has_annotations": false
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "npm",
         "reference": "@modelcontextprotocol/server-sequential-thinking",
@@ -2360,6 +3132,26 @@
           "category": "file_read"
         }
       ],
+      "evidence": {
+        "tool_count": 2,
+        "tools": [
+          {
+            "name": "get_current_time",
+            "has_input_schema": true,
+            "input_schema_sha256": "4c5f8341a69e313883df9a1bb60aeea0e8e5178e4591da372ff6d2571da53e69",
+            "has_annotations": true
+          },
+          {
+            "name": "convert_time",
+            "has_input_schema": true,
+            "input_schema_sha256": "116b20b454386f6d32475bdd7e7bf5cba5673c0644f23865bc19fafc9a9fafde",
+            "has_annotations": true
+          }
+        ],
+        "prompt_count": 0,
+        "resource_count": 0,
+        "schema_hash_algorithm": "sha256"
+      },
       "source": {
         "kind": "pypi",
         "reference": "mcp-server-time",
