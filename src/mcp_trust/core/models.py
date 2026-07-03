@@ -57,6 +57,15 @@ class ServerSource(BaseModel):
             "whole-corpus refresh would silently keep its stale grade."
         ),
     )
+    trusted: bool = Field(
+        default=False,
+        description=(
+            "Whether this is a vetted reference server that may be scanned WITHOUT "
+            "a sandbox. Defaults False (fail-closed): an untrusted source must be "
+            "scanned inside a sandbox or the engine refuses. Only the validated "
+            "reference-server flow should set this True."
+        ),
+    )
 
 
 class Server(BaseModel):

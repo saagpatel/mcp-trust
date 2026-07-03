@@ -68,9 +68,12 @@ def test_docker_wrap_emits_env_flags_and_keeps_network_off() -> None:
     assert args.index("--env") < args.index("node:22-slim")
 
 
-def test_docker_wrap_no_env_by_default() -> None:
+def test_docker_wrap_no_credentials_by_default() -> None:
     _, args = DockerSandbox().wrap("npx", ["x"])
-    assert "--env" not in args
+    # Infra HOME/TMPDIR env is always present so the non-root user can run; no
+    # dummy CREDENTIALS are injected unless credentialed mode populates sandbox.env.
+    env_values = [args[i + 1] for i, a in enumerate(args) if a == "--env"]
+    assert set(env_values) == {"HOME=/scan", "TMPDIR=/scan"}
 
 
 # --- engine safety guards ------------------------------------------------------

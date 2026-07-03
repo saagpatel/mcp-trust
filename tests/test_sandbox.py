@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from mcp_trust.core.models import ServerSource, SourceKind
+from mcp_trust.engine.base import ScanError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
 from mcp_trust.engine.sandbox import (
     DockerSandbox,
@@ -51,11 +52,17 @@ def test_docker_network_is_configurable() -> None:
     assert "bridge" in args
 
 
-def test_docker_optional_user_flag() -> None:
-    _, with_user = DockerSandbox(user="1000:1000").wrap("npx", ["x"])
-    assert "--user" in with_user and "1000:1000" in with_user
-    _, without = DockerSandbox().wrap("npx", ["x"])
-    assert "--user" not in without
+def test_docker_runs_non_root_by_default() -> None:
+    _, default_args = DockerSandbox().wrap("npx", ["x"])
+    assert "--user" in default_args and "1000:1000" in default_args
+    # HOME/TMPDIR point at the writable tmpfs so the unprivileged user can run.
+    assert "HOME=/scan" in default_args and "TMPDIR=/scan" in default_args
+    # Explicit override is honored.
+    _, custom = DockerSandbox(user="65534:65534").wrap("npx", ["x"])
+    assert "65534:65534" in custom
+    # Opt out to root (for an image that requires it) with user=None.
+    _, rooted = DockerSandbox(user=None).wrap("npx", ["x"])
+    assert "--user" not in rooted
 
 
 def test_select_sandbox_by_name_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,9 +116,11 @@ def test_engine_resolves_per_server_sandbox_image(monkeypatch: pytest.MonkeyPatc
     assert isinstance(default, DockerSandbox)
     assert default.image == "corpus-default:1"
 
-    # An explicitly injected sandbox always wins (test/CLI injection seam).
+    # An explicitly injected sandbox wins the SANDBOX CHOICE (test/CLI injection
+    # seam) — but trust enforcement still applies, so use a trusted source.
     injected = NoSandbox()
-    assert MCPAuditEngine(sandbox=injected)._resolve_sandbox(pinned) is injected
+    trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)
+    assert MCPAuditEngine(sandbox=injected)._resolve_sandbox(trusted) is injected
 
 
 def test_engine_wraps_launch_through_sandbox() -> None:
@@ -124,3 +133,40 @@ def test_engine_wraps_launch_through_sandbox() -> None:
     wrapped_cmd, wrapped_args = DockerSandbox().wrap(base_cmd, base_args)
     assert wrapped_cmd == "docker"
     assert wrapped_args[-4:] == ["npx", "-y", "@acme/server", "--x"]
+
+
+def test_engine_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fail-closed: an untrusted stdio source with no sandbox (default NoSandbox)
+    # must raise rather than launch third-party code on the host.
+    monkeypatch.delenv("MCP_TRUST_SANDBOX", raising=False)
+    engine = MCPAuditEngine()
+
+    untrusted = ServerSource(kind=SourceKind.NPM, reference="@acme/untrusted")
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        engine._resolve_sandbox(untrusted)
+
+    # An injected NoSandbox cannot bypass the trust gate for an untrusted source.
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        MCPAuditEngine(sandbox=NoSandbox())._resolve_sandbox(untrusted)
+
+    # Capability-based, not class-based: a custom passthrough of a DIFFERENT
+    # class that does not isolate (no truthy ``isolates``) is also refused.
+    class _FakePassthrough:
+        name = "fake"
+
+        def available(self) -> bool:
+            return True
+
+        def wrap(self, command: str, args: list[str]) -> tuple[str, list[str]]:
+            return command, list(args)
+
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        MCPAuditEngine(sandbox=_FakePassthrough())._resolve_sandbox(untrusted)
+
+    # A trusted source may use NoSandbox — the vetted reference-server flow.
+    trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)
+    assert isinstance(engine._resolve_sandbox(trusted), NoSandbox)
+
+    # A remote (no-launch) source is exempt — no local process is spawned.
+    remote = ServerSource(kind=SourceKind.REMOTE, reference="https://example.com/mcp")
+    assert isinstance(engine._resolve_sandbox(remote), NoSandbox)
