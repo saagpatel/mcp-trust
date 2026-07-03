@@ -144,6 +144,15 @@ The next corpus expansion should stay small and approval-gated:
   egress;
 - diverse but boring capability coverage.
 
+The remaining deferred Registry-derived candidates were source-reviewed in
+`CORPUS-DEFERRED-REVIEW.md`. Keep all four out of the public catalog for now:
+
+- `ai.adeu/adeu` and `ai.ravenmcp/raven-mcp` have exact source tags and
+  package/source metadata matches, but publishing their `F` / low-transparency
+  first-pass evidence needs an explicit public-risk approval.
+- `com.kage-core/kage` and `com.kogcat/kogcat-mcp` remain blocked on stronger
+  source/version binding.
+
 ## Current Verification
 
 Last verified after the four-entry local catalog integration:
