@@ -67,6 +67,7 @@ def build_snapshot(db_path: str) -> dict[str, object]:
                     }
                     for f in scan.findings
                 ],
+                "evidence": scan.evidence.model_dump(mode="json") if scan.evidence else None,
                 "source": {
                     "kind": str(server.source.kind),
                     "reference": server.source.reference,

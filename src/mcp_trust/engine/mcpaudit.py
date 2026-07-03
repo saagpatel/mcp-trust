@@ -26,13 +26,23 @@ untrusted servers without ``MCP_TRUST_SANDBOX=docker`` runs their code on the ho
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import threading
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from mcp_trust.core.models import Finding, RiskSummary, ServerSource, Severity, SourceKind
+from mcp_trust.core.models import (
+    Finding,
+    RiskSummary,
+    ScanEvidence,
+    ServerSource,
+    Severity,
+    SourceKind,
+    ToolEvidence,
+)
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
 from mcp_trust.engine.credentials import build_dummy_env
 from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
@@ -147,6 +157,31 @@ def _clamp(value: float) -> float:
     return max(0.0, min(10.0, float(value)))
 
 
+def _schema_hash(schema: dict[str, object] | None) -> str | None:
+    if not schema:
+        return None
+    canonical = json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _build_evidence(audit) -> ScanEvidence:  # noqa: ANN001 - mcp-audits runtime model
+    tools = [
+        ToolEvidence(
+            name=str(tool.name),
+            has_input_schema=bool(tool.input_schema),
+            input_schema_sha256=_schema_hash(tool.input_schema),
+            has_annotations=tool.annotations is not None,
+        )
+        for tool in audit.tools
+    ]
+    return ScanEvidence(
+        tool_count=len(audit.tools),
+        tools=tools,
+        prompt_count=len(audit.prompts),
+        resource_count=len(audit.resources),
+    )
+
+
 class MCPAuditEngine:
     """Scan engine backed by the public ``mcp-audits`` package.
 
@@ -241,6 +276,7 @@ class MCPAuditEngine:
             engine_version=self._installed_version(),
             risk=risk,
             findings=findings,
+            evidence=_build_evidence(audit),
         )
 
     def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001

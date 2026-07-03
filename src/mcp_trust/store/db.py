@@ -41,6 +41,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             transparency   TEXT NOT NULL DEFAULT 'high',
             risk_json      TEXT NOT NULL,
             findings_json  TEXT NOT NULL,
+            evidence_json  TEXT,
             scanned_at     TEXT NOT NULL,
             report_ref     TEXT
         );
@@ -49,4 +50,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             ON scans (server_slug, scanned_at);
         """
     )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
+    if "evidence_json" not in columns:
+        conn.execute("ALTER TABLE scans ADD COLUMN evidence_json TEXT")
     conn.commit()

@@ -10,11 +10,13 @@ import pytest
 from mcp_trust.core.models import (
     Finding,
     RiskSummary,
+    ScanEvidence,
     ScanRecord,
     Server,
     ServerSource,
     Severity,
     SourceKind,
+    ToolEvidence,
     TrustGrade,
 )
 from mcp_trust.store.db import connect, init_schema
@@ -85,6 +87,19 @@ def _make_scan(slug: str = "test-server", composite: float = 2.5) -> ScanRecord:
                 detail="Detail text.",
             )
         ],
+        evidence=ScanEvidence(
+            tool_count=1,
+            tools=[
+                ToolEvidence(
+                    name="test_tool",
+                    has_input_schema=True,
+                    input_schema_sha256="a" * 64,
+                    has_annotations=False,
+                )
+            ],
+            prompt_count=2,
+            resource_count=3,
+        ),
         scanned_at=datetime.now(tz=UTC),
         report_ref=None,
     )
@@ -212,6 +227,32 @@ def test_scan_record_and_latest(conn, server_repo, scan_repo) -> None:
     assert latest.grade == TrustGrade.B
     assert latest.risk.composite == scan.risk.composite
     assert len(latest.findings) == 1
+    assert latest.evidence is not None
+    assert latest.evidence.tool_count == 1
+    assert latest.evidence.tools[0].input_schema_sha256 == "a" * 64
+
+
+def test_init_schema_migrates_existing_scans_table(conn) -> None:
+    conn.execute("DROP TABLE scans")
+    conn.execute(
+        """
+        CREATE TABLE scans (
+            id             TEXT PRIMARY KEY,
+            server_slug    TEXT NOT NULL REFERENCES servers(slug),
+            engine_name    TEXT NOT NULL,
+            engine_version TEXT NOT NULL,
+            grade          TEXT NOT NULL,
+            transparency   TEXT NOT NULL DEFAULT 'high',
+            risk_json      TEXT NOT NULL,
+            findings_json  TEXT NOT NULL,
+            scanned_at     TEXT NOT NULL,
+            report_ref     TEXT
+        )
+        """
+    )
+    init_schema(conn)
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
+    assert "evidence_json" in columns
 
 
 def test_scan_latest_returns_most_recent(conn, server_repo, scan_repo) -> None:

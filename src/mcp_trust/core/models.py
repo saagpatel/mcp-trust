@@ -90,6 +90,29 @@ class Finding(BaseModel):
     detail: str = ""
 
 
+class ToolEvidence(BaseModel):
+    """Public-safe readback evidence for one enumerated MCP tool.
+
+    Raw input schemas can be large, unstable, or contain implementation detail,
+    so receipts store only a canonical hash plus presence flags.
+    """
+
+    name: str
+    has_input_schema: bool = False
+    input_schema_sha256: str | None = None
+    has_annotations: bool = False
+
+
+class ScanEvidence(BaseModel):
+    """Public-safe evidence captured during live MCP readback."""
+
+    tool_count: int = 0
+    tools: list[ToolEvidence] = Field(default_factory=list)
+    prompt_count: int = 0
+    resource_count: int = 0
+    schema_hash_algorithm: str = "sha256"
+
+
 class RiskSummary(BaseModel):
     """Normalized multi-dimensional risk for one server. All scores are 0–10.
 
@@ -152,6 +175,10 @@ class ScanRecord(BaseModel):
     )
     risk: RiskSummary
     findings: list[Finding] = Field(default_factory=list)
+    evidence: ScanEvidence | None = Field(
+        default=None,
+        description="Public-safe tool/readback evidence captured by the scan engine.",
+    )
     scanned_at: datetime
     report_ref: str | None = Field(
         default=None, description="Portable receipt/report artifact reference, if archived."

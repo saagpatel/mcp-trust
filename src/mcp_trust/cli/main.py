@@ -100,6 +100,7 @@ def scan(
         transparency=trust_transparency,
         risk=result.risk,
         findings=result.findings,
+        evidence=result.evidence,
         scanned_at=datetime.now(tz=UTC),
         report_ref=None,
     )

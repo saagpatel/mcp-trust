@@ -7,16 +7,19 @@ The receipt test pins the honesty invariant: dummy values never leak.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 import pytest
 
 from mcp_trust.core.models import (
     RiskSummary,
+    ScanEvidence,
     ScanRecord,
     Server,
     ServerSource,
     SourceKind,
+    ToolEvidence,
     TrustGrade,
 )
 from mcp_trust.engine.base import ScanError
@@ -180,8 +183,6 @@ def _scan() -> ScanRecord:
 
 
 def test_receipt_records_credentialed_caveat_not_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
     monkeypatch.setenv("MCP_TRUST_SCAN_CREDENTIALS", "dummy")
     receipt = build_scan_receipt(_server(), _scan())
 
@@ -231,3 +232,32 @@ def test_receipt_no_caveat_for_stub_engine(monkeypatch: pytest.MonkeyPatch) -> N
     )
     receipt = build_scan_receipt(_server(), stub_scan)
     assert not any("dummy credentials" in c for c in receipt["caveats"])
+
+
+def test_receipt_records_scan_evidence_without_raw_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MCP_TRUST_SCAN_CREDENTIALS", raising=False)
+    scan = _scan().model_copy(
+        update={
+            "evidence": ScanEvidence(
+                tool_count=1,
+                tools=[
+                    ToolEvidence(
+                        name="search_docs",
+                        has_input_schema=True,
+                        input_schema_sha256="b" * 64,
+                        has_annotations=True,
+                    )
+                ],
+                prompt_count=2,
+                resource_count=3,
+            )
+        }
+    )
+    receipt = build_scan_receipt(_server(), scan)
+
+    assert receipt["evidence"]["tool_count"] == 1
+    assert receipt["evidence"]["tools"][0]["name"] == "search_docs"
+    assert receipt["evidence"]["tools"][0]["input_schema_sha256"] == "b" * 64
+    assert "properties" not in json.dumps(receipt["evidence"])

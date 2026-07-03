@@ -16,7 +16,7 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from mcp_trust.core.models import Finding, RiskSummary, ServerSource
+from mcp_trust.core.models import Finding, RiskSummary, ScanEvidence, ServerSource
 
 
 class ScanError(RuntimeError):
@@ -31,6 +31,7 @@ class EngineResult(BaseModel):
     engine_version: str
     risk: RiskSummary
     findings: list[Finding] = Field(default_factory=list)
+    evidence: ScanEvidence | None = None
 
 
 @runtime_checkable
