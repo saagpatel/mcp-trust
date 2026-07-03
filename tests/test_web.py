@@ -240,6 +240,11 @@ def test_methodology_page_renders_rubric(client: TestClient) -> None:
     # Every published weight must appear, formatted as ×N.N.
     for weight in weights.values():
         assert f"×{float(weight):.1f}" in body
+    # Every band grade AND the worst-grade row must be labeled from the grader,
+    # so the score→letter table can't drift from _BANDS / _band()'s fallback.
+    for _upper, grade_value in spec["grade_bands"]:
+        assert f"<td>{grade_value}</td>" in body
+    assert f"<td>{spec['worst_grade']}</td>" in body
     assert "critical" in body.lower()
     assert "cannot verify safe" in body
 

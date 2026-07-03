@@ -665,18 +665,22 @@ def render_methodology() -> str:
         for dim, w in weights.items()
     )
 
-    # Bands are ordered best→worst with an inclusive upper bound; the final
-    # grade is everything above the last bound.
+    # Bands are half-open with an inclusive UPPER bound (grading uses
+    # ``score <= upper``): the first band is ``score ≤ u0``, each later band is
+    # ``prev < score ≤ upper``, and the worst grade is ``score > last``. Render
+    # the bounds exactly that way so a boundary value maps to exactly one row.
     band_rows: list[str] = []
-    prev = 0.0
+    prev: float | None = None
     for upper, grade_value in bands:
+        u = float(upper)
+        rng = f"≤ {u:.1f}" if prev is None else f"&gt; {prev:.1f}, ≤ {u:.1f}"
         band_rows.append(
             "<tr>"
             f"<td>{escape(str(grade_value))}</td>"
-            f'<td style="font-variant-numeric:tabular-nums">{prev:.1f} – {float(upper):.1f}</td>'
+            f'<td style="font-variant-numeric:tabular-nums">{rng}</td>'
             "</tr>"
         )
-        prev = float(upper)
+        prev = u
     band_rows.append(
         "<tr>"
         f"<td>{escape(str(spec['worst_grade']))}</td>"
