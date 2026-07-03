@@ -122,9 +122,8 @@ generated catalog, regenerated from the local registry. The bundled launch
 snapshot contains 17 real `mcp-audits` grades from network-off Docker sandbox
 scans, including the first two reviewed Registry-derived no-auth sandboxed
 entries. Every grade is labeled by provenance, so demo/stub data can never read
-as a real scan, and an unscanned server never shows a letter grade. Production
-site publication still requires an explicit deploy of the rebuilt static
-`site/` output.
+as a real scan, and an unscanned server never shows a letter grade. The current
+production deployment is the 17-server static catalog.
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
