@@ -5,10 +5,21 @@ regenerated local scan artifacts._
 
 ## Live / Local State
 
-- Public site `https://mcp-trust.vercel.app` now serves the 19-server static
-  catalog. Production deploy `dpl_ErxnVWYH1d9T4pHAqNKmj7Y65TNc` was promoted
-  after local rendered-site smoke and production readback.
-- Local launch catalog now has 19 seeded servers and 19 latest real `mcpaudit`
+- Public site `https://mcp-trust.vercel.app` now serves the **23-server** static
+  catalog on engine `mcpaudit 2.3.0`. Production deploy
+  `dpl_F9y4uvb7sfESGS8Daq4RFfhMQeNS` (2026-07-03) followed the full-corpus
+  2.3.0 regrade (12/19 de-escalated, F 7→2) and the deferred-cohort
+  integration: `ai.adeu/adeu` (F), `ai.ravenmcp/raven-mcp` (F),
+  `com.kage-core/kage` (F), `com.kogcat/kogcat-mcp` (C), all low-transparency,
+  operator-approved 2026-07-03 per the preconditions in
+  `CORPUS-DEFERRED-REVIEW.md` (promotion artifact
+  `tmp/live-batch-published-review-20260703-deferred-cohort.json`,
+  ref `deferred-cohort-operator-approval-20260703`). No Registry-derived
+  candidates remain deferred.
+- Servers baked only into `mcp-trust-live-batch:20260628` carry a per-server
+  `sandbox_image` pin in the seed source (PR #37), so the whole-corpus refresh
+  scans 23/23 with the corpus default env — no silent stale grades.
+- Local launch catalog now has 23 seeded servers and 23 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
   `python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`.

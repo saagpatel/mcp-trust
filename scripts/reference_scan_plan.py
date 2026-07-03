@@ -374,6 +374,89 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         ),
         sandbox_image="mcp-trust-live-batch:20260628",
     ),
+    # --- Deferred-cohort Registry candidates (operator-approved 2026-07-03) ---
+    # Source/provenance review: CORPUS-DEFERRED-REVIEW.md. Promotion artifact:
+    # tmp/live-batch-published-review-20260703-deferred-cohort.json
+    # (ref deferred-cohort-operator-approval-20260703).
+    ReferenceScanCandidate(
+        slug="ai-adeu-adeu-1-7-1",
+        name="ai.adeu/adeu",
+        kind="npm",
+        reference="@adeu/mcp-server",
+        command="adeu-mcp-server",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/dealfluence/adeu",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 1.7.1 is "
+            "encoded in the catalog slug. Source mapping confirmed against the "
+            "v1.7.1 tag. Publishing first-pass low-transparency evidence for its "
+            "document/email/cloud tool surface was explicitly operator-approved."
+        ),
+        sandbox_image="mcp-trust-live-batch:20260628",
+    ),
+    ReferenceScanCandidate(
+        slug="ai-ravenmcp-raven-mcp-1-3-3",
+        name="ai.ravenmcp/raven-mcp",
+        kind="npm",
+        reference="raven-mcp",
+        command="raven-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/rhinocap/raven-mcp",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 1.3.3 is "
+            "encoded in the catalog slug. Source mapping confirmed against the "
+            "v1.3.3 tag. Publishing first-pass low-transparency evidence for its "
+            "broad design/content/service tool surface was explicitly "
+            "operator-approved."
+        ),
+        sandbox_image="mcp-trust-live-batch:20260628",
+    ),
+    ReferenceScanCandidate(
+        slug="com-kage-core-kage-2-3-0",
+        name="com.kage-core/kage",
+        kind="npm",
+        reference="@kage-core/kage-graph-mcp",
+        command="kage-graph-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/kage-core/Kage",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 2.3.0 is "
+            "encoded in the catalog slug. CAVEAT (operator-approved): the npm "
+            "package declares no repository/homepage and the source repo has no "
+            "exact version tag; the binding rests on an untagged release commit "
+            "with matching package-file hashes (see CORPUS-DEFERRED-REVIEW.md)."
+        ),
+        sandbox_image="mcp-trust-live-batch:20260628",
+    ),
+    ReferenceScanCandidate(
+        slug="com-kogcat-kogcat-mcp-0-46-2",
+        name="com.kogcat/kogcat-mcp",
+        kind="pypi",
+        reference="kogcat-mcp",
+        command="kogcat-mcp",
+        description=(
+            "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
+            "limited to controlled first-pass scan evidence and receipt caveats."
+        ),
+        homepage="https://github.com/KogCat/cc-kogcat",
+        notes=(
+            "Registry-derived no-auth sandboxed candidate; exact version 0.46.2 is "
+            "encoded in the catalog slug. CAVEAT (operator-approved): the wheel "
+            "metadata declares no source/project URL and the source repo has no "
+            "exact version tag; the binding rests on byte-for-byte runtime-file "
+            "hash matches on the default branch (see CORPUS-DEFERRED-REVIEW.md)."
+        ),
+        sandbox_image="mcp-trust-live-batch:20260628",
+    ),
 )
 
 
