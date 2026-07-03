@@ -28,7 +28,7 @@ def test_reference_scan_plan_is_network_off_and_complete() -> None:
     assert payload["sandbox_env"]["MCP_TRUST_ENGINE"] == "mcpaudit"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX"] == "docker"
     assert payload["sandbox_env"]["MCP_TRUST_SANDBOX_NETWORK"] == "none"
-    assert len(payload["candidates"]) == 23
+    assert len(payload["candidates"]) == 25
 
     slugs = {candidate["slug"] for candidate in payload["candidates"]}
     assert "mcp-reference-time" in slugs
@@ -61,33 +61,36 @@ def test_seed_catalog_matches_reference_scan_plan() -> None:
     assert seed == [candidate.seed_preview() for candidate in plan.REFERENCE_SCAN_CANDIDATES]
 
 
-def test_registry_derived_candidates_pin_live_batch_sandbox_image() -> None:
-    # These four are baked only into the live-batch image, not the corpus image.
-    # Without a per-server pin, a whole-corpus refresh launches them network-off
-    # in an image that lacks their binary — the scan fails and the freshness
-    # lane silently keeps their stale grades.
+def test_registry_derived_candidates_pin_their_batch_sandbox_image() -> None:
+    # These servers are baked only into a purpose-built batch image, not the
+    # corpus image. Without a per-server pin, a whole-corpus refresh launches
+    # them network-off in an image that lacks their binary — the scan fails and
+    # the freshness lane silently keeps their stale grades.
     plan = _load_module("reference_scan_plan", SCRIPTS / "reference_scan_plan.py")
     by_slug = {c.slug: c for c in plan.REFERENCE_SCAN_CANDIDATES}
-    live_batch_only = {
-        "com-mythsensus-mythsensus-mcp-0-2-1",
-        "com-pulsemcp-image-diff-0-1-3",
-        "com-seanwinslow-intent-engineering-0-2-0",
-        "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+    pinned_images = {
+        "com-mythsensus-mythsensus-mcp-0-2-1": "mcp-trust-live-batch:20260628",
+        "com-pulsemcp-image-diff-0-1-3": "mcp-trust-live-batch:20260628",
+        "com-seanwinslow-intent-engineering-0-2-0": "mcp-trust-live-batch:20260628",
+        "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0": "mcp-trust-live-batch:20260628",
         # Deferred-cohort integration (operator-approved 2026-07-03).
-        "ai-adeu-adeu-1-7-1",
-        "ai-ravenmcp-raven-mcp-1-3-3",
-        "com-kage-core-kage-2-3-0",
-        "com-kogcat-kogcat-mcp-0-46-2",
+        "ai-adeu-adeu-1-7-1": "mcp-trust-live-batch:20260628",
+        "ai-ravenmcp-raven-mcp-1-3-3": "mcp-trust-live-batch:20260628",
+        "com-kage-core-kage-2-3-0": "mcp-trust-live-batch:20260628",
+        "com-kogcat-kogcat-mcp-0-46-2": "mcp-trust-live-batch:20260628",
+        # Batch-3 cohort (operator-approved 2026-07-03).
+        "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11": "mcp-trust-batch3:20260703",
+        "io-github-nickjlamb-redacta-mcp-1-2-1": "mcp-trust-batch3:20260703",
     }
 
-    for slug in live_batch_only:
+    for slug, image in pinned_images.items():
         candidate = by_slug[slug]
-        assert candidate.sandbox_image == "mcp-trust-live-batch:20260628"
+        assert candidate.sandbox_image == image
         # The pin must survive projection into the seed catalog's source spec.
-        assert candidate.source_preview()["sandbox_image"] == "mcp-trust-live-batch:20260628"
+        assert candidate.source_preview()["sandbox_image"] == image
 
     for slug, candidate in by_slug.items():
-        if slug not in live_batch_only:
+        if slug not in pinned_images:
             assert candidate.sandbox_image == ""
             assert "sandbox_image" not in candidate.source_preview()
 
@@ -96,10 +99,10 @@ def test_registry_derived_candidates_pin_live_batch_sandbox_image() -> None:
     from mcp_trust.catalog.seed import load_seed
 
     loaded = {server.slug: server for server in load_seed()}
-    for slug in live_batch_only:
-        assert loaded[slug].source.sandbox_image == "mcp-trust-live-batch:20260628"
+    for slug, image in pinned_images.items():
+        assert loaded[slug].source.sandbox_image == image
     for slug, server in loaded.items():
-        if slug not in live_batch_only:
+        if slug not in pinned_images:
             assert server.source.sandbox_image is None
 
 
@@ -113,6 +116,6 @@ def test_reference_scan_shell_plan_is_dry_run_text() -> None:
 
     assert "Dry-run only" in text
     assert "docker build -f Dockerfile.scan" in text
-    assert text.count("mcp-trust scan ") == 23
+    assert text.count("mcp-trust scan ") == 25
     assert "docker run" not in text
     assert "MCP_TRUST_SCAN_TOKEN" not in text

@@ -1,31 +1,34 @@
 # MCP Trust — Session Handoff
 
-_Last updated: 2026-07-03. Repo: `main` tracking `origin/main`; working tree has
-regenerated local scan artifacts._
+_Last updated: 2026-07-03 (batch-3 integration). Repo: `main` tracking
+`origin/main`; working tree has regenerated local scan artifacts._
 
 ## Live / Local State
 
-- Public site `https://mcp-trust.vercel.app` now serves the **23-server** static
+- Public site `https://mcp-trust.vercel.app` now serves the **25-server** static
   catalog on engine `mcpaudit 2.3.0`. Production deploy
-  `dpl_F9y4uvb7sfESGS8Daq4RFfhMQeNS` (2026-07-03) followed the full-corpus
-  2.3.0 regrade (12/19 de-escalated, F 7→2) and the deferred-cohort
-  integration: `ai.adeu/adeu` (F), `ai.ravenmcp/raven-mcp` (F),
-  `com.kage-core/kage` (F), `com.kogcat/kogcat-mcp` (C), all low-transparency,
-  operator-approved 2026-07-03 per the preconditions in
-  `CORPUS-DEFERRED-REVIEW.md` (promotion artifact
-  `tmp/live-batch-published-review-20260703-deferred-cohort.json`,
-  ref `deferred-cohort-operator-approval-20260703`). No Registry-derived
-  candidates remain deferred.
-- Servers baked only into `mcp-trust-live-batch:20260628` carry a per-server
-  `sandbox_image` pin in the seed source (PR #37), so the whole-corpus refresh
-  scans 23/23 with the corpus default env — no silent stale grades.
-- Local launch catalog now has 23 seeded servers and 23 latest real `mcpaudit`
+  `dpl_4fh9WYwnwsb4PAYQ2PKBjirKLzb2` (2026-07-03) followed the batch-3
+  integration: `com.microsoft/powerbi-modeling-mcp` 0.5.0-beta.11 (F, low
+  transparency; first-party Microsoft scope, prerelease caveat) and
+  `io.github.nickjlamb/redacta-mcp` 1.2.1 (C, low transparency),
+  operator-approved 2026-07-03 (promotion ref
+  `batch3-live-corpus-promotion-20260703`, review evidence
+  `tmp/batch3-promotion-review-20260703.md`). Four batch-3 candidates failed
+  closed with documented evidence (gk-cli and black-duck require runtime
+  downloads; agentmetal and mcp-safeguard are broken as published) — no public
+  entries, no grades; evidence stays local under `tmp/`.
+- Purpose-built image pins: the 8 live-batch servers pin
+  `mcp-trust-live-batch:20260628`; the 2 batch-3 servers pin
+  `mcp-trust-batch3:20260703` (node:24-slim base, `HOME=/scan` for the
+  read-only sandbox fs, .NET invariant globalization). The whole-corpus refresh
+  scans 25/25 under the corpus default env — no silent stale grades.
+- Local launch catalog now has 25 seeded servers and 25 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
   `python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`.
-- Latest grade distribution: A=1, B=8, C=5, D=4, F=5.
-- Transparency distribution: high=3, low=20.
-- Evidence parity is complete for the launch corpus: all 19 latest scan rows have
+- Latest grade distribution: A=1, B=8, C=6, D=4, F=6.
+- Transparency distribution: high=3, low=22.
+- Evidence parity is complete for the launch corpus: all latest scan rows have
   `evidence_json`, and latest receipts include public-safe tool readback
   evidence.
 
