@@ -158,7 +158,6 @@ Results:
 
 Monitor the 17-server production catalog and keep the weekly freshness lane
 ready. The two near-next deferred candidates (`com.pulsemcp/image-diff` and
-`com.seanwinslow/intent-engineering`) now have a source-mapping review note in
-`CORPUS-NEAR-NEXT-REVIEW.md`; keep both deferred until the npm tarballs are
-manually tied back to their Registry-derived source repositories and a separate
-public-catalog integration approval is given.
+`com.seanwinslow/intent-engineering`) now have source mapping recorded in
+`CORPUS-NEAR-NEXT-REVIEW.md`; keep both deferred until separate public-catalog
+integration approval is given. The review did not prove reproducible builds.
