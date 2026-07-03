@@ -1,6 +1,6 @@
 [project]
 name = "mcp-trust"
-version = "0.1.0"
+version = "0.1.1"
 description = "A neutral public trust registry for MCP servers — check before you connect."
 readme = "README.md"
 requires-python = ">=3.11"
