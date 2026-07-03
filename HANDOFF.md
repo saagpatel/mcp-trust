@@ -29,6 +29,10 @@ in-flight evidence/corpus-builder changes plus regenerated local scan artifacts.
 - Added the discovery-only Registry corpus-builder slice:
   `CORPUS-BUILDER.md`, `src/mcp_trust/corpus/registry.py`,
   `scripts/plan_registry_corpus.py`, and `tests/test_registry_corpus_plan.py`.
+- Added reviewed corpus record models in `src/mcp_trust/corpus/records.py`.
+  This is the bridge from discovery manifests to public corpus integration:
+  proposed records can exist without receipts, but published records require
+  receipt-backed controlled live-scan evidence.
 - Ran the credentialed archived seed batch using dummy credentials inside the
   Docker sandbox with runtime network disabled.
 - Reran the full 15-server launch corpus with approval ref
@@ -72,6 +76,11 @@ The official MCP Registry is a discovery, provenance, and staleness feed only.
 It does not declare actual runtime tools, prompts, resources, input schemas, or
 annotations. Do not infer danger grades from Registry metadata. Public grades
 must come from controlled live readback evidence plus explicit receipt caveats.
+
+The next integration step should use `PublicCorpusRecord` / `CorpusRecordSet`
+rather than editing `seed_servers.json` directly. Keep the 8 temp live-scan
+candidates non-public until each record has explicit source review, scan mode,
+approval reference, receipt evidence, and caveats.
 
 The next corpus expansion should stay small and approval-gated:
 
