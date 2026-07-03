@@ -150,8 +150,9 @@ The remaining deferred Registry-derived candidates were source-reviewed in
 - `ai.adeu/adeu` and `ai.ravenmcp/raven-mcp` have exact source tags and
   package/source metadata matches, but publishing their `F` / low-transparency
   first-pass evidence needs an explicit public-risk approval.
-- `com.kage-core/kage` and `com.kogcat/kogcat-mcp` remain blocked on stronger
-  source/version binding.
+- `com.kage-core/kage` and `com.kogcat/kogcat-mcp` now have stronger source
+  matches, but remain blocked until an explicit no-tag/no-package-source caveat
+  decision is approved.
 
 ## Current Verification
 
