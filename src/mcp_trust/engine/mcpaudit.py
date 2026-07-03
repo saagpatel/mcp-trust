@@ -46,7 +46,7 @@ from mcp_trust.core.models import (
 )
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
 from mcp_trust.engine.credentials import build_dummy_env
-from mcp_trust.engine.sandbox import DockerSandbox, NoSandbox, Sandbox, select_sandbox
+from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,10 @@ class MCPAuditEngine:
         else:
             sandbox = select_sandbox(image=source.sandbox_image)
         launches_process = not (source.kind == SourceKind.REMOTE and not source.command)
-        if launches_process and isinstance(sandbox, NoSandbox) and not source.trusted:
+        # Key off the sandbox's declared isolation CAPABILITY, not its class, so
+        # any passthrough (NoSandbox or a custom one) is caught. Absent/false
+        # ``isolates`` is treated as non-isolating (fail-closed).
+        if launches_process and not getattr(sandbox, "isolates", False) and not source.trusted:
             raise ScanError(
                 f"Refusing to scan untrusted source {source.reference!r} without a "
                 "sandbox: launching its process would run third-party code on the "

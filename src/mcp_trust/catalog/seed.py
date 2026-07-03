@@ -29,6 +29,7 @@ def load_seed() -> list[Server]:
             args=source_data.get("args", []),
             env_keys=source_data.get("env_keys", []),
             sandbox_image=source_data.get("sandbox_image"),
+            trusted=source_data.get("trusted", False),
         )
         servers.append(
             Server(

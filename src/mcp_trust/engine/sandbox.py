@@ -38,6 +38,10 @@ class Sandbox(Protocol):
     """Transforms a launch command into a sandboxed equivalent."""
 
     name: str
+    # Whether this strategy actually isolates untrusted execution. The engine's
+    # fail-closed gate keys off this capability (not class identity), so any
+    # passthrough that does not isolate must declare ``isolates = False``.
+    isolates: bool
 
     def available(self) -> bool:
         """Whether this sandbox can run on the current host."""
@@ -52,6 +56,7 @@ class NoSandbox:
     """Passthrough — runs the server directly on the host. Trusted servers only."""
 
     name: ClassVar[str] = "none"
+    isolates: ClassVar[bool] = False
 
     def available(self) -> bool:
         return True
@@ -83,6 +88,7 @@ class DockerSandbox:
     env: dict[str, str] = field(default_factory=dict)
 
     name: ClassVar[str] = "docker"
+    isolates: ClassVar[bool] = True
 
     def available(self) -> bool:
         return shutil.which("docker") is not None

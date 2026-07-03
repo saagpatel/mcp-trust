@@ -143,6 +143,20 @@ def test_engine_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(ScanError, match="Refusing to scan untrusted"):
         MCPAuditEngine(sandbox=NoSandbox())._resolve_sandbox(untrusted)
 
+    # Capability-based, not class-based: a custom passthrough of a DIFFERENT
+    # class that does not isolate (no truthy ``isolates``) is also refused.
+    class _FakePassthrough:
+        name = "fake"
+
+        def available(self) -> bool:
+            return True
+
+        def wrap(self, command: str, args: list[str]) -> tuple[str, list[str]]:
+            return command, list(args)
+
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        MCPAuditEngine(sandbox=_FakePassthrough())._resolve_sandbox(untrusted)
+
     # A trusted source may use NoSandbox — the vetted reference-server flow.
     trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)
     assert isinstance(engine._resolve_sandbox(trusted), NoSandbox)
