@@ -5,8 +5,10 @@ Current decision: **NO-GO for public launch**.
 ## Verified State
 
 - MVP application path is green through the deterministic StubEngine.
-- The bundled seed catalog now contains seven official reference MCP servers,
-  not demo/example placeholder targets.
+- The bundled seed catalog replaced demo/example placeholder targets with
+  official reference MCP servers, approved archived official calibration
+  entries, and the first two reviewed Registry-derived no-auth sandboxed corpus
+  entries.
 - The seed catalog is mechanically checked against
   `scripts/reference_scan_plan.py`.
 - CLI scans persist computed transparency.

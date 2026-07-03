@@ -118,11 +118,13 @@ archive a JSON receipt for each scan and store its portable artifact filename in
 ## Status
 
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
-generated catalog, regenerated from the local registry. The seven official
-reference MCP servers carry real `mcp-audits` grades from network-off Docker
-sandbox scans (distribution A/B/B/C/D/F/F). Every grade is labeled by
-provenance, so demo/stub data can never read as a real scan, and an unscanned
-server never shows a letter grade.
+generated catalog, regenerated from the local registry. The bundled launch
+snapshot contains 17 real `mcp-audits` grades from network-off Docker sandbox
+scans, including the first two reviewed Registry-derived no-auth sandboxed
+entries. Every grade is labeled by provenance, so demo/stub data can never read
+as a real scan, and an unscanned server never shows a letter grade. Production
+site publication still requires an explicit deploy of the rebuilt static
+`site/` output.
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under

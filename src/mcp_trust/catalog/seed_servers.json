@@ -218,5 +218,31 @@
       ]
     },
     "homepage": "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart"
+  },
+  {
+    "slug": "com-mythsensus-mythsensus-mcp-0-2-1",
+    "name": "com.mythsensus/mythsensus-mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "mythsensus-mcp",
+      "command": "mythsensus-mcp",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/PattrickChenforclaudeuse/mythsensus-mcp"
+  },
+  {
+    "slug": "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+    "name": "eu.regulatoryai/sovereign-ai-act-mcp",
+    "description": "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains limited to controlled first-pass scan evidence and receipt caveats.",
+    "source": {
+      "kind": "npm",
+      "reference": "sovereign-ai-act-mcp",
+      "command": "sovereign-ai-act-mcp",
+      "args": [],
+      "env_keys": []
+    },
+    "homepage": "https://github.com/saidbazyar/sovereign-ai-act-mcp"
   }
 ]

@@ -7,13 +7,13 @@ in-flight evidence/corpus-builder changes plus regenerated local scan artifacts.
 
 - Public site remains `https://mcp-trust.vercel.app`; no deploy was run in this
   lane.
-- Local launch catalog now has 15 seeded servers and 15 latest real `mcpaudit`
+- Local launch catalog now has 17 seeded servers and 17 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
   `python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`.
-- Latest grade distribution: A=1, B=3, C=3, D=3, F=5.
-- Transparency distribution: high=3, low=12.
-- Evidence parity is complete for the launch corpus: all 15 latest scan rows have
+- Latest grade distribution: A=1, B=3, C=3, D=3, F=7.
+- Transparency distribution: high=3, low=14.
+- Evidence parity is complete for the launch corpus: all 17 latest scan rows have
   `evidence_json`, and latest receipts include public-safe tool readback
   evidence.
 
@@ -37,6 +37,11 @@ in-flight evidence/corpus-builder changes plus regenerated local scan artifacts.
   Docker sandbox with runtime network disabled.
 - Reran the full 15-server launch corpus with approval ref
   `launch-corpus-evidence-parity-20260702`.
+- Integrated the first two reviewed Registry-derived no-auth sandboxed corpus
+  entries into the local seed catalog, registry DB, receipts, baked snapshot,
+  and generated site:
+  `com.mythsensus/mythsensus-mcp` and
+  `eu.regulatoryai/sovereign-ai-act-mcp`.
 
 ## Important Evidence
 
@@ -67,8 +72,9 @@ The first approved no-auth Registry live-scan batch was rerun in a temp lane:
 - Receipts: `./tmp/live-batch-receipts-20260702-evidence/`
 - Approval ref: `first-live-corpus-batch-20260628-evidence-rerun`
 
-Those 8 candidates are not in the public catalog. Treat them as reviewed temp
-evidence until a separate corpus-integration decision is made.
+Two of those 8 candidates are now integrated into the local public catalog
+evidence path; the other 6 remain reviewed temp/deferred evidence until a
+separate corpus-integration decision is made.
 
 ## Registry Corpus Decision
 
@@ -113,6 +119,15 @@ for launch source specs, compare against `seed_servers.json`, and list the seed,
 scan, receipt, snapshot, site, deploy, and badge approvals still required. It
 does not mutate any of those surfaces.
 
+The approved two-entry integration has now been applied locally:
+
+- `src/mcp_trust/catalog/seed_servers.json` contains 17 entries.
+- `./registry.db` contains latest `mcpaudit` scan rows for all 17 seeded slugs.
+- `./receipts/` contains matching latest receipts for all 17 seeded slugs.
+- `src/mcp_trust/catalog_snapshot.json` contains 17 real scanned entries.
+- `site/` was rebuilt locally for 17 servers and includes `site/vercel.json`.
+- Public deployment has not been run in this lane.
+
 The next corpus expansion should stay small and approval-gated:
 
 - no-auth sandboxed entries first;
@@ -124,7 +139,7 @@ The next corpus expansion should stay small and approval-gated:
 
 ## Current Verification
 
-Last verified after the full evidence-parity rescan:
+Last verified after the two-entry local catalog integration:
 
 ```bash
 python scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts
@@ -135,13 +150,12 @@ uv run --all-extras --frozen ruff check src scripts tests
 Results:
 
 - launch-state validation passed;
-- `194 passed, 2 skipped`;
+- `209 passed, 2 skipped`;
 - Ruff passed.
 
 ## Next Recommended Move
 
-Review the diff as one cohesive change set, then decide whether to commit the
-evidence model + discovery-only corpus builder. After that, decide whether the
-8 temp live-batch candidates become a public experimental corpus lane or remain
-local evidence. Do not deploy or publish until that catalog-integration decision
-is made.
+Review the two-entry public catalog integration diff, then commit/PR/merge if
+the 17-server local launch checks remain green. After merge, the next operator
+decision is whether to deploy the rebuilt static `site/` output to Vercel and
+run the public badge smoke.
