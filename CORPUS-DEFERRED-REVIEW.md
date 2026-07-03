@@ -28,12 +28,14 @@ identity, but their observed tool surfaces carry enough public-rating risk that
 promotion should require an explicit "publish F/low-transparency first-pass
 evidence" decision.
 
-`com.kage-core/kage` and `com.kogcat/kogcat-mcp` should remain blocked pending a
-stronger source/provenance review. Kage's npm package does not declare
-repository/homepage metadata, the registry-derived repo did not expose an exact
-`2.3.0` tag during this pass, and the default-branch package metadata was already
-at `3.2.0`. Kogcat's wheel metadata does not declare a project URL, and the
-registry-derived repo did not expose an exact `0.46.2` tag.
+`com.kage-core/kage` and `com.kogcat/kogcat-mcp` now have stronger source
+matching than the initial review found, but they should still remain blocked
+pending an explicit provenance caveat decision. Kage has an untagged release
+commit for `2.3.0` whose `mcp/package.json` and `mcp/README.md` match the npm
+tarball hashes, but the npm package still lacks repository/homepage metadata and
+the source repo has no exact version tag. Kogcat's default branch package files
+match the wheel runtime files byte-for-byte, but the wheel metadata still omits
+source/project URLs and the source repo has no exact version tag.
 
 Build reproducibility was not proven in this pass. The review confirmed package
 identity, selected metadata hashes, source-tag/path availability where present,
@@ -46,8 +48,8 @@ artifacts, or run new MCP scans.
 | --- | --- | --- | --- | --- | --- |
 | `ai-adeu-adeu-1-7-1` | `@adeu/mcp-server@1.7.1` | `https://github.com/dealfluence/adeu` | `F`, low transparency | 9 tools, schema hashes present, no annotations | Source mapping confirmed, but defer until explicit approval to publish F/low-transparency document/email/cloud tool evidence. |
 | `ai-ravenmcp-raven-mcp-1-3-3` | `raven-mcp@1.3.3` | `https://github.com/rhinocap/raven-mcp` | `F`, low transparency | 27 tools, schema hashes present, no annotations | Source mapping confirmed, but defer until explicit approval to publish F/low-transparency broad design/content/service tool evidence. |
-| `com-kage-core-kage-2-3-0` | `@kage-core/kage-graph-mcp@2.3.0` | `https://github.com/kage-core/Kage` | `F`, low transparency | 66 tools, schema hashes present, no annotations | Keep blocked: package lacks npm source metadata and no exact source tag was found. |
-| `com-kogcat-kogcat-mcp-0-46-2` | `kogcat-mcp==0.46.2` | `https://github.com/KogCat/cc-kogcat` | `F`, low transparency | 9 tools, schema hashes present, no annotations | Keep blocked: wheel lacks source URL/project metadata and no exact source tag was found. |
+| `com-kage-core-kage-2-3-0` | `@kage-core/kage-graph-mcp@2.3.0` | `https://github.com/kage-core/Kage` | `F`, low transparency | 66 tools, schema hashes present, no annotations | Source match strengthened to an untagged release commit, but keep blocked pending explicit no-tag/no-package-source caveat approval. |
+| `com-kogcat-kogcat-mcp-0-46-2` | `kogcat-mcp==0.46.2` | `https://github.com/KogCat/cc-kogcat` | `F`, low transparency | 9 tools, schema hashes present, no annotations | Source match strengthened by byte-for-byte wheel/runtime file hashes, but keep blocked pending explicit no-tag/no-wheel-source caveat approval. |
 
 ## Provenance Review
 
@@ -102,11 +104,22 @@ artifacts, or run new MCP scans.
 - Npm package metadata does not declare repository, homepage, or bugs fields.
 - No exact `2.3.0` / `v2.3.0` tag was found in the registry-derived repo during
   this pass.
-- The registry-derived repo default branch was at commit
-  `775de95a025fc7869d5f08a100e44456ae960655`; its `mcp/package.json` reported
-  version `3.2.0`, not `2.3.0`.
-- Tool-name correspondence exists on the default branch for many `kage_*` tools,
-  but that is not enough to bind the scanned package artifact to source.
+- Source history contains an untagged release commit:
+  `d6580fbf04193dbf424882f54038c4401a33ec5f`, dated
+  `2026-06-13 14:48:37 +0530`, with subject
+  `Release 2.3.0: contradiction detection, docs search, +3 platforms, layered memory`.
+- At that commit, `mcp/package.json` reports package
+  `@kage-core/kage-graph-mcp`, version `2.3.0`, license `GPL-3.0-only`, and no
+  repository/homepage fields.
+- The npm tarball and untagged release commit have matching hashes for selected
+  source-package files:
+  - `package.json` SHA-256:
+    `5e39ea231be155802b106dbdfc878fef28779b28e79c043a73efd69068dc1cf5`
+  - `README.md` SHA-256:
+    `5c852f608754e299c2cff74495862f1ce4775d0bda5776d7ce4f070f4e4a6494`
+- Tool-name correspondence exists for many `kage_*` tools, but the npm package
+  still needs a public caveat because the source binding is untagged and not
+  package-declared.
 
 `com-kogcat-kogcat-mcp-0-46-2`:
 
@@ -120,11 +133,20 @@ artifacts, or run new MCP scans.
 - No exact `0.46.2` / `v0.46.2` tag was found in the registry-derived repo
   during this pass.
 - The registry-derived repo default branch was at commit
-  `f44bcb257a2aee8adf346c8aee0ee740d6322d80`; its `kogcat/pyproject.toml`
-  reports version `0.46.2`.
+  `f44bcb257a2aee8adf346c8aee0ee740d6322d80`, dated
+  `2026-06-24 20:02:57 +0800`, with subject `release v0.46.6`; its
+  `kogcat/pyproject.toml` still reports version `0.46.2`.
+- Every runtime file included in the wheel matches the corresponding file under
+  `kogcat/scripts/` at that default-branch commit, including:
+  - `mcp_server.py` SHA-256:
+    `d14677deb43522fe070dc64a4d5ba0d2531707bd2572d01b8e0e538059a60503`
+  - `om_mcp/tools.py` SHA-256:
+    `92e3b02c27892d80d1c8a7edbd1c702ae038f37ea2e0ee410165bd0c1befe256`
+  - `om_supervisor.py` SHA-256:
+    `9c9cbe6736b44d98b251aa7f6d57d0719f449f908146ae49e10140019229047b`
 - Tool-name correspondence exists on the default branch for the observed
-  knowledge and memory tools, but source binding remains weaker than the
-  tag-backed npm candidates.
+  knowledge and memory tools, but the wheel still needs a public caveat because
+  the source binding is untagged and not package-declared.
 
 ## Evidence Notes
 
@@ -147,12 +169,10 @@ Before any of these candidates is integrated into the public catalog:
 - Confirm explicit public-catalog integration approval for the exact record IDs.
 - For Adeu and Raven, explicitly approve publishing first-pass `F` /
   low-transparency evidence despite source mapping being confirmed.
-- For Kage, require exact source/version binding or an explicit caveat that npm
-  package source metadata is absent and the registry-derived source cannot be
-  tag-matched.
-- For Kogcat, require exact source/version binding or an explicit caveat that
-  wheel metadata omits source/project URLs and the registry-derived source
-  cannot be tag-matched.
+- For Kage, explicitly approve a no-tag/no-package-source caveat if relying on
+  the untagged release commit and matching package-file hashes.
+- For Kogcat, explicitly approve a no-tag/no-wheel-source caveat if relying on
+  default-branch runtime-file hash matches.
 - Preserve the caveat that automated scan output is not an endorsement.
 - Keep danger grade and transparency separate.
 - Reuse isolated temp evidence only if the receipt, package version, and source
