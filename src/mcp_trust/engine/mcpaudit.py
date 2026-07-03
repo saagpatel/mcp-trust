@@ -197,6 +197,12 @@ class MCPAuditEngine:
         # None → resolve from MCP_TRUST_SANDBOX at scan time (default: NoSandbox).
         self._sandbox = sandbox
 
+    def _resolve_sandbox(self, source: ServerSource) -> Sandbox:
+        """Resolve the sandbox for one scan: injected > per-server image > env."""
+        if self._sandbox is not None:
+            return self._sandbox
+        return select_sandbox(image=source.sandbox_image)
+
     def scan(self, source: ServerSource) -> EngineResult:
         """Run the ``mcp-audits`` pipeline against *source* and normalize results."""
         try:
@@ -210,7 +216,7 @@ class MCPAuditEngine:
                 "Run: pip install 'mcp-trust[engine]' to enable real scanning."
             ) from exc
 
-        sandbox = self._sandbox if self._sandbox is not None else select_sandbox()
+        sandbox = self._resolve_sandbox(source)
         if not sandbox.available():
             raise ScanError(
                 f"Sandbox {sandbox.name!r} is not available on this host "

@@ -48,6 +48,15 @@ class ServerSource(BaseModel):
     command: str | None = Field(default=None, description="Launch command, if applicable.")
     args: list[str] = Field(default_factory=list)
     env_keys: list[str] = Field(default_factory=list, description="Required env var NAMES only.")
+    sandbox_image: str | None = Field(
+        default=None,
+        description=(
+            "Purpose-built network-off scan image this server is baked into. "
+            "Overrides the corpus-wide MCP_TRUST_SANDBOX_IMAGE default — a server "
+            "absent from the default image cannot launch network-off there, and a "
+            "whole-corpus refresh would silently keep its stale grade."
+        ),
+    )
 
 
 class Server(BaseModel):

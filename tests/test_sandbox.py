@@ -72,6 +72,48 @@ def test_select_sandbox_unknown_raises() -> None:
         select_sandbox("vm")
 
 
+def test_select_sandbox_per_server_image_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A server baked into a purpose-built image must scan against THAT image
+    # even when the corpus-wide default is set — otherwise a whole-corpus
+    # refresh silently keeps stale grades for it.
+    monkeypatch.setenv("MCP_TRUST_SANDBOX_IMAGE", "corpus-default:1")
+    sandbox = select_sandbox("docker", image="live-batch:2")
+    assert isinstance(sandbox, DockerSandbox)
+    assert sandbox.image == "live-batch:2"
+
+    fallback = select_sandbox("docker", image=None)
+    assert isinstance(fallback, DockerSandbox)
+    assert fallback.image == "corpus-default:1"
+
+
+def test_select_sandbox_image_ignored_for_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MCP_TRUST_SANDBOX", raising=False)
+    assert isinstance(select_sandbox("none", image="live-batch:2"), NoSandbox)
+
+
+def test_engine_resolves_per_server_sandbox_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_SANDBOX", "docker")
+    monkeypatch.setenv("MCP_TRUST_SANDBOX_IMAGE", "corpus-default:1")
+
+    pinned = ServerSource(
+        kind=SourceKind.NPM, reference="@acme/baked", sandbox_image="live-batch:2"
+    )
+    unpinned = ServerSource(kind=SourceKind.NPM, reference="@acme/plain")
+
+    engine = MCPAuditEngine()
+    resolved = engine._resolve_sandbox(pinned)
+    assert isinstance(resolved, DockerSandbox)
+    assert resolved.image == "live-batch:2"
+
+    default = engine._resolve_sandbox(unpinned)
+    assert isinstance(default, DockerSandbox)
+    assert default.image == "corpus-default:1"
+
+    # An explicitly injected sandbox always wins (test/CLI injection seam).
+    injected = NoSandbox()
+    assert MCPAuditEngine(sandbox=injected)._resolve_sandbox(pinned) is injected
+
+
 def test_engine_wraps_launch_through_sandbox() -> None:
     # Verify the engine's launch spec composes with the sandbox without needing
     # mcp-audits installed: launch_spec -> sandbox.wrap.

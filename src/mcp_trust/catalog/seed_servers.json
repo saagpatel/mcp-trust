@@ -228,7 +228,8 @@
       "reference": "mythsensus-mcp",
       "command": "mythsensus-mcp",
       "args": [],
-      "env_keys": []
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-live-batch:20260628"
     },
     "homepage": "https://github.com/PattrickChenforclaudeuse/mythsensus-mcp"
   },
@@ -241,7 +242,8 @@
       "reference": "@pulsemcp/image-diff-mcp-server",
       "command": "image-diff-mcp-server",
       "args": [],
-      "env_keys": []
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-live-batch:20260628"
     },
     "homepage": "https://github.com/pulsemcp/mcp-servers"
   },
@@ -254,7 +256,8 @@
       "reference": "@swins/intent-engineering-mcp",
       "command": "intent-engineering-mcp",
       "args": [],
-      "env_keys": []
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-live-batch:20260628"
     },
     "homepage": "https://github.com/seanwinslow28/sw-mcp-intent-engineering"
   },
@@ -267,7 +270,8 @@
       "reference": "sovereign-ai-act-mcp",
       "command": "sovereign-ai-act-mcp",
       "args": [],
-      "env_keys": []
+      "env_keys": [],
+      "sandbox_image": "mcp-trust-live-batch:20260628"
     },
     "homepage": "https://github.com/saidbazyar/sovereign-ai-act-mcp"
   }
