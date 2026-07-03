@@ -92,3 +92,35 @@ def test_transparency_is_orthogonal_to_danger() -> None:
     risk = RiskSummary(composite=0, network_access=0.5, annotation_coverage=0.0)
     assert grade(risk) == TrustGrade.A
     assert transparency(risk) == TransparencyLevel.LOW
+
+
+def test_rubric_matches_grader() -> None:
+    """The published rubric must never drift from the code that grades.
+
+    Every weight and band the methodology page exposes has to be the value
+    ``grade()``/``danger_score()`` actually use; the worst-grade row must be the
+    grade ``grade()`` returns above the last band.
+    """
+    from mcp_trust.core.grading import rubric
+
+    spec = rubric()
+    weights = spec["dimension_weights"]
+    assert isinstance(weights, dict)
+
+    # danger_score() must equal the published weighted sum for a probe vector.
+    probe = RiskSummary(
+        composite=0,
+        file_access=1.0,
+        network_access=1.0,
+        shell_execution=1.0,
+        destructive=1.0,
+        exfiltration=1.0,
+    )
+    expected = sum(float(w) for w in weights.values())
+    assert danger_score(probe) == pytest.approx(expected)
+
+    # The last band's upper bound + worst_grade must reflect real banding: a
+    # score just above the last bound grades as worst_grade.
+    last_upper = float(spec["grade_bands"][-1][0])
+    over = RiskSummary(composite=0, network_access=min(10.0, last_upper + 1.0))
+    assert str(grade(over)) == spec["worst_grade"]

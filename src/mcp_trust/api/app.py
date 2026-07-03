@@ -302,6 +302,12 @@ def create_app(
         base_url = str(request.base_url).rstrip("/")
         return HTMLResponse(content=render_detail(server, scan, base_url=base_url))
 
+    @application.get("/ui/methodology", response_class=HTMLResponse)
+    async def methodology_page() -> HTMLResponse:
+        from mcp_trust.api.web import render_methodology  # noqa: PLC0415
+
+        return HTMLResponse(content=render_methodology())
+
     return application
 
 

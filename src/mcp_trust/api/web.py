@@ -21,7 +21,21 @@ from __future__ import annotations
 
 from html import escape
 
+from mcp_trust.core.grading import rubric
 from mcp_trust.core.models import ScanRecord, Server
+
+# Public repository issue tracker — the per-grade dispute / correction channel.
+_DISPUTE_URL = "https://github.com/saagpatel/mcp-trust/issues"
+
+# Human-readable labels for the risk dimensions, in display order. Keys match
+# both ``RiskSummary`` field names and the ``rubric()`` dimension_weights keys.
+_DIMENSION_LABELS: dict[str, str] = {
+    "file_access": "File access",
+    "network_access": "Network access",
+    "shell_execution": "Shell execution",
+    "destructive": "Destructive",
+    "exfiltration": "Exfiltration",
+}
 
 # ---------------------------------------------------------------------------
 # Grade → visual colour (matches badge.json route)
@@ -244,6 +258,95 @@ def _transparency_chip(level: str) -> str:
         return '<span class="chip" style="background:#8b949e">—</span>'
     color = _TRANSPARENCY_CSS.get(level.lower(), _TRANSPARENCY_CSS[""])
     return f'<span class="chip" style="background:{escape(color)}">{escape(level)}</span>'
+
+
+def _dimension_breakdown(record: ScanRecord) -> str:
+    """Per-dimension danger scores with the rubric weight applied to each.
+
+    Shows the reader the grade is *computed* from disclosed weights, not
+    editorial. Weights come from :func:`rubric` so they can never drift from
+    the code that grades.
+    """
+    weights = rubric()["dimension_weights"]
+    assert isinstance(weights, dict)  # narrow for type-checkers; rubric() contract
+    risk = record.risk
+    rows: list[str] = []
+    for dim, label in _DIMENSION_LABELS.items():
+        raw = float(getattr(risk, dim, 0.0))
+        weight = float(weights.get(dim, 0.0))
+        rows.append(
+            "<tr>"
+            f"<td>{escape(label)}</td>"
+            f'<td style="font-variant-numeric:tabular-nums">{raw:.1f}</td>'
+            f'<td style="font-variant-numeric:tabular-nums;color:#57606a">×{weight:.1f}</td>'
+            f'<td style="font-variant-numeric:tabular-nums">{raw * weight:.2f}</td>'
+            "</tr>"
+        )
+    return (
+        "<table>"
+        "<thead><tr>"
+        "<th>Dimension</th><th>Raw (0–10)</th><th>Weight</th><th>Weighted</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+    )
+
+
+def _methodology_floor(
+    *,
+    grade: str,
+    engine_name: str,
+    engine_version: str,
+    scanned_str: str,
+    source_ref: str,
+    transparency_level: str,
+) -> str:
+    """The per-grade transparency + disclaimer floor.
+
+    Turns a bare public letter into a dated, scoped, disclosed-methodology
+    opinion: what was scanned, when, by which engine version, what the grade
+    does and does NOT claim, and where to dispute it. ``engine_name``,
+    ``engine_version``, and ``scanned_str`` arrive pre-escaped from the caller;
+    ``grade``, ``source_ref``, and ``transparency_level`` are escaped here.
+    """
+    grade_up = escape(grade.upper())
+    ref = escape(source_ref) if source_ref else "the distributed package"
+    # An F/D on a low-transparency server is a "cannot verify" grade by the
+    # rubric's own design — say so where the reader sees the letter, not only
+    # in the transparency caveat below.
+    cannot_verify = transparency_level == "low" and grade.upper() in {"D", "F"}
+    unverified_line = (
+        "<li>Because this server declares few or no tool-behavior annotations, "
+        f"its {grade_up} reflects risk <strong>inferred from spec defaults</strong> — "
+        "read it as <em>cannot verify safe</em>, not <em>known dangerous</em>.</li>"
+        if cannot_verify
+        else ""
+    )
+    return (
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">'
+        "How to read this grade</h2>"
+        '<ul style="font-size:0.875rem;color:#24292f;line-height:1.7;'
+        'padding-left:1.1rem">'
+        f"<li><strong>What was scanned:</strong> {ref}, as distributed.</li>"
+        f"<li><strong>When:</strong> {scanned_str}.</li>"
+        f"<li><strong>By what:</strong> {engine_name} {engine_version}, applied "
+        'to the published <a href="/ui/methodology">danger rubric</a> '
+        "(weights, bands, and the critical cap are all public).</li>"
+        "<li><strong>What the grade means:</strong> this registry's opinion, "
+        "computed by the disclosed automated methodology against the artifact "
+        "version above, on the scan date above. It measures conformance to the "
+        "rubric at scan time.</li>"
+        "<li><strong>What it does not claim:</strong> it is not a statement that "
+        "the product is malicious, insecure in your deployment, or unfit for use, "
+        "and it is not an endorsement or certification.</li>"
+        f"{unverified_line}"
+        "<li><strong>Disagree?</strong> Grades are re-checkable against the same "
+        f'package version, and corrections are welcome: <a href="{_DISPUTE_URL}" '
+        'rel="noopener noreferrer">open a dispute</a>.</li>'
+        "</ul>"
+        "</div>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -496,20 +599,158 @@ def render_detail(
     else:
         findings_table = '<p style="color:#57606a;font-size:0.9rem">No findings on record.</p>'
 
+    # Score breakdown makes the grade legibly computed, not editorial — only
+    # when there is a scan on record to break down.
+    if record is not None:
+        breakdown = (
+            '<h2 style="font-size:1rem;font-weight:600;margin:1.25rem 0 0.75rem">'
+            "Score breakdown</h2>"
+            f"{_dimension_breakdown(record)}"
+        )
+    else:
+        breakdown = ""
+
     findings_section = (
         '<div class="card">'
         '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.75rem">Findings</h2>'
         f"{findings_table}"
+        f"{breakdown}"
         "</div>"
+    )
+
+    # --- Methodology + disclaimer floor (only meaningful with a scan) ---
+    floor = (
+        _methodology_floor(
+            grade=grade,
+            engine_name=engine_name,
+            engine_version=engine_version,
+            scanned_str=escape(scanned_str),
+            source_ref=str(getattr(source, "reference", "")) if source is not None else "",
+            transparency_level=transparency,
+        )
+        if record is not None
+        else ""
     )
 
     # --- Back link ---
     back = '<p><a href="/">← Back to catalog</a></p>'
 
     body = (
-        f"<main>{back}<div style='margin-top:1rem'>{hero}</div>{badge_box}{findings_section}</main>"
+        f"<main>{back}<div style='margin-top:1rem'>{hero}</div>"
+        f"{floor}{badge_box}{findings_section}</main>"
     )
     return _page(f"MCP Trust — {server.name}", body, banner=banner)
+
+
+def render_methodology() -> str:
+    """Render the public methodology page.
+
+    Single, linkable source of the grading rubric — weights, bands, the
+    critical cap, and the transparency axis — rendered from :func:`rubric` so
+    the page can never disagree with the code that grades. Every per-grade
+    "How to read this grade" block links here.
+    """
+    spec = rubric()
+    weights = spec["dimension_weights"]
+    bands = spec["grade_bands"]
+    thresholds = spec["transparency_thresholds"]
+    assert isinstance(weights, dict) and isinstance(bands, list)  # rubric() contract
+    assert isinstance(thresholds, dict)
+
+    weight_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(_DIMENSION_LABELS.get(dim, dim)))}</td>"
+        f'<td style="font-variant-numeric:tabular-nums">×{float(w):.1f}</td>'
+        "</tr>"
+        for dim, w in weights.items()
+    )
+
+    # Bands are half-open with an inclusive UPPER bound (grading uses
+    # ``score <= upper``): the first band is ``score ≤ u0``, each later band is
+    # ``prev < score ≤ upper``, and the worst grade is ``score > last``. Render
+    # the bounds exactly that way so a boundary value maps to exactly one row.
+    band_rows: list[str] = []
+    prev: float | None = None
+    for upper, grade_value in bands:
+        u = float(upper)
+        rng = f"≤ {u:.1f}" if prev is None else f"&gt; {prev:.1f}, ≤ {u:.1f}"
+        band_rows.append(
+            "<tr>"
+            f"<td>{escape(str(grade_value))}</td>"
+            f'<td style="font-variant-numeric:tabular-nums">{rng}</td>'
+            "</tr>"
+        )
+        prev = u
+    band_rows.append(
+        "<tr>"
+        f"<td>{escape(str(spec['worst_grade']))}</td>"
+        f'<td style="font-variant-numeric:tabular-nums">&gt; {prev:.1f}</td>'
+        "</tr>"
+    )
+
+    high = float(thresholds["high"])
+    medium = float(thresholds["medium"])
+
+    body = (
+        "<main>"
+        '<p><a href="/">← Back to catalog</a></p>'
+        '<h1 class="page-title" style="margin-top:1rem">How grades are computed</h1>'
+        '<p class="page-subtitle">'
+        "Every grade on this registry is produced by the automated rubric below. "
+        "It is disclosed in full so a grade can be re-derived and argued with, "
+        "not taken on faith."
+        "</p>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+        "1. Danger-weighted score</h2>"
+        '<p style="font-size:0.875rem;color:#57606a;margin-bottom:0.75rem">'
+        "Each risk dimension (0–10) is multiplied by a fixed weight, then summed "
+        "and clamped to 0–10. Weights emphasize the dimensions that actually "
+        "separate risk (shell execution above all) and down-weight ones that "
+        "appear on benign and dangerous servers alike."
+        "</p>"
+        "<table><thead><tr><th>Dimension</th><th>Weight</th></tr></thead>"
+        f"<tbody>{weight_rows}</tbody></table>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+        "2. Score → letter grade</h2>"
+        "<table><thead><tr><th>Grade</th><th>Danger score</th></tr></thead>"
+        f"<tbody>{''.join(band_rows)}</tbody></table>"
+        '<p style="font-size:0.875rem;color:#57606a;margin-top:0.75rem">'
+        "<strong>Critical cap:</strong> any single finding of a disqualifying "
+        f"class (e.g. tool-poisoning or rug-pull) caps the grade at "
+        f"{escape(str(spec['critical_cap']))} regardless of score."
+        "</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+        "3. Transparency (a separate axis)</h2>"
+        '<p style="font-size:0.875rem;color:#24292f;line-height:1.7">'
+        "Transparency is the fraction of a server's tools that declare behavior "
+        "annotations. It is reported <strong>alongside</strong> the danger grade, "
+        "never folded into it. "
+        f"High ≥ {high:.0%}, medium ≥ {medium:.0%}, otherwise low. "
+        "A low-transparency server's danger grade is inferred from spec defaults, "
+        "so a low grade there means <em>cannot verify safe</em> — not "
+        "<em>known dangerous</em>."
+        "</p>"
+        "</div>"
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+        "Scope and disputes</h2>"
+        '<p style="font-size:0.875rem;color:#24292f;line-height:1.7">'
+        "A grade is this registry's opinion, computed by this methodology against "
+        "a specific package version on a specific date, both shown on each grade "
+        "page. It is not an endorsement, certification, or claim of malice. Grades "
+        "are re-checkable against the same package version; corrections are "
+        f'welcome at <a href="{_DISPUTE_URL}" rel="noopener noreferrer">the issue '
+        "tracker</a>."
+        "</p>"
+        "</div>"
+        "</main>"
+    )
+    return _page("MCP Trust — Methodology", body)
 
 
 def render_not_found(slug: str) -> str:
