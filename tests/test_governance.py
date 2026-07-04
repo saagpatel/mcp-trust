@@ -78,6 +78,7 @@ def _real_scan(
     *,
     grade: TrustGrade = TrustGrade.F,
     scanned_at: datetime = FRESH_AT,
+    sandbox_image: str | None = "mcp-trust-scan:test",
 ) -> ScanRecord:
     return ScanRecord(
         id=uuid.uuid4().hex,
@@ -89,6 +90,7 @@ def _real_scan(
         risk=RiskSummary(composite=8.0),
         findings=[],
         scanned_at=scanned_at,
+        sandbox_image=sandbox_image,
         report_ref=None,
     )
 
@@ -157,8 +159,17 @@ def test_detail_provenance_card_scan_target_and_listing_basis():
     html = render_detail(_server(), _real_scan(), base_url=BASE_URL, now=NOW)
     assert "operator-listed from a public catalog" in html
     assert "No vendor-hosted infrastructure was contacted" in html
+    assert "mcp-trust-scan:test" in html
     assert "Dispute this grade" in html
     assert '<a href="/ui/dispute">' in html
+
+
+def test_detail_provenance_no_sandbox_does_not_claim_sandbox():
+    html = render_detail(
+        _server(), _real_scan(sandbox_image=None), base_url=BASE_URL, now=NOW
+    )
+    assert "network-isolated sandbox" not in html
+    assert "without an isolating sandbox" in html
 
 
 def test_detail_provenance_credentials_disclosed_when_declared():
@@ -493,3 +504,36 @@ def test_app_masks_badge_and_detail_routes(conn):
 
     detail = masked_client.get("/ui/servers/masked-server").text
     assert "Grade withheld:" in detail
+
+
+def test_app_masks_public_json_routes(conn):
+    ServerRepository(conn).upsert(_server("masked-server"))
+    record = _real_scan("masked-server", scanned_at=FRESH_AT).model_copy(
+        update={
+            "findings": [
+                Finding(
+                    rule_id="MCP007",
+                    title="Shell execution capability",
+                    severity=Severity.CRITICAL,
+                    category="shell",
+                )
+            ]
+        }
+    )
+    ScanRepository(conn).record(record)
+    masked_client = TestClient(create_app(conn=conn, masked_slugs={"masked-server"}))
+
+    listed = masked_client.get("/servers").json()[0]
+    assert listed["masked"] is True
+    assert listed["grade"] == "under review"
+    assert listed["composite"] is None
+    assert "F" not in json.dumps(listed)
+
+    detail = masked_client.get("/servers/masked-server").json()
+    latest = detail["latest_scan"]
+    assert latest["masked"] is True
+    assert latest["grade"] == "under review"
+    assert latest["risk"] is None
+    assert latest["findings"] is None
+    assert latest["evidence"] is None
+    assert "MCP007" not in json.dumps(detail)
