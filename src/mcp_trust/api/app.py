@@ -93,6 +93,7 @@ def _public_scan_payload(scan: ScanRecord | None, *, masked: bool) -> dict[str, 
                 "risk": None,
                 "findings": None,
                 "evidence": None,
+                "report_ref": None,
                 "withheld_reason": "grade_under_governance_review",
             }
         )

@@ -172,6 +172,25 @@ def test_detail_provenance_no_sandbox_does_not_claim_sandbox():
     assert "cannot verify sandbox provenance or network isolation" in html
 
 
+def test_detail_provenance_demo_wins_for_remote_sources():
+    server = _server("remote-demo").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.com/mcp",
+                env_keys=[],
+            )
+        }
+    )
+    record = _real_scan("remote-demo").model_copy(update={"engine_name": "StubEngine"})
+
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW)
+
+    assert "demo data from the local stub path" in html
+    assert "no real server artifact or hosted endpoint was launched" in html
+    assert "a hosted endpoint (<code>https://example.com/mcp</code>)" not in html
+
+
 def test_detail_provenance_credentials_disclosed_when_declared():
     server = _server(env_keys=["API_TOKEN"])
     html = render_detail(server, _real_scan(), base_url=BASE_URL, now=NOW)
@@ -510,6 +529,7 @@ def test_app_masks_public_json_routes(conn):
     ServerRepository(conn).upsert(_server("masked-server"))
     record = _real_scan("masked-server", scanned_at=FRESH_AT).model_copy(
         update={
+            "report_ref": "reports/masked-server.json",
             "findings": [
                 Finding(
                     rule_id="MCP007",
@@ -536,4 +556,6 @@ def test_app_masks_public_json_routes(conn):
     assert latest["risk"] is None
     assert latest["findings"] is None
     assert latest["evidence"] is None
+    assert latest["report_ref"] is None
     assert "MCP007" not in json.dumps(detail)
+    assert "reports/masked-server.json" not in json.dumps(detail)

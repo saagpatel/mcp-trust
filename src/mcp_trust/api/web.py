@@ -293,15 +293,15 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
             f"<li><strong>Scan target:</strong> the {escape(str(kind))} artifact "
             f"<code>{ref}</code>. Not yet scanned.</li>"
         )
+    elif provenance is ScanProvenance.DEMO:
+        items.append(
+            f"<li><strong>Scan target:</strong> the configured {escape(str(kind))} "
+            f"target <code>{ref}</code>. This record is demo data from the local "
+            "stub path; no real server artifact or hosted endpoint was launched.</li>"
+        )
     elif kind is SourceKind.REMOTE:
         items.append(
             f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
-        )
-    elif provenance is ScanProvenance.DEMO:
-        items.append(
-            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
-            f"artifact <code>{ref}</code>. This record is demo data from the local "
-            "stub path; no real server artifact was launched.</li>"
         )
     elif record.sandbox_image:
         image = escape(record.sandbox_image)
