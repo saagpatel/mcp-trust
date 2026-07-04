@@ -81,6 +81,21 @@ evidence, corpus refresh scripts, executable runbooks, and spec drift. Treat
 any path that can launch scans, publish grades, or expose public JSON as
 security-sensitive.
 
+For masking, provenance, and public-output changes, trace the claim through
+every surface that can reach an operator or server author: API JSON, web detail
+pages, static site generation, badge payloads, README snippets, launch bundles,
+catalog snapshots, receipts, and generated docs. Operator masking and
+scan-specific grade masking are related but not identical: operator-masked
+metadata must stay neutral even before a first scan exists, while scan-specific
+grade/risk/finding/report references are withheld only when a scan exists.
+
+Missing sandbox image, network mode, receipt, source binding, or scan
+provenance is an unknown, not proof of safety, isolation, hosted execution, or
+unsandboxed execution. Review wording should preserve that uncertainty. Demo or
+stub provenance must win over remote-source wording, and remote entries with a
+local launch command should keep local-launch/sandbox context instead of being
+described as plain hosted endpoints.
+
 For docs-only PRs, comment only when the docs overstate scan safety, sandbox
 use, provenance, launch readiness, grade meaning, or evidence that is missing
 from the reviewed tree.
