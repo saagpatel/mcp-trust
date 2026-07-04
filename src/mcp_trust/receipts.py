@@ -14,6 +14,7 @@ from typing import Any
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord, Server
+from mcp_trust.engine.sandbox import effective_docker_image
 
 _RECEIPTS_DIR_ENV = "MCP_TRUST_RECEIPTS_DIR"
 _SCAN_APPROVAL_REF_ENV = "MCP_TRUST_SCAN_APPROVAL_REF"
@@ -35,6 +36,23 @@ def receipts_dir_from_env() -> Path | None:
     if not value:
         return None
     return Path(value)
+
+
+def _sandbox_provenance(server: Server, scan: ScanRecord) -> dict[str, Any]:
+    """Sandbox section of the receipt: env config plus the image actually used.
+
+    The env keys alone misstate provenance for servers with a per-server image
+    pin — the engine resolves ``source.sandbox_image`` AHEAD of the
+    ``MCP_TRUST_SANDBOX_IMAGE`` corpus default (``select_sandbox``), so a
+    receipt recording only the env value claims the wrong image for pinned
+    rows. ``image_used`` records the resolved image, via the same helper the
+    engine resolves with. Recorded only for real docker-sandboxed scans; the
+    stub engine never launches a sandbox.
+    """
+    sandbox = {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)}
+    if scan.engine_name == "mcpaudit" and sandbox.get("MCP_TRUST_SANDBOX") == "docker":
+        sandbox["image_used"] = effective_docker_image(server.source.sandbox_image)
+    return sandbox
 
 
 def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
@@ -68,7 +86,7 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
         "scan": scan.model_dump(mode="json"),
         "evidence": scan.evidence.model_dump(mode="json") if scan.evidence else None,
         "danger_score": grading.danger_score(scan.risk),
-        "sandbox": {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)},
+        "sandbox": _sandbox_provenance(server, scan),
         "scanner": {
             "engine_name": scan.engine_name,
             "engine_version": scan.engine_version,
