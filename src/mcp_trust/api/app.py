@@ -14,8 +14,12 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from mcp_trust.core import grading
-from mcp_trust.core.governance import MASKED_BADGE_MESSAGE, is_stale
-from mcp_trust.core.models import ScanRecord, TrustGrade
+from mcp_trust.core.governance import (
+    MASKED_BADGE_MESSAGE,
+    MASKED_SERVER_DESCRIPTION,
+    is_stale,
+)
+from mcp_trust.core.models import ScanRecord, Server, TrustGrade
 from mcp_trust.core.provenance import classify, is_real_engine
 from mcp_trust.engine.base import ScanEngine, ScanError
 from mcp_trust.receipts import write_scan_receipt
@@ -97,6 +101,13 @@ def _public_scan_payload(scan: ScanRecord | None, *, masked: bool) -> dict[str, 
                 "withheld_reason": "grade_under_governance_review",
             }
         )
+    return payload
+
+
+def _public_server_payload(server: Server, *, masked: bool) -> dict[str, Any]:
+    payload = server.model_dump(mode="json")
+    if masked:
+        payload["description"] = MASKED_SERVER_DESCRIPTION
     return payload
 
 
@@ -220,7 +231,7 @@ def create_app(
         scan = scan_repo.latest(slug)
         masked = slug in _masked and scan is not None
         return {
-            "server": server.model_dump(mode="json"),
+            "server": _public_server_payload(server, masked=masked),
             "latest_scan": _public_scan_payload(scan, masked=masked),
         }
 

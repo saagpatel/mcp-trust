@@ -29,6 +29,12 @@ DISPUTE_URL = "https://github.com/saagpatel/mcp-trust/issues/new?labels=grade-di
 # governance review. Neutral, vendor-facing wording by design.
 MASKED_BADGE_MESSAGE = "under review"
 
+# Public description for entries whose grade-bearing catalog metadata is
+# temporarily withheld alongside the grade.
+MASKED_SERVER_DESCRIPTION = (
+    "Server metadata is temporarily withheld while this grade is under governance review."
+)
+
 
 def is_stale(
     scanned_at: datetime,

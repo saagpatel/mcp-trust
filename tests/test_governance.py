@@ -29,7 +29,12 @@ from mcp_trust.api.web import (
     render_dispute,
     render_methodology,
 )
-from mcp_trust.core.governance import DISPUTE_URL, STALE_AFTER_DAYS, is_stale
+from mcp_trust.core.governance import (
+    DISPUTE_URL,
+    MASKED_SERVER_DESCRIPTION,
+    STALE_AFTER_DAYS,
+    is_stale,
+)
 from mcp_trust.core.models import (
     Finding,
     RiskSummary,
@@ -439,6 +444,7 @@ def test_badge_unscanned_wins_over_masked():
 
 
 def test_detail_masked_withholds_grade_score_and_findings():
+    server = _server().model_copy(update={"description": "The F grade should not leak."})
     record = _real_scan().model_copy(
         update={
             "findings": [
@@ -451,12 +457,14 @@ def test_detail_masked_withholds_grade_score_and_findings():
             ]
         }
     )
-    html = render_detail(_server(), record, base_url=BASE_URL, now=NOW, masked=True)
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW, masked=True)
     assert "Grade withheld:" in html
     assert "under governance review" in html
     assert ">withheld<" in html  # danger score cell
     assert "Finding detail is withheld" in html
     assert "MCP007" not in html  # finding detail really is gone
+    assert "The F grade should not leak." not in html
+    assert MASKED_SERVER_DESCRIPTION in html
     assert "No findings on record" not in html  # must not read as a clean scan
     assert '<div class="grade-big" style="background:#8b949e">—</div>' in html
     # Dispute path and scan metadata stay disclosed.
@@ -526,7 +534,10 @@ def test_app_masks_badge_and_detail_routes(conn):
 
 
 def test_app_masks_public_json_routes(conn):
-    ServerRepository(conn).upsert(_server("masked-server"))
+    server = _server("masked-server").model_copy(
+        update={"description": "The F grade should not leak."}
+    )
+    ServerRepository(conn).upsert(server)
     record = _real_scan("masked-server", scanned_at=FRESH_AT).model_copy(
         update={
             "report_ref": "reports/masked-server.json",
@@ -559,3 +570,5 @@ def test_app_masks_public_json_routes(conn):
     assert latest["report_ref"] is None
     assert "MCP007" not in json.dumps(detail)
     assert "reports/masked-server.json" not in json.dumps(detail)
+    assert detail["server"]["description"] == MASKED_SERVER_DESCRIPTION
+    assert "The F grade should not leak." not in json.dumps(detail)

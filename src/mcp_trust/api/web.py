@@ -23,7 +23,13 @@ import logging
 from datetime import datetime
 from html import escape
 
-from mcp_trust.core.governance import DISPUTE_SLA_DAYS, DISPUTE_URL, STALE_AFTER_DAYS, is_stale
+from mcp_trust.core.governance import (
+    DISPUTE_SLA_DAYS,
+    DISPUTE_URL,
+    MASKED_SERVER_DESCRIPTION,
+    STALE_AFTER_DAYS,
+    is_stale,
+)
 from mcp_trust.core.grading import rubric
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.core.provenance import ScanProvenance, classify
@@ -565,7 +571,6 @@ def render_detail(
     """
     # --- Extract server fields ---
     name = escape(str(server.name))
-    description = escape(str(server.description or ""))
     homepage = server.homepage
     source = server.source
 
@@ -589,6 +594,8 @@ def render_detail(
 
     stale = record is not None and now is not None and is_stale(record.scanned_at, now)
     masked = masked and record is not None  # nothing to withhold on an unscanned entry
+    description_text = MASKED_SERVER_DESCRIPTION if masked else str(server.description or "")
+    description = escape(description_text)
 
     grade_display = "—" if masked else grade.upper()
     grade_color = (
