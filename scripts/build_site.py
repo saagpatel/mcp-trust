@@ -29,9 +29,11 @@ import sys
 import uuid
 from contextlib import closing
 from datetime import UTC, datetime
+from pathlib import Path
 
 from mcp_trust.catalog.seed import seed_into
 from mcp_trust.core import grading
+from mcp_trust.core.governance import MASKED_BADGE_MESSAGE
 from mcp_trust.core.models import ScanRecord
 from mcp_trust.engine.stub import StubEngine
 from mcp_trust.site.generator import generate_site
@@ -40,7 +42,14 @@ from mcp_trust.store.repository import ScanRepository, ServerRepository
 
 _DEFAULT_DB = "./registry.db"
 _DEFAULT_OUT = "./site"
+_DEFAULT_CORRECTIONS = "./corrections.json"
+_DEFAULT_MASKED = "./masked-grades.json"
 _PLACEHOLDER_BASE_URL = "https://mcp-trust.example"
+_GOVERNANCE_PAGES = (
+    ("ui", "methodology", "index.html"),
+    ("ui", "dispute", "index.html"),
+    ("ui", "corrections", "index.html"),
+)
 
 
 def _stub_scan_unscanned(server_repo: ServerRepository, scan_repo: ScanRepository) -> int:
@@ -71,10 +80,55 @@ def _stub_scan_unscanned(server_repo: ServerRepository, scan_repo: ScanRepositor
     return scanned
 
 
-def _verify(build, *, servers, scanned_slugs) -> list[str]:
+def _load_corrections(path: str) -> list[dict]:
+    """Load the public corrections log. Missing file = empty log; a malformed
+    file fails the build loudly rather than silently publishing without it."""
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    loaded = json.loads(raw)
+    if not isinstance(loaded, list):
+        raise ValueError(f"corrections log must be a JSON list, got {type(loaded).__name__}")
+    return loaded
+
+
+def _load_masked_slugs(path: str) -> set[str]:
+    """Load the operator's masked-grades slug list. Missing file = no masking;
+    a malformed file fails the build loudly — a mask the operator ordered must
+    never silently not-apply."""
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return set()
+    loaded = json.loads(raw)
+    if not isinstance(loaded, list) or not all(isinstance(slug, str) for slug in loaded):
+        raise ValueError("masked-grades list must be a JSON list of slug strings")
+    return set(loaded)
+
+
+def _verify(build, *, servers, scanned_slugs, masked_slugs=frozenset()) -> list[str]:
     """Return a list of verification failures (empty == passed)."""
     failures: list[str] = []
     out = build.out_dir
+    catalog_slugs = {server.slug for server in servers}
+
+    # Masking floor: every operator-masked slug must exist in the catalog (a
+    # typo'd slug would otherwise leave the real entry silently unmasked), and
+    # a masked, scanned entry's badge must actually read as withheld.
+    for slug in sorted(masked_slugs):
+        if slug not in catalog_slugs:
+            failures.append(f"masked slug {slug!r} is not in the catalog (typo?)")
+            continue
+        if slug in scanned_slugs:
+            badge = out / "servers" / slug / "badge.json"
+            if badge.is_file():
+                message = json.loads(badge.read_text(encoding="utf-8")).get("message")
+                if message != MASKED_BADGE_MESSAGE:
+                    failures.append(
+                        f"{slug} is masked but its badge says {message!r}, "
+                        f"not {MASKED_BADGE_MESSAGE!r}"
+                    )
 
     index = out / "index.html"
     if not index.is_file():
@@ -84,6 +138,13 @@ def _verify(build, *, servers, scanned_slugs) -> list[str]:
 
     if not (out / "404.html").is_file():
         failures.append("404.html is missing")
+
+    # Governance floor: the methodology, dispute, and corrections pages must
+    # ship with every build — a public grade without its disclosure surface
+    # fails the build, it doesn't quietly deploy.
+    for rel_path in _GOVERNANCE_PAGES:
+        if not out.joinpath(*rel_path).is_file():
+            failures.append(f"governance page missing: {'/'.join(rel_path)}")
 
     for server in servers:
         detail = out / "ui" / "servers" / server.slug / "index.html"
@@ -115,6 +176,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Absolute deployment URL for badge-embed snippets.",
     )
     parser.add_argument(
+        "--corrections",
+        default=_DEFAULT_CORRECTIONS,
+        help="Path to the public corrections-log JSON (a list; missing file = empty log).",
+    )
+    parser.add_argument(
+        "--masked-grades",
+        default=_DEFAULT_MASKED,
+        help=(
+            "Path to the masked-grades JSON (a list of slugs whose published "
+            "grade is withheld pending governance review; missing file = none)."
+        ),
+    )
+    parser.add_argument(
         "--demo-fill",
         action="store_true",
         help=(
@@ -142,16 +216,28 @@ def main(argv: list[str] | None = None) -> int:
                     "(--demo-fill: grades are demo data, labelled on every page)."
                 )
 
-        build = generate_site(conn, args.out, base_url=args.base_url)
+        corrections = _load_corrections(args.corrections)
+        masked_slugs = _load_masked_slugs(args.masked_grades)
+        build = generate_site(
+            conn,
+            args.out,
+            base_url=args.base_url,
+            now=datetime.now(tz=UTC),
+            corrections=corrections,
+            masked_slugs=masked_slugs,
+        )
         print(
             f"Built static site for {build.server_count} server(s) "
-            f"({build.scanned_count} scanned) → {build.out_dir} [{len(build.pages)} files]."
+            f"({build.scanned_count} scanned, {build.stale_count} stale, "
+            f"{build.masked_count} masked) "
+            f"→ {build.out_dir} [{len(build.pages)} files]."
         )
 
         failures = _verify(
             build,
             servers=server_repo.list(),
             scanned_slugs=set(scan_repo.latest_all()),
+            masked_slugs=masked_slugs,
         )
 
     if failures:

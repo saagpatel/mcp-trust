@@ -316,5 +316,10 @@ def test_badge_after_scan(seeded_client) -> None:
     body = resp.json()
     assert body["schemaVersion"] == 1
     assert body["label"] == "mcp trust"
-    assert body["message"] in {"A", "B", "C", "D", "F"}
+    # The seeded client scans with the stub engine, so the live badge must
+    # carry the (demo) provenance label — same honesty gate as the static
+    # badge files (the live route now shares site.badges.badge_payload).
+    grade, suffix = body["message"].split(" ", 1)
+    assert grade in {"A", "B", "C", "D", "F"}
+    assert suffix == "(demo)"
     assert body["color"] in {"brightgreen", "green", "yellow", "orange", "red"}
