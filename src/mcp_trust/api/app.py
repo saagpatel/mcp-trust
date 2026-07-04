@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from mcp_trust.core import grading
-from mcp_trust.core.governance import is_stale
+from mcp_trust.core.governance import MASKED_BADGE_MESSAGE, is_stale
 from mcp_trust.core.models import ScanRecord, TrustGrade
 from mcp_trust.core.provenance import classify, is_real_engine
 from mcp_trust.engine.base import ScanEngine, ScanError
@@ -37,6 +37,7 @@ class ServerSummary(BaseModel):
     transparency: str | None
     composite: float | None
     scanned_at: datetime | None
+    masked: bool = False
 
 
 def _is_real_scan_engine(engine: ScanEngine) -> bool:
@@ -77,6 +78,33 @@ def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
     presented = _presented_scan_token(request)
     if not presented or not secrets.compare_digest(presented, expected):
         raise HTTPException(status_code=401, detail="Valid scan trigger token required.")
+
+
+def _public_scan_payload(scan: ScanRecord | None, *, masked: bool) -> dict[str, Any] | None:
+    if scan is None:
+        return None
+    payload = scan.model_dump(mode="json")
+    payload["masked"] = masked
+    if masked:
+        payload.update(
+            {
+                "grade": MASKED_BADGE_MESSAGE,
+                "transparency": None,
+                "risk": None,
+                "findings": None,
+                "evidence": None,
+                "withheld_reason": "grade_under_governance_review",
+            }
+        )
+    return payload
+
+
+def _public_summary_grade(scan: ScanRecord | None, *, masked: bool) -> str:
+    if scan is None:
+        return str(TrustGrade.UNSCANNED)
+    if masked:
+        return MASKED_BADGE_MESSAGE
+    return str(scan.grade)
 
 
 # ---------------------------------------------------------------------------
@@ -164,14 +192,16 @@ def create_app(
         result: list[dict[str, Any]] = []
         for srv in servers:
             scan = latest.get(srv.slug)
+            masked = srv.slug in _masked and scan is not None
             result.append(
                 {
                     "slug": srv.slug,
                     "name": srv.name,
-                    "grade": scan.grade if scan else TrustGrade.UNSCANNED,
-                    "transparency": scan.transparency if scan else None,
-                    "composite": scan.risk.composite if scan else None,
+                    "grade": _public_summary_grade(scan, masked=masked),
+                    "transparency": None if masked else scan.transparency if scan else None,
+                    "composite": None if masked else scan.risk.composite if scan else None,
                     "scanned_at": scan.scanned_at if scan else None,
+                    "masked": masked,
                 }
             )
         return result
@@ -187,9 +217,10 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Server {slug!r} not found.")
 
         scan = scan_repo.latest(slug)
+        masked = slug in _masked and scan is not None
         return {
             "server": server.model_dump(mode="json"),
-            "latest_scan": scan.model_dump(mode="json") if scan else None,
+            "latest_scan": _public_scan_payload(scan, masked=masked),
         }
 
     @application.post("/servers/{slug}/scan")
