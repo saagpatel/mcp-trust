@@ -139,6 +139,16 @@ class DockerSandbox:
         return "docker", docker_args
 
 
+def effective_docker_image(source_image: str | None = None) -> str:
+    """The Docker image a scan actually runs in.
+
+    Per-server pin first, then the ``MCP_TRUST_SANDBOX_IMAGE`` corpus default.
+    Shared with receipt provenance (``mcp_trust.receipts``) so the recorded
+    image can never drift from the image the engine resolves.
+    """
+    return source_image or os.environ.get("MCP_TRUST_SANDBOX_IMAGE", "node:22-slim")
+
+
 def select_sandbox(name: str | None = None, image: str | None = None) -> Sandbox:
     """Select a sandbox by name (or ``MCP_TRUST_SANDBOX`` env; default ``none``).
 
@@ -157,7 +167,7 @@ def select_sandbox(name: str | None = None, image: str | None = None) -> Sandbox
         return NoSandbox()
     if resolved == "docker":
         return DockerSandbox(
-            image=image or os.environ.get("MCP_TRUST_SANDBOX_IMAGE", "node:22-slim"),
+            image=effective_docker_image(image),
             network=os.environ.get("MCP_TRUST_SANDBOX_NETWORK", "none"),
         )
     raise ValueError(f"Unknown sandbox {resolved!r} (expected 'none' or 'docker').")

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_from_scan_at": "2026-07-03T13:58:53.874107+00:00",
+  "generated_from_scan_at": "2026-07-04T02:37:39.933558+00:00",
   "server_count": 31,
   "servers": [
     {
@@ -6291,7 +6291,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
+        "reference": "@modelcontextprotocol/server-aws-kb-retrieval@0.6.2",
         "env_keys": [
           "AWS_ACCESS_KEY_ID",
           "AWS_SECRET_ACCESS_KEY",
@@ -6378,7 +6378,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-brave-search",
+        "reference": "@modelcontextprotocol/server-brave-search@0.6.2",
         "env_keys": [
           "BRAVE_API_KEY"
         ]
@@ -6433,7 +6433,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-everart",
+        "reference": "@modelcontextprotocol/server-everart@0.6.2",
         "env_keys": [
           "EVERART_API_KEY"
         ]
@@ -7070,7 +7070,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-github",
+        "reference": "@modelcontextprotocol/server-github@2025.4.8",
         "env_keys": [
           "GITHUB_PERSONAL_ACCESS_TOKEN"
         ]
@@ -7323,7 +7323,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-gitlab",
+        "reference": "@modelcontextprotocol/server-gitlab@2025.4.25",
         "env_keys": [
           "GITLAB_PERSONAL_ACCESS_TOKEN"
         ]
@@ -7498,7 +7498,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-google-maps",
+        "reference": "@modelcontextprotocol/server-google-maps@0.6.2",
         "env_keys": [
           "GOOGLE_MAPS_API_KEY"
         ]
@@ -7709,7 +7709,7 @@
       },
       "source": {
         "kind": "npm",
-        "reference": "@modelcontextprotocol/server-slack",
+        "reference": "@modelcontextprotocol/server-slack@2025.4.25",
         "env_keys": [
           "SLACK_BOT_TOKEN",
           "SLACK_TEAM_ID"

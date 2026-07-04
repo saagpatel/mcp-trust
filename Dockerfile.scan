@@ -2,11 +2,11 @@
 
 # Purpose-built image for approval-gated, network-off reference scans.
 # Build only after the sandbox decision is approved:
-#   docker build -f Dockerfile.scan -t mcp-trust-scan:corpus-2026-06-27 .
+#   docker build -f Dockerfile.scan -t mcp-trust-scan:corpus-2026-07-03 .
 #
 # Reference-server versions are pinned (metadata observed 2026-06-19); the
-# archived official servers added for corpus expansion are unpinned because
-# their releases are frozen (the repos are archived, no new versions ship).
+# archived official servers added for corpus expansion are pinned to npm
+# versions observed 2026-07-03 (the repos are archived, no new versions ship).
 # Scan-time execution should use MCP_TRUST_SANDBOX_NETWORK=none.
 
 FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
@@ -43,12 +43,13 @@ RUN uv tool install --python python3 "mcp-server-fetch==${SERVER_FETCH_VERSION}"
 # Moved to modelcontextprotocol/servers-archived and no longer maintained.
 # Baked because the sandbox blocks registry fetches at scan time (`npx -y` /
 # `uvx` would fail without a pre-installed binary). npm archived releases are
-# frozen so they're unpinned; mcp-server-sqlite is pinned because PyPI is mutable.
+# frozen, but pinned here so receipts prove the exact scanned package version;
+# mcp-server-sqlite is pinned because PyPI is mutable.
 #
 # github, aws-kb-retrieval, sqlite enumerate network-off with NO credentials.
 RUN npm install --global \
-    "@modelcontextprotocol/server-github" \
-    "@modelcontextprotocol/server-aws-kb-retrieval"
+    "@modelcontextprotocol/server-github@2025.4.8" \
+    "@modelcontextprotocol/server-aws-kb-retrieval@0.6.2"
 
 RUN uv tool install --python python3 "mcp-server-sqlite==2025.4.25"
 
@@ -57,11 +58,11 @@ RUN uv tool install --python python3 "mcp-server-sqlite==2025.4.25"
 # (MCP_TRUST_SCAN_CREDENTIALS=dummy) can launch them network-off with
 # non-functional dummy values and enumerate their real tool surface.
 RUN npm install --global \
-    "@modelcontextprotocol/server-gitlab" \
-    "@modelcontextprotocol/server-slack" \
-    "@modelcontextprotocol/server-brave-search" \
-    "@modelcontextprotocol/server-google-maps" \
-    "@modelcontextprotocol/server-everart"
+    "@modelcontextprotocol/server-gitlab@2025.4.25" \
+    "@modelcontextprotocol/server-slack@2025.4.25" \
+    "@modelcontextprotocol/server-brave-search@0.6.2" \
+    "@modelcontextprotocol/server-google-maps@0.6.2" \
+    "@modelcontextprotocol/server-everart@0.6.2"
 
 RUN mkdir -p /fixtures/repo \
     && git init /fixtures/repo \
