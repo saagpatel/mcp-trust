@@ -11,6 +11,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
@@ -102,6 +104,17 @@ def test_load_corrections_malformed_shape_fails_loudly(tmp_path: Path) -> None:
 
 def test_load_masked_slugs_missing_file_means_no_masking(tmp_path: Path) -> None:
     assert build_site._load_masked_slugs(str(tmp_path / "nope.json")) == set()
+
+
+def test_default_masked_grades_path_is_repo_relative(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    expected = ROOT / "masked-grades.json"
+    assert Path(build_site._DEFAULT_MASKED) == expected
+    assert build_site._load_masked_slugs(build_site._DEFAULT_MASKED) == set(
+        build_site.json.loads(expected.read_text(encoding="utf-8"))
+    )
 
 
 def test_load_masked_slugs_rejects_non_string_entries(tmp_path: Path) -> None:
