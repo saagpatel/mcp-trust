@@ -24,7 +24,7 @@ from mcp_trust.engine.sandbox import effective_docker_image, select_sandbox
 from mcp_trust.receipts import build_scan_receipt
 
 _PIN = "mcp-trust-batch4:20260703"
-_CORPUS = "mcp-trust-scan:corpus-2026-06-28"
+_CORPUS = "mcp-trust-scan:corpus-2026-07-03"
 
 
 def _server(sandbox_image: str | None = None) -> Server:
