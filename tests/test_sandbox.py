@@ -42,6 +42,7 @@ def test_docker_wrap_applies_isolation_flags() -> None:
     assert "--read-only" in args
     assert "--pids-limit" in args
     assert "--memory" in args
+    assert "/scan:rw,size=64m,mode=1777" in args
     assert "-i" in args  # stdio transport stays open
     # original command lands after the image
     assert args[-2:] == ["uvx", "acme-mcp"]
