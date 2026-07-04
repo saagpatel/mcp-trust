@@ -158,7 +158,7 @@ def test_detail_floor_states_artifact_date_and_does_not_claim():
 def test_detail_provenance_card_scan_target_and_listing_basis():
     html = render_detail(_server(), _real_scan(), base_url=BASE_URL, now=NOW)
     assert "operator-listed from a public catalog" in html
-    assert "No vendor-hosted infrastructure was contacted" in html
+    assert "does not claim network isolation for that run" in html
     assert "mcp-trust-scan:test" in html
     assert "Dispute this grade" in html
     assert '<a href="/ui/dispute">' in html
@@ -248,8 +248,8 @@ def test_methodology_page_discloses_weights_bands_and_cap():
 
 def test_methodology_page_states_scan_target_policy():
     html = render_methodology()
-    assert "network-isolated sandbox" in html
-    assert "No vendor-hosted infrastructure is contacted" in html
+    assert "hosted endpoint entries are labeled" in html
+    assert "does not expose per-run network mode" in html
     assert "never use real credentials" in html
     assert 'href="/ui/corrections"' in html
 

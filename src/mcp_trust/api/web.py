@@ -307,9 +307,10 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
         image = escape(record.sandbox_image)
         items.append(
             f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
-            f"artifact <code>{ref}</code>, installed and scanned locally inside a "
-            f"network-isolated sandbox image <code>{image}</code>. No vendor-hosted "
-            "infrastructure was contacted.</li>"
+            f"artifact <code>{ref}</code>, installed and scanned locally using "
+            f"sandbox image <code>{image}</code>. The public record stores the "
+            "sandbox image, but not the network mode, so this page does not claim "
+            "network isolation for that run.</li>"
         )
     else:
         items.append(
@@ -320,7 +321,7 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
     if source.env_keys:
         keys = ", ".join(f"<code>{escape(key)}</code>" for key in source.env_keys)
         if record is not None and record.sandbox_image:
-            credential_note = "at most inert placeholder values are injected inside the sandbox."
+            credential_note = "at most inert placeholder values are used for scan execution."
         elif provenance is ScanProvenance.DEMO:
             credential_note = "demo records do not use real credentials."
         else:
@@ -918,12 +919,13 @@ def render_methodology() -> str:
         '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
         "4. What is scanned</h2>"
         '<p style="font-size:0.875rem;color:#24292f;line-height:1.7">'
-        "The published package artifact (npm, PyPI, or equivalent) is installed "
-        "and launched locally inside a network-isolated sandbox, and its declared "
-        "MCP surface (tools, prompts, resources, annotations) is read back. "
-        "No vendor-hosted infrastructure is contacted. Scans never use real "
-        "credentials; where a server requires environment variables, at most "
-        "inert placeholder values are injected inside the sandbox."
+        "Published package artifact scans (npm, PyPI, or equivalent) are "
+        "installed and launched locally by the scanner, and hosted endpoint "
+        "entries are labeled as hosted endpoint scans. The declared MCP surface "
+        "(tools, prompts, resources, annotations) is read back. The public report "
+        "records the sandbox image when available, but does not expose per-run "
+        "network mode. Scans never use real credentials; where a server requires "
+        "environment variables, at most inert placeholder values are used."
         "</p>"
         "</div>"
         '<div class="card">'
