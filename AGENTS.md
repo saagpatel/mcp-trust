@@ -73,6 +73,18 @@ module-boundary contract.
   send author-badge outreach until the live catalog, sandbox path, deployment,
   and smoke tests are green.
 
+## Review guidelines
+
+Focus Codex review on public trust claims, grade/risk masking, API and badge
+behavior, scan sandbox boundaries, provenance and source binding, launch-gate
+evidence, corpus refresh scripts, executable runbooks, and spec drift. Treat
+any path that can launch scans, publish grades, or expose public JSON as
+security-sensitive.
+
+For docs-only PRs, comment only when the docs overstate scan safety, sandbox
+use, provenance, launch readiness, grade meaning, or evidence that is missing
+from the reviewed tree.
+
 ## Next Recommended Move
 Start Docker/Colima, build `Dockerfile.scan`, run one sandboxed `mcp-audits`
 smoke scan against `mcp-reference-time`, then run the full reference corpus,
