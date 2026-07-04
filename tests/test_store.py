@@ -253,6 +253,25 @@ def test_init_schema_migrates_existing_scans_table(conn) -> None:
     init_schema(conn)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
     assert "evidence_json" in columns
+    assert "sandbox_image" in columns
+
+
+def test_scan_record_persists_sandbox_image(server_repo, scan_repo) -> None:
+    """The resolved sandbox image is provenance and must survive the DB round-trip.
+
+    Guards the durability of the field: a receipt is written correctly at scan time,
+    but every later read (detail page, `check`, catalog build) reloads from the DB —
+    dropping it in persistence would silently reintroduce the Gate-0 provenance gap.
+    """
+    server = _make_server()
+    server_repo.upsert(server)
+
+    scan = _make_scan().model_copy(update={"sandbox_image": "mcp-trust-batch4:20260703"})
+    scan_repo.record(scan)
+
+    latest = scan_repo.latest(server.slug)
+    assert latest is not None
+    assert latest.sandbox_image == "mcp-trust-batch4:20260703"
 
 
 def test_scan_latest_returns_most_recent(conn, server_repo, scan_repo) -> None:

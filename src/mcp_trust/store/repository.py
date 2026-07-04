@@ -92,8 +92,9 @@ class ScanRepository:
             """
             INSERT INTO scans
                 (id, server_slug, engine_name, engine_version, grade, transparency,
-                 risk_json, findings_json, evidence_json, scanned_at, report_ref)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_json, findings_json, evidence_json, scanned_at, sandbox_image,
+                 report_ref)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 scan.id,
@@ -106,6 +107,7 @@ class ScanRepository:
                 json.dumps([f.model_dump(mode="json") for f in scan.findings]),
                 scan.evidence.model_dump_json() if scan.evidence is not None else None,
                 scan.scanned_at.isoformat(),
+                scan.sandbox_image,
                 scan.report_ref,
             ),
         )
@@ -176,6 +178,8 @@ class ScanRepository:
                 evidence = ScanEvidence.model_validate(json.loads(row["evidence_json"]))
             except (json.JSONDecodeError, ValidationError) as exc:
                 raise ValueError(f"Corrupt scan evidence {row['id']!r}: {exc}") from exc
+        # sandbox_image column is back-compat (older rows predate it → None).
+        sandbox_image = row["sandbox_image"] if "sandbox_image" in keys else None
         return ScanRecord(
             id=row["id"],
             server_slug=row["server_slug"],
@@ -187,5 +191,6 @@ class ScanRepository:
             findings=findings,
             evidence=evidence,
             scanned_at=row["scanned_at"],
+            sandbox_image=sandbox_image,
             report_ref=row["report_ref"],
         )

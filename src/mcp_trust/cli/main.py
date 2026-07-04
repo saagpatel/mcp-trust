@@ -102,6 +102,7 @@ def scan(
         findings=result.findings,
         evidence=result.evidence,
         scanned_at=datetime.now(tz=UTC),
+        sandbox_image=result.sandbox_image,
         report_ref=None,
     )
     receipt_ref = write_scan_receipt(server, record)

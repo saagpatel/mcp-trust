@@ -220,6 +220,29 @@ def test_receipt_no_caveat_for_no_envkeys_server(monkeypatch: pytest.MonkeyPatch
     assert not any("dummy credentials" in c for c in receipt["caveats"])
 
 
+def test_receipt_records_effective_sandbox_image_not_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A corpus-wide env default image is set for the batch...
+    monkeypatch.setenv("MCP_TRUST_SANDBOX_IMAGE", "mcp-trust-scan:corpus-default")
+    # ...but THIS scan actually ran in a per-server pinned image (the engine honors
+    # source.sandbox_image). The receipt must record the image that truly ran, not
+    # the ambient env default it is blind to — otherwise per-server pins can't be
+    # proven from the served receipt (Gate-0 provenance gap, 2026-07-03).
+    scan = _scan().model_copy(update={"sandbox_image": "mcp-trust-batch4:20260703"})
+    receipt = build_scan_receipt(_server(), scan)
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == "mcp-trust-batch4:20260703"
+
+
+def test_receipt_omits_phantom_env_image_when_scan_used_no_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The scan carries no image (host passthrough via NoSandbox, or the stub engine):
+    # no container ran, so the receipt must NOT stamp the ambient env image as if it
+    # had — that is the same false-provenance defect class as the per-server-pin gap.
+    monkeypatch.setenv("MCP_TRUST_SANDBOX_IMAGE", "mcp-trust-scan:corpus-default")
+    receipt = build_scan_receipt(_server(), _scan())
+    assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
+
+
 def test_receipt_no_caveat_for_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     # Dummy mode on and the server has env_keys, but the stub engine never launches
     # a sandbox, so no injection happened -> no caveat.

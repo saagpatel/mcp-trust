@@ -212,7 +212,7 @@ class MCPAuditEngine:
             sandbox = self._sandbox
         else:
             sandbox = select_sandbox(image=source.sandbox_image)
-        launches_process = not (source.kind == SourceKind.REMOTE and not source.command)
+        launches_process = self._launches_local_process(source)
         # Key off the sandbox's declared isolation CAPABILITY, not its class, so
         # any passthrough (NoSandbox or a custom one) is caught. Absent/false
         # ``isolates`` is treated as non-isolating (fail-closed).
@@ -247,6 +247,7 @@ class MCPAuditEngine:
             )
         _apply_dummy_credentials(sandbox, source)
 
+        launches_process = self._launches_local_process(source)
         cfg = self._build_config(source, ServerConfig, ClientType, TransportType, sandbox)
 
         connector = ServerConnector(timeout=self._timeout)
@@ -319,6 +320,10 @@ class MCPAuditEngine:
             risk=risk,
             findings=findings,
             evidence=evidence,
+            # Record the image the scan actually ran in — the resolved sandbox's
+            # own image (per-server pin > env default), not a later re-read of
+            # ambient env. None for remote scans or non-isolating passthroughs.
+            sandbox_image=getattr(sandbox, "image", None) if launches_process else None,
         )
 
     def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001
@@ -337,7 +342,7 @@ class MCPAuditEngine:
             "env_keys": list(source.env_keys),
         }
 
-        if source.kind == SourceKind.REMOTE and not source.command:
+        if not self._launches_local_process(source):
             return ServerConfig(**base, transport=TransportType.HTTP, url=source.reference)
 
         command, args = self._launch_spec(source)
@@ -360,6 +365,11 @@ class MCPAuditEngine:
             f"Cannot infer a launch command for {source.reference!r} "
             f"(kind={source.kind}); set an explicit `command` on the source."
         )
+
+    @staticmethod
+    def _launches_local_process(source: ServerSource) -> bool:
+        """Whether this source starts a local server process for mcp-audits."""
+        return not (source.kind == SourceKind.REMOTE and not source.command)
 
     def _installed_version(self) -> str:
         try:

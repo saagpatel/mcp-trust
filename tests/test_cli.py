@@ -109,7 +109,11 @@ def test_scan_writes_receipt_when_configured(db_path, tmp_path) -> None:
     receipt = json.loads(receipt_path.read_text())
     assert receipt["scan_id"] == record.id
     assert receipt["server_slug"] == "mcp-reference-time"
-    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == "mcp-trust-scan:test"
+    # StubEngine runs no container, so the receipt must NOT stamp the configured env
+    # image as an image the scan actually ran in (honest provenance); the coarse
+    # sandbox config env is still captured.
+    assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX"] == "docker"
 
 
 def test_scan_unknown_slug_exits_nonzero(db_path) -> None:

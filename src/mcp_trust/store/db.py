@@ -43,6 +43,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             findings_json  TEXT NOT NULL,
             evidence_json  TEXT,
             scanned_at     TEXT NOT NULL,
+            sandbox_image  TEXT,
             report_ref     TEXT
         );
 
@@ -53,4 +54,6 @@ def init_schema(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
     if "evidence_json" not in columns:
         conn.execute("ALTER TABLE scans ADD COLUMN evidence_json TEXT")
+    if "sandbox_image" not in columns:
+        conn.execute("ALTER TABLE scans ADD COLUMN sandbox_image TEXT")
     conn.commit()

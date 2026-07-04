@@ -13,8 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_trust.core import grading
-from mcp_trust.core.models import ScanRecord, Server, SourceKind
-from mcp_trust.engine.sandbox import effective_docker_image
+from mcp_trust.core.models import ScanRecord, Server
 
 _RECEIPTS_DIR_ENV = "MCP_TRUST_RECEIPTS_DIR"
 _SCAN_APPROVAL_REF_ENV = "MCP_TRUST_SCAN_APPROVAL_REF"
@@ -36,31 +35,6 @@ def receipts_dir_from_env() -> Path | None:
     if not value:
         return None
     return Path(value)
-
-
-def _sandbox_provenance(server: Server, scan: ScanRecord) -> dict[str, Any]:
-    """Sandbox section of the receipt: env config plus the image actually used.
-
-    The env keys alone misstate provenance for servers with a per-server image
-    pin — the engine resolves ``source.sandbox_image`` AHEAD of the
-    ``MCP_TRUST_SANDBOX_IMAGE`` corpus default (``select_sandbox``), so a
-    receipt recording only the env value claims the wrong image for pinned
-    rows. ``image_used`` records the resolved image, via the same helper the
-    engine resolves with. Recorded only for real docker-sandboxed scans that
-    actually launch a local process; remote URL scans are HTTP-only and do not
-    run inside the Docker image. The stub engine never launches a sandbox.
-    """
-    sandbox = {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)}
-    launches_process = not (
-        server.source.kind == SourceKind.REMOTE and not server.source.command
-    )
-    if (
-        scan.engine_name == "mcpaudit"
-        and sandbox.get("MCP_TRUST_SANDBOX") == "docker"
-        and launches_process
-    ):
-        sandbox["image_used"] = effective_docker_image(server.source.sandbox_image)
-    return sandbox
 
 
 def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
@@ -86,6 +60,18 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
             "the enumerated tool surface is real; no live authentication or egress "
             "occurred, and dummy credential values are never recorded."
         )
+    # Sandbox provenance. Non-image keys are env-level scan config, recorded as-is.
+    # The IMAGE is ALWAYS the scan's own resolved image (ground truth from the
+    # engine), never re-read from ambient env: env is blind to per-server pins
+    # (recording the corpus default for a server scanned in a purpose-built image
+    # — the Gate-0 gap) AND would stamp a phantom image on a no-container scan
+    # (NoSandbox host passthrough or the stub engine). When no isolating container
+    # ran, no image is recorded.
+    sandbox = {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)}
+    if scan.sandbox_image:
+        sandbox["MCP_TRUST_SANDBOX_IMAGE"] = scan.sandbox_image
+    else:
+        sandbox.pop("MCP_TRUST_SANDBOX_IMAGE", None)
     return {
         "format_version": 1,
         "scan_id": scan.id,
@@ -94,7 +80,7 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
         "scan": scan.model_dump(mode="json"),
         "evidence": scan.evidence.model_dump(mode="json") if scan.evidence else None,
         "danger_score": grading.danger_score(scan.risk),
-        "sandbox": _sandbox_provenance(server, scan),
+        "sandbox": sandbox,
         "scanner": {
             "engine_name": scan.engine_name,
             "engine_version": scan.engine_version,

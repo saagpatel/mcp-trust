@@ -20,7 +20,7 @@ from mcp_trust.core.models import (
     SourceKind,
     TrustGrade,
 )
-from mcp_trust.engine.sandbox import effective_docker_image, select_sandbox
+from mcp_trust.engine.sandbox import select_sandbox
 from mcp_trust.receipts import build_scan_receipt
 
 _PIN = "mcp-trust-batch4:20260703"
@@ -52,7 +52,7 @@ def _remote_server(command: str | None = None) -> Server:
     )
 
 
-def _scan(engine_name: str = "mcpaudit") -> ScanRecord:
+def _scan(engine_name: str = "mcpaudit", sandbox_image: str | None = None) -> ScanRecord:
     return ScanRecord(
         id="deadbeef",
         server_slug="acme-server",
@@ -61,6 +61,7 @@ def _scan(engine_name: str = "mcpaudit") -> ScanRecord:
         grade=TrustGrade.F,
         risk=RiskSummary(composite=8.6),
         scanned_at=datetime(2026, 7, 3),
+        sandbox_image=sandbox_image,
     )
 
 
@@ -71,23 +72,21 @@ def _docker_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_receipt_records_pinned_image_not_env_default(monkeypatch: pytest.MonkeyPatch) -> None:
     _docker_env(monkeypatch)
-    receipt = build_scan_receipt(_server(sandbox_image=_PIN), _scan())
-    # The env value stays recorded as config, but image_used is the pin.
-    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _CORPUS
-    assert receipt["sandbox"]["image_used"] == _PIN
+    receipt = build_scan_receipt(_server(sandbox_image=_PIN), _scan(sandbox_image=_PIN))
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _PIN
 
 
 def test_receipt_records_corpus_default_when_unpinned(monkeypatch: pytest.MonkeyPatch) -> None:
     _docker_env(monkeypatch)
-    receipt = build_scan_receipt(_server(), _scan())
-    assert receipt["sandbox"]["image_used"] == _CORPUS
+    receipt = build_scan_receipt(_server(), _scan(sandbox_image=_CORPUS))
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _CORPUS
 
 
 def test_no_image_used_without_docker_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MCP_TRUST_SANDBOX", raising=False)
     monkeypatch.delenv("MCP_TRUST_SANDBOX_IMAGE", raising=False)
     receipt = build_scan_receipt(_server(sandbox_image=_PIN), _scan())
-    assert "image_used" not in receipt["sandbox"]
+    assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
 
 
 def test_no_image_used_for_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,7 +94,7 @@ def test_no_image_used_for_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     # false provenance even when the env is configured for docker.
     _docker_env(monkeypatch)
     receipt = build_scan_receipt(_server(sandbox_image=_PIN), _scan(engine_name="stub"))
-    assert "image_used" not in receipt["sandbox"]
+    assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
 
 
 def test_no_image_used_for_remote_url_scan(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,8 +102,7 @@ def test_no_image_used_for_remote_url_scan(monkeypatch: pytest.MonkeyPatch) -> N
     # in Docker even when the batch env selects the docker sandbox.
     _docker_env(monkeypatch)
     receipt = build_scan_receipt(_remote_server(), _scan())
-    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _CORPUS
-    assert "image_used" not in receipt["sandbox"]
+    assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
 
 
 def test_image_used_for_remote_source_with_explicit_command(
@@ -113,8 +111,8 @@ def test_image_used_for_remote_source_with_explicit_command(
     # A remote-kind source with an explicit command follows the stdio launch path
     # and is wrapped by the sandbox, so image provenance is accurate.
     _docker_env(monkeypatch)
-    receipt = build_scan_receipt(_remote_server(command="mcp-proxy"), _scan())
-    assert receipt["sandbox"]["image_used"] == _PIN
+    receipt = build_scan_receipt(_remote_server(command="mcp-proxy"), _scan(sandbox_image=_PIN))
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _PIN
 
 
 def test_receipt_and_engine_resolve_the_same_image(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,6 +121,5 @@ def test_receipt_and_engine_resolve_the_same_image(monkeypatch: pytest.MonkeyPat
     _docker_env(monkeypatch)
     for pin in (_PIN, None):
         sandbox = select_sandbox(image=pin)
-        assert sandbox.image == effective_docker_image(pin)
-        receipt = build_scan_receipt(_server(sandbox_image=pin), _scan())
-        assert receipt["sandbox"]["image_used"] == sandbox.image
+        receipt = build_scan_receipt(_server(sandbox_image=pin), _scan(sandbox_image=sandbox.image))
+        assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == sandbox.image

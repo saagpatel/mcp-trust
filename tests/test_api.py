@@ -229,7 +229,11 @@ def test_scan_writes_receipt_when_configured(seeded_conn, monkeypatch, tmp_path)
     assert receipt["scan_id"] == body["id"]
     assert receipt["server_slug"] == "mcp-reference-time"
     assert receipt["scanner"]["engine_name"] == "stub"
-    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == "mcp-trust-scan:test"
+    # StubEngine runs no container, so the receipt must NOT stamp the configured env
+    # image as an image the scan actually ran in (honest provenance); the coarse
+    # sandbox config env is still captured.
+    assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX"] == "docker"
     assert "MCP_TRUST_SCAN_TOKEN" not in receipt
 
     get_body = client.get("/servers/mcp-reference-time").json()
