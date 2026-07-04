@@ -169,7 +169,7 @@ def test_detail_provenance_no_sandbox_does_not_claim_sandbox():
         _server(), _real_scan(sandbox_image=None), base_url=BASE_URL, now=NOW
     )
     assert "network-isolated sandbox" not in html
-    assert "without an isolating sandbox" in html
+    assert "cannot verify sandbox provenance or network isolation" in html
 
 
 def test_detail_provenance_credentials_disclosed_when_declared():

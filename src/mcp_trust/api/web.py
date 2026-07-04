@@ -315,8 +315,9 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
     else:
         items.append(
             f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
-            f"artifact <code>{ref}</code>, scanned locally without an isolating "
-            "sandbox. No sandbox image is recorded for this scan.</li>"
+            f"artifact <code>{ref}</code>, scanned locally. No sandbox image is "
+            "recorded for this scan, so this page cannot verify sandbox provenance "
+            "or network isolation for that run.</li>"
         )
     if source.env_keys:
         keys = ", ".join(f"<code>{escape(key)}</code>" for key in source.env_keys)
