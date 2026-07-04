@@ -70,6 +70,17 @@ def test_scan_raises_clear_error_without_engine() -> None:
 
 
 @pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
+def test_scan_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    # End-to-end: the public scan() path must fail closed for an untrusted,
+    # process-launching source with no sandbox — locks the contract against a
+    # refactor that stops calling _resolve_sandbox() from inside scan().
+    monkeypatch.delenv("MCP_TRUST_SANDBOX", raising=False)
+    src = ServerSource(kind=SourceKind.NPM, reference="@acme/untrusted")
+    with pytest.raises(ScanError, match="Refusing to scan untrusted"):
+        MCPAuditEngine().scan(src)
+
+
+@pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
 def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """An upstream attribute rename must surface as ScanError, not raw AttributeError.
 
@@ -91,7 +102,7 @@ def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("mcp_audit.connector.ServerConnector.connect", fake_connect)
     monkeypatch.setattr("mcp_audit.scorer.RiskScorer.score_server", fake_score)
 
-    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server")
+    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
     with pytest.raises(ScanError, match="unexpected result shape"):
         MCPAuditEngine().scan(src)
 
@@ -104,7 +115,11 @@ def test_integration_scan_reference_server() -> None:
     from mcp_trust.core.grading import grade
     from mcp_trust.core.models import TrustGrade
 
-    src = ServerSource(kind=SourceKind.NPM, reference="@modelcontextprotocol/server-everything")
+    src = ServerSource(
+        kind=SourceKind.NPM,
+        reference="@modelcontextprotocol/server-everything",
+        trusted=True,
+    )
     result = MCPAuditEngine(timeout=60.0).scan(src)
     assert result.engine_name == "mcpaudit"
     assert 0.0 <= result.risk.composite <= 10.0

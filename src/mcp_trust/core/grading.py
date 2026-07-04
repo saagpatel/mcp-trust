@@ -118,17 +118,22 @@ def transparency(risk: RiskSummary) -> TransparencyLevel:
     return TransparencyLevel.LOW
 
 
-def methodology() -> dict:
-    """Public description of the grading method, for rendering.
+def rubric() -> dict[str, object]:
+    """Public, read-only description of the grading rubric.
 
-    Presentation layers build the methodology page from THIS structure so the
-    published description can never drift from the code that grades.
+    This is the single source of truth the methodology page renders from, so
+    the published weights and bands can never drift from the code that grades.
+    Values are copies; mutating the result does not affect grading.
     """
     return {
         "dimension_weights": dict(_DIM_WEIGHTS),
-        "bands": [(upper, str(grade_value)) for upper, grade_value in _BANDS],
+        "grade_bands": [(upper, str(grade_value)) for upper, grade_value in _BANDS],
+        # Grade for any score above the last band's upper bound — the terminal
+        # value _band() returns. Sourced here so the published table can't drift.
+        "worst_grade": str(_ORDER[-1]),
         "critical_cap": str(_CRITICAL_CAP),
-        "transparency_high": _TRANSPARENCY_HIGH,
-        "transparency_medium": _TRANSPARENCY_MEDIUM,
-        "calibrated": "2026-06-13, against the official reference-server corpus",
+        "transparency_thresholds": {
+            "high": _TRANSPARENCY_HIGH,
+            "medium": _TRANSPARENCY_MEDIUM,
+        },
     }

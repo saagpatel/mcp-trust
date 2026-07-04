@@ -144,13 +144,13 @@ def test_badge_unscanned_ignores_stale():
 # ---------------------------------------------------------------------------
 
 
-def test_detail_framing_states_opinion_artifact_and_date():
+def test_detail_floor_states_artifact_date_and_does_not_claim():
     html = render_detail(_server(), _real_scan(), base_url=BASE_URL, now=NOW)
-    assert "automated opinion" in html
-    assert '<a href="/ui/methodology">' in html
+    assert "How to read this grade" in html
+    assert 'href="/ui/methodology"' in html
     assert "@test/test-server" in html
-    assert "as scanned on" in html
-    assert "may not describe later releases" in html
+    assert "What it does not claim" in html
+    assert 'href="/ui/dispute"' in html  # floor links the dispute policy page
 
 
 def test_detail_provenance_card_scan_target_and_listing_basis():
@@ -226,11 +226,11 @@ def test_catalog_fresh_rows_unmarked():
 
 def test_methodology_page_discloses_weights_bands_and_cap():
     html = render_methodology()
-    assert "shell_execution" in html
+    assert "Shell execution" in html
     assert "2.0" in html  # the shell weight — the strongest danger signal
     assert "Critical cap" in html
-    assert "cannot verify it is safe" in html
-    assert "not" in html and "known dangerous" in html
+    assert "cannot verify safe" in html
+    assert "known dangerous" in html
     assert str(STALE_AFTER_DAYS) in html
     assert "opinion" in html
 
@@ -240,6 +240,7 @@ def test_methodology_page_states_scan_target_policy():
     assert "network-isolated sandbox" in html
     assert "No vendor-hosted infrastructure is contacted" in html
     assert "never use real credentials" in html
+    assert 'href="/ui/corrections"' in html
 
 
 # ---------------------------------------------------------------------------

@@ -185,6 +185,118 @@ def test_detail_renders_http_homepage_as_link() -> None:
     assert '<a href="https://example.com"' in html
 
 
+# ---------------------------------------------------------------------------
+# Methodology + disclaimer floor (per-grade defensibility)
+# ---------------------------------------------------------------------------
+
+
+def test_detail_shows_methodology_floor_after_scan(client: TestClient) -> None:
+    """A scanned grade must carry the read-this-grade floor: dated scope,
+    engine version, methodology link, does-not-claim statement, dispute link."""
+    scan_resp = client.post("/servers/mcp-reference-time/scan")
+    engine_version = scan_resp.json().get("engine_version", "")
+
+    resp = client.get("/ui/servers/mcp-reference-time")
+    body = resp.text
+    assert "How to read this grade" in body
+    assert "What was scanned" in body
+    assert "does not claim" in body
+    assert "/ui/methodology" in body
+    assert "/issues" in body  # dispute channel
+    if engine_version:
+        assert engine_version in body
+
+
+def test_detail_shows_score_breakdown_after_scan(client: TestClient) -> None:
+    client.post("/servers/mcp-reference-time/scan")
+    resp = client.get("/ui/servers/mcp-reference-time")
+    body = resp.text
+    assert "Score breakdown" in body
+    assert "Shell execution" in body
+    assert "Weighted" in body
+
+
+def test_unscanned_detail_has_no_floor_or_breakdown() -> None:
+    """An unscanned server must not render a floor or breakdown — there is no
+    dated scan to scope, so the disclaimers would be claiming nothing."""
+    from mcp_trust.api.web import render_detail
+
+    html = render_detail(_detail_server("https://example.com"), None, base_url="https://t")
+    assert "How to read this grade" not in html
+    assert "Score breakdown" not in html
+
+
+def test_methodology_page_renders_rubric(client: TestClient) -> None:
+    """The methodology page must publish the actual weights and bands from the
+    grading module, so the disclosed rubric can never drift from the code."""
+    from mcp_trust.core.grading import rubric
+
+    resp = client.get("/ui/methodology")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "How grades are computed" in body
+    spec = rubric()
+    weights = spec["dimension_weights"]
+    # Every published weight must appear, formatted as ×N.N.
+    for weight in weights.values():
+        assert f"×{float(weight):.1f}" in body
+    # Every band grade AND the worst-grade row must be labeled from the grader,
+    # so the score→letter table can't drift from _BANDS / _band()'s fallback.
+    for _upper, grade_value in spec["grade_bands"]:
+        assert f"<td>{grade_value}</td>" in body
+    assert f"<td>{spec['worst_grade']}</td>" in body
+    assert "critical" in body.lower()
+    assert "cannot verify safe" in body
+
+
+def test_methodology_floor_flags_unverified_low_transparency() -> None:
+    """An F/D on a low-transparency server must be framed as 'cannot verify
+    safe', not 'known dangerous' — the rubric's own documented limitation."""
+    from datetime import UTC, datetime
+
+    from mcp_trust.api.web import render_detail
+    from mcp_trust.core.models import (
+        Finding,
+        RiskSummary,
+        ScanRecord,
+        Server,
+        ServerSource,
+        Severity,
+        SourceKind,
+        TransparencyLevel,
+        TrustGrade,
+    )
+
+    server = Server(
+        slug="opaque",
+        name="Opaque Server",
+        description="",
+        source=ServerSource(kind=SourceKind.NPM, reference="@x/opaque"),
+        added_at=datetime.now(tz=UTC),
+    )
+    record = ScanRecord(
+        id="deadbeef",
+        server_slug="opaque",
+        engine_name="mcpaudit",
+        engine_version="2.4.0",
+        grade=TrustGrade.F,
+        transparency=TransparencyLevel.LOW,
+        risk=RiskSummary(composite=8.5, annotation_coverage=0.0),
+        findings=[
+            Finding(
+                rule_id="MCP001",
+                title="File read capability",
+                severity=Severity.MEDIUM,
+                category="file_read",
+            )
+        ],
+        scanned_at=datetime.now(tz=UTC),
+    )
+    html = render_detail(server, record, base_url="https://t")
+    assert "cannot verify safe" in html
+    assert "inferred from spec defaults" in html
+
+
 def test_detail_does_not_link_javascript_homepage() -> None:
     from mcp_trust.api.web import render_detail
 

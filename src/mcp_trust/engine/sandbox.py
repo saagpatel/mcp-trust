@@ -11,9 +11,9 @@ Strategies
   for servers you already trust. This is the default to preserve the validated
   trusted-reference-server workflow, but it is NOT safe for untrusted servers.
 - ``DockerSandbox`` — runs the server inside a locked-down ``docker run``
-  container: no network, read-only root fs, all capabilities dropped,
-  no-new-privileges, memory/PID/CPU limits, no host mounts. The MCP stdio
-  transport passes through ``docker run -i``.
+  container: non-root user, no network, read-only root fs, all capabilities
+  dropped, no-new-privileges, memory/PID/CPU limits, no host mounts. The MCP
+  stdio transport passes through ``docker run -i``.
 
 Operational note (honest): ``--network none`` blocks a server that fetches its
 own package at launch (``npx -y`` / ``uvx`` pull from a registry). For untrusted
@@ -38,6 +38,10 @@ class Sandbox(Protocol):
     """Transforms a launch command into a sandboxed equivalent."""
 
     name: str
+    # Whether this strategy actually isolates untrusted execution. The engine's
+    # fail-closed gate keys off this capability (not class identity), so any
+    # passthrough that does not isolate must declare ``isolates = False``.
+    isolates: bool
 
     def available(self) -> bool:
         """Whether this sandbox can run on the current host."""
@@ -52,6 +56,7 @@ class NoSandbox:
     """Passthrough — runs the server directly on the host. Trusted servers only."""
 
     name: ClassVar[str] = "none"
+    isolates: ClassVar[bool] = False
 
     def available(self) -> bool:
         return True
@@ -64,9 +69,10 @@ class NoSandbox:
 class DockerSandbox:
     """Run the server inside a locked-down Docker container.
 
-    The default profile is restrictive: no network, read-only root filesystem,
-    all Linux capabilities dropped, no privilege escalation, and memory / PID /
-    CPU ceilings. A small writable tmpfs is mounted at ``workdir`` for scratch.
+    The default profile is restrictive: a non-root user, no network, read-only
+    root filesystem, all Linux capabilities dropped, no privilege escalation, and
+    memory / PID / CPU ceilings. A small writable tmpfs is mounted at ``workdir``
+    for scratch, and HOME/TMPDIR point at it so the unprivileged user can run.
     """
 
     image: str = "node:22-slim"
@@ -76,13 +82,17 @@ class DockerSandbox:
     cpus: str = "1"
     workdir: str = "/scan"
     tmpfs_size: str = "64m"
-    user: str | None = None
+    # Non-root by default: run untrusted code as an unprivileged uid so a
+    # container/kernel escape does not start from root. Numeric so it needs no
+    # passwd entry in the image. Set None to opt out (an image that needs root).
+    user: str | None = "1000:1000"
     # Non-functional dummy credentials for the credentialed-sandboxed scan mode,
     # injected as ``-e KEY=VALUE`` so they live only inside the container, never
     # the host env. Only ever set with network off (the engine enforces this).
     env: dict[str, str] = field(default_factory=dict)
 
     name: ClassVar[str] = "docker"
+    isolates: ClassVar[bool] = True
 
     def available(self) -> bool:
         return shutil.which("docker") is not None
@@ -111,6 +121,12 @@ class DockerSandbox:
             f"{self.workdir}:rw,size={self.tmpfs_size}",
             "--workdir",
             self.workdir,
+            # Route HOME/TMPDIR to the writable tmpfs so the non-root user can
+            # write caches/scratch under a read-only root filesystem.
+            "--env",
+            f"HOME={self.workdir}",
+            "--env",
+            f"TMPDIR={self.workdir}",
         ]
         if self.user:
             docker_args += ["--user", self.user]
