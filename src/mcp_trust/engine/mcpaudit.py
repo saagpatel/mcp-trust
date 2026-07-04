@@ -319,6 +319,10 @@ class MCPAuditEngine:
             risk=risk,
             findings=findings,
             evidence=evidence,
+            # Record the image the scan actually ran in — the resolved sandbox's
+            # own image (per-server pin > env default), not a later re-read of
+            # ambient env. None for a non-isolating passthrough (NoSandbox).
+            sandbox_image=getattr(sandbox, "image", None),
         )
 
     def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001

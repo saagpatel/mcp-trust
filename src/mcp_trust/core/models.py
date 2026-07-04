@@ -198,6 +198,15 @@ class ScanRecord(BaseModel):
         description="Public-safe tool/readback evidence captured by the scan engine.",
     )
     scanned_at: datetime
+    sandbox_image: str | None = Field(
+        default=None,
+        description=(
+            "The container image this scan actually ran in (per-server pin > env "
+            "default), captured by the engine. Provenance for the receipt: recorded "
+            "as ground truth rather than re-derived from ambient env, which is blind "
+            "to per-server image pins. None when no isolating sandbox was used."
+        ),
+    )
     report_ref: str | None = Field(
         default=None, description="Portable receipt/report artifact reference, if archived."
     )

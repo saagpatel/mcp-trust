@@ -60,6 +60,18 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
             "the enumerated tool surface is real; no live authentication or egress "
             "occurred, and dummy credential values are never recorded."
         )
+    # Sandbox provenance. Non-image keys are env-level scan config, recorded as-is.
+    # The IMAGE is ALWAYS the scan's own resolved image (ground truth from the
+    # engine), never re-read from ambient env: env is blind to per-server pins
+    # (recording the corpus default for a server scanned in a purpose-built image
+    # — the Gate-0 gap) AND would stamp a phantom image on a no-container scan
+    # (NoSandbox host passthrough or the stub engine). When no isolating container
+    # ran, no image is recorded.
+    sandbox = {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)}
+    if scan.sandbox_image:
+        sandbox["MCP_TRUST_SANDBOX_IMAGE"] = scan.sandbox_image
+    else:
+        sandbox.pop("MCP_TRUST_SANDBOX_IMAGE", None)
     return {
         "format_version": 1,
         "scan_id": scan.id,
@@ -68,7 +80,7 @@ def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
         "scan": scan.model_dump(mode="json"),
         "evidence": scan.evidence.model_dump(mode="json") if scan.evidence else None,
         "danger_score": grading.danger_score(scan.risk),
-        "sandbox": {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)},
+        "sandbox": sandbox,
         "scanner": {
             "engine_name": scan.engine_name,
             "engine_version": scan.engine_version,

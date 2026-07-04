@@ -32,6 +32,15 @@ class EngineResult(BaseModel):
     risk: RiskSummary
     findings: list[Finding] = Field(default_factory=list)
     evidence: ScanEvidence | None = None
+    sandbox_image: str | None = Field(
+        default=None,
+        description=(
+            "The container image the scan actually ran in, as resolved by the "
+            "engine (per-server pin > env default). Ground-truth provenance the "
+            "receipt records instead of re-reading ambient env. None when the "
+            "scan used no isolating sandbox (host passthrough or the stub engine)."
+        ),
+    )
 
 
 @runtime_checkable

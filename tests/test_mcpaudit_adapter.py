@@ -15,6 +15,7 @@ import pytest
 from mcp_trust.core.models import ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import ScanError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for
+from mcp_trust.engine.sandbox import DockerSandbox
 
 _HAS_ENGINE = importlib.util.find_spec("mcp_audit") is not None
 
@@ -105,6 +106,46 @@ def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyP
     src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
     with pytest.raises(ScanError, match="unexpected result shape"):
         MCPAuditEngine().scan(src)
+
+
+def test_scan_surfaces_resolved_sandbox_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The engine records the image the scan actually ran in on the EngineResult.
+
+    Locks the provenance source-of-truth: a refactor that stops threading the
+    resolved sandbox's image into EngineResult would silently reintroduce the
+    Gate-0 receipt gap (per-server pins recorded as the env default).
+    """
+
+    class _Audit:
+        connection_status = "connected"
+        tools: list = []
+        prompts: list = []
+        resources: list = []
+        annotation_coverage = 1.0
+
+    class _Score:
+        composite = 1.0
+        file_access = 0.0
+        network_access = 0.0
+        shell_execution = 0.0
+        destructive = 0.0
+        exfiltration = 0.0
+
+    async def fake_connect(self: object, cfg: object) -> _Audit:
+        return _Audit()
+
+    monkeypatch.setattr("mcp_audit.connector.ServerConnector.connect", fake_connect)
+    monkeypatch.setattr(
+        "mcp_audit.analyzer.PermissionAnalyzer.analyze_server", lambda self, tools: []
+    )
+    monkeypatch.setattr("mcp_audit.scorer.RiskScorer.score_server", lambda self, perms: _Score())
+
+    # Inject a Docker sandbox pinned to a per-server image; the engine must
+    # surface that exact image (not the env default) on the result.
+    sandbox = DockerSandbox(image="mcp-trust-batch4:20260703")
+    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
+    result = MCPAuditEngine(sandbox=sandbox).scan(src)
+    assert result.sandbox_image == "mcp-trust-batch4:20260703"
 
 
 @pytest.mark.skipif(
