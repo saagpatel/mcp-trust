@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_trust.core import grading
-from mcp_trust.core.models import ScanRecord, Server
+from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.sandbox import effective_docker_image
 
 _RECEIPTS_DIR_ENV = "MCP_TRUST_RECEIPTS_DIR"
@@ -46,11 +46,19 @@ def _sandbox_provenance(server: Server, scan: ScanRecord) -> dict[str, Any]:
     ``MCP_TRUST_SANDBOX_IMAGE`` corpus default (``select_sandbox``), so a
     receipt recording only the env value claims the wrong image for pinned
     rows. ``image_used`` records the resolved image, via the same helper the
-    engine resolves with. Recorded only for real docker-sandboxed scans; the
-    stub engine never launches a sandbox.
+    engine resolves with. Recorded only for real docker-sandboxed scans that
+    actually launch a local process; remote URL scans are HTTP-only and do not
+    run inside the Docker image. The stub engine never launches a sandbox.
     """
     sandbox = {key: os.environ.get(key) for key in _SANDBOX_ENV_KEYS if os.environ.get(key)}
-    if scan.engine_name == "mcpaudit" and sandbox.get("MCP_TRUST_SANDBOX") == "docker":
+    launches_process = not (
+        server.source.kind == SourceKind.REMOTE and not server.source.command
+    )
+    if (
+        scan.engine_name == "mcpaudit"
+        and sandbox.get("MCP_TRUST_SANDBOX") == "docker"
+        and launches_process
+    ):
         sandbox["image_used"] = effective_docker_image(server.source.sandbox_image)
     return sandbox
 

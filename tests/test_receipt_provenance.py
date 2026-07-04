@@ -38,6 +38,20 @@ def _server(sandbox_image: str | None = None) -> Server:
     )
 
 
+def _remote_server(command: str | None = None) -> Server:
+    return Server(
+        slug="acme-remote",
+        name="Acme Remote",
+        source=ServerSource(
+            kind=SourceKind.REMOTE,
+            reference="https://acme.example/mcp",
+            command=command,
+            sandbox_image=_PIN,
+        ),
+        added_at=datetime(2026, 7, 3),
+    )
+
+
 def _scan(engine_name: str = "mcpaudit") -> ScanRecord:
     return ScanRecord(
         id="deadbeef",
@@ -82,6 +96,25 @@ def test_no_image_used_for_stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     _docker_env(monkeypatch)
     receipt = build_scan_receipt(_server(sandbox_image=_PIN), _scan(engine_name="stub"))
     assert "image_used" not in receipt["sandbox"]
+
+
+def test_no_image_used_for_remote_url_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Remote endpoints connect directly over HTTP; the engine does not wrap them
+    # in Docker even when the batch env selects the docker sandbox.
+    _docker_env(monkeypatch)
+    receipt = build_scan_receipt(_remote_server(), _scan())
+    assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _CORPUS
+    assert "image_used" not in receipt["sandbox"]
+
+
+def test_image_used_for_remote_source_with_explicit_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A remote-kind source with an explicit command follows the stdio launch path
+    # and is wrapped by the sandbox, so image provenance is accurate.
+    _docker_env(monkeypatch)
+    receipt = build_scan_receipt(_remote_server(command="mcp-proxy"), _scan())
+    assert receipt["sandbox"]["image_used"] == _PIN
 
 
 def test_receipt_and_engine_resolve_the_same_image(monkeypatch: pytest.MonkeyPatch) -> None:
