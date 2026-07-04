@@ -305,26 +305,46 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
             f"target <code>{ref}</code>. This record is demo data from the local "
             "stub path; no real server artifact or hosted endpoint was launched.</li>"
         )
-    elif kind is SourceKind.REMOTE:
+    elif record.sandbox_image:
+        image = escape(record.sandbox_image)
+        if kind is SourceKind.REMOTE and source.command:
+            command = escape(source.command)
+            items.append(
+                f"<li><strong>Scan target:</strong> the configured remote target "
+                f"<code>{ref}</code>, launched and scanned locally using command "
+                f"<code>{command}</code> and sandbox image <code>{image}</code>. "
+                "The public record stores the sandbox image, but not the network "
+                "mode, so this page does not claim network isolation for that run.</li>"
+            )
+        else:
+            items.append(
+                f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+                f"artifact <code>{ref}</code>, installed and scanned locally using "
+                f"sandbox image <code>{image}</code>. The public record stores the "
+                "sandbox image, but not the network mode, so this page does not claim "
+                "network isolation for that run.</li>"
+            )
+    elif kind is SourceKind.REMOTE and not source.command:
         items.append(
             f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
         )
-    elif record.sandbox_image:
-        image = escape(record.sandbox_image)
-        items.append(
-            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
-            f"artifact <code>{ref}</code>, installed and scanned locally using "
-            f"sandbox image <code>{image}</code>. The public record stores the "
-            "sandbox image, but not the network mode, so this page does not claim "
-            "network isolation for that run.</li>"
-        )
     else:
-        items.append(
-            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
-            f"artifact <code>{ref}</code>, scanned locally. No sandbox image is "
-            "recorded for this scan, so this page cannot verify sandbox provenance "
-            "or network isolation for that run.</li>"
-        )
+        if kind is SourceKind.REMOTE and source.command:
+            command = escape(source.command)
+            items.append(
+                f"<li><strong>Scan target:</strong> the configured remote target "
+                f"<code>{ref}</code>, launched and scanned locally using command "
+                f"<code>{command}</code>. No sandbox image is recorded for this "
+                "scan, so this page cannot verify sandbox provenance or network "
+                "isolation for that run.</li>"
+            )
+        else:
+            items.append(
+                f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+                f"artifact <code>{ref}</code>, scanned locally. No sandbox image is "
+                "recorded for this scan, so this page cannot verify sandbox provenance "
+                "or network isolation for that run.</li>"
+            )
     if source.env_keys:
         keys = ", ".join(f"<code>{escape(key)}</code>" for key in source.env_keys)
         if record is not None and record.sandbox_image:
@@ -593,8 +613,11 @@ def render_detail(
         findings = []
 
     stale = record is not None and now is not None and is_stale(record.scanned_at, now)
-    masked = masked and record is not None  # nothing to withhold on an unscanned entry
-    description_text = MASKED_SERVER_DESCRIPTION if masked else str(server.description or "")
+    operator_masked = masked
+    masked = operator_masked and record is not None  # nothing to withhold on an unscanned entry
+    description_text = (
+        MASKED_SERVER_DESCRIPTION if operator_masked else str(server.description or "")
+    )
     description = escape(description_text)
 
     grade_display = "—" if masked else grade.upper()

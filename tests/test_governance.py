@@ -196,6 +196,27 @@ def test_detail_provenance_demo_wins_for_remote_sources():
     assert "a hosted endpoint (<code>https://example.com/mcp</code>)" not in html
 
 
+def test_detail_provenance_remote_proxy_keeps_sandbox_context():
+    server = _server("remote-proxy").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.com/mcp",
+                command="remote-proxy-launcher",
+                env_keys=[],
+            )
+        }
+    )
+    record = _real_scan("remote-proxy")
+
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW)
+
+    assert "launched and scanned locally using command" in html
+    assert "remote-proxy-launcher" in html
+    assert "mcp-trust-scan:test" in html
+    assert "a hosted endpoint (<code>https://example.com/mcp</code>)" not in html
+
+
 def test_detail_provenance_credentials_disclosed_when_declared():
     server = _server(env_keys=["API_TOKEN"])
     html = render_detail(server, _real_scan(), base_url=BASE_URL, now=NOW)
@@ -481,9 +502,12 @@ def test_detail_masked_suppresses_stale_marker():
 
 
 def test_detail_masked_ignored_for_unscanned():
-    html = render_detail(_server(), None, base_url=BASE_URL, now=NOW, masked=True)
+    server = _server().model_copy(update={"description": "The F grade should not leak."})
+    html = render_detail(server, None, base_url=BASE_URL, now=NOW, masked=True)
     assert "Grade withheld:" not in html
     assert "UNSCANNED" in html
+    assert "The F grade should not leak." not in html
+    assert MASKED_SERVER_DESCRIPTION in html
 
 
 def test_catalog_masked_row_hides_grade_and_score():
@@ -570,5 +594,19 @@ def test_app_masks_public_json_routes(conn):
     assert latest["report_ref"] is None
     assert "MCP007" not in json.dumps(detail)
     assert "reports/masked-server.json" not in json.dumps(detail)
+    assert detail["server"]["description"] == MASKED_SERVER_DESCRIPTION
+    assert "The F grade should not leak." not in json.dumps(detail)
+
+
+def test_app_masks_public_json_server_metadata_before_scan(conn):
+    server = _server("masked-server").model_copy(
+        update={"description": "The F grade should not leak."}
+    )
+    ServerRepository(conn).upsert(server)
+    masked_client = TestClient(create_app(conn=conn, masked_slugs={"masked-server"}))
+
+    detail = masked_client.get("/servers/masked-server").json()
+
+    assert detail["latest_scan"] is None
     assert detail["server"]["description"] == MASKED_SERVER_DESCRIPTION
     assert "The F grade should not leak." not in json.dumps(detail)

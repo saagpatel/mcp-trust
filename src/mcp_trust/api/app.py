@@ -229,10 +229,11 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Server {slug!r} not found.")
 
         scan = scan_repo.latest(slug)
-        masked = slug in _masked and scan is not None
+        operator_masked = slug in _masked
+        scan_masked = operator_masked and scan is not None
         return {
-            "server": _public_server_payload(server, masked=masked),
-            "latest_scan": _public_scan_payload(scan, masked=masked),
+            "server": _public_server_payload(server, masked=operator_masked),
+            "latest_scan": _public_scan_payload(scan, masked=scan_masked),
         }
 
     @application.post("/servers/{slug}/scan")
