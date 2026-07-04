@@ -23,9 +23,16 @@ import logging
 from datetime import datetime
 from html import escape
 
-from mcp_trust.core.governance import DISPUTE_SLA_DAYS, DISPUTE_URL, STALE_AFTER_DAYS, is_stale
+from mcp_trust.core.governance import (
+    DISPUTE_SLA_DAYS,
+    DISPUTE_URL,
+    MASKED_SERVER_DESCRIPTION,
+    STALE_AFTER_DAYS,
+    is_stale,
+)
 from mcp_trust.core.grading import rubric
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
+from mcp_trust.core.provenance import ScanProvenance, classify
 
 _log = logging.getLogger(__name__)
 
@@ -281,6 +288,7 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
     source = server.source
     kind = source.kind
     ref = escape(str(source.reference))
+    provenance = classify(record)
 
     items: list[str] = [
         "<li><strong>Listing basis:</strong> operator-listed from a public catalog. "
@@ -291,23 +299,64 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
             f"<li><strong>Scan target:</strong> the {escape(str(kind))} artifact "
             f"<code>{ref}</code>. Not yet scanned.</li>"
         )
-    elif kind is SourceKind.REMOTE:
+    elif provenance is ScanProvenance.DEMO:
+        items.append(
+            f"<li><strong>Scan target:</strong> the configured {escape(str(kind))} "
+            f"target <code>{ref}</code>. This record is demo data from the local "
+            "stub path; no real server artifact or hosted endpoint was launched.</li>"
+        )
+    elif kind is SourceKind.REMOTE and not source.command:
         items.append(
             f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
         )
+    elif record.sandbox_image:
+        image = escape(record.sandbox_image)
+        if kind is SourceKind.REMOTE and source.command:
+            command = escape(source.command)
+            items.append(
+                f"<li><strong>Scan target:</strong> the configured remote target "
+                f"<code>{ref}</code>, launched and scanned locally using command "
+                f"<code>{command}</code> and sandbox image <code>{image}</code>. "
+                "The public record stores the sandbox image, but not the network "
+                "mode, so this page does not claim network isolation for that run.</li>"
+            )
+        else:
+            items.append(
+                f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+                f"artifact <code>{ref}</code>, installed and scanned locally using "
+                f"sandbox image <code>{image}</code>. The public record stores the "
+                "sandbox image, but not the network mode, so this page does not claim "
+                "network isolation for that run.</li>"
+            )
     else:
-        items.append(
-            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
-            f"artifact <code>{ref}</code>, installed and scanned locally inside a "
-            "network-isolated sandbox. No vendor-hosted infrastructure was "
-            "contacted.</li>"
-        )
+        if kind is SourceKind.REMOTE and source.command:
+            command = escape(source.command)
+            items.append(
+                f"<li><strong>Scan target:</strong> the configured remote target "
+                f"<code>{ref}</code>, launched and scanned locally using command "
+                f"<code>{command}</code>. No sandbox image is recorded for this "
+                "scan, so this page cannot verify sandbox provenance or network "
+                "isolation for that run.</li>"
+            )
+        else:
+            items.append(
+                f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+                f"artifact <code>{ref}</code>, scanned locally. No sandbox image is "
+                "recorded for this scan, so this page cannot verify sandbox provenance "
+                "or network isolation for that run.</li>"
+            )
     if source.env_keys:
         keys = ", ".join(f"<code>{escape(key)}</code>" for key in source.env_keys)
+        if record is not None and record.sandbox_image:
+            credential_note = "at most inert placeholder values are used for scan execution."
+        elif provenance is ScanProvenance.DEMO:
+            credential_note = "demo records do not use real credentials."
+        else:
+            credential_note = "no real credentials are disclosed or stored in the registry."
         items.append(
             "<li><strong>Credentials:</strong> this server declares required "
-            f"environment variables ({keys}). Scans never use real credentials; at "
-            "most inert placeholder values are injected inside the sandbox.</li>"
+            f"environment variables ({keys}). Scans never use real credentials; "
+            f"{credential_note}</li>"
         )
     else:
         items.append("<li><strong>Credentials:</strong> none declared, none used.</li>")
@@ -542,7 +591,6 @@ def render_detail(
     """
     # --- Extract server fields ---
     name = escape(str(server.name))
-    description = escape(str(server.description or ""))
     homepage = server.homepage
     source = server.source
 
@@ -565,7 +613,12 @@ def render_detail(
         findings = []
 
     stale = record is not None and now is not None and is_stale(record.scanned_at, now)
-    masked = masked and record is not None  # nothing to withhold on an unscanned entry
+    operator_masked = masked
+    masked = operator_masked and record is not None  # nothing to withhold on an unscanned entry
+    description_text = (
+        MASKED_SERVER_DESCRIPTION if operator_masked else str(server.description or "")
+    )
+    description = escape(description_text)
 
     grade_display = "—" if masked else grade.upper()
     grade_color = (
@@ -897,12 +950,13 @@ def render_methodology() -> str:
         '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
         "4. What is scanned</h2>"
         '<p style="font-size:0.875rem;color:#24292f;line-height:1.7">'
-        "The published package artifact (npm, PyPI, or equivalent) is installed "
-        "and launched locally inside a network-isolated sandbox, and its declared "
-        "MCP surface (tools, prompts, resources, annotations) is read back. "
-        "No vendor-hosted infrastructure is contacted. Scans never use real "
-        "credentials; where a server requires environment variables, at most "
-        "inert placeholder values are injected inside the sandbox."
+        "Published package artifact scans (npm, PyPI, or equivalent) are "
+        "installed and launched locally by the scanner, and hosted endpoint "
+        "entries are labeled as hosted endpoint scans. The declared MCP surface "
+        "(tools, prompts, resources, annotations) is read back. The public report "
+        "records the sandbox image when available, but does not expose per-run "
+        "network mode. Scans never use real credentials; where a server requires "
+        "environment variables, at most inert placeholder values are used."
         "</p>"
         "</div>"
         '<div class="card">'

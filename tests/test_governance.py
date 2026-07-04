@@ -29,7 +29,12 @@ from mcp_trust.api.web import (
     render_dispute,
     render_methodology,
 )
-from mcp_trust.core.governance import DISPUTE_URL, STALE_AFTER_DAYS, is_stale
+from mcp_trust.core.governance import (
+    DISPUTE_URL,
+    MASKED_SERVER_DESCRIPTION,
+    STALE_AFTER_DAYS,
+    is_stale,
+)
 from mcp_trust.core.models import (
     Finding,
     RiskSummary,
@@ -78,6 +83,7 @@ def _real_scan(
     *,
     grade: TrustGrade = TrustGrade.F,
     scanned_at: datetime = FRESH_AT,
+    sandbox_image: str | None = "mcp-trust-scan:test",
 ) -> ScanRecord:
     return ScanRecord(
         id=uuid.uuid4().hex,
@@ -89,6 +95,7 @@ def _real_scan(
         risk=RiskSummary(composite=8.0),
         findings=[],
         scanned_at=scanned_at,
+        sandbox_image=sandbox_image,
         report_ref=None,
     )
 
@@ -156,9 +163,77 @@ def test_detail_floor_states_artifact_date_and_does_not_claim():
 def test_detail_provenance_card_scan_target_and_listing_basis():
     html = render_detail(_server(), _real_scan(), base_url=BASE_URL, now=NOW)
     assert "operator-listed from a public catalog" in html
-    assert "No vendor-hosted infrastructure was contacted" in html
+    assert "does not claim network isolation for that run" in html
+    assert "mcp-trust-scan:test" in html
     assert "Dispute this grade" in html
     assert '<a href="/ui/dispute">' in html
+
+
+def test_detail_provenance_no_sandbox_does_not_claim_sandbox():
+    html = render_detail(
+        _server(), _real_scan(sandbox_image=None), base_url=BASE_URL, now=NOW
+    )
+    assert "network-isolated sandbox" not in html
+    assert "cannot verify sandbox provenance or network isolation" in html
+
+
+def test_detail_provenance_demo_wins_for_remote_sources():
+    server = _server("remote-demo").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.com/mcp",
+                env_keys=[],
+            )
+        }
+    )
+    record = _real_scan("remote-demo").model_copy(update={"engine_name": "StubEngine"})
+
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW)
+
+    assert "demo data from the local stub path" in html
+    assert "no real server artifact or hosted endpoint was launched" in html
+    assert "a hosted endpoint (<code>https://example.com/mcp</code>)" not in html
+
+
+def test_detail_provenance_remote_proxy_keeps_sandbox_context():
+    server = _server("remote-proxy").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.com/mcp",
+                command="remote-proxy-launcher",
+                env_keys=[],
+            )
+        }
+    )
+    record = _real_scan("remote-proxy")
+
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW)
+
+    assert "launched and scanned locally using command" in html
+    assert "remote-proxy-launcher" in html
+    assert "mcp-trust-scan:test" in html
+    assert "a hosted endpoint (<code>https://example.com/mcp</code>)" not in html
+
+
+def test_detail_provenance_hosted_remote_stays_hosted_with_sandbox_record():
+    server = _server("hosted-remote").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.com/mcp",
+                env_keys=[],
+            )
+        }
+    )
+    record = _real_scan("hosted-remote")
+
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW)
+
+    assert "a hosted endpoint (<code>https://example.com/mcp</code>)" in html
+    assert "installed and scanned locally" not in html
+    assert "launched and scanned locally" not in html
 
 
 def test_detail_provenance_credentials_disclosed_when_declared():
@@ -237,8 +312,8 @@ def test_methodology_page_discloses_weights_bands_and_cap():
 
 def test_methodology_page_states_scan_target_policy():
     html = render_methodology()
-    assert "network-isolated sandbox" in html
-    assert "No vendor-hosted infrastructure is contacted" in html
+    assert "hosted endpoint entries are labeled" in html
+    assert "does not expose per-run network mode" in html
     assert "never use real credentials" in html
     assert 'href="/ui/corrections"' in html
 
@@ -409,6 +484,7 @@ def test_badge_unscanned_wins_over_masked():
 
 
 def test_detail_masked_withholds_grade_score_and_findings():
+    server = _server().model_copy(update={"description": "The F grade should not leak."})
     record = _real_scan().model_copy(
         update={
             "findings": [
@@ -421,12 +497,14 @@ def test_detail_masked_withholds_grade_score_and_findings():
             ]
         }
     )
-    html = render_detail(_server(), record, base_url=BASE_URL, now=NOW, masked=True)
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW, masked=True)
     assert "Grade withheld:" in html
     assert "under governance review" in html
     assert ">withheld<" in html  # danger score cell
     assert "Finding detail is withheld" in html
     assert "MCP007" not in html  # finding detail really is gone
+    assert "The F grade should not leak." not in html
+    assert MASKED_SERVER_DESCRIPTION in html
     assert "No findings on record" not in html  # must not read as a clean scan
     assert '<div class="grade-big" style="background:#8b949e">—</div>' in html
     # Dispute path and scan metadata stay disclosed.
@@ -443,9 +521,12 @@ def test_detail_masked_suppresses_stale_marker():
 
 
 def test_detail_masked_ignored_for_unscanned():
-    html = render_detail(_server(), None, base_url=BASE_URL, now=NOW, masked=True)
+    server = _server().model_copy(update={"description": "The F grade should not leak."})
+    html = render_detail(server, None, base_url=BASE_URL, now=NOW, masked=True)
     assert "Grade withheld:" not in html
     assert "UNSCANNED" in html
+    assert "The F grade should not leak." not in html
+    assert MASKED_SERVER_DESCRIPTION in html
 
 
 def test_catalog_masked_row_hides_grade_and_score():
@@ -483,6 +564,26 @@ def test_generator_masks_listed_slugs(conn, tmp_path):
     assert "Grade withheld:" in detail
 
 
+def test_generator_masks_unscanned_operator_metadata(conn, tmp_path):
+    server = _server("masked-server").model_copy(
+        update={"description": "The F grade should not leak."}
+    )
+    ServerRepository(conn).upsert(server)
+
+    generate_site(conn, tmp_path, base_url=BASE_URL, now=NOW, masked_slugs={"masked-server"})
+
+    detail = (tmp_path / "ui" / "servers" / "masked-server" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    badge = json.loads(
+        (tmp_path / "servers" / "masked-server" / "badge.json").read_text(encoding="utf-8")
+    )
+    assert "The F grade should not leak." not in detail
+    assert MASKED_SERVER_DESCRIPTION in detail
+    assert "Grade withheld:" not in detail
+    assert badge["message"] == "unscanned"
+
+
 def test_app_masks_badge_and_detail_routes(conn):
     ServerRepository(conn).upsert(_server("masked-server"))
     ScanRepository(conn).record(_real_scan("masked-server", scanned_at=FRESH_AT))
@@ -493,3 +594,58 @@ def test_app_masks_badge_and_detail_routes(conn):
 
     detail = masked_client.get("/ui/servers/masked-server").text
     assert "Grade withheld:" in detail
+
+
+def test_app_masks_public_json_routes(conn):
+    server = _server("masked-server").model_copy(
+        update={"description": "The F grade should not leak."}
+    )
+    ServerRepository(conn).upsert(server)
+    record = _real_scan("masked-server", scanned_at=FRESH_AT).model_copy(
+        update={
+            "report_ref": "reports/masked-server.json",
+            "findings": [
+                Finding(
+                    rule_id="MCP007",
+                    title="Shell execution capability",
+                    severity=Severity.CRITICAL,
+                    category="shell",
+                )
+            ]
+        }
+    )
+    ScanRepository(conn).record(record)
+    masked_client = TestClient(create_app(conn=conn, masked_slugs={"masked-server"}))
+
+    listed = masked_client.get("/servers").json()[0]
+    assert listed["masked"] is True
+    assert listed["grade"] == "under review"
+    assert listed["composite"] is None
+    assert "F" not in json.dumps(listed)
+
+    detail = masked_client.get("/servers/masked-server").json()
+    latest = detail["latest_scan"]
+    assert latest["masked"] is True
+    assert latest["grade"] == "under review"
+    assert latest["risk"] is None
+    assert latest["findings"] is None
+    assert latest["evidence"] is None
+    assert latest["report_ref"] is None
+    assert "MCP007" not in json.dumps(detail)
+    assert "reports/masked-server.json" not in json.dumps(detail)
+    assert detail["server"]["description"] == MASKED_SERVER_DESCRIPTION
+    assert "The F grade should not leak." not in json.dumps(detail)
+
+
+def test_app_masks_public_json_server_metadata_before_scan(conn):
+    server = _server("masked-server").model_copy(
+        update={"description": "The F grade should not leak."}
+    )
+    ServerRepository(conn).upsert(server)
+    masked_client = TestClient(create_app(conn=conn, masked_slugs={"masked-server"}))
+
+    detail = masked_client.get("/servers/masked-server").json()
+
+    assert detail["latest_scan"] is None
+    assert detail["server"]["description"] == MASKED_SERVER_DESCRIPTION
+    assert "The F grade should not leak." not in json.dumps(detail)
