@@ -40,10 +40,11 @@ from mcp_trust.site.generator import generate_site
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_DB = "./registry.db"
 _DEFAULT_OUT = "./site"
 _DEFAULT_CORRECTIONS = "./corrections.json"
-_DEFAULT_MASKED = "./masked-grades.json"
+_DEFAULT_MASKED = str(_REPO_ROOT / "masked-grades.json")
 _PLACEHOLDER_BASE_URL = "https://mcp-trust.example"
 _GOVERNANCE_PAGES = (
     ("ui", "methodology", "index.html"),
