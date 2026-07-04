@@ -28,7 +28,7 @@ cd "${REPO_ROOT}"
 DB="${MCP_TRUST_DB:-./registry.db}"
 OUT="${MCP_TRUST_SITE_OUT:-./site}"
 BASE_URL="${MCP_TRUST_SITE_BASE_URL:-https://mcp-trust.vercel.app}"
-IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:corpus-2026-06-28}"
+IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:corpus-2026-07-03}"
 RECEIPTS="${MCP_TRUST_RECEIPTS_DIR:-./receipts}"
 
 log() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }

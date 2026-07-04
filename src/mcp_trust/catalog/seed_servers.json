@@ -101,7 +101,7 @@
     "description": "Archived official reference server for GitHub repository, issue, and pull-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-github",
+      "reference": "@modelcontextprotocol/server-github@2025.4.8",
       "command": "mcp-server-github",
       "args": [],
       "env_keys": [
@@ -116,7 +116,7 @@
     "description": "Archived official reference server for AWS Bedrock knowledge-base retrieval. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-aws-kb-retrieval",
+      "reference": "@modelcontextprotocol/server-aws-kb-retrieval@0.6.2",
       "command": "mcp-server-aws-kb-retrieval",
       "args": [],
       "env_keys": [
@@ -149,7 +149,7 @@
     "description": "Archived official reference server for GitLab project, issue, and merge-request operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-gitlab",
+      "reference": "@modelcontextprotocol/server-gitlab@2025.4.25",
       "command": "mcp-server-gitlab",
       "args": [],
       "env_keys": [
@@ -164,7 +164,7 @@
     "description": "Archived official reference server for Slack channel, message, and user operations. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-slack",
+      "reference": "@modelcontextprotocol/server-slack@2025.4.25",
       "command": "mcp-server-slack",
       "args": [],
       "env_keys": [
@@ -180,7 +180,7 @@
     "description": "Archived official reference server for Brave Search web and local queries. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-brave-search",
+      "reference": "@modelcontextprotocol/server-brave-search@0.6.2",
       "command": "mcp-server-brave-search",
       "args": [],
       "env_keys": [
@@ -195,7 +195,7 @@
     "description": "Archived official reference server for Google Maps geocoding, places, and directions. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-google-maps",
+      "reference": "@modelcontextprotocol/server-google-maps@0.6.2",
       "command": "mcp-server-google-maps",
       "args": [],
       "env_keys": [
@@ -210,7 +210,7 @@
     "description": "Archived official reference server for EverArt AI image generation. Moved to modelcontextprotocol/servers-archived and no longer actively maintained.",
     "source": {
       "kind": "npm",
-      "reference": "@modelcontextprotocol/server-everart",
+      "reference": "@modelcontextprotocol/server-everart@0.6.2",
       "command": "mcp-server-everart",
       "args": [],
       "env_keys": [

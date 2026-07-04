@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-IMAGE_TAG = "mcp-trust-scan:corpus-2026-06-28"
+IMAGE_TAG = "mcp-trust-scan:corpus-2026-07-03"
 
 SANDBOX_ENV = {
     "MCP_TRUST_ENGINE": "mcpaudit",
@@ -176,7 +176,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-github",
         name="GitHub (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-github",
+        reference="@modelcontextprotocol/server-github@2025.4.8",
         command="mcp-server-github",
         description=(
             "Archived official reference server for GitHub repository, issue, and "
@@ -191,7 +191,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-aws-kb-retrieval",
         name="AWS KB Retrieval (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-aws-kb-retrieval",
+        reference="@modelcontextprotocol/server-aws-kb-retrieval@0.6.2",
         command="mcp-server-aws-kb-retrieval",
         description=(
             "Archived official reference server for AWS Bedrock knowledge-base "
@@ -227,7 +227,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-gitlab",
         name="GitLab (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-gitlab",
+        reference="@modelcontextprotocol/server-gitlab@2025.4.25",
         command="mcp-server-gitlab",
         description=(
             "Archived official reference server for GitLab project, issue, and "
@@ -243,7 +243,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-slack",
         name="Slack (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-slack",
+        reference="@modelcontextprotocol/server-slack@2025.4.25",
         command="mcp-server-slack",
         description=(
             "Archived official reference server for Slack channel, message, and user "
@@ -258,7 +258,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-brave-search",
         name="Brave Search (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-brave-search",
+        reference="@modelcontextprotocol/server-brave-search@0.6.2",
         command="mcp-server-brave-search",
         description=(
             "Archived official reference server for Brave Search web and local "
@@ -273,7 +273,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-google-maps",
         name="Google Maps (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-google-maps",
+        reference="@modelcontextprotocol/server-google-maps@0.6.2",
         command="mcp-server-google-maps",
         description=(
             "Archived official reference server for Google Maps geocoding, places, "
@@ -288,7 +288,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         slug="mcp-archived-everart",
         name="EverArt (archived)",
         kind="npm",
-        reference="@modelcontextprotocol/server-everart",
+        reference="@modelcontextprotocol/server-everart@0.6.2",
         command="mcp-server-everart",
         description=(
             "Archived official reference server for EverArt AI image generation. "
