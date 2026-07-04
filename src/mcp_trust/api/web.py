@@ -26,6 +26,7 @@ from html import escape
 from mcp_trust.core.governance import DISPUTE_SLA_DAYS, DISPUTE_URL, STALE_AFTER_DAYS, is_stale
 from mcp_trust.core.grading import rubric
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
+from mcp_trust.core.provenance import ScanProvenance, classify
 
 _log = logging.getLogger(__name__)
 
@@ -281,6 +282,7 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
     source = server.source
     kind = source.kind
     ref = escape(str(source.reference))
+    provenance = classify(record)
 
     items: list[str] = [
         "<li><strong>Listing basis:</strong> operator-listed from a public catalog. "
@@ -295,19 +297,38 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
         items.append(
             f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
         )
-    else:
+    elif provenance is ScanProvenance.DEMO:
+        items.append(
+            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+            f"artifact <code>{ref}</code>. This record is demo data from the local "
+            "stub path; no real server artifact was launched.</li>"
+        )
+    elif record.sandbox_image:
+        image = escape(record.sandbox_image)
         items.append(
             f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
             f"artifact <code>{ref}</code>, installed and scanned locally inside a "
-            "network-isolated sandbox. No vendor-hosted infrastructure was "
-            "contacted.</li>"
+            f"network-isolated sandbox image <code>{image}</code>. No vendor-hosted "
+            "infrastructure was contacted.</li>"
+        )
+    else:
+        items.append(
+            f"<li><strong>Scan target:</strong> the published {escape(str(kind))} "
+            f"artifact <code>{ref}</code>, scanned locally without an isolating "
+            "sandbox. No sandbox image is recorded for this scan.</li>"
         )
     if source.env_keys:
         keys = ", ".join(f"<code>{escape(key)}</code>" for key in source.env_keys)
+        if record is not None and record.sandbox_image:
+            credential_note = "at most inert placeholder values are injected inside the sandbox."
+        elif provenance is ScanProvenance.DEMO:
+            credential_note = "demo records do not use real credentials."
+        else:
+            credential_note = "no real credentials are disclosed or stored in the registry."
         items.append(
             "<li><strong>Credentials:</strong> this server declares required "
-            f"environment variables ({keys}). Scans never use real credentials; at "
-            "most inert placeholder values are injected inside the sandbox.</li>"
+            f"environment variables ({keys}). Scans never use real credentials; "
+            f"{credential_note}</li>"
         )
     else:
         items.append("<li><strong>Credentials:</strong> none declared, none used.</li>")
