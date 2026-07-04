@@ -108,6 +108,7 @@ def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyP
         MCPAuditEngine().scan(src)
 
 
+@pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
 def test_scan_surfaces_resolved_sandbox_image(monkeypatch: pytest.MonkeyPatch) -> None:
     """The engine records the image the scan actually ran in on the EngineResult.
 
@@ -146,6 +147,40 @@ def test_scan_surfaces_resolved_sandbox_image(monkeypatch: pytest.MonkeyPatch) -
     src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
     result = MCPAuditEngine(sandbox=sandbox).scan(src)
     assert result.sandbox_image == "mcp-trust-batch4:20260703"
+
+
+@pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
+def test_scan_omits_sandbox_image_for_remote_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remote scans do not launch inside Docker, even when a Docker sandbox exists."""
+
+    class _Audit:
+        connection_status = "connected"
+        tools: list = []
+        prompts: list = []
+        resources: list = []
+        annotation_coverage = 1.0
+
+    class _Score:
+        composite = 1.0
+        file_access = 0.0
+        network_access = 0.0
+        shell_execution = 0.0
+        destructive = 0.0
+        exfiltration = 0.0
+
+    async def fake_connect(self: object, cfg: object) -> _Audit:
+        return _Audit()
+
+    monkeypatch.setattr("mcp_audit.connector.ServerConnector.connect", fake_connect)
+    monkeypatch.setattr(
+        "mcp_audit.analyzer.PermissionAnalyzer.analyze_server", lambda self, tools: []
+    )
+    monkeypatch.setattr("mcp_audit.scorer.RiskScorer.score_server", lambda self, perms: _Score())
+
+    sandbox = DockerSandbox(image="mcp-trust-batch4:20260703")
+    src = ServerSource(kind=SourceKind.REMOTE, reference="https://example.test/mcp")
+    result = MCPAuditEngine(sandbox=sandbox).scan(src)
+    assert result.sandbox_image is None
 
 
 @pytest.mark.skipif(
