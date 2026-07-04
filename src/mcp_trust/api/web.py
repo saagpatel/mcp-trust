@@ -305,6 +305,10 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
             f"target <code>{ref}</code>. This record is demo data from the local "
             "stub path; no real server artifact or hosted endpoint was launched.</li>"
         )
+    elif kind is SourceKind.REMOTE and not source.command:
+        items.append(
+            f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
+        )
     elif record.sandbox_image:
         image = escape(record.sandbox_image)
         if kind is SourceKind.REMOTE and source.command:
@@ -324,10 +328,6 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
                 "sandbox image, but not the network mode, so this page does not claim "
                 "network isolation for that run.</li>"
             )
-    elif kind is SourceKind.REMOTE and not source.command:
-        items.append(
-            f"<li><strong>Scan target:</strong> a hosted endpoint (<code>{ref}</code>).</li>"
-        )
     else:
         if kind is SourceKind.REMOTE and source.command:
             command = escape(source.command)

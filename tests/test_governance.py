@@ -217,6 +217,25 @@ def test_detail_provenance_remote_proxy_keeps_sandbox_context():
     assert "a hosted endpoint (<code>https://example.com/mcp</code>)" not in html
 
 
+def test_detail_provenance_hosted_remote_stays_hosted_with_sandbox_record():
+    server = _server("hosted-remote").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.com/mcp",
+                env_keys=[],
+            )
+        }
+    )
+    record = _real_scan("hosted-remote")
+
+    html = render_detail(server, record, base_url=BASE_URL, now=NOW)
+
+    assert "a hosted endpoint (<code>https://example.com/mcp</code>)" in html
+    assert "installed and scanned locally" not in html
+    assert "launched and scanned locally" not in html
+
+
 def test_detail_provenance_credentials_disclosed_when_declared():
     server = _server(env_keys=["API_TOKEN"])
     html = render_detail(server, _real_scan(), base_url=BASE_URL, now=NOW)
@@ -543,6 +562,26 @@ def test_generator_masks_listed_slugs(conn, tmp_path):
         encoding="utf-8"
     )
     assert "Grade withheld:" in detail
+
+
+def test_generator_masks_unscanned_operator_metadata(conn, tmp_path):
+    server = _server("masked-server").model_copy(
+        update={"description": "The F grade should not leak."}
+    )
+    ServerRepository(conn).upsert(server)
+
+    generate_site(conn, tmp_path, base_url=BASE_URL, now=NOW, masked_slugs={"masked-server"})
+
+    detail = (tmp_path / "ui" / "servers" / "masked-server" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    badge = json.loads(
+        (tmp_path / "servers" / "masked-server" / "badge.json").read_text(encoding="utf-8")
+    )
+    assert "The F grade should not leak." not in detail
+    assert MASKED_SERVER_DESCRIPTION in detail
+    assert "Grade withheld:" not in detail
+    assert badge["message"] == "unscanned"
 
 
 def test_app_masks_badge_and_detail_routes(conn):

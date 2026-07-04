@@ -151,8 +151,9 @@ def generate_site(
         stale = scan is not None and is_stale(scan.scanned_at, now)
         if stale:
             stale_count += 1
-        masked = srv.slug in masked_slugs and scan is not None
-        if masked:
+        operator_masked = srv.slug in masked_slugs
+        scan_masked = operator_masked and scan is not None
+        if scan_masked:
             masked_count += 1
 
         grade = str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
@@ -164,7 +165,7 @@ def generate_site(
                 "transparency": str(scan.transparency) if scan else "",
                 "composite": scan.risk.composite if scan else None,
                 "scanned_at": scan.scanned_at.isoformat() if scan else "",
-                "masked": masked,
+                "masked": scan_masked,
             }
         )
 
@@ -172,14 +173,24 @@ def generate_site(
         detail_path = out_dir / "ui" / "servers" / srv.slug / "index.html"
         _write(
             detail_path,
-            render_detail(srv, scan, base_url=base_url, banner=page_banner, now=now, masked=masked),
+            render_detail(
+                srv,
+                scan,
+                base_url=base_url,
+                banner=page_banner,
+                now=now,
+                masked=operator_masked,
+            ),
         )
         pages.append(detail_path)
 
         badge_path = out_dir / "servers" / srv.slug / "badge.json"
         _write(
             badge_path,
-            json.dumps(badge_payload(grade, provenance, stale=stale, masked=masked), indent=2)
+            json.dumps(
+                badge_payload(grade, provenance, stale=stale, masked=scan_masked),
+                indent=2,
+            )
             + "\n",
         )
         pages.append(badge_path)
