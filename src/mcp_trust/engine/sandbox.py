@@ -82,6 +82,7 @@ class DockerSandbox:
     cpus: str = "1"
     workdir: str = "/scan"
     tmpfs_size: str = "64m"
+    tmpfs_mode: str = "1777"
     # Non-root by default: run untrusted code as an unprivileged uid so a
     # container/kernel escape does not start from root. Numeric so it needs no
     # passwd entry in the image. Set None to opt out (an image that needs root).
@@ -118,7 +119,7 @@ class DockerSandbox:
             "ALL",
             "--read-only",
             "--tmpfs",
-            f"{self.workdir}:rw,size={self.tmpfs_size}",
+            f"{self.workdir}:rw,size={self.tmpfs_size},mode={self.tmpfs_mode}",
             "--workdir",
             self.workdir,
             # Route HOME/TMPDIR to the writable tmpfs so the non-root user can

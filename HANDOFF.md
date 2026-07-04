@@ -31,6 +31,12 @@ working tree has regenerated local scan artifacts._
   `mcp-trust-batch4:20260703` (node:24-slim + uv, `HOME=/scan` for the
   read-only sandbox fs). The whole-corpus refresh scans 31/31 under the
   corpus default env — no silent stale grades.
+- 2026-07-04 refresh note: the local `mcp-trust-batch4:20260703` image was
+  rebuilt in place so its baked uv-managed Python runtime is executable by the
+  non-root sandbox user. Future batch-4 image rebuilds must preserve
+  non-root-readable/executable runtime paths, and the Docker sandbox now mounts
+  `/scan` with an explicit writable tmpfs mode so apps can create config under
+  `HOME=/scan` without weakening the read-only root filesystem.
 - Local launch catalog now has 31 seeded servers and 31 latest real `mcpaudit`
   scans in `./registry.db`.
 - Launch validation passes:
