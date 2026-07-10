@@ -23,6 +23,7 @@ import logging
 from datetime import datetime
 from html import escape
 
+from mcp_trust.core.drift import GradeChange, SurfaceComparison
 from mcp_trust.core.governance import (
     DISPUTE_SLA_DAYS,
     DISPUTE_URL,
@@ -569,6 +570,7 @@ def render_detail(
     banner: str | None = None,
     now: datetime | None = None,
     masked: bool = False,
+    grade_change: GradeChange | None = None,
 ) -> str:
     """Render the detail page for one server.
 
@@ -588,6 +590,9 @@ def render_detail(
         Operator-withheld grade (masked-grades list): the letter grade, danger
         score, per-dimension breakdown, and finding detail are withheld pending
         governance review; scan metadata and the dispute path stay disclosed.
+    grade_change:
+        Latest recorded letter-grade movement. It is rendered only while the
+        grade itself is public; missing evidence remains an unknown comparison.
     """
     # --- Extract server fields ---
     name = escape(str(server.name))
@@ -749,6 +754,31 @@ def render_detail(
 
     hero += "</div>"  # close card
 
+    if grade_change is not None and not masked:
+        changed_at = grade_change.changed_at.date().isoformat()
+        surface_note = (
+            "The declared tool-surface comparison is unknown because evidence is missing "
+            "from at least one scan."
+            if grade_change.surface_comparison is SurfaceComparison.UNKNOWN
+            else (
+                "Recorded evidence shows the declared tool surface changed."
+                if grade_change.surface_comparison is SurfaceComparison.CHANGED
+                else "Recorded evidence shows the declared tool surface was unchanged."
+            )
+        )
+        grade_change_notice = (
+            '<div class="card" style="margin-top:1rem">'
+            '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">Grade change</h2>'
+            f"<p><strong>Grade changed {escape(changed_at)}:</strong> "
+            f"{escape(str(grade_change.previous_grade))} → "
+            f"{escape(str(grade_change.current_grade))}. "
+            f"<strong>Cause:</strong> {escape(str(grade_change.cause))}.</p>"
+            f'<p style="font-size:0.85rem;color:#57606a">{escape(surface_note)}</p>'
+            "</div>"
+        )
+    else:
+        grade_change_notice = ""
+
     # --- Badge embed box ---
     badge_url = f"{base_url}/servers/{server.slug}/badge.json"
     detail_url = f"{base_url}/ui/servers/{server.slug}"
@@ -847,7 +877,7 @@ def render_detail(
 
     body = (
         f"<main>{back}<div style='margin-top:1rem'>{hero}</div>"
-        f"{floor}{provenance_card}{badge_box}{findings_section}</main>"
+        f"{grade_change_notice}{floor}{provenance_card}{badge_box}{findings_section}</main>"
     )
     return _page(f"MCP Trust — {server.name}", body, banner=banner)
 

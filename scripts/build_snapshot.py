@@ -21,6 +21,7 @@ import sqlite3
 from pathlib import Path
 
 from mcp_trust.core import grading
+from mcp_trust.core.drift import latest_grade_change
 from mcp_trust.core.provenance import is_real_engine
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
@@ -45,6 +46,14 @@ def build_snapshot(db_path: str) -> dict[str, object]:
         if scan is None or not is_real_engine(scan.engine_name):
             continue
         risk = scan.risk
+        # A public grade-change claim needs two real scans. A synthetic prior
+        # scan must never be relabeled as a real historical grade.
+        history = scan_repo.history(server.slug)
+        grade_change = (
+            latest_grade_change(history)
+            if all(is_real_engine(item.engine_name) for item in history)
+            else None
+        )
         scanned_at = scan.scanned_at.isoformat()
         newest = max(newest, scanned_at)
         servers.append(
@@ -75,6 +84,7 @@ def build_snapshot(db_path: str) -> dict[str, object]:
                 },
                 "engine": scan.engine_name,
                 "engine_version": scan.engine_version,
+                "grade_change": grade_change.model_dump(mode="json") if grade_change else None,
                 # Declares required secret env vars (used to call its API). The
                 # scan enumerates the tool surface network-off; servers that need
                 # the credential present at startup are scanned with non-functional
@@ -84,7 +94,7 @@ def build_snapshot(db_path: str) -> dict[str, object]:
         )
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_from_scan_at": newest,
         "server_count": len(servers),
         "servers": servers,

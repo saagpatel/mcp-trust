@@ -184,6 +184,21 @@ class DriftReport(BaseModel):
     drifts: list[ScanDrift] = Field(default_factory=list)
 
 
+class GradeChange(BaseModel):
+    """The narrow public projection of a latest grade movement.
+
+    This deliberately exposes the dated letter change and attribution, rather
+    than the full comparison's scan identifiers and score deltas.  The surface
+    outcome remains explicit so missing evidence is never relabeled unchanged.
+    """
+
+    changed_at: datetime
+    previous_grade: TrustGrade
+    current_grade: TrustGrade
+    cause: DriftCause
+    surface_comparison: SurfaceComparison
+
+
 def _surface_delta(previous: ScanEvidence, current: ScanEvidence) -> ToolSurfaceDelta:
     prev_tools = {t.name: t for t in previous.tools}
     curr_tools = {t.name: t for t in current.tools}
@@ -342,3 +357,27 @@ def diff_latest(history: Sequence[ScanRecord]) -> ScanDrift | None:
     if len(history) < 2:
         return None
     return diff(history[1], history[0])
+
+
+def latest_grade_change(history: Sequence[ScanRecord]) -> GradeChange | None:
+    """Project the most recent recorded letter-grade change, if present.
+
+    ``history`` is newest-first. Repeated scans after a letter movement do not
+    erase that public fact: walk newest-to-oldest until finding the latest
+    adjacent pair whose letters differ. Each comparison goes through
+    :func:`diff_latest`, so its ordering and attribution rules remain the
+    single source of truth. Score-only or transparency-only movement remains
+    available to operators, but is never described publicly as a grade change.
+    """
+    for index in range(len(history) - 1):
+        drift = diff_latest(history[index : index + 2])
+        assert drift is not None
+        if drift.previous_grade != drift.current_grade:
+            return GradeChange(
+                changed_at=drift.current_scanned_at,
+                previous_grade=drift.previous_grade,
+                current_grade=drift.current_grade,
+                cause=drift.cause,
+                surface_comparison=drift.surface_comparison,
+            )
+    return None

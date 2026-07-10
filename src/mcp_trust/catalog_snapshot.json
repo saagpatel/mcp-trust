@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "generated_from_scan_at": "2026-07-04T02:37:39.933558+00:00",
+  "schema_version": 2,
+  "generated_from_scan_at": "2026-07-04T08:18:12.626276+00:00",
   "server_count": 31,
   "servers": [
     {
@@ -294,6 +294,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -899,6 +900,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -2416,6 +2418,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -2667,6 +2670,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -3422,6 +3426,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -3571,6 +3576,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:46:11.381223Z",
+        "previous_grade": "F",
+        "current_grade": "B",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": false
     },
     {
@@ -3642,6 +3654,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -3743,6 +3756,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:46:12.559633Z",
+        "previous_grade": "C",
+        "current_grade": "B",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": false
     },
     {
@@ -3880,6 +3900,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:46:13.094309Z",
+        "previous_grade": "F",
+        "current_grade": "C",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": false
     },
     {
@@ -4239,6 +4266,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -4916,6 +4944,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -5257,6 +5286,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -5760,6 +5790,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -5867,6 +5898,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -6130,6 +6162,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -6237,6 +6270,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -6300,6 +6334,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:44:06.475834Z",
+        "previous_grade": "F",
+        "current_grade": "B",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": true
     },
     {
@@ -6385,6 +6426,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:44:06.946806Z",
+        "previous_grade": "C",
+        "current_grade": "B",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": true
     },
     {
@@ -6440,6 +6488,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": true
     },
     {
@@ -7077,6 +7126,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:44:08.003994Z",
+        "previous_grade": "F",
+        "current_grade": "D",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": true
     },
     {
@@ -7330,6 +7386,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": true
     },
     {
@@ -7505,6 +7562,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": true
     },
     {
@@ -7717,6 +7775,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": true
     },
     {
@@ -7920,6 +7979,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -8207,6 +8267,13 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": {
+        "changed_at": "2026-07-03T09:44:11.340975Z",
+        "previous_grade": "F",
+        "current_grade": "B",
+        "cause": "engine-changed",
+        "surface_comparison": "unchanged"
+      },
       "requires_credentials": false
     },
     {
@@ -8260,6 +8327,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -8595,6 +8663,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -8798,6 +8867,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -9049,6 +9119,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -9120,6 +9191,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     },
     {
@@ -9179,6 +9251,7 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "grade_change": null,
       "requires_credentials": false
     }
   ]

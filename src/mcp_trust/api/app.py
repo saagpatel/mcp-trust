@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from mcp_trust.core import grading
+from mcp_trust.core.drift import latest_grade_change
 from mcp_trust.core.governance import (
     MASKED_BADGE_MESSAGE,
     MASKED_SERVER_DESCRIPTION,
@@ -231,9 +232,13 @@ def create_app(
         scan = scan_repo.latest(slug)
         operator_masked = slug in _masked
         scan_masked = operator_masked and scan is not None
+        grade_change = latest_grade_change(scan_repo.history(slug))
         return {
             "server": _public_server_payload(server, masked=operator_masked),
             "latest_scan": _public_scan_payload(scan, masked=scan_masked),
+            "grade_change": None if scan_masked else (
+                grade_change.model_dump(mode="json") if grade_change else None
+            ),
         }
 
     @application.post("/servers/{slug}/scan")
@@ -340,6 +345,7 @@ def create_app(
             return HTMLResponse(content=render_not_found(slug), status_code=404)
 
         scan = scan_repo.latest(slug)
+        grade_change = latest_grade_change(scan_repo.history(slug))
         base_url = str(request.base_url).rstrip("/")
         return HTMLResponse(
             content=render_detail(
@@ -348,6 +354,7 @@ def create_app(
                 base_url=base_url,
                 now=datetime.now(tz=UTC),
                 masked=slug in _masked,
+                grade_change=grade_change,
             )
         )
 

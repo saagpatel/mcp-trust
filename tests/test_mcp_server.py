@@ -12,7 +12,7 @@ _SNAPSHOT = Path(__file__).resolve().parents[1] / "src/mcp_trust/catalog_snapsho
 
 def test_snapshot_ships_with_real_grades() -> None:
     snap = json.loads(_SNAPSHOT.read_text(encoding="utf-8"))
-    assert snap["schema_version"] == 1
+    assert snap["schema_version"] == 2
     assert snap["server_count"] == len(snap["servers"]) >= 15
     valid = {"A", "B", "C", "D", "F"}
     for s in snap["servers"]:
@@ -34,6 +34,32 @@ def test_check_server_payload_returns_full_record() -> None:
     assert payload["requires_credentials"] is True
     assert "GITLAB_PERSONAL_ACCESS_TOKEN" in payload["source"]["env_keys"]
     assert isinstance(payload["findings"], list)
+    assert "grade_change" in payload
+
+
+def test_check_server_payload_preserves_public_grade_change_summary(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "_snapshot",
+        lambda: {
+            "servers": [
+                {
+                    "slug": "changed",
+                    "grade": "B",
+                    "grade_change": {
+                        "changed_at": "2026-07-08T00:00:00Z",
+                        "previous_grade": "D",
+                        "current_grade": "B",
+                        "cause": "engine-changed",
+                        "surface_comparison": "unknown",
+                    },
+                }
+            ]
+        },
+    )
+    payload = json.loads(mcp_server.check_server_payload("changed"))
+    assert payload["grade_change"]["cause"] == "engine-changed"
+    assert payload["grade_change"]["surface_comparison"] == "unknown"
 
 
 def test_check_server_payload_unknown_slug_errors_with_known_list() -> None:
