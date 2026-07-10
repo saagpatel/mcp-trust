@@ -172,6 +172,140 @@ def test_check_seed_scan_check_full_loop(db_path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# history
+# ---------------------------------------------------------------------------
+
+
+def test_history_after_scans(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+
+    result = runner.invoke(app, ["history", "mcp-reference-time", "--db", db_path])
+    assert result.exit_code == 0, result.output
+    assert "2 scan(s)" in result.output
+    assert "grade=" in result.output
+    assert "engine=" in result.output
+
+
+def test_history_respects_limit(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+
+    result = runner.invoke(app, ["history", "mcp-reference-time", "--db", db_path, "--limit", "1"])
+    assert result.exit_code == 0, result.output
+    assert "1 scan(s)" in result.output
+
+
+def test_history_no_scans_exits_nonzero(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    result = runner.invoke(app, ["history", "mcp-reference-time", "--db", db_path])
+    assert result.exit_code == 1
+    assert "No scan" in result.output
+
+
+def test_history_rejects_nonpositive_limit(db_path) -> None:
+    """--limit 0 must be a usage error, not a false 'No scan on record'."""
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    result = runner.invoke(app, ["history", "mcp-reference-time", "--db", db_path, "--limit", "0"])
+    assert result.exit_code != 0
+    assert "No scan" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# drift
+# ---------------------------------------------------------------------------
+
+
+def test_drift_single_server_reports_no_change_on_identical_stub_scans(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+
+    result = runner.invoke(app, ["drift", "mcp-reference-time", "--db", db_path])
+    assert result.exit_code == 0, result.output
+    assert "no-change" in result.output
+
+
+def test_drift_single_server_needs_two_scans(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    result = runner.invoke(app, ["drift", "mcp-reference-time", "--db", db_path])
+    assert result.exit_code == 1
+    assert "two scans" in result.output
+
+
+def test_drift_corpus_wide_skips_single_scan_servers(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-git", "--db", db_path])  # only one scan
+
+    result = runner.invoke(app, ["drift", "--db", db_path])
+    assert result.exit_code == 0, result.output
+    assert "Compared 1 server(s)" in result.output
+
+
+def test_drift_json_report_shape(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+
+    result = runner.invoke(app, ["drift", "--db", db_path, "--json"])
+    assert result.exit_code == 0, result.output
+
+    report = json.loads(result.output)
+    assert report["compared"] == 1
+    assert "generated_at" in report
+    assert "skipped_single_scan" in report
+    assert report["skipped_invalid"] == 0
+    (drift_entry,) = report["drifts"]
+    assert drift_entry["server_slug"] == "mcp-reference-time"
+    assert drift_entry["cause"] == "no-change"
+    # The stub engine captures no readback evidence, so the surface comparison
+    # must be reported as unknown — never as unchanged.
+    assert drift_entry["surface_comparison"] == "unknown"
+    assert "summary" in drift_entry
+
+
+def test_drift_corpus_skips_unreadable_history_and_reports_it(db_path) -> None:
+    """One corrupt scan row must not poison the corpus-wide report."""
+    runner.invoke(app, ["seed", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+    runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+
+    from mcp_trust.store.db import connect
+
+    conn = connect(db_path)
+    conn.execute(
+        "INSERT INTO scans (id, server_slug, engine_name, engine_version, grade,"
+        " transparency, risk_json, findings_json, scanned_at)"
+        " VALUES ('bad1', 'mcp-reference-git', 'stub', '0.1.0', 'B', 'high',"
+        " 'not-json', '[]', '2026-07-01T00:00:00+00:00')"
+    )
+    conn.execute(
+        "INSERT INTO scans (id, server_slug, engine_name, engine_version, grade,"
+        " transparency, risk_json, findings_json, scanned_at)"
+        " VALUES ('bad2', 'mcp-reference-git', 'stub', '0.1.0', 'B', 'high',"
+        " 'not-json', '[]', '2026-07-02T00:00:00+00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    result = runner.invoke(app, ["drift", "--db", db_path, "--json"])
+    assert result.exit_code == 0, result.output
+
+    # WARN goes to stderr; stdout must stay pure JSON.
+    report = json.loads(result.stdout)
+    assert report["compared"] == 1
+    assert report["skipped_invalid"] == 1
+    (drift_entry,) = report["drifts"]
+    assert drift_entry["server_slug"] == "mcp-reference-time"
+
+
+# ---------------------------------------------------------------------------
 # build-site
 # ---------------------------------------------------------------------------
 

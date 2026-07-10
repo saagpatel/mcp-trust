@@ -69,6 +69,13 @@ _ORDER: list[TrustGrade] = [
     TrustGrade.F,
 ]
 
+# Public, read-only views of the rubric's structure. Consumers that iterate the
+# danger dimensions or rank letter grades (drift comparison, snapshot/site
+# builders) read these instead of keeping their own copies that can fall out of
+# lockstep with the rubric that actually grades.
+DANGER_DIMENSIONS: tuple[str, ...] = tuple(_DIM_WEIGHTS)
+GRADE_ORDER: tuple[TrustGrade, ...] = tuple(_ORDER)
+
 
 def danger_score(risk: RiskSummary) -> float:
     """Registry danger score (0–10) — a danger-weighted aggregate of the risk

@@ -11,6 +11,7 @@ build/
 *.sqlite3
 .env
 receipts/
+reports/
 tmp/
 
 # generated static-site output (build artifact)

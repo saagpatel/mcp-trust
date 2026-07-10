@@ -73,6 +73,41 @@ while IFS= read -r slug; do
   fi
 done <<< "${SLUGS}"
 
+# Attribute the latest grade movement on record after this run's re-scan:
+# compare each server's newest stored scan against the one before it (surface
+# change vs engine change vs score movement) and archive the report. A server
+# whose re-scan failed above keeps its previous rows, so its entry reflects the
+# movement already on record — each entry carries both scan timestamps.
+# A report, not a gate: every step here is guarded so a reporting failure warns
+# and the refresh continues. The report is written to a temp path and moved into
+# place only on success, so a crashed run never leaves a truncated artifact.
+REPORTS="${MCP_TRUST_REPORTS_DIR:-./reports}"
+DRIFT_OUT="${REPORTS}/drift-$(date -u +%Y%m%dT%H%M%SZ).json"
+log "Writing scan-over-scan drift report -> ${DRIFT_OUT}"
+if mkdir -p "${REPORTS}" \
+    && uv run mcp-trust drift --json > "${DRIFT_OUT}.tmp" \
+    && mv "${DRIFT_OUT}.tmp" "${DRIFT_OUT}"; then
+  # Human-readable movement summary into the launchd/cron log, rendered from the
+  # archived report so the log and the artifact can never disagree.
+  uv run python - "${DRIFT_OUT}" <<'PY' || log "WARN: drift summary print failed (report archived)"
+import json
+import sys
+
+report = json.load(open(sys.argv[1]))
+moved = [d for d in report["drifts"] if d["cause"] != "no-change"]
+print(
+    f"drift: compared {report['compared']} server(s), {len(moved)} with movement, "
+    f"{report['skipped_single_scan']} skipped (single scan), "
+    f"{report['skipped_invalid']} unreadable"
+)
+for d in moved:
+    print(f"  {d['server_slug']}  [{d['cause']}]  {d['summary']}")
+PY
+else
+  rm -f "${DRIFT_OUT}.tmp"
+  log "WARN: drift report failed (refresh continues)"
+fi
+
 # Rebuild the static site from the freshly-scanned DB (build_site.py self-verifies).
 log "Rebuilding static site -> ${OUT}"
 uv run python scripts/build_site.py --db "${DB}" --out "${OUT}" --base-url "${BASE_URL}"
