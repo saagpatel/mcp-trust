@@ -37,6 +37,7 @@ from mcp_trust.api.web import (
     render_methodology,
     render_not_found,
 )
+from mcp_trust.core.drift import latest_grade_change
 from mcp_trust.core.governance import is_stale
 from mcp_trust.core.models import TrustGrade
 from mcp_trust.core.provenance import ScanProvenance, classify
@@ -142,6 +143,7 @@ def generate_site(
 
     for srv in servers:
         scan = latest.get(srv.slug)
+        grade_change = latest_grade_change(scan_repo.history(srv.slug))
         provenance = classify(scan)
         server_count += 1
         if scan is not None:
@@ -180,6 +182,7 @@ def generate_site(
                 banner=page_banner,
                 now=now,
                 masked=operator_masked,
+                grade_change=grade_change,
             ),
         )
         pages.append(detail_path)

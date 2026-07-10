@@ -301,6 +301,54 @@ def test_scan_latest_missing_returns_none(scan_repo) -> None:
     assert scan_repo.latest("no-such-slug") is None
 
 
+def test_scan_history_newest_first(conn, server_repo, scan_repo) -> None:
+    """history() must order newest-first and respect the limit."""
+    server = _make_server()
+    server_repo.upsert(server)
+
+    from datetime import timedelta
+
+    now = datetime.now(tz=UTC)
+    oldest = _make_scan().model_copy(update={"scanned_at": now - timedelta(hours=2)})
+    middle = _make_scan().model_copy(update={"scanned_at": now - timedelta(hours=1)})
+    newest = _make_scan().model_copy(update={"scanned_at": now})
+    for scan in (middle, newest, oldest):  # insertion order must not matter
+        scan_repo.record(scan)
+
+    full = scan_repo.history(server.slug)
+    assert [s.id for s in full] == [newest.id, middle.id, oldest.id]
+
+    limited = scan_repo.history(server.slug, limit=2)
+    assert [s.id for s in limited] == [newest.id, middle.id]
+
+
+def test_scan_history_empty_for_unknown_slug(scan_repo) -> None:
+    assert scan_repo.history("no-such-slug") == []
+
+
+def test_scan_history_and_latest_break_timestamp_ties_deterministically(
+    conn, server_repo, scan_repo
+) -> None:
+    """Identical scanned_at values must resolve the same way on every read path:
+    highest id wins, matching latest_all()'s tie behavior."""
+    server = _make_server()
+    server_repo.upsert(server)
+
+    shared_at = datetime.now(tz=UTC)
+    low = _make_scan().model_copy(update={"id": "a" * 32, "scanned_at": shared_at})
+    high = _make_scan().model_copy(update={"id": "f" * 32, "scanned_at": shared_at})
+    scan_repo.record(high)
+    scan_repo.record(low)  # insertion order must not matter
+
+    hist = scan_repo.history(server.slug)
+    assert [s.id for s in hist] == [high.id, low.id]
+
+    latest = scan_repo.latest(server.slug)
+    assert latest is not None
+    assert latest.id == high.id
+    assert scan_repo.latest_all()[server.slug].id == high.id
+
+
 def test_scan_latest_all(conn, server_repo, scan_repo) -> None:
     s1 = _make_server("alpha")
     s2 = _make_server("beta")

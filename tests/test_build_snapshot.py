@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mcp_trust.core.models import (
@@ -70,3 +70,67 @@ def test_build_snapshot_bakes_only_real_engine_scans(tmp_path) -> None:
     assert "real-one" in slugs
     assert "stub-one" not in slugs
     assert snap["server_count"] == 1
+    assert snap["schema_version"] == 2
+
+
+def test_build_snapshot_projects_real_grade_change_without_private_deltas(tmp_path) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    servers = ServerRepository(conn)
+    scans = ScanRepository(conn)
+    servers.upsert(_server("real-one"))
+    old = _scan("old", "mcpaudit").model_copy(
+        update={
+            "server_slug": "real-one",
+            "grade": TrustGrade.D,
+            "scanned_at": datetime(2026, 7, 1, tzinfo=UTC),
+        }
+    )
+    new = _scan("new", "mcpaudit").model_copy(
+        update={
+            "server_slug": "real-one",
+            "grade": TrustGrade.B,
+            "engine_version": "2",
+            "scanned_at": old.scanned_at + timedelta(days=7),
+        }
+    )
+    scans.record(old)
+    scans.record(new)
+
+    server = _load_build_snapshot().build_snapshot(db)["servers"][0]
+    assert server["grade_change"] == {
+        "changed_at": "2026-07-08T00:00:00Z",
+        "previous_grade": "D",
+        "current_grade": "B",
+        "cause": "engine-changed",
+        "surface_comparison": "unknown",
+    }
+
+
+def test_build_snapshot_does_not_relabel_a_demo_history_as_public_grade_change(tmp_path) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    servers = ServerRepository(conn)
+    scans = ScanRepository(conn)
+    servers.upsert(_server("real-one"))
+    demo = _scan("demo", "stub").model_copy(
+        update={
+            "server_slug": "real-one",
+            "grade": TrustGrade.F,
+            "scanned_at": datetime(2026, 7, 1, tzinfo=UTC),
+        }
+    )
+    real = _scan("real", "mcpaudit").model_copy(
+        update={
+            "server_slug": "real-one",
+            "grade": TrustGrade.B,
+            "scanned_at": demo.scanned_at + timedelta(days=7),
+        }
+    )
+    scans.record(demo)
+    scans.record(real)
+
+    server = _load_build_snapshot().build_snapshot(db)["servers"][0]
+    assert server["grade_change"] is None

@@ -134,6 +134,119 @@ def check(
 
 
 @app.command()
+def history(
+    slug: Annotated[str, typer.Argument(help="Server slug to show scan history for.")],
+    db: Annotated[
+        str,
+        typer.Option("--db", envvar=_DB_ENV, help=_DB_HELP),
+    ] = _DB_DEFAULT,
+    limit: Annotated[
+        int | None,
+        typer.Option("--limit", min=1, help="Show at most this many scans (newest first)."),
+    ] = None,
+) -> None:
+    """Print the stored scan timeline for a server, newest first (no new scan)."""
+    _, _, scan_repo = _open_db(db)
+
+    records = scan_repo.history(slug, limit=limit)
+    if not records:
+        typer.echo(f"No scan on record for {slug!r}. Run 'mcp-trust scan <slug>' to generate one.")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Scan history for {slug} ({len(records)} scan(s), newest first):")
+    for record in records:
+        danger = grading.danger_score(record.risk)
+        typer.echo(
+            f"  {record.scanned_at.isoformat()}  grade={record.grade}  "
+            f"transparency={record.transparency}  danger={danger:.2f}  "
+            f"engine={record.engine_name} {record.engine_version}"
+        )
+
+
+@app.command()
+def drift(
+    slug: Annotated[
+        str | None,
+        typer.Argument(help="Server slug to compare. Omit to compare every catalog server."),
+    ] = None,
+    db: Annotated[
+        str,
+        typer.Option("--db", envvar=_DB_ENV, help=_DB_HELP),
+    ] = _DB_DEFAULT,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the full drift report as JSON (machine-readable)."),
+    ] = False,
+) -> None:
+    """Compare each server's latest scan against the one before it and attribute
+    any movement (surface change, engine change, score movement) — no new scan.
+
+    Compares the scans on record: a server whose most recent re-scan failed
+    contributes its previously recorded movement (each entry carries both scan
+    timestamps, so consumers can see how fresh a comparison is).
+
+    A report, not a gate: exits 0 whether or not movement was found. Exits 1
+    only when a named server lacks the two readable scans a comparison needs.
+    """
+    from mcp_trust.core.drift import DriftCause, DriftReport, diff_latest  # noqa: PLC0415
+
+    _, server_repo, scan_repo = _open_db(db)
+
+    slugs = [slug] if slug is not None else [s.slug for s in server_repo.list()]
+    drifts = []
+    skipped_single_scan = 0
+    skipped_invalid = 0
+    for candidate in slugs:
+        try:
+            records = scan_repo.history(candidate, limit=2)
+        except ValueError as exc:
+            # One corrupt scan row must not poison the corpus-wide report;
+            # surface the slug and keep comparing the rest.
+            if slug is not None:
+                typer.echo(f"Cannot read scan history for {candidate!r}: {exc}", err=True)
+                raise typer.Exit(code=1) from exc
+            typer.echo(f"WARN: skipping {candidate!r}: {exc}", err=True)
+            skipped_invalid += 1
+            continue
+        result = diff_latest(records)
+        if result is None:
+            if slug is not None:
+                typer.echo(
+                    f"Need at least two scans of {candidate!r} to compare (found {len(records)}).",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            skipped_single_scan += 1
+            continue
+        drifts.append(result)
+
+    report = DriftReport(
+        generated_at=datetime.now(tz=UTC),
+        compared=len(drifts),
+        skipped_single_scan=skipped_single_scan,
+        skipped_invalid=skipped_invalid,
+        drifts=drifts,
+    )
+
+    if json_out:
+        typer.echo(report.model_dump_json(indent=2))
+        return
+
+    changed = [d for d in report.drifts if d.cause != DriftCause.NO_CHANGE]
+    invalid_note = f", {skipped_invalid} unreadable" if skipped_invalid else ""
+    typer.echo(
+        f"Compared {report.compared} server(s) "
+        f"({skipped_single_scan} skipped with fewer than two scans{invalid_note}): "
+        f"{len(changed)} with movement."
+    )
+    for d in report.drifts if slug is not None else changed:
+        typer.echo(
+            f"  {d.server_slug}  [{d.cause}]  "
+            f"(latest scan {d.current_scanned_at.date().isoformat()})  {d.summary}"
+        )
+
+
+@app.command()
 def serve(
     host: Annotated[str, typer.Option("--host", help="Bind host.")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", help="Bind port.")] = 8000,

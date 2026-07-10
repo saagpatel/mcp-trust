@@ -114,12 +114,16 @@ class ScanRepository:
         self._conn.commit()
 
     def latest(self, slug: str) -> ScanRecord | None:
-        """Return the most recent scan for *slug*, or ``None``."""
+        """Return the most recent scan for *slug*, or ``None``.
+
+        ``id DESC`` breaks ``scanned_at`` ties deterministically, matching the
+        highest-id winner ``latest_all()`` resolves ties to.
+        """
         row = self._conn.execute(
             """
             SELECT * FROM scans
             WHERE server_slug = ?
-            ORDER BY scanned_at DESC
+            ORDER BY scanned_at DESC, id DESC
             LIMIT 1
             """,
             (slug,),
@@ -127,6 +131,21 @@ class ScanRepository:
         if row is None:
             return None
         return self._row_to_scan(row)
+
+    def history(self, slug: str, limit: int | None = None) -> list[ScanRecord]:
+        """Return scans for *slug*, newest first (empty list when none).
+
+        ``limit=2`` is the drift-comparison shape: latest scan plus the one
+        before it. ``id DESC`` breaks ``scanned_at`` ties deterministically,
+        consistent with ``latest()`` and ``latest_all()``.
+        """
+        sql = "SELECT * FROM scans WHERE server_slug = ? ORDER BY scanned_at DESC, id DESC"
+        params: list[object] = [slug]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return [self._row_to_scan(row) for row in rows]
 
     def latest_all(self) -> dict[str, ScanRecord]:
         """Return a slug → latest ``ScanRecord`` mapping for all servers."""
