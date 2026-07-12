@@ -118,12 +118,14 @@ archive a JSON receipt for each scan and store its portable artifact filename in
 ## Status
 
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
-generated catalog, regenerated from the local registry. The bundled launch
-snapshot contains 19 real `mcp-audits` grades from network-off Docker sandbox
-scans, including four reviewed Registry-derived no-auth sandboxed entries.
+generated catalog, regenerated from the local registry. The bundled catalog
+snapshot contains 31 real `mcp-audits` grades from network-off Docker sandbox
+scans, including reviewed Registry-derived sandboxed entries.
 Every grade is labeled by provenance, so demo/stub data can never read as a
 real scan, and an unscanned server never shows a letter grade. The current
-production deployment is the 19-server static catalog.
+production deployment is the 31-server static catalog; grades are static
+since 2026-07-11, when the weekly re-scan lane was disabled and its deploy
+authority removed (see `docs/CAPABILITY-RULING-2026-07-10.md`).
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
