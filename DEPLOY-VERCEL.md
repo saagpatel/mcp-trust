@@ -59,36 +59,60 @@ Open the preview URL and confirm, on the real grades:
 
 ## 3. Production deploy (operator action — public)
 
-```bash
-vercel deploy site --prod          # promotes to the production domain
-```
+Production deployment is available only through
+`scripts/deploy_production.sh`. Direct production CLI calls and
+`MCP_TRUST_AUTO_DEPLOY` are unsupported.
+
+The operator must create a mode-`0600`, non-symlinked, short-lived JSON approval
+using schema `McpTrustProductionDeployAuthorizationV1`. It binds its own exact
+absolute path plus repository root, `main` branch, full commit SHA, production
+URL, the repository-pinned Vercel project and organization IDs, canonical
+GitHub origin, absolute Vercel executable path and SHA-256, an exact
+deterministic digest of every file in `site/`, receipt ID, issuance time, and
+expiry no more than 15 minutes later. Symlinks and special files in `site/` are
+rejected. The ignored output digest, provider link, approval, and tool bytes are
+revalidated after confirmation and immediately before the provider call.
+The manual entrypoint separately requires those exact values and requires the
+operator to type `DEPLOY_MCP_TRUST_PRODUCTION` at a live interactive TTY after
+the approval validates; the confirmation cannot be supplied by argument or
+environment.
+
+Before provider credentials are considered, the entrypoint rejects scheduler
+context, detached or feature branches, a dirty or untracked worktree, HEAD/SHA
+mismatch, a non-`origin/main` upstream, any ahead/behind state, a commit absent
+from that upstream, a substituted target, a copied/mismatched/stale approval,
+and an unapproved deployment executable. `VERCEL_TOKEN` is required only after
+all local gates pass.
+
+These controls provide strong same-user accident resistance and auditable
+manual intent. They are not represented as adversarial isolation from another
+process already running as the same macOS user; such a process can scrub
+environment markers and allocate a pseudo-terminal.
 
 Then point your domain at the Vercel project (Vercel dashboard → Domains) and
 re-run the badge check against the production URL.
 
 ## 4. Scheduled freshness
 
-`scripts/refresh_and_publish.sh` runs the whole loop: re-scan the corpus in the
-network-off Docker sandbox, rebuild the site, and (only if `MCP_TRUST_AUTO_DEPLOY=1`)
-deploy. Install it as a weekly launchd job:
+`scripts/refresh_and_publish.sh` re-scans the corpus in the network-off Docker
+sandbox and rebuilds the site locally. It cannot deploy. The installer writes a
+weekly definition and leaves it unloaded and persistently disabled:
 
 ```bash
-bash deploy/launchd/install.sh            # weekly, Monday 09:00; deploy OFF by default
-launchctl start com.d.mcp-trust-refresh   # force one run to test
+bash deploy/launchd/install.sh            # Sunday 19:00 definition; remains disabled
 bash deploy/launchd/uninstall.sh          # remove the job
 ```
 
-Deploy is opt-in: in the installed plist
-(`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist`) keep
-`MCP_TRUST_SITE_BASE_URL` pointed at the production domain and add
-`MCP_TRUST_AUTO_DEPLOY=1`, then re-run the install script. Re-scanning a
-version-pinned image is
+Do not enable or start the job as an installation test. A future enablement
+requires a separate operator decision plus Docker/image, template parity,
+focused-test, and ownership evidence. Re-scanning a version-pinned image is
 deterministic; to catch upstream drift, periodically rebuild `Dockerfile.scan`
 with current server versions.
 
 ## Safety notes
 
 - `registry.db` and `receipts/` are **never** uploaded — only `site/`.
+- launchd and the refresh script never hold production deployment authority.
 - The static site is read-only; there is no scan-trigger endpoint to protect
   (unlike the VM service). Re-scans happen locally, behind the sandbox.
 - Grades are honest by construction: stub/demo data carries a loud banner and

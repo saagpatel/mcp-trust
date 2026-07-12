@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # Freshness loop for the static MCP Trust catalog:
 #   re-scan the launch corpus (network-off Docker sandbox) -> rebuild the
-#   static site -> (opt-in) deploy to Vercel.
+#   static site locally.
 #
 # Designed to run from launchd/cron OR by hand. Re-scanning surfaces grade
 # changes over time; to catch UPSTREAM server drift / rug-pull, periodically
 # rebuild Dockerfile.scan with current versions (the scan image is pinned). The
-# scan runtime is network-off inside Docker; only the rendered site/ is published.
-#
-# Deploy is OPT-IN: set MCP_TRUST_AUTO_DEPLOY=1 to publish. Off by default so a
-# scheduled refresh never pushes to production without the operator opting in.
+# scan runtime is network-off inside Docker. This entrypoint has no publication
+# authority; production deployment is a separate, explicitly authorized lane.
 #
 # Config (env, with safe defaults):
 #   MCP_TRUST_DB                 registry SQLite path        (default ./registry.db)
@@ -17,8 +15,16 @@
 #   MCP_TRUST_SITE_BASE_URL      deploy URL for badge embeds (default production URL)
 #   MCP_TRUST_SANDBOX_IMAGE      prebuilt scan image         (default corpus image)
 #   MCP_TRUST_RECEIPTS_DIR       receipt archive dir         (default ./receipts)
-#   MCP_TRUST_AUTO_DEPLOY        "1" to run `vercel deploy`  (default off)
 set -euo pipefail
+
+if [ "${MCP_TRUST_AUTO_DEPLOY+x}" = "x" ]; then
+  printf '%s\n' \
+    "ERROR: MCP_TRUST_AUTO_DEPLOY no longer authorizes deployment; use the explicit manual deployment lane." >&2
+  exit 1
+fi
+
+# The refresh lane must not intentionally inherit provider deployment authority.
+unset VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_SCOPE
 
 # Resolve repo root from this script's location so launchd's bare cwd is fine.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -113,11 +119,4 @@ log "Rebuilding static site -> ${OUT}"
 uv run python scripts/build_site.py --db "${DB}" --out "${OUT}" --base-url "${BASE_URL}"
 cp deploy/vercel.json "${OUT}/vercel.json"
 
-# Publish only when explicitly opted in.
-if [ "${MCP_TRUST_AUTO_DEPLOY:-0}" = "1" ]; then
-  log "MCP_TRUST_AUTO_DEPLOY=1 -> deploying ${OUT} to Vercel production"
-  vercel deploy "${OUT}" --prod --yes
-  log "Deploy complete."
-else
-  log "Refresh complete. Deploy is opt-in (set MCP_TRUST_AUTO_DEPLOY=1). Output ready in ${OUT}."
-fi
+log "Refresh/build complete. Local output ready in ${OUT}; this lane cannot deploy."

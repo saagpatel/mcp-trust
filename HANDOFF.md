@@ -206,22 +206,49 @@ Results:
 ## Next Recommended Move
 
 Monitor the 23-server production catalog and keep the weekly freshness lane
-ready. The repo-owned freshness defaults use the current production base URL and
-`mcp-trust-scan:corpus-2026-06-28`, with auto-deploy still opt-in. The 8
+available but disabled. The repo-owned freshness defaults use the current
+production base URL and `mcp-trust-scan:corpus-2026-06-28`; the refresh lane has
+no production deployment authority. The 8
 Registry-derived live-batch servers are baked only into
 `mcp-trust-live-batch:20260628`, so preserve their per-server `sandbox_image`
 pins during refresh or catalog edits.
 
 ## Local Scheduler Checkpoint
 
-As of 2026-07-03, the weekly LaunchAgent is installed locally at
-`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist` and loaded under
-`launchctl`:
+The 2026-07-03 checkpoint below was stale. On 2026-07-11, live launchd state
+showed the installed LaunchAgent at
+`~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist` scheduled for Sunday
+19:00 local time with `MCP_TRUST_AUTO_DEPLOY=1`. It was loaded but not running;
+the live definition reported `runs = 0` and no last exit status. Historical log
+evidence nevertheless proves one scheduler attempt at 2026-07-06T02:00:05Z:
+it failed immediately because Docker was unreachable, before scan, build, or
+deployment. That unsafe path was
+neutralized before repository edits:
 
-- schedule: Monday 09:00 local time;
-- state at install verification: loaded, not running, zero runs;
+- defined schedule: Sunday 19:00 local time;
+- final state: unloaded and persistently disabled in `gui/501`;
+- live-definition run counter at the evidence cut: zero, with one earlier
+  Docker-preflight failure preserved in the log;
 - working directory: `/Users/d/Projects/mcp-trust`;
 - base URL: `https://mcp-trust.vercel.app`;
-- auto-deploy: off (`MCP_TRUST_AUTO_DEPLOY` is not set).
+- installed and source plists: refresh/build only, with no auto-deploy flag or
+  production credential;
+- repository branch: preserved on `feat/grade-drift` at its existing upstream;
+- production deployment: separate manual authorization lane in
+  `scripts/deploy_production.sh`.
 
-No manual refresh run was started during installation verification.
+No refresh, scan, Docker/Colima execution, or deployment was performed during
+the security repair. Before anyone may re-enable refresh scheduling, they must
+obtain a fresh operator decision, confirm the installed plist matches the
+repository template, prove Docker and the pinned scan image are available,
+re-run the focused scheduler tests, verify the label is still disabled, and
+document who owns the scheduled output. Re-enablement never grants deployment
+authority. Production deployment requires the separate exact repository,
+branch, commit, upstream, target, tool-digest, short-lived approval, and manual
+confirmation gates. The approval also binds the pinned provider project and
+organization, canonical GitHub remote, and a deterministic digest of the exact
+ignored `site/` bytes. These are same-user accident-safety controls, not proof
+of adversarial isolation from another process already running as the user.
+
+Remote enforcement, release, signing, rollback, deployment, and production
+readiness remain UNKNOWN unless independently verified.

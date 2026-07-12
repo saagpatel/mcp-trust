@@ -6,10 +6,9 @@
   machine-agnostic and committable. Do not edit the installed copy here; re-run
   install.sh instead.
 
-  Deploy is intentionally OFF: MCP_TRUST_AUTO_DEPLOY is not set. The base URL
-  defaults to the production domain so badge snippets stay stable. To
-  auto-publish, add MCP_TRUST_AUTO_DEPLOY (=1) in the INSTALLED copy
-  (~/Library/LaunchAgents/com.d.mcp-trust-refresh.plist), then reload.
+  This job is refresh/build only and has no production deployment authority.
+  Installation leaves the label persistently disabled. A separate operator
+  decision is required before any future scheduling enablement.
 -->
 <plist version="1.0">
 <dict>
@@ -24,8 +23,8 @@
   <string>__REPO_ROOT__</string>
   <key>StartCalendarInterval</key>
   <dict>
-    <key>Weekday</key><integer>1</integer>
-    <key>Hour</key><integer>9</integer>
+    <key>Weekday</key><integer>0</integer>
+    <key>Hour</key><integer>19</integer>
     <key>Minute</key><integer>0</integer>
   </dict>
   <key>StandardOutPath</key>
@@ -40,6 +39,8 @@
     <string>__PATH__</string>
     <key>MCP_TRUST_SITE_BASE_URL</key>
     <string>https://mcp-trust.vercel.app</string>
+    <key>MCP_TRUST_SCHEDULER_CONTEXT</key>
+    <string>1</string>
   </dict>
 </dict>
 </plist>

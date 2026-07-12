@@ -21,7 +21,11 @@ reuse.
   same server can be diffed for tool-surface change without re-running
   anything.
 - **A standing weekly re-scan lane with zero diffing.**
-  `scripts/refresh_and_publish.sh` (launchd, Mon 09:00, armed) re-scans the
+  `scripts/refresh_and_publish.sh` was documented here as armed for Monday
+  09:00. The 2026-07-11 security repair found Sunday 19:00 live state,
+  unloaded and persistently disabled the job, and removed all deployment
+  authority from this refresh-only lane. When deliberately re-enabled in a
+  future authorized task, it re-scans the
   whole corpus and rebuilds the site, but never compares the new scan to the
   previous one. A failed scan silently keeps the previous grade with only a
   log-line WARN — no surfaced freshness delta below the 90-day grey-out in
