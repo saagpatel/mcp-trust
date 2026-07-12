@@ -151,11 +151,11 @@ IFS= read -r TYPED_CONFIRMATION
 
 printf 'Authorization complete for %s at %s -> %s\n' "${BRANCH}" "${EXPECTED_COMMIT}" "${TARGET_URL}"
 umask 077
-RUNTIME_ROOT="$(/usr/bin/mktemp -d /private/tmp/mcp-trust-vercel.XXXXXX)" \
+RUNTIME_ROOT="$(/usr/bin/mktemp -d /tmp/mcp-trust-vercel.XXXXXX)" \
   || die "failed to create isolated Vercel runtime root"
 cleanup_runtime() {
   case "${RUNTIME_ROOT}" in
-    /private/tmp/mcp-trust-vercel.*) /bin/rm -rf -- "${RUNTIME_ROOT}" ;;
+    /tmp/mcp-trust-vercel.*) /bin/rm -rf -- "${RUNTIME_ROOT}" ;;
     *) die "refusing to clean unexpected runtime root" ;;
   esac
 }

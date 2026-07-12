@@ -537,7 +537,7 @@ def test_fully_authorized_manual_deploy_reaches_only_fake_sink(tmp_path: Path) -
     assert values["cwd"] == [str((repo / "site").resolve())]
     assert values["project"] == [PROJECT_ID]
     assert values["org"] == [ORG_ID]
-    assert values["home"][0].startswith("/private/tmp/mcp-trust-vercel.")
+    assert values["home"][0].startswith("/tmp/mcp-trust-vercel.")
     runtime_root = str(Path(values["home"][0]).parent)
     assert values["path"] == ["/usr/bin:/bin"]
     assert values["xdg_config"] == [f"{runtime_root}/config"]
