@@ -66,8 +66,7 @@ def _sha256(path: Path) -> str:
 
 def _json_bytes(payload: object) -> bytes:
     return (
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        + "\n"
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
     ).encode("utf-8")
 
 
@@ -187,10 +186,7 @@ def _sandbox_profile(image: str) -> dict[str, object]:
 
 
 def _requires_local_sandbox(server: Server) -> bool:
-    return not (
-        server.source.kind == SourceKind.REMOTE
-        and server.source.command is None
-    )
+    return not (server.source.kind == SourceKind.REMOTE and server.source.command is None)
 
 
 def _real_scan_mode(*, local_count: int, total_count: int) -> str:
@@ -210,10 +206,7 @@ def preflight_real_refresh(
     """Prove the network-off Docker controls and every pinned image locally."""
     local_servers = [server for server in servers if _requires_local_sandbox(server)]
     images = sorted(
-        {
-            server.source.sandbox_image or default_image
-            for server in local_servers
-        }
+        {server.source.sandbox_image or default_image for server in local_servers}
         | ({default_image} if local_servers else set())
     )
     profiles: list[dict[str, object]] = []
@@ -236,9 +229,7 @@ def preflight_real_refresh(
                 check=False,
             )
             if inspected.returncode != 0:
-                raise RefreshCandidateError(
-                    f"required local sandbox image is unavailable: {image}"
-                )
+                raise RefreshCandidateError(f"required local sandbox image is unavailable: {image}")
             profiles.append(_sandbox_profile(image))
     if importlib.util.find_spec("mcp_audit") is None:
         raise RefreshCandidateError("required MCPAudit engine package is unavailable")
@@ -313,12 +304,8 @@ def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
             payload["caveats"] = [
                 caveat
                 for caveat in caveats
-                if isinstance(caveat, str)
-                and not caveat.startswith("Network-off sandboxing")
-            ] + [
-                "Remote transport used the live network; no local process "
-                "sandbox was applicable."
-            ]
+                if isinstance(caveat, str) and not caveat.startswith("Network-off sandboxing")
+            ] + ["Remote transport used the live network; no local process sandbox was applicable."]
     else:
         payload = build_scan_receipt(server, scan)
     _write_private(receipts_dir / name, payload)
@@ -382,9 +369,7 @@ def _fresh_result_matches_persisted_scan(
         return False
     if server is None or scan is None:
         return False
-    expected_evidence = (
-        scan.evidence.model_dump(mode="json") if scan.evidence is not None else None
-    )
+    expected_evidence = scan.evidence.model_dump(mode="json") if scan.evidence is not None else None
     return bool(
         result.get("scan_id") == scan.id
         and result.get("fresh_grade") == str(scan.grade)
@@ -464,8 +449,7 @@ def create_refresh_candidate(
     unknown_masked_slugs = sorted(masked_slugs - catalog_slugs)
     if unknown_masked_slugs:
         raise RefreshCandidateError(
-            "masked grade list contains unknown catalog slug(s): "
-            + ",".join(unknown_masked_slugs)
+            "masked grade list contains unknown catalog slug(s): " + ",".join(unknown_masked_slugs)
         )
     catalog_by_slug = {row["slug"]: row for row in catalog_rows}
 
@@ -477,9 +461,7 @@ def create_refresh_candidate(
         for slug in sorted(catalog_slugs):
             server = source_servers.get(slug)
             if server is None:
-                raise RefreshCandidateError(
-                    f"catalog server missing from registry DB: {slug}"
-                )
+                raise RefreshCandidateError(f"catalog server missing from registry DB: {slug}")
             reviewed_server = _reviewed_server_from_seed(
                 catalog_by_slug[slug],
                 added_at=server.added_at,
@@ -623,9 +605,7 @@ def create_refresh_candidate(
                         and "\\" not in receipt_ref
                         and receipt_ref not in {".", ".."}
                     )
-                    receipt_path = (
-                        receipts_dir / receipt_ref if receipt_portable else None
-                    )
+                    receipt_path = receipts_dir / receipt_ref if receipt_portable else None
                     receipt_valid = masked or bool(
                         receipt_path is not None
                         and receipt_path.is_file()
@@ -663,29 +643,21 @@ def create_refresh_candidate(
                             "state": "masked" if masked else "fresh",
                             "fresh_grade": None if masked else str(scan.grade),
                             "grade_visibility": "withheld" if masked else "reviewable",
-                            "transparency": (
-                                None if masked else str(scan.transparency)
-                            ),
+                            "transparency": (None if masked else str(scan.transparency)),
                             "scanned_at": scan.scanned_at.isoformat(),
                             "scan_age_days": _scan_age_days(scan.scanned_at, fixed_now),
                             "scan_id": None if masked else scan.id,
                             "engine_name": scan.engine_name,
                             "engine_version": scan.engine_version,
                             "receipt": None if masked else receipt_ref,
-                            "receipt_visibility": (
-                                "withheld" if masked else "reviewable"
-                            ),
+                            "receipt_visibility": ("withheld" if masked else "reviewable"),
                             "drift": (
                                 {
                                     "cause": str(drift.cause),
-                                    "surface_comparison": str(
-                                        drift.surface_comparison
-                                    ),
+                                    "surface_comparison": str(drift.surface_comparison),
                                     "summary": drift.summary,
                                     "previous_grade": str(drift.previous_grade),
-                                    "current_grade": (
-                                        None if masked else str(drift.current_grade)
-                                    ),
+                                    "current_grade": (None if masked else str(drift.current_grade)),
                                 }
                                 if drift is not None
                                 else None
@@ -704,9 +676,7 @@ def create_refresh_candidate(
                                 previous.scanned_at.isoformat() if previous else None
                             ),
                             "previous_scan_age_days": (
-                                _scan_age_days(previous.scanned_at, fixed_now)
-                                if previous
-                                else None
+                                _scan_age_days(previous.scanned_at, fixed_now) if previous else None
                             ),
                         }
                     )
@@ -746,9 +716,7 @@ def create_refresh_candidate(
         manifest = {
             "schema": CANDIDATE_SCHEMA,
             "created_at": fixed_now.isoformat(),
-            "expires_at": (
-                fixed_now + timedelta(hours=DEFAULT_MAX_AGE_HOURS)
-            ).isoformat(),
+            "expires_at": (fixed_now + timedelta(hours=DEFAULT_MAX_AGE_HOURS)).isoformat(),
             "candidate_state": candidate_state,
             "publication_allowed": candidate_state == "complete",
             "scan_mode": (
@@ -772,9 +740,7 @@ def create_refresh_candidate(
                 "total": len(results),
                 "fresh": sum(result["state"] == "fresh" for result in results),
                 "masked": sum(result["state"] == "masked" for result in results),
-                "failed": sum(
-                    result["state"] not in {"fresh", "masked"} for result in results
-                ),
+                "failed": sum(result["state"] not in {"fresh", "masked"} for result in results),
             },
             "engine_versions": sorted(
                 {
@@ -888,23 +854,21 @@ def verify_refresh_candidate(
         relative
         for path in candidate.rglob("*")
         if path.is_file()
-        and (
-            relative := path.relative_to(candidate).as_posix()
-        )
+        and (relative := path.relative_to(candidate).as_posix())
         not in {MANIFEST_NAME, MANIFEST_DIGEST_NAME}
     }
     if actual != listed:
         errors.append("artifact_set_mismatch")
 
+    created_at: datetime | None = None
     try:
         created_at = datetime.fromisoformat(str(manifest["created_at"]).replace("Z", "+00:00"))
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
-        age_hours = max(
-            0.0,
-            (fixed_now.astimezone(UTC) - created_at.astimezone(UTC)).total_seconds()
-            / 3600,
-        )
+        age_seconds = (fixed_now.astimezone(UTC) - created_at.astimezone(UTC)).total_seconds()
+        age_hours = max(0.0, age_seconds / 3600)
+        if age_seconds < 0:
+            errors.append("candidate_timestamp_in_future")
     except (KeyError, ValueError, TypeError):
         age_hours = None
         errors.append("candidate_timestamp_invalid")
@@ -922,9 +886,7 @@ def verify_refresh_candidate(
     if not isinstance(results, list):
         errors.append("scan_results_invalid")
         results = []
-    catalog_rows = (
-        catalog_payload.get("servers") if isinstance(catalog_payload, dict) else None
-    )
+    catalog_rows = catalog_payload.get("servers") if isinstance(catalog_payload, dict) else None
     if (
         not isinstance(catalog_payload, dict)
         or catalog_payload.get("schema") != "RefreshCatalogIdentityV1"
@@ -964,9 +926,7 @@ def verify_refresh_candidate(
         errors.append("catalog_manifest_mismatch")
     manifest_masking = manifest.get("masking")
     declared_masked_slugs = (
-        manifest_masking.get("slugs")
-        if isinstance(manifest_masking, dict)
-        else None
+        manifest_masking.get("slugs") if isinstance(manifest_masking, dict) else None
     )
     if (
         not isinstance(manifest_masking, dict)
@@ -983,17 +943,13 @@ def verify_refresh_candidate(
         errors.append("reviewed_inputs_incomplete")
     elif expected_seed_path is not None and expected_masked_path is not None:
         try:
-            expected_catalog_slugs, expected_catalog_rows = _catalog_slugs(
-                expected_seed_path
-            )
+            expected_catalog_slugs, expected_catalog_rows = _catalog_slugs(expected_seed_path)
             expected_masked_slugs = _load_string_list(expected_masked_path)
             reviewed_inputs_bound = bool(
                 catalog_rows == expected_catalog_rows
                 and catalog_slugs == expected_catalog_slugs
-                and manifest_catalog.get("seed_sha256")
-                == _sha256(expected_seed_path)
-                and manifest_masking.get("sha256")
-                == _sha256(expected_masked_path)
+                and manifest_catalog.get("seed_sha256") == _sha256(expected_seed_path)
+                and manifest_masking.get("sha256") == _sha256(expected_masked_path)
                 and set(declared_masked_slugs) == expected_masked_slugs
             )
             if not reviewed_inputs_bound:
@@ -1015,9 +971,7 @@ def verify_refresh_candidate(
     )
     sandbox_manifest = manifest.get("sandbox")
     sandbox_profiles = (
-        sandbox_manifest.get("profiles")
-        if isinstance(sandbox_manifest, dict)
-        else None
+        sandbox_manifest.get("profiles") if isinstance(sandbox_manifest, dict) else None
     )
     sandbox_profile_rows = sandbox_profiles if isinstance(sandbox_profiles, list) else []
     reviewed_profile_images = {
@@ -1041,6 +995,33 @@ def verify_refresh_candidate(
         for result in results
         if isinstance(result, dict) and result.get("state") in {"fresh", "masked"}
     ]
+    if candidate_state == "complete":
+        for result in successful_results:
+            slug = result.get("server_slug")
+            slug_label = str(slug) if isinstance(slug, str) else "unknown"
+            try:
+                scanned_at = datetime.fromisoformat(
+                    str(result["scanned_at"]).replace("Z", "+00:00")
+                )
+                if scanned_at.tzinfo is None:
+                    scanned_at = scanned_at.replace(tzinfo=UTC)
+            except (KeyError, ValueError, TypeError):
+                errors.append(f"scan_timestamp_invalid:{slug_label}")
+                continue
+            scan_age_seconds = (
+                fixed_now.astimezone(UTC) - scanned_at.astimezone(UTC)
+            ).total_seconds()
+            if scan_age_seconds < 0:
+                errors.append(f"scan_timestamp_in_future:{slug_label}")
+            elif scan_age_seconds / 3600 > max_age_hours:
+                errors.append(f"scan_timestamp_stale:{slug_label}")
+            recorded_age = result.get("scan_age_days")
+            if created_at is None or not isinstance(recorded_age, (int, float)):
+                errors.append(f"scan_age_invalid:{slug_label}")
+            else:
+                expected_age = _scan_age_days(scanned_at, created_at)
+                if abs(float(recorded_age) - expected_age) > 0.000001:
+                    errors.append(f"scan_age_mismatch:{slug_label}")
     expected_artifacts = {
         "registry.db",
         "catalog_identity.json",
@@ -1119,18 +1100,13 @@ def verify_refresh_candidate(
                 and receipt_server == reviewed_server.model_dump(mode="json")
             )
             remote_without_command = bool(
-                reviewed_server is not None
-                and not _requires_local_sandbox(reviewed_server)
+                reviewed_server is not None and not _requires_local_sandbox(reviewed_server)
             )
             receipt_image = (
-                sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
-                if isinstance(sandbox, dict)
-                else None
+                sandbox.get("MCP_TRUST_SANDBOX_IMAGE") if isinstance(sandbox, dict) else None
             )
             reviewed_image = (
-                reviewed_server.source.sandbox_image
-                if reviewed_server is not None
-                else None
+                reviewed_server.source.sandbox_image if reviewed_server is not None else None
             )
             local_image_valid = bool(
                 isinstance(receipt_image, str)
@@ -1143,8 +1119,7 @@ def verify_refresh_candidate(
                 and (
                     (
                         sandbox.get("mode") == "not_applicable"
-                        and sandbox.get("reason")
-                        == "remote_endpoint_no_local_process"
+                        and sandbox.get("reason") == "remote_endpoint_no_local_process"
                     )
                     if remote_without_command
                     else (
@@ -1172,11 +1147,7 @@ def verify_refresh_candidate(
     if not isinstance(snapshot_servers, list):
         errors.append("static_snapshot_invalid")
         snapshot_servers = []
-    exposed = {
-        server.get("slug")
-        for server in snapshot_servers
-        if isinstance(server, dict)
-    }
+    exposed = {server.get("slug") for server in snapshot_servers if isinstance(server, dict)}
     if excluded & exposed:
         errors.append("failed_or_masked_grade_exposed")
     fresh_slugs = {
@@ -1186,23 +1157,19 @@ def verify_refresh_candidate(
     }
     if candidate_state != "fixture" and exposed != fresh_slugs:
         errors.append("static_snapshot_coverage_mismatch")
-    if age_hours is not None:
+    if age_hours is not None and created_at is not None:
         try:
             from mcp_trust.catalog.snapshot import build_snapshot
 
             expected_snapshot = build_snapshot(
                 str(candidate / "registry.db"),
-                excluded_slugs=frozenset(
-                    str(slug) for slug in excluded if isinstance(slug, str)
-                ),
+                excluded_slugs=frozenset(str(slug) for slug in excluded if isinstance(slug, str)),
                 masked_slugs=frozenset(
                     str(result.get("server_slug"))
                     for result in results
                     if isinstance(result, dict) and result.get("state") == "masked"
                 ),
-                verified_local_network=(
-                    None if candidate_state == "fixture" else "none"
-                ),
+                verified_local_network=(None if candidate_state == "fixture" else "none"),
                 now=created_at,
             )
             if snapshot_payload != expected_snapshot:
@@ -1220,12 +1187,10 @@ def verify_refresh_candidate(
         expected_counts = {
             "total": len(results),
             "fresh": sum(
-                isinstance(result, dict) and result.get("state") == "fresh"
-                for result in results
+                isinstance(result, dict) and result.get("state") == "fresh" for result in results
             ),
             "masked": sum(
-                isinstance(result, dict) and result.get("state") == "masked"
-                for result in results
+                isinstance(result, dict) and result.get("state") == "masked" for result in results
             ),
             "failed": len(results) - len(successful_results),
         }
@@ -1238,8 +1203,7 @@ def verify_refresh_candidate(
             or manifest.get("publication_allowed") is not True
             or len(snapshot_servers)
             != sum(
-                isinstance(result, dict) and result.get("state") == "fresh"
-                for result in results
+                isinstance(result, dict) and result.get("state") == "fresh" for result in results
             )
         ):
             errors.append("complete_candidate_semantics_invalid")
@@ -1291,11 +1255,7 @@ def verify_refresh_candidate(
     )
     return {
         "structural_valid": structural_valid,
-        "state": "invalid"
-        if errors
-        else "stale"
-        if stale
-        else str(candidate_state),
+        "state": "invalid" if errors else "stale" if stale else str(candidate_state),
         "candidate_state": candidate_state,
         "publication_ready": publication_ready,
         "manifest_sha256": actual_manifest_digest,
@@ -1391,10 +1351,9 @@ def publish_refresh_candidate(
         raise RefreshCandidateError("publication approval is bound to another candidate")
     if approval.get("publication_target") != str(destination_parent.resolve()):
         raise RefreshCandidateError("publication approval is bound to another target")
-    if (
-        approval.get("reviewed_seed_sha256") != _sha256(seed_path)
-        or approval.get("reviewed_masked_sha256") != _sha256(masked_path)
-    ):
+    if approval.get("reviewed_seed_sha256") != _sha256(seed_path) or approval.get(
+        "reviewed_masked_sha256"
+    ) != _sha256(masked_path):
         raise RefreshCandidateError("publication approval is bound to other reviewed inputs")
     if approval.get("deployment_authority") is not False:
         raise RefreshCandidateError("publication approval has an invalid authority claim")
@@ -1403,9 +1362,7 @@ def publish_refresh_candidate(
     final = destination_parent / candidate.name
     if final.exists():
         raise RefreshCandidateError(f"publication already exists: {final}")
-    temporary = Path(
-        tempfile.mkdtemp(prefix=f".{candidate.name}.publish-", dir=destination_parent)
-    )
+    temporary = Path(tempfile.mkdtemp(prefix=f".{candidate.name}.publish-", dir=destination_parent))
     published = False
     try:
         shutil.copytree(candidate, temporary / "candidate", copy_function=shutil.copy2)
@@ -1417,12 +1374,9 @@ def publish_refresh_candidate(
         )
         if (
             not copied_verification["publication_ready"]
-            or copied_verification["manifest_sha256"]
-            != verification["manifest_sha256"]
+            or copied_verification["manifest_sha256"] != verification["manifest_sha256"]
         ):
-            raise RefreshCandidateError(
-                "copied candidate failed immediate publication readback"
-            )
+            raise RefreshCandidateError("copied candidate failed immediate publication readback")
         _write_private(
             temporary / "PUBLICATION.json",
             {

@@ -89,10 +89,14 @@ def _inputs(
 
 
 def _stub_scanner(server: Server) -> EngineResult:
-    return StubEngine().scan(server.source).model_copy(
-        update={
-            "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
-        }
+    return (
+        StubEngine()
+        .scan(server.source)
+        .model_copy(
+            update={
+                "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+            }
+        )
     )
 
 
@@ -189,6 +193,25 @@ def _results(candidate: Path) -> list[dict[str, object]]:
     return json.loads((candidate / "scan_results.json").read_text())["results"]
 
 
+def _rebind_manifest_time(candidate: Path, created_at: datetime) -> None:
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    candidate.chmod(0o700)
+    manifest_path.chmod(0o600)
+    digest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["created_at"] = created_at.isoformat()
+    manifest["expires_at"] = (created_at + timedelta(hours=24)).isoformat()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    manifest_path.chmod(0o400)
+    digest_path.chmod(0o400)
+    candidate.chmod(0o500)
+
+
 def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     tmp_path: Path,
 ) -> None:
@@ -213,14 +236,8 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
 
 
 def test_real_scan_mode_describes_local_remote_and_mixed_transports() -> None:
-    assert (
-        _real_scan_mode(local_count=2, total_count=2)
-        == "mcpaudit-local-network-off"
-    )
-    assert (
-        _real_scan_mode(local_count=0, total_count=2)
-        == "mcpaudit-remote-live-network"
-    )
+    assert _real_scan_mode(local_count=2, total_count=2) == "mcpaudit-local-network-off"
+    assert _real_scan_mode(local_count=0, total_count=2) == "mcpaudit-remote-live-network"
     assert _real_scan_mode(local_count=1, total_count=2) == "mcpaudit-mixed-transport"
 
 
@@ -382,10 +399,7 @@ def test_rebound_manifest_cannot_relabel_fixture_as_publishable(
 
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
-    assert any(
-        "publishable_scan_provenance_invalid" in error
-        for error in verification["errors"]
-    )
+    assert any("publishable_scan_provenance_invalid" in error for error in verification["errors"])
 
 
 def test_stale_candidate_is_not_publication_ready(tmp_path: Path) -> None:
@@ -399,6 +413,53 @@ def test_stale_candidate_is_not_publication_ready(tmp_path: Path) -> None:
     assert verification["structural_valid"] is True
     assert verification["state"] == "stale"
     assert verification["publication_ready"] is False
+
+
+def test_future_dated_complete_candidate_is_not_publication_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    _rebind_manifest_time(candidate, FIXED_NOW + timedelta(hours=1))
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "candidate_timestamp_in_future" in verification["errors"]
+
+
+def test_fresh_manifest_cannot_replay_stale_complete_scans(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    rebound_now = FIXED_NOW + timedelta(hours=48)
+    _rebind_manifest_time(candidate, rebound_now)
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=rebound_now,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["age_hours"] == 0.0
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "scan_timestamp_stale:alpha" in verification["errors"]
+    assert "scan_age_mismatch:alpha" in verification["errors"]
 
 
 def test_partial_scan_failure_never_retains_old_grade_as_fresh(tmp_path: Path) -> None:
@@ -633,9 +694,7 @@ def test_rebound_manifest_cannot_change_snapshot_grade(tmp_path: Path) -> None:
     for artifact in manifest["artifacts"]:
         if artifact["path"] == "static_snapshot.json":
             artifact["bytes"] = snapshot_path.stat().st_size
-            artifact["sha256"] = hashlib.sha256(
-                snapshot_path.read_bytes()
-            ).hexdigest()
+            artifact["sha256"] = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     digest_path.write_text(
         hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
@@ -681,10 +740,7 @@ def test_rebound_manifest_cannot_change_fresh_result_grade(tmp_path: Path) -> No
     verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
 
     assert verification["structural_valid"] is False
-    assert any(
-        error.startswith("fresh_scan_binding_mismatch:")
-        for error in verification["errors"]
-    )
+    assert any(error.startswith("fresh_scan_binding_mismatch:") for error in verification["errors"])
 
 
 def test_rebound_manifest_rejects_unreferenced_artifact(tmp_path: Path) -> None:
@@ -884,9 +940,7 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         (candidate / "receipts" / str(result["receipt"])).read_text(encoding="utf-8")
     )
     manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
-    snapshot = json.loads(
-        (candidate / "static_snapshot.json").read_text(encoding="utf-8")
-    )
+    snapshot = json.loads((candidate / "static_snapshot.json").read_text(encoding="utf-8"))
     verification = verify_refresh_candidate(
         candidate,
         now=FIXED_NOW,
@@ -905,8 +959,7 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         "reason": "remote_endpoint_no_local_process",
     }
     assert not any(
-        caveat.startswith("Network-off sandboxing")
-        or "dummy credentials" in caveat
+        caveat.startswith("Network-off sandboxing") or "dummy credentials" in caveat
         for caveat in receipt["caveats"]
     )
     assert any("live network" in caveat for caveat in receipt["caveats"])
@@ -1009,15 +1062,17 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
             assert timeout == 90.0
 
         def scan(self, source: ServerSource) -> EngineResult:
-            return StubEngine().scan(source).model_copy(
-                update={
-                    "engine_name": "mcpaudit",
-                    "engine_version": "2.4.0",
-                    "evidence": ScanEvidence(
-                        tools=[ToolEvidence(name="fixture-tool")]
-                    ),
-                    "sandbox_image": "required:image",
-                }
+            return (
+                StubEngine()
+                .scan(source)
+                .model_copy(
+                    update={
+                        "engine_name": "mcpaudit",
+                        "engine_version": "2.4.0",
+                        "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+                        "sandbox_image": "required:image",
+                    }
+                )
             )
 
     monkeypatch.setattr(
@@ -1102,8 +1157,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
     assert any(
-        error.startswith("publishable_scan_provenance_invalid:")
-        for error in verification["errors"]
+        error.startswith("publishable_scan_provenance_invalid:") for error in verification["errors"]
     )
 
 
@@ -1217,16 +1271,12 @@ def test_local_publication_binds_the_reviewed_seed_and_mask_inputs(
         now=FIXED_NOW,
     )
     approval = json.loads(approval_path.read_text(encoding="utf-8"))
-    publication = json.loads(
-        (published / "PUBLICATION.json").read_text(encoding="utf-8")
-    )
+    publication = json.loads((published / "PUBLICATION.json").read_text(encoding="utf-8"))
 
-    assert approval["reviewed_seed_sha256"] == hashlib.sha256(
-        seed_path.read_bytes()
-    ).hexdigest()
-    assert approval["reviewed_masked_sha256"] == hashlib.sha256(
-        masked_path.read_bytes()
-    ).hexdigest()
+    assert approval["reviewed_seed_sha256"] == hashlib.sha256(seed_path.read_bytes()).hexdigest()
+    assert (
+        approval["reviewed_masked_sha256"] == hashlib.sha256(masked_path.read_bytes()).hexdigest()
+    )
     assert publication["deployment_performed"] is False
     assert (
         verify_refresh_candidate(
@@ -1261,6 +1311,7 @@ def test_snapshot_projection_surfaces_scan_age_and_excludes_masked(
     tmp_path: Path,
 ) -> None:
     from mcp_trust.catalog.snapshot import build_snapshot
+
     db_path, _seed, _masked = _inputs(tmp_path, slugs=("alpha", "beta"))
     conn = connect(db_path)
     scans = ScanRepository(conn)
