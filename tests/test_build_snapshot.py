@@ -99,6 +99,19 @@ def test_build_snapshot_main_rejects_unknown_mask_before_output(
     assert not output.exists()
 
 
+def test_baked_snapshot_excludes_every_reviewed_masked_slug() -> None:
+    masked = set(
+        json.loads((ROOT / "masked-grades.json").read_text(encoding="utf-8"))
+    )
+    snapshot = json.loads(
+        (ROOT / "src/mcp_trust/catalog_snapshot.json").read_text(encoding="utf-8")
+    )
+    exposed = {server["slug"] for server in snapshot["servers"]}
+
+    assert masked
+    assert masked.isdisjoint(exposed)
+
+
 def test_build_snapshot_projects_real_grade_change_without_private_deltas(tmp_path) -> None:
     db = str(tmp_path / "t.db")
     conn = connect(db)

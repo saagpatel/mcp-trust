@@ -760,6 +760,10 @@ def create_refresh_candidate(
                 "seed_sha256": _sha256(seed_path),
                 "server_count": len(catalog_rows),
             },
+            "masking": {
+                "sha256": _sha256(masked_path),
+                "slugs": sorted(masked_slugs),
+            },
             "sandbox": sandbox_evidence,
             "scan_counts": {
                 "total": len(results),
@@ -798,7 +802,12 @@ def create_refresh_candidate(
         if not published:
             shutil.rmtree(temporary, ignore_errors=True)
 
-    verified = verify_refresh_candidate(final, now=fixed_now)
+    verified = verify_refresh_candidate(
+        final,
+        now=fixed_now,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
     if not verified["structural_valid"]:
         raise RefreshCandidateError(
             "published candidate failed content verification: "
@@ -812,6 +821,8 @@ def verify_refresh_candidate(
     *,
     now: datetime | None = None,
     max_age_hours: int = DEFAULT_MAX_AGE_HOURS,
+    expected_seed_path: Path | None = None,
+    expected_masked_path: Path | None = None,
 ) -> dict[str, object]:
     """Verify manifest, every artifact, freshness, masking, and partial state."""
     fixed_now = now or datetime.now(tz=UTC)
@@ -948,6 +959,44 @@ def verify_refresh_candidate(
         or manifest_catalog.get("seed_sha256") != catalog_payload.get("seed_sha256")
     ):
         errors.append("catalog_manifest_mismatch")
+    manifest_masking = manifest.get("masking")
+    declared_masked_slugs = (
+        manifest_masking.get("slugs")
+        if isinstance(manifest_masking, dict)
+        else None
+    )
+    if (
+        not isinstance(manifest_masking, dict)
+        or not isinstance(manifest_masking.get("sha256"), str)
+        or not isinstance(declared_masked_slugs, list)
+        or not all(isinstance(slug, str) for slug in declared_masked_slugs)
+        or len(set(declared_masked_slugs)) != len(declared_masked_slugs)
+    ):
+        errors.append("masking_manifest_invalid")
+        manifest_masking = {}
+        declared_masked_slugs = []
+    reviewed_inputs_bound = False
+    if (expected_seed_path is None) != (expected_masked_path is None):
+        errors.append("reviewed_inputs_incomplete")
+    elif expected_seed_path is not None and expected_masked_path is not None:
+        try:
+            expected_catalog_slugs, expected_catalog_rows = _catalog_slugs(
+                expected_seed_path
+            )
+            expected_masked_slugs = _load_string_list(expected_masked_path)
+            reviewed_inputs_bound = bool(
+                catalog_rows == expected_catalog_rows
+                and catalog_slugs == expected_catalog_slugs
+                and manifest_catalog.get("seed_sha256")
+                == _sha256(expected_seed_path)
+                and manifest_masking.get("sha256")
+                == _sha256(expected_masked_path)
+                and set(declared_masked_slugs) == expected_masked_slugs
+            )
+            if not reviewed_inputs_bound:
+                errors.append("reviewed_inputs_mismatch")
+        except (OSError, RefreshCandidateError, TypeError, ValueError):
+            errors.append("reviewed_inputs_unavailable")
     candidate_state = manifest.get("candidate_state")
     scan_mode = manifest.get("scan_mode")
     catalog_remote_count = sum(
@@ -1204,6 +1253,8 @@ def verify_refresh_candidate(
         for result in results
         if isinstance(result, dict) and result.get("state") == "masked"
     )
+    if masked_slugs != sorted(declared_masked_slugs):
+        errors.append("masked_result_authorization_mismatch")
     if masked_slugs:
         try:
             candidate_db = sqlite3.connect(
@@ -1230,6 +1281,7 @@ def verify_refresh_candidate(
         and not stale
         and candidate_state == "complete"
         and manifest.get("publication_allowed") is True
+        and reviewed_inputs_bound
     )
     return {
         "structural_valid": structural_valid,
@@ -1243,6 +1295,7 @@ def verify_refresh_candidate(
         "manifest_sha256": actual_manifest_digest,
         "age_hours": round(age_hours, 6) if age_hours is not None else None,
         "scan_counts": manifest.get("scan_counts"),
+        "reviewed_inputs_bound": reviewed_inputs_bound,
         "errors": sorted(set(errors)),
     }
 
@@ -1255,12 +1308,19 @@ def approve_refresh_candidate(
     reason: str,
     publication_target: Path,
     confirmation_digest: str,
+    seed_path: Path,
+    masked_path: Path,
     now: datetime | None = None,
     ttl_hours: int = 4,
 ) -> Path:
     """Create a short-lived approval bound to one verified candidate and target."""
     fixed_now = now or datetime.now(tz=UTC)
-    verification = verify_refresh_candidate(candidate, now=fixed_now)
+    verification = verify_refresh_candidate(
+        candidate,
+        now=fixed_now,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
     if not verification["publication_ready"]:
         raise RefreshCandidateError("candidate is not complete, current, and publishable")
     digest = verification["manifest_sha256"]
@@ -1281,6 +1341,8 @@ def approve_refresh_candidate(
             "actor": actor,
             "reason": reason,
             "publication_target": str(publication_target.resolve()),
+            "reviewed_seed_sha256": _sha256(seed_path),
+            "reviewed_masked_sha256": _sha256(masked_path),
             "deployment_authority": False,
         },
     )
@@ -1292,13 +1354,20 @@ def publish_refresh_candidate(
     candidate: Path,
     approval_path: Path | None,
     destination_parent: Path,
+    seed_path: Path,
+    masked_path: Path,
     now: datetime | None = None,
 ) -> Path:
     """Atomically stage an approved candidate locally; never deploy it."""
     if approval_path is None:
         raise RefreshCandidateError("publication approval is required")
     fixed_now = now or datetime.now(tz=UTC)
-    verification = verify_refresh_candidate(candidate, now=fixed_now)
+    verification = verify_refresh_candidate(
+        candidate,
+        now=fixed_now,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
     if not verification["publication_ready"]:
         raise RefreshCandidateError("candidate failed immediate publication verification")
     approval = _load_json(approval_path)
@@ -1316,6 +1385,11 @@ def publish_refresh_candidate(
         raise RefreshCandidateError("publication approval is bound to another candidate")
     if approval.get("publication_target") != str(destination_parent.resolve()):
         raise RefreshCandidateError("publication approval is bound to another target")
+    if (
+        approval.get("reviewed_seed_sha256") != _sha256(seed_path)
+        or approval.get("reviewed_masked_sha256") != _sha256(masked_path)
+    ):
+        raise RefreshCandidateError("publication approval is bound to other reviewed inputs")
     if approval.get("deployment_authority") is not False:
         raise RefreshCandidateError("publication approval has an invalid authority claim")
 
@@ -1332,6 +1406,8 @@ def publish_refresh_candidate(
         copied_verification = verify_refresh_candidate(
             temporary / "candidate",
             now=fixed_now,
+            expected_seed_path=seed_path,
+            expected_masked_path=masked_path,
         )
         if (
             not copied_verification["publication_ready"]

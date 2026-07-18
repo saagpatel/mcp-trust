@@ -123,6 +123,68 @@ def _candidate(
     )
 
 
+def _complete_remote_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    masked: tuple[str, ...] = (),
+) -> tuple[Path, Path, Path]:
+    db_path = tmp_path / "registry.db"
+    remote = _server("alpha").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.test/mcp",
+            )
+        }
+    )
+    conn = connect(db_path)
+    init_schema(conn)
+    ServerRepository(conn).upsert(remote)
+    conn.close()
+    seed_path = tmp_path / "seed.json"
+    seed_path.write_text(
+        json.dumps([remote.model_dump(mode="json", exclude={"added_at"})]),
+        encoding="utf-8",
+    )
+    masked_path = tmp_path / "masked.json"
+    masked_path.write_text(json.dumps(list(masked)), encoding="utf-8")
+
+    class RemoteMCPAuditEngine:
+        def __init__(self, timeout: float) -> None:
+            assert timeout == 90.0
+
+        def scan(self, source: ServerSource) -> EngineResult:
+            assert source == remote.source
+            return _stub_scanner(remote).model_copy(
+                update={
+                    "engine_name": "mcpaudit",
+                    "engine_version": "2.4.0",
+                    "sandbox_image": None,
+                }
+            )
+
+    monkeypatch.setattr(
+        "mcp_trust.refresh.preflight_real_refresh",
+        lambda servers, *, default_image: {
+            "docker_daemon": "not_required",
+            "profiles": [],
+            "remote_transport_count": len(servers),
+        },
+    )
+    monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", RemoteMCPAuditEngine)
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="not-needed:image",
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    return candidate, seed_path, masked_path
+
+
 def _results(candidate: Path) -> list[dict[str, object]]:
     return json.loads((candidate / "scan_results.json").read_text())["results"]
 
@@ -259,6 +321,39 @@ def test_manifest_tampering_fails_content_verification(tmp_path: Path) -> None:
 
     assert verification["structural_valid"] is False
     assert "manifest_digest_mismatch" in verification["errors"]
+
+
+def test_invalid_masking_manifest_fails_closed_with_reviewed_inputs(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    candidate.chmod(0o700)
+    manifest_path.chmod(0o600)
+    digest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["masking"] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    manifest_path.chmod(0o400)
+    digest_path.chmod(0o400)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=tmp_path / "seed.json",
+        expected_masked_path=tmp_path / "masked.json",
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "masking_manifest_invalid" in verification["errors"]
+    assert "reviewed_inputs_mismatch" in verification["errors"]
 
 
 def test_rebound_manifest_cannot_relabel_fixture_as_publishable(
@@ -785,7 +880,12 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         (candidate / "receipts" / str(result["receipt"])).read_text(encoding="utf-8")
     )
     manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
-    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
 
     assert manifest["scan_mode"] == "mcpaudit-remote-live-network"
     assert receipt["sandbox"] == {
@@ -800,6 +900,90 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
     assert any("live network" in caveat for caveat in receipt["caveats"])
     assert verification["structural_valid"] is True
     assert verification["publication_ready"] is True
+
+
+def test_complete_candidate_requires_reviewed_inputs_for_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+
+    unbound = verify_refresh_candidate(candidate, now=FIXED_NOW)
+    bound = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert unbound["structural_valid"] is True
+    assert unbound["reviewed_inputs_bound"] is False
+    assert unbound["publication_ready"] is False
+    assert bound["structural_valid"] is True
+    assert bound["reviewed_inputs_bound"] is True
+    assert bound["publication_ready"] is True
+
+
+def test_complete_candidate_rejects_external_seed_catalog_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    reviewed_seed = tmp_path / "reviewed-seed.json"
+    reviewed_rows = json.loads(seed_path.read_text(encoding="utf-8"))
+    reviewed_rows.append(
+        {
+            "slug": "beta",
+            "name": "beta",
+            "source": {
+                "kind": "npm",
+                "reference": "@example/beta",
+                "command": "/opt/beta",
+            },
+        }
+    )
+    reviewed_seed.write_text(json.dumps(reviewed_rows), encoding="utf-8")
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=reviewed_seed,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["reviewed_inputs_bound"] is False
+    assert "reviewed_inputs_mismatch" in verification["errors"]
+
+
+def test_complete_candidate_rejects_external_mask_authorization_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, _masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+        masked=("alpha",),
+    )
+    reviewed_mask = tmp_path / "reviewed-mask.json"
+    reviewed_mask.write_text("[]", encoding="utf-8")
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=reviewed_mask,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["reviewed_inputs_bound"] is False
+    assert "reviewed_inputs_mismatch" in verification["errors"]
 
 
 def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
@@ -858,7 +1042,15 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
     )
     manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["scan_mode"] == "mcpaudit-local-network-off"
-    assert verify_refresh_candidate(candidate, now=FIXED_NOW)["publication_ready"] is True
+    assert (
+        verify_refresh_candidate(
+            candidate,
+            now=FIXED_NOW,
+            expected_seed_path=seed_path,
+            expected_masked_path=masked_path,
+        )["publication_ready"]
+        is True
+    )
 
     result = _results(candidate)[0]
     receipt_path = candidate / "receipts" / str(result["receipt"])
@@ -970,8 +1162,69 @@ def test_publication_without_distinct_approval_is_refused(tmp_path: Path) -> Non
             candidate=candidate,
             approval_path=None,
             destination_parent=tmp_path / "published",
+            seed_path=tmp_path / "seed.json",
+            masked_path=tmp_path / "masked.json",
             now=FIXED_NOW,
         )
+
+
+def test_local_publication_binds_the_reviewed_seed_and_mask_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+    approval_path = tmp_path / "approval.json"
+    destination = tmp_path / "published"
+
+    approve_refresh_candidate(
+        candidate=candidate,
+        approval_path=approval_path,
+        actor="operator",
+        reason="reviewed inputs match the candidate",
+        publication_target=destination,
+        confirmation_digest=str(verification["manifest_sha256"]),
+        seed_path=seed_path,
+        masked_path=masked_path,
+        now=FIXED_NOW,
+    )
+    published = publish_refresh_candidate(
+        candidate=candidate,
+        approval_path=approval_path,
+        destination_parent=destination,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        now=FIXED_NOW,
+    )
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    publication = json.loads(
+        (published / "PUBLICATION.json").read_text(encoding="utf-8")
+    )
+
+    assert approval["reviewed_seed_sha256"] == hashlib.sha256(
+        seed_path.read_bytes()
+    ).hexdigest()
+    assert approval["reviewed_masked_sha256"] == hashlib.sha256(
+        masked_path.read_bytes()
+    ).hexdigest()
+    assert publication["deployment_performed"] is False
+    assert (
+        verify_refresh_candidate(
+            published / "candidate",
+            now=FIXED_NOW,
+            expected_seed_path=seed_path,
+            expected_masked_path=masked_path,
+        )["publication_ready"]
+        is True
+    )
 
 
 def test_fixture_candidate_cannot_receive_publication_approval(tmp_path: Path) -> None:
@@ -986,6 +1239,8 @@ def test_fixture_candidate_cannot_receive_publication_approval(tmp_path: Path) -
             reason="fixture must remain fixture",
             publication_target=tmp_path / "published",
             confirmation_digest=str(verification["manifest_sha256"]),
+            seed_path=tmp_path / "seed.json",
+            masked_path=tmp_path / "masked.json",
             now=FIXED_NOW,
         )
 

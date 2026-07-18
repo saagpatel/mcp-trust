@@ -142,8 +142,9 @@ directory. That publication step still does not deploy the public site.
 
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
 generated catalog, regenerated from the local registry. The bundled catalog
-snapshot contains 31 real `mcp-audits` grades from network-off Docker sandbox
-scans, including reviewed Registry-derived sandboxed entries.
+snapshot contains 23 visible real `mcp-audits` grades; eight reviewed entries
+are withheld by `masked-grades.json` and are absent from the public snapshot.
+The visible local-process grades come from network-off Docker sandbox scans.
 Every grade is labeled by provenance, so demo/stub data can never read as a
 real scan, and an unscanned server never shows a letter grade. The current
 production deployment is the 31-server static catalog; grades are static

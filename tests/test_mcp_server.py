@@ -28,11 +28,11 @@ def test_list_servers_payload_is_complete_json() -> None:
 
 
 def test_check_server_payload_returns_full_record() -> None:
-    payload = json.loads(mcp_server.check_server_payload("mcp-archived-gitlab"))
-    assert payload["slug"] == "mcp-archived-gitlab"
-    assert payload["grade"] == "D"
+    payload = json.loads(mcp_server.check_server_payload("mcp-archived-brave-search"))
+    assert payload["slug"] == "mcp-archived-brave-search"
+    assert payload["grade"] == "B"
     assert payload["requires_credentials"] is True
-    assert "GITLAB_PERSONAL_ACCESS_TOKEN" in payload["source"]["env_keys"]
+    assert "BRAVE_API_KEY" in payload["source"]["env_keys"]
     assert isinstance(payload["findings"], list)
     assert "grade_change" in payload
 
@@ -65,14 +65,14 @@ def test_check_server_payload_preserves_public_grade_change_summary(monkeypatch)
 def test_check_server_payload_unknown_slug_errors_with_known_list() -> None:
     payload = json.loads(mcp_server.check_server_payload("does-not-exist"))
     assert "error" in payload
-    assert "mcp-archived-gitlab" in payload["known_slugs"]
+    assert "mcp-archived-brave-search" in payload["known_slugs"]
 
 
 def test_snapshot_never_leaks_dummy_credential_values() -> None:
     blob = _SNAPSHOT.read_text(encoding="utf-8")
     # Env var NAMES are recorded...
-    assert "GITLAB_PERSONAL_ACCESS_TOKEN" in blob
-    assert "SLACK_BOT_TOKEN" in blob
+    assert "BRAVE_API_KEY" in blob
+    assert "AWS_SECRET_ACCESS_KEY" in blob
     # ...but no injected dummy VALUE ever appears.
     for leak in ("ghp_", "glpat-", "xoxb-", "mcp-trust-dummy", "0000000000"):
         assert leak not in blob, f"dummy value pattern leaked into snapshot: {leak}"

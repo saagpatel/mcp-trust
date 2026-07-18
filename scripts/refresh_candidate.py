@@ -50,6 +50,12 @@ def _parser() -> argparse.ArgumentParser:
 
     verify = subcommands.add_parser("verify", help="Verify a candidate without mutation.")
     verify.add_argument("candidate", type=Path)
+    verify.add_argument(
+        "--seed",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/seed_servers.json"),
+    )
+    verify.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
 
     approve = subcommands.add_parser(
         "approve",
@@ -60,6 +66,12 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--actor", required=True)
     approve.add_argument("--reason", required=True)
     approve.add_argument("--target", type=Path, required=True)
+    approve.add_argument(
+        "--seed",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/seed_servers.json"),
+    )
+    approve.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
     approve.add_argument(
         "--confirm-manifest-sha256",
         required=True,
@@ -73,6 +85,12 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("candidate", type=Path)
     publish.add_argument("--approval", type=Path, required=True)
     publish.add_argument("--destination", type=Path, required=True)
+    publish.add_argument(
+        "--seed",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/seed_servers.json"),
+    )
+    publish.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
     return parser
 
 
@@ -88,7 +106,11 @@ def main(argv: list[str] | None = None) -> int:
                 default_image=args.sandbox_image,
                 candidate_name=args.name,
             )
-            verification = verify_refresh_candidate(candidate)
+            verification = verify_refresh_candidate(
+                candidate,
+                expected_seed_path=args.seed,
+                expected_masked_path=args.masked_grades,
+            )
             print(
                 json.dumps(
                     {
@@ -102,7 +124,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.command == "verify":
-            verification = verify_refresh_candidate(args.candidate)
+            verification = verify_refresh_candidate(
+                args.candidate,
+                expected_seed_path=args.seed,
+                expected_masked_path=args.masked_grades,
+            )
             print(json.dumps(verification, indent=2, sort_keys=True))
             return 0 if verification["structural_valid"] else 1
         if args.command == "approve":
@@ -113,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
                 reason=args.reason,
                 publication_target=args.target,
                 confirmation_digest=args.confirm_manifest_sha256,
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
             )
             print(path)
             return 0
@@ -121,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
                 candidate=args.candidate,
                 approval_path=args.approval,
                 destination_parent=args.destination,
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
             )
             print(path)
             return 0
