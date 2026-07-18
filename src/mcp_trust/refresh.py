@@ -18,6 +18,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from mcp_trust.core import grading
 from mcp_trust.core.drift import diff_latest
 from mcp_trust.core.models import ScanRecord, Server
@@ -144,6 +146,20 @@ def _catalog_slugs(seed_path: Path) -> tuple[frozenset[str], list[dict[str, Any]
         slugs.add(slug)
         rows.append(item)
     return frozenset(slugs), rows
+
+
+def _reviewed_server_from_seed(row: dict[str, Any], *, added_at: datetime) -> Server:
+    try:
+        return Server.model_validate({**row, "added_at": added_at})
+    except ValidationError as exc:
+        slug = row.get("slug")
+        raise RefreshCandidateError(
+            f"catalog identity contains invalid server metadata: {slug!r}"
+        ) from exc
+
+
+def _server_identity(server: Server) -> dict[str, Any]:
+    return server.model_dump(mode="json", exclude={"added_at"})
 
 
 def _sandbox_profile(image: str) -> dict[str, object]:
@@ -334,6 +350,13 @@ def create_refresh_candidate(
         raise RefreshCandidateError(f"registry database is missing: {source_db}")
     catalog_slugs, catalog_rows = _catalog_slugs(seed_path)
     masked_slugs = _load_string_list(masked_path)
+    unknown_masked_slugs = sorted(masked_slugs - catalog_slugs)
+    if unknown_masked_slugs:
+        raise RefreshCandidateError(
+            "masked grade list contains unknown catalog slug(s): "
+            + ",".join(unknown_masked_slugs)
+        )
+    catalog_by_slug = {row["slug"]: row for row in catalog_rows}
 
     source_conn = sqlite3.connect(f"file:{source_db}?mode=ro", uri=True)
     source_conn.row_factory = sqlite3.Row
@@ -345,6 +368,14 @@ def create_refresh_candidate(
             if server is None:
                 raise RefreshCandidateError(
                     f"catalog server missing from registry DB: {slug}"
+                )
+            reviewed_server = _reviewed_server_from_seed(
+                catalog_by_slug[slug],
+                added_at=server.added_at,
+            )
+            if _server_identity(server) != _server_identity(reviewed_server):
+                raise RefreshCandidateError(
+                    f"registry DB server metadata differs from reviewed catalog: {slug}"
                 )
             servers.append(server)
     finally:

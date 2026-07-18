@@ -71,7 +71,11 @@ def _inputs(
                 {
                     "slug": slug,
                     "name": slug,
-                    "source": {"kind": "npm", "reference": f"@example/{slug}"},
+                    "source": {
+                        "kind": "npm",
+                        "reference": f"@example/{slug}",
+                        "command": f"/opt/{slug}",
+                    },
                 }
                 for slug in slugs
             ]
@@ -154,6 +158,77 @@ def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
     assert "build_site.py" not in script
     assert "deploy_production" not in script
     assert "vercel deploy" not in script
+
+
+def test_unknown_masked_slug_refuses_before_scanning(tmp_path: Path) -> None:
+    db_path, seed_path, masked_path = _inputs(
+        tmp_path,
+        masked=("alpah",),
+    )
+    scanned: list[str] = []
+
+    def scanner(server: Server) -> EngineResult:
+        scanned.append(server.slug)
+        return _stub_scanner(server)
+
+    with pytest.raises(
+        RefreshCandidateError,
+        match="masked grade list contains unknown catalog slug.*alpah",
+    ):
+        create_refresh_candidate(
+            source_db=db_path,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            output_parent=tmp_path / "candidates",
+            default_image="fixture:image",
+            scanner=scanner,
+            now=FIXED_NOW,
+            candidate_name="candidate",
+        )
+
+    assert scanned == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("command", "/opt/reviewed-alpha"),
+        ("reference", "@example/reviewed-alpha"),
+        ("env_keys", ["REVIEWED_TOKEN"]),
+        ("sandbox_image", "reviewed:image"),
+    ),
+)
+def test_seed_source_metadata_mismatch_refuses_before_scanning(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    seed[0]["source"][field] = value
+    seed_path.write_text(json.dumps(seed), encoding="utf-8")
+    scanned: list[str] = []
+
+    def scanner(server: Server) -> EngineResult:
+        scanned.append(server.slug)
+        return _stub_scanner(server)
+
+    with pytest.raises(
+        RefreshCandidateError,
+        match="registry DB server metadata differs from reviewed catalog: alpha",
+    ):
+        create_refresh_candidate(
+            source_db=db_path,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            output_parent=tmp_path / "candidates",
+            default_image="fixture:image",
+            scanner=scanner,
+            now=FIXED_NOW,
+            candidate_name="candidate",
+        )
+
+    assert scanned == []
 
 
 def test_manifest_tampering_fails_content_verification(tmp_path: Path) -> None:
