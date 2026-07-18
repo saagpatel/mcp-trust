@@ -75,8 +75,28 @@ def test_build_snapshot_bakes_only_real_engine_scans(tmp_path) -> None:
     assert "stub-one" not in slugs
     assert snap["server_count"] == 1
     assert snap["schema_version"] == 2
-    assert snap["servers"][0]["scan_mode"] == "mcpaudit-local-network-off"
+    assert snap["servers"][0]["scan_mode"] == "mcpaudit-local-network-unknown"
     assert snap["servers"][0]["sandbox"] == {
+        "mode": "docker",
+        "network": "unknown",
+        "image": "fixture:image",
+    }
+
+
+def test_build_snapshot_only_claims_network_off_with_verified_context(tmp_path) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(_server("real-one"))
+    ScanRepository(conn).record(_scan("real-one", "mcpaudit"))
+
+    server = _load_build_snapshot().build_snapshot(
+        db,
+        verified_local_network="none",
+    )["servers"][0]
+
+    assert server["scan_mode"] == "mcpaudit-local-network-off"
+    assert server["sandbox"] == {
         "mode": "docker",
         "network": "none",
         "image": "fixture:image",

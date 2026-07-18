@@ -19,6 +19,7 @@ def build_snapshot(
     *,
     excluded_slugs: frozenset[str] = frozenset(),
     masked_slugs: frozenset[str] = frozenset(),
+    verified_local_network: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     """Build the public-safe snapshot without stale fallback or masked grades.
@@ -74,11 +75,18 @@ def build_snapshot(
                     "mode": "not_applicable",
                     "reason": "remote_endpoint_no_local_process",
                 }
-            elif scan.sandbox_image:
+            elif scan.sandbox_image and verified_local_network == "none":
                 scan_mode = "mcpaudit-local-network-off"
                 sandbox = {
                     "mode": "docker",
                     "network": "none",
+                    "image": scan.sandbox_image,
+                }
+            elif scan.sandbox_image:
+                scan_mode = "mcpaudit-local-network-unknown"
+                sandbox = {
+                    "mode": "docker",
+                    "network": "unknown",
                     "image": scan.sandbox_image,
                 }
             else:

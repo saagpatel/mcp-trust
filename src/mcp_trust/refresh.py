@@ -719,6 +719,7 @@ def create_refresh_candidate(
             str(candidate_db),
             excluded_slugs=frozenset(excluded),
             masked_slugs=masked_slugs,
+            verified_local_network=None if fixture_mode else "none",
             now=fixed_now,
         )
         _write_private(
@@ -1198,6 +1199,9 @@ def verify_refresh_candidate(
                     str(result.get("server_slug"))
                     for result in results
                     if isinstance(result, dict) and result.get("state") == "masked"
+                ),
+                verified_local_network=(
+                    None if candidate_state == "fixture" else "none"
                 ),
                 now=created_at,
             )

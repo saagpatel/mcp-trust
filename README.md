@@ -121,7 +121,7 @@ Create a review candidate without mutating the canonical registry, baked
 snapshot, static site, schedule, or deployment:
 
 ```bash
-uv run --frozen python scripts/refresh_candidate.py create \
+uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db ./registry.db \
   --out-dir ./dist/refresh-candidates
 ```
