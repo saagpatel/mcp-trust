@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -155,7 +156,7 @@ def test_catalog_notice_states_the_silent_failure_mode(client: TestClient) -> No
 
 def test_catalog_notice_disappears_when_nothing_rendered_is_exposed() -> None:
     """Showing only clean servers must retire the disclosure."""
-    assert _spec_shift_notice([CLEAN_SLUG]) == ""
+    assert _spec_shift_notice([{"slug": CLEAN_SLUG}]) == ""
 
 
 def test_catalog_notice_is_silent_on_an_empty_catalog() -> None:
@@ -166,14 +167,16 @@ def test_catalog_notice_is_silent_on_an_empty_catalog() -> None:
 
 def test_catalog_notice_counts_only_rendered_servers() -> None:
     """The numbers must describe the page they appear on, not the whole dataset."""
-    notice = _spec_shift_notice([BREAKING_SLUG, CLEAN_SLUG])
+    notice = _spec_shift_notice([{"slug": BREAKING_SLUG}, {"slug": CLEAN_SLUG}])
     assert "1 of 2 servers below" in notice
 
 
 def test_catalog_notice_ignores_unruled_slugs_in_its_denominator() -> None:
     """An un-audited server is not evidence of anything and must not inflate
     the denominator into implying broader coverage than the audit had."""
-    notice = _spec_shift_notice([BREAKING_SLUG, "server-added-after-the-audit"])
+    notice = _spec_shift_notice(
+        [{"slug": BREAKING_SLUG}, {"slug": "server-added-after-the-audit"}]
+    )
     assert "1 of 1 servers below" in notice
 
 
@@ -208,3 +211,103 @@ def test_unaudited_server_is_not_rendered_as_clean() -> None:
     card = _spec_shift_card("some-server-added-after-the-audit")
     assert "Not audited is not" in card
     assert "READY" not in card
+
+
+# ---------------------------------------------------------------------------
+# Masking — api/AGENTS.md requires masked metadata to stay neutral
+# ---------------------------------------------------------------------------
+
+
+def _audited_source(slug: str):
+    """The exact source the verdict was ruled against, as a Server would expose it."""
+    return SimpleNamespace(**spec_shift.load()["servers"][slug]["audited_source"])
+
+
+def test_masked_detail_card_publishes_no_verdict() -> None:
+    """A spec-shift verdict is a fresh public trust claim about precisely the
+    server whose claims are being withheld, so masking wins over everything."""
+    card = _spec_shift_card(BREAKING_SLUG, masked=True, source=_audited_source(BREAKING_SLUG))
+    assert "under review" in card
+    assert "BREAKS" not in card
+    assert "What to change" not in card
+
+
+def test_masked_card_does_not_imply_the_server_is_clean() -> None:
+    """Withholding must not read as a pass in either direction."""
+    card = _spec_shift_card(BREAKING_SLUG, masked=True, source=_audited_source(BREAKING_SLUG))
+    assert "says nothing about whether the server is exposed" in card
+    assert "READY" not in card
+
+
+def test_masked_rows_are_excluded_from_the_catalog_count() -> None:
+    """Aggregating masked servers into a public exposure count republishes what
+    the per-row mask withholds."""
+    rows = [
+        {"slug": BREAKING_SLUG, "masked": True},
+        {"slug": CLEAN_SLUG, "masked": False},
+    ]
+    assert _spec_shift_notice(rows) == ""
+
+
+def test_unmasked_rows_still_counted_when_a_masked_row_is_present() -> None:
+    rows = [
+        {"slug": BREAKING_SLUG, "masked": False},
+        {"slug": "mcp-reference-fetch", "masked": True},
+        {"slug": CLEAN_SLUG, "masked": False},
+    ]
+    assert "1 of 2 servers below" in _spec_shift_notice(rows)
+
+
+# ---------------------------------------------------------------------------
+# Source binding — a slug is not a stable identity
+# ---------------------------------------------------------------------------
+
+
+def test_every_record_carries_the_audited_source() -> None:
+    bound = spec_shift.load()["bound_fields"]
+    for slug, record in spec_shift.load()["servers"].items():
+        assert set(record["audited_source"]) == set(bound), slug
+        assert record["audited_source"]["reference"], slug
+
+
+def test_verdict_renders_when_the_artifact_still_matches() -> None:
+    card = _spec_shift_card(BREAKING_SLUG, source=_audited_source(BREAKING_SLUG))
+    assert "BREAKS" in card
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("reference", "@evil/substituted-package"),
+        ("args", ["--different"]),
+        ("sandbox_image", "some-other-image:latest"),
+        ("command", "another-binary"),
+    ],
+)
+def test_changed_artifact_withholds_the_verdict(field: str, value) -> None:
+    """A catalog entry can keep its slug while the artifact underneath changes.
+    Publishing the old verdict would be a claim about software nobody audited."""
+    source = _audited_source(BREAKING_SLUG)
+    setattr(source, field, value)
+    card = _spec_shift_card(BREAKING_SLUG, source=source)
+    assert "source has changed" in card
+    assert "BREAKS" not in card
+    assert "What to change" not in card
+
+
+def test_missing_source_withholds_the_verdict() -> None:
+    """No source to verify against is unknown, not a pass."""
+    card = _spec_shift_card(BREAKING_SLUG, source=None)
+    assert "source has changed" in card
+    assert "BREAKS" not in card
+
+
+def test_matches_audited_source_is_false_without_a_record() -> None:
+    assert spec_shift.matches_audited_source(None, _audited_source(BREAKING_SLUG)) is False
+
+
+def test_live_detail_page_still_publishes_for_an_unchanged_catalog(client: TestClient) -> None:
+    """End-to-end: the seeded catalog is what was audited, so verdicts publish."""
+    body = client.get(f"/ui/servers/{BREAKING_SLUG}").text
+    assert "BREAKS" in body
+    assert "source has changed" not in body

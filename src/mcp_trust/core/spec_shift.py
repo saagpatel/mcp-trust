@@ -46,8 +46,37 @@ def for_server(slug: str) -> dict[str, Any] | None:
 
     A missing record is the normal case for any server added to the catalog
     after the ruling date — it means "not yet audited", never "clean".
+
+    A record alone is NOT sufficient to publish a verdict: a slug is not a
+    stable identity. Callers must also pass the live source through
+    :func:`matches_audited_source` before rendering anything.
     """
     return load()["servers"].get(slug)
+
+
+def matches_audited_source(record: dict[str, Any] | None, source: Any) -> bool:
+    """True when ``source`` is the artifact the verdict was actually ruled against.
+
+    A catalog entry can keep its slug while its package reference, launch args,
+    or sandbox image change underneath it — several catalogued sources are
+    unpinned and mutable. Publishing a frozen verdict against a changed artifact
+    would be a false claim about software nobody audited, so every bound field
+    must match exactly. Anything missing or different resolves to False, and the
+    caller is expected to render the unknown state rather than a verdict.
+    """
+    if not record or source is None:
+        return False
+    audited = record.get("audited_source") or {}
+    for field in load()["bound_fields"]:
+        expected = audited.get(field)
+        actual = getattr(source, field, None)
+        # Pydantic gives lists for args; normalize both sides before comparing.
+        if isinstance(expected, list) or isinstance(actual, list):
+            if list(expected or []) != list(actual or []):
+                return False
+        elif expected != actual:
+            return False
+    return True
 
 
 def summary() -> dict[str, Any]:

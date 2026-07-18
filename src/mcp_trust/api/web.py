@@ -23,6 +23,7 @@ import logging
 from collections.abc import Iterable
 from datetime import datetime
 from html import escape
+from typing import Any
 
 from mcp_trust.core import spec_shift
 from mcp_trust.core.drift import GradeChange, SurfaceComparison
@@ -297,7 +298,7 @@ def _rescan_pause_notice() -> str:
     )
 
 
-def _spec_shift_notice(slugs: Iterable[str]) -> str:
+def _spec_shift_notice(rows: Iterable[dict]) -> str:
     """Disclose that a danger grade says nothing about spec conformance.
 
     Every grade in the table answers "what can this server do to me?" None of
@@ -310,9 +311,14 @@ def _spec_shift_notice(slugs: Iterable[str]) -> str:
     announced "10 of 31 servers below carry spec-shift exposure" on a build with
     an empty table — the numbers have to describe the page they appear on.
     Returns "" when nothing rendered is exposed, so the notice retires itself.
+
+    Operator-masked rows are excluded entirely. Their metadata is withheld
+    pending governance review (``api/AGENTS.md``), and rolling them into a
+    public exposure count would republish in aggregate exactly what the mask
+    withholds per row.
     """
     ruled = spec_shift.load()["servers"]
-    shown = [slug for slug in slugs if slug in ruled]
+    shown = [row["slug"] for row in rows if not row.get("masked") and row.get("slug") in ruled]
     exposed = [slug for slug in shown if ruled[slug]["overall"] in spec_shift.ADVERSE_VERDICTS]
     if not exposed:
         return ""
@@ -331,8 +337,14 @@ def _spec_shift_notice(slugs: Iterable[str]) -> str:
     )
 
 
-def _spec_shift_card(slug: str) -> str:
+def _spec_shift_card(slug: str, *, masked: bool = False, source: Any = None) -> str:
     """Per-server spec-shift verdict, rendered as its own card.
+
+    Publishes a verdict only when three things hold: the server was audited,
+    the catalogued artifact still matches what was audited, and the entry is
+    not operator-masked. Any of those failing renders a neutral unknown state,
+    never a verdict — per ``api/AGENTS.md``, missing source-binding or masked
+    metadata must read as unknown rather than as a claim.
 
     Deliberately separate from the grade card. Folding conformance into the
     danger grade would redefine what a grade means for every consumer already
@@ -340,18 +352,47 @@ def _spec_shift_card(slug: str) -> str:
     """
     record = spec_shift.for_server(slug)
     summary = spec_shift.summary()
-    if record is None:
-        # Absence means not-yet-audited, which must never be read as clean.
+
+    def _neutral(reason: str) -> str:
         return (
             '<div class="card">'
             '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
             "Spec-shift exposure</h2>"
-            '<p style="color:#57606a;font-size:0.9rem;margin:0">'
+            f'<p style="color:#57606a;font-size:0.9rem;margin:0">{reason}</p></div>'
+        )
+
+    # Operator-masked entries are under governance review: their metadata must
+    # stay neutral (api/AGENTS.md), and a spec-shift verdict is a fresh public
+    # trust claim about the very server whose claims are being withheld. Masking
+    # is checked before anything else so no verdict path can bypass it.
+    if masked:
+        return _neutral(
+            "Withheld while this entry is under review. Spec-shift exposure is "
+            "server-specific metadata, so it is held back with the rest — this "
+            "says nothing about whether the server is exposed."
+        )
+
+    if record is None:
+        # Absence means not-yet-audited, which must never be read as clean.
+        return _neutral(
             "This server was not part of the "
             f"{escape(summary['ruled_at'])} audit against the MCP "
             f"{escape(summary['spec_version'])} specification. Not audited is not "
             "a pass — its exposure is simply unknown."
-            "</p></div>"
+        )
+
+    # A slug is not a stable identity. If the catalogued artifact has moved
+    # since the audit, the verdict describes different software and publishing
+    # it would be a false claim; render the unknown state instead.
+    if not spec_shift.matches_audited_source(record, source):
+        audited_version = record.get("audited_version")
+        ruled_against = f" ({escape(str(audited_version))})" if audited_version else ""
+        return _neutral(
+            "Unknown. This entry's source has changed since the "
+            f"{escape(summary['ruled_at'])} audit, which ruled against a "
+            f"different artifact{ruled_against}, so the earlier verdict no longer "
+            "describes what this catalog now points at. It must be re-audited "
+            "before any verdict can be shown."
         )
 
     overall = record["overall"]
@@ -683,7 +724,7 @@ def render_catalog(
         "Grades come from automated scans and mean check before you connect, not endorsement."
         "</p>"
         + _rescan_pause_notice()
-        + _spec_shift_notice(r.get("slug", "") for r in rows)
+        + _spec_shift_notice(rows)
         + "<table>"
         "<thead><tr>"
         "<th>Server</th><th>Danger grade</th><th>Transparency</th>"
@@ -1011,7 +1052,7 @@ def render_detail(
 
     body = (
         f"<main>{back}<div style='margin-top:1rem'>{hero}</div>"
-        f"{grade_change_notice}{floor}{_spec_shift_card(server.slug)}"
+        f"{grade_change_notice}{floor}{_spec_shift_card(server.slug, masked=masked, source=source)}"
         f"{provenance_card}{badge_box}{findings_section}</main>"
     )
     return _page(f"MCP Trust — {server.name}", body, banner=banner)
