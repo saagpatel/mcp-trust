@@ -334,7 +334,12 @@ def test_manifest_tampering_fails_content_verification(tmp_path: Path) -> None:
     os.chmod(manifest, 0o400)
     os.chmod(candidate, 0o500)
 
-    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=tmp_path / "seed.json",
+        expected_masked_path=tmp_path / "masked.json",
+    )
 
     assert verification["structural_valid"] is False
     assert "manifest_digest_mismatch" in verification["errors"]
@@ -355,7 +360,12 @@ def test_unreadable_manifest_returns_structured_invalid_result(
 
     monkeypatch.setattr(Path, "read_text", fail_manifest_read)
 
-    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=tmp_path / "seed.json",
+        expected_masked_path=tmp_path / "masked.json",
+    )
 
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False

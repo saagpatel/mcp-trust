@@ -19,10 +19,12 @@ from typing import Any
 _METHODOLOGY = """\
 MCP Trust grades public MCP servers on two orthogonal axes.
 
-1. Danger grade (A-F). A local-process server is launched in a network-off
-   Docker sandbox; a remote endpoint is probed over its live network transport
-   without a local process sandbox. Each public record discloses its scan mode
-   and sandbox applicability. The real tool surface is scored across five
+1. Danger grade (A-F). A local-process record is labeled network-off only when
+   that Docker context was verified; otherwise its network or sandbox
+   provenance is explicitly unknown. A remote endpoint is probed over its live
+   network transport without a local process sandbox. Each public record
+   discloses its scan mode and sandbox applicability. The real tool surface is
+   scored across five
    weighted dimensions — file access, network access, shell execution,
    destructive capability, and exfiltration potential — into a 0-10 composite
    mapped to an A (lowest danger) to F (highest) band. A server with a
@@ -37,9 +39,10 @@ MCP Trust grades public MCP servers on two orthogonal axes.
 Honesty model:
 - Grades are real, derived from a real scan. A server with no scan on record is
   never assigned a letter grade.
-- Local-process scanning is network-off in a locked-down sandbox. Remote
-  endpoint scanning necessarily uses live network transport and is labeled as
-  such; neither mode proves runtime behavior beyond the observed tool surface.
+- Verified local-process scans are network-off in a locked-down sandbox;
+  records without that proof say network or provenance unknown. Remote endpoint
+  scanning necessarily uses live network transport and is labeled as such;
+  none of these modes proves runtime behavior beyond the observed tool surface.
 - Credential-gated local-process servers are scanned with NON-FUNCTIONAL dummy
   values so they reach tool enumeration; the network is off, so nothing can
   authenticate. The enumerated tool surface is real; dummy values are never
@@ -82,8 +85,7 @@ def _current_server_record(
     record["scan_age_days"] = round(
         max(
             0.0,
-            (fixed_now.astimezone(UTC) - parsed.astimezone(UTC)).total_seconds()
-            / 86400,
+            (fixed_now.astimezone(UTC) - parsed.astimezone(UTC)).total_seconds() / 86400,
         ),
         6,
     )

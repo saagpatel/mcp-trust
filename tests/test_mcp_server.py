@@ -110,3 +110,9 @@ def test_build_server_constructs() -> None:
     app = mcp_server.build_server()
     assert app is not None
     assert app.name == "mcp-trust"
+
+
+def test_methodology_does_not_flatten_unknown_local_provenance() -> None:
+    methodology = mcp_server._METHODOLOGY  # pyright: ignore[reportPrivateUsage]
+    assert "only when" in methodology
+    assert "provenance is explicitly unknown" in methodology

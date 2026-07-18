@@ -918,9 +918,11 @@ def verify_refresh_candidate(
     ):
         errors.append("catalog_scan_coverage_mismatch")
     manifest_catalog = manifest.get("catalog")
-    if (
-        not isinstance(manifest_catalog, dict)
-        or manifest_catalog.get("server_count") != len(catalog_rows)
+    if not isinstance(manifest_catalog, dict):
+        errors.append("catalog_manifest_mismatch")
+        manifest_catalog = {}
+    elif (
+        manifest_catalog.get("server_count") != len(catalog_rows)
         or catalog_payload.get("server_count") != len(catalog_rows)
         or manifest_catalog.get("seed_sha256") != catalog_payload.get("seed_sha256")
     ):
