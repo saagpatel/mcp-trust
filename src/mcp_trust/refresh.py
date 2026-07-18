@@ -289,6 +289,27 @@ def _validate_receipt(
     )
 
 
+def _redact_masked_receipt(path: Path) -> None:
+    receipt = _load_json(path)
+    if not isinstance(receipt, dict):
+        raise RefreshCandidateError("masked receipt is not a JSON object")
+    redacted = {
+        "format_version": receipt.get("format_version"),
+        "receipt_visibility": "withheld",
+        "server_slug": receipt.get("server_slug"),
+        "scan_id": receipt.get("scan_id"),
+        "scanner": receipt.get("scanner"),
+        "sandbox": receipt.get("sandbox"),
+        "approval": receipt.get("approval"),
+        "caveats": [
+            "Grade, risk, findings, evidence, and drift are operator-withheld."
+        ],
+    }
+    replacement = path.with_name(f".{path.name}.redacted")
+    _write_private(replacement, redacted)
+    os.replace(replacement, path)
+
+
 def _scan_age_days(scanned_at: datetime, now: datetime) -> float:
     if scanned_at.tzinfo is None:
         scanned_at = scanned_at.replace(tzinfo=UTC)
@@ -414,6 +435,12 @@ def create_refresh_candidate(
         conn = connect(str(candidate_db))
         init_schema(conn)
         scan_repo = ScanRepository(conn)
+        if masked_slugs:
+            conn.executemany(
+                "DELETE FROM scans WHERE server_slug = ?",
+                ((slug,) for slug in sorted(masked_slugs)),
+            )
+            conn.commit()
 
         results: list[dict[str, object]] = []
         excluded: set[str] = set()
@@ -501,10 +528,15 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
-                    scan = scan.model_copy(update={"report_ref": receipt_ref})
-                    scan_repo.record(scan)
-                    drift = diff_latest(scan_repo.history(server.slug, limit=2))
                     masked = server.slug in masked_slugs
+                    if masked:
+                        assert receipt_path is not None
+                        _redact_masked_receipt(receipt_path)
+                        drift = None
+                    else:
+                        scan = scan.model_copy(update={"report_ref": receipt_ref})
+                        scan_repo.record(scan)
+                        drift = diff_latest(scan_repo.history(server.slug, limit=2))
                     results.append(
                         {
                             "server_slug": server.slug,
@@ -520,6 +552,9 @@ def create_refresh_candidate(
                             "engine_name": scan.engine_name,
                             "engine_version": scan.engine_version,
                             "receipt": receipt_ref,
+                            "receipt_visibility": (
+                                "withheld" if masked else "reviewable"
+                            ),
                             "drift": (
                                 {
                                     "cause": str(drift.cause),
@@ -642,7 +677,10 @@ def create_refresh_candidate(
 
     verified = verify_refresh_candidate(final, now=fixed_now)
     if not verified["structural_valid"]:
-        raise RefreshCandidateError("published candidate failed content verification")
+        raise RefreshCandidateError(
+            "published candidate failed content verification: "
+            + ",".join(str(error) for error in verified["errors"])
+        )
     return final
 
 
@@ -733,15 +771,52 @@ def verify_refresh_candidate(
 
     results_payload: Any = {}
     snapshot_payload: Any = {}
+    catalog_payload: Any = {}
     try:
         results_payload = _load_json(candidate / "scan_results.json")
         snapshot_payload = _load_json(candidate / "static_snapshot.json")
+        catalog_payload = _load_json(candidate / "catalog_identity.json")
     except RefreshCandidateError:
         errors.append("candidate_projection_unreadable")
     results = results_payload.get("results") if isinstance(results_payload, dict) else None
     if not isinstance(results, list):
         errors.append("scan_results_invalid")
         results = []
+    catalog_rows = (
+        catalog_payload.get("servers") if isinstance(catalog_payload, dict) else None
+    )
+    if (
+        not isinstance(catalog_payload, dict)
+        or catalog_payload.get("schema") != "RefreshCatalogIdentityV1"
+        or not isinstance(catalog_rows, list)
+    ):
+        errors.append("catalog_identity_invalid")
+        catalog_payload = {}
+        catalog_rows = []
+    catalog_slugs = {
+        row.get("slug")
+        for row in catalog_rows
+        if isinstance(row, dict) and isinstance(row.get("slug"), str)
+    }
+    result_slugs = {
+        result.get("server_slug")
+        for result in results
+        if isinstance(result, dict) and isinstance(result.get("server_slug"), str)
+    }
+    if (
+        len(catalog_slugs) != len(catalog_rows)
+        or len(result_slugs) != len(results)
+        or result_slugs != catalog_slugs
+    ):
+        errors.append("catalog_scan_coverage_mismatch")
+    manifest_catalog = manifest.get("catalog")
+    if (
+        not isinstance(manifest_catalog, dict)
+        or manifest_catalog.get("server_count") != len(catalog_rows)
+        or catalog_payload.get("server_count") != len(catalog_rows)
+        or manifest_catalog.get("seed_sha256") != catalog_payload.get("seed_sha256")
+    ):
+        errors.append("catalog_manifest_mismatch")
     candidate_state = manifest.get("candidate_state")
     scan_mode = manifest.get("scan_mode")
     successful_results = [
@@ -771,6 +846,23 @@ def verify_refresh_candidate(
         ):
             errors.append(f"successful_scan_receipt_mismatch:{receipt_ref}")
             continue
+        if result.get("state") == "masked":
+            if (
+                receipt.get("receipt_visibility") != "withheld"
+                or any(
+                    field in receipt
+                    for field in (
+                        "server",
+                        "scan",
+                        "evidence",
+                        "danger_score",
+                    )
+                )
+                or result.get("fresh_grade") is not None
+                or result.get("transparency") is not None
+                or result.get("drift") is not None
+            ):
+                errors.append(f"masked_scan_evidence_exposed:{receipt_ref}")
         if candidate_state == "complete":
             scanner = receipt.get("scanner")
             sandbox = receipt.get("sandbox")
@@ -802,6 +894,13 @@ def verify_refresh_candidate(
     }
     if excluded & exposed:
         errors.append("failed_or_masked_grade_exposed")
+    fresh_slugs = {
+        result.get("server_slug")
+        for result in results
+        if isinstance(result, dict) and result.get("state") == "fresh"
+    }
+    if candidate_state != "fixture" and exposed != fresh_slugs:
+        errors.append("static_snapshot_coverage_mismatch")
     for server in snapshot_servers:
         if isinstance(server, dict) and not isinstance(server.get("scan_age_days"), (int, float)):
             errors.append("scan_age_missing")
@@ -846,6 +945,30 @@ def verify_refresh_candidate(
         "schedule_change": False,
     }:
         errors.append("candidate_authority_invalid")
+
+    masked_slugs = sorted(
+        str(result.get("server_slug"))
+        for result in results
+        if isinstance(result, dict) and result.get("state") == "masked"
+    )
+    if masked_slugs:
+        try:
+            candidate_db = sqlite3.connect(
+                f"file:{candidate / 'registry.db'}?mode=ro",
+                uri=True,
+            )
+            try:
+                placeholders = ",".join("?" for _ in masked_slugs)
+                leaked_count = candidate_db.execute(
+                    f"SELECT COUNT(*) FROM scans WHERE server_slug IN ({placeholders})",
+                    masked_slugs,
+                ).fetchone()[0]
+            finally:
+                candidate_db.close()
+            if leaked_count:
+                errors.append("masked_scan_database_history_exposed")
+        except (OSError, sqlite3.Error, TypeError):
+            errors.append("candidate_database_unreadable")
 
     structural_valid = not errors
     stale = age_hours is not None and age_hours > max_age_hours

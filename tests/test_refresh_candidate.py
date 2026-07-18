@@ -414,14 +414,90 @@ def test_unknown_evidence_is_explicit_and_not_fresh(tmp_path: Path) -> None:
 
 
 def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> None:
-    candidate = _candidate(tmp_path, masked=("alpha",))
+    db_path, seed_path, masked_path = _inputs(tmp_path, masked=("alpha",))
+    conn = connect(db_path)
+    ScanRepository(conn).record(
+        ScanRecord(
+            id="old-alpha",
+            server_slug="alpha",
+            engine_name="mcpaudit",
+            engine_version="2.3.0",
+            grade=TrustGrade.D,
+            risk=RiskSummary(composite=6.0),
+            evidence=ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+            scanned_at=FIXED_NOW - timedelta(days=30),
+        )
+    )
+    conn.close()
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="fixture:image",
+        scanner=_stub_scanner,
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
 
     result = _results(candidate)[0]
     snapshot = json.loads((candidate / "static_snapshot.json").read_text())
+    receipt = json.loads(
+        (candidate / "receipts" / str(result["receipt"])).read_text()
+    )
+    candidate_conn = connect(candidate / "registry.db")
+    masked_scan_count = candidate_conn.execute(
+        "SELECT COUNT(*) FROM scans WHERE server_slug = 'alpha'"
+    ).fetchone()[0]
+    candidate_conn.close()
     assert result["state"] == "masked"
     assert result["fresh_grade"] is None
     assert result["grade_visibility"] == "withheld"
+    assert result["receipt_visibility"] == "withheld"
+    assert result["drift"] is None
+    assert receipt["receipt_visibility"] == "withheld"
+    assert not {"server", "scan", "evidence", "danger_score"} & receipt.keys()
+    assert masked_scan_count == 0
     assert snapshot["servers"] == []
+
+
+def test_rebound_manifest_cannot_omit_catalog_result(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path, slugs=("alpha", "beta"))
+    results_path = candidate / "scan_results.json"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    os.chmod(candidate, 0o700)
+    os.chmod(results_path, 0o600)
+    os.chmod(manifest_path, 0o600)
+    os.chmod(digest_path, 0o600)
+    results_payload = json.loads(results_path.read_text())
+    results_payload["results"] = results_payload["results"][:1]
+    results_path.write_text(json.dumps(results_payload), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text())
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == "scan_results.json":
+            artifact["bytes"] = results_path.stat().st_size
+            artifact["sha256"] = hashlib.sha256(results_path.read_bytes()).hexdigest()
+    manifest["scan_counts"] = {
+        "total": 1,
+        "fresh": 1,
+        "masked": 0,
+        "failed": 0,
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (results_path, manifest_path, digest_path):
+        os.chmod(path, 0o400)
+    os.chmod(candidate, 0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "catalog_scan_coverage_mismatch" in verification["errors"]
 
 
 def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
