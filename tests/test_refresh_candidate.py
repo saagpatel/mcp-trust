@@ -884,6 +884,9 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         (candidate / "receipts" / str(result["receipt"])).read_text(encoding="utf-8")
     )
     manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
+    snapshot = json.loads(
+        (candidate / "static_snapshot.json").read_text(encoding="utf-8")
+    )
     verification = verify_refresh_candidate(
         candidate,
         now=FIXED_NOW,
@@ -892,6 +895,11 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
     )
 
     assert manifest["scan_mode"] == "mcpaudit-remote-live-network"
+    assert snapshot["servers"][0]["scan_mode"] == "mcpaudit-remote-live-network"
+    assert snapshot["servers"][0]["sandbox"] == {
+        "mode": "not_applicable",
+        "reason": "remote_endpoint_no_local_process",
+    }
     assert receipt["sandbox"] == {
         "mode": "not_applicable",
         "reason": "remote_endpoint_no_local_process",

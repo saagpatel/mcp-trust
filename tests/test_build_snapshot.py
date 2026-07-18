@@ -53,6 +53,7 @@ def _scan(slug: str, engine: str) -> ScanRecord:
         grade=TrustGrade.C,
         risk=RiskSummary(composite=5.0),
         scanned_at=datetime(2026, 6, 28),
+        sandbox_image="fixture:image",
     )
 
 
@@ -74,6 +75,40 @@ def test_build_snapshot_bakes_only_real_engine_scans(tmp_path) -> None:
     assert "stub-one" not in slugs
     assert snap["server_count"] == 1
     assert snap["schema_version"] == 2
+    assert snap["servers"][0]["scan_mode"] == "mcpaudit-local-network-off"
+    assert snap["servers"][0]["sandbox"] == {
+        "mode": "docker",
+        "network": "none",
+        "image": "fixture:image",
+    }
+
+
+def test_build_snapshot_discloses_remote_live_transport(tmp_path) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    remote = _server("remote-one").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.test/mcp",
+            )
+        }
+    )
+    ServerRepository(conn).upsert(remote)
+    ScanRepository(conn).record(
+        _scan("remote-one", "mcpaudit").model_copy(
+            update={"sandbox_image": None}
+        )
+    )
+
+    server = _load_build_snapshot().build_snapshot(db)["servers"][0]
+
+    assert server["scan_mode"] == "mcpaudit-remote-live-network"
+    assert server["sandbox"] == {
+        "mode": "not_applicable",
+        "reason": "remote_endpoint_no_local_process",
+    }
 
 
 def test_build_snapshot_main_rejects_unknown_mask_before_output(

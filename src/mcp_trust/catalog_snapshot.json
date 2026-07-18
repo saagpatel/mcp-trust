@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-18T10:43:32.788889+00:00",
+  "generated_at": "2026-07-18T11:20:22.223646+00:00",
   "generated_from_scan_at": "2026-07-04T08:18:12.626276+00:00",
   "server_count": 23,
   "servers": [
@@ -295,8 +295,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:47.278372+00:00",
-      "scan_age_days": 14.101221,
+      "scan_age_days": 14.126793,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -903,8 +909,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:50.848574+00:00",
-      "scan_age_days": 14.10118,
+      "scan_age_days": 14.126752,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -2423,8 +2435,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:51.560795+00:00",
-      "scan_age_days": 14.101172,
+      "scan_age_days": 14.126744,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -2677,8 +2695,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:52.064100+00:00",
-      "scan_age_days": 14.101166,
+      "scan_age_days": 14.126738,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -2829,8 +2853,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:53.570929+00:00",
-      "scan_age_days": 14.101148,
+      "scan_age_days": 14.126721,
       "grade_change": {
         "changed_at": "2026-07-03T09:46:11.381223Z",
         "previous_grade": "F",
@@ -2909,8 +2939,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:54.195624+00:00",
-      "scan_age_days": 14.101141,
+      "scan_age_days": 14.126713,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -3013,8 +3049,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:54.705488+00:00",
-      "scan_age_days": 14.101135,
+      "scan_age_days": 14.126707,
       "grade_change": {
         "changed_at": "2026-07-03T09:46:12.559633Z",
         "previous_grade": "C",
@@ -3159,8 +3201,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-live-batch:20260628"
+      },
       "scanned_at": "2026-07-04T08:17:55.221307+00:00",
-      "scan_age_days": 14.101129,
+      "scan_age_days": 14.126701,
       "grade_change": {
         "changed_at": "2026-07-03T09:46:13.094309Z",
         "previous_grade": "F",
@@ -3527,8 +3575,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-batch4:20260703"
+      },
       "scanned_at": "2026-07-04T08:17:59.062205+00:00",
-      "scan_age_days": 14.101085,
+      "scan_age_days": 14.126657,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -3637,8 +3691,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-batch3:20260703"
+      },
       "scanned_at": "2026-07-04T08:18:01.663787+00:00",
-      "scan_age_days": 14.101055,
+      "scan_age_days": 14.126627,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -3747,8 +3807,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-batch4:20260703"
+      },
       "scanned_at": "2026-07-04T08:18:02.943380+00:00",
-      "scan_age_days": 14.10104,
+      "scan_age_days": 14.126612,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -3813,8 +3879,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:03.422269+00:00",
-      "scan_age_days": 14.101034,
+      "scan_age_days": 14.126606,
       "grade_change": {
         "changed_at": "2026-07-03T09:44:06.475834Z",
         "previous_grade": "F",
@@ -3907,8 +3979,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:03.846210+00:00",
-      "scan_age_days": 14.101029,
+      "scan_age_days": 14.126602,
       "grade_change": {
         "changed_at": "2026-07-03T09:44:06.946806Z",
         "previous_grade": "C",
@@ -3971,8 +4049,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:04.395647+00:00",
-      "scan_age_days": 14.101023,
+      "scan_age_days": 14.126595,
       "grade_change": null,
       "requires_credentials": true
     },
@@ -4149,8 +4233,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:05.806607+00:00",
-      "scan_age_days": 14.101007,
+      "scan_age_days": 14.126579,
       "grade_change": null,
       "requires_credentials": true
     },
@@ -4355,8 +4445,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:07.193473+00:00",
-      "scan_age_days": 14.100991,
+      "scan_age_days": 14.126563,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -4645,8 +4741,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:08.071354+00:00",
-      "scan_age_days": 14.100981,
+      "scan_age_days": 14.126553,
       "grade_change": {
         "changed_at": "2026-07-03T09:44:11.340975Z",
         "previous_grade": "F",
@@ -4707,8 +4809,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:09.107793+00:00",
-      "scan_age_days": 14.100969,
+      "scan_age_days": 14.126541,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -5045,8 +5153,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:09.658509+00:00",
-      "scan_age_days": 14.100962,
+      "scan_age_days": 14.126534,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -5251,8 +5365,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:10.590157+00:00",
-      "scan_age_days": 14.100951,
+      "scan_age_days": 14.126524,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -5505,8 +5625,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:11.146190+00:00",
-      "scan_age_days": 14.100945,
+      "scan_age_days": 14.126517,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -5579,8 +5705,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:11.679214+00:00",
-      "scan_age_days": 14.100939,
+      "scan_age_days": 14.126511,
       "grade_change": null,
       "requires_credentials": false
     },
@@ -5641,8 +5773,14 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
+      "scan_mode": "mcpaudit-local-network-off",
+      "sandbox": {
+        "mode": "docker",
+        "network": "none",
+        "image": "mcp-trust-scan:corpus-2026-07-03"
+      },
       "scanned_at": "2026-07-04T08:18:12.626276+00:00",
-      "scan_age_days": 14.100928,
+      "scan_age_days": 14.1265,
       "grade_change": null,
       "requires_credentials": false
     }

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from mcp_trust.core import grading
 from mcp_trust.core.drift import latest_grade_change
+from mcp_trust.core.models import SourceKind
 from mcp_trust.core.provenance import is_real_engine
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
@@ -63,6 +64,30 @@ def build_snapshot(
             )
             scanned_at_text = scan.scanned_at.isoformat()
             newest = max(newest, scanned_at_text)
+            remote_live = (
+                server.source.kind == SourceKind.REMOTE
+                and server.source.command is None
+            )
+            if remote_live:
+                scan_mode = "mcpaudit-remote-live-network"
+                sandbox = {
+                    "mode": "not_applicable",
+                    "reason": "remote_endpoint_no_local_process",
+                }
+            elif scan.sandbox_image:
+                scan_mode = "mcpaudit-local-network-off"
+                sandbox = {
+                    "mode": "docker",
+                    "network": "none",
+                    "image": scan.sandbox_image,
+                }
+            else:
+                scan_mode = "mcpaudit-local-provenance-unknown"
+                sandbox = {
+                    "mode": "unknown",
+                    "network": "unknown",
+                    "image": None,
+                }
             servers.append(
                 {
                     "slug": server.slug,
@@ -96,6 +121,8 @@ def build_snapshot(
                     },
                     "engine": scan.engine_name,
                     "engine_version": scan.engine_version,
+                    "scan_mode": scan_mode,
+                    "sandbox": sandbox,
                     "scanned_at": scanned_at_text,
                     "scan_age_days": round(scan_age_days, 6),
                     "grade_change": (

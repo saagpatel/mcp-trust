@@ -19,12 +19,15 @@ from typing import Any
 _METHODOLOGY = """\
 MCP Trust grades public MCP servers on two orthogonal axes.
 
-1. Danger grade (A-F). Each server is launched in a network-off Docker sandbox
-   and its real tool surface is enumerated, then scored across five weighted
-   dimensions — file access, network access, shell execution, destructive
-   capability, and exfiltration potential — into a 0-10 composite mapped to an
-   A (lowest danger) to F (highest) band. A server with a high-confidence
-   destructive or exfiltration capability is capped no better than D.
+1. Danger grade (A-F). A local-process server is launched in a network-off
+   Docker sandbox; a remote endpoint is probed over its live network transport
+   without a local process sandbox. Each public record discloses its scan mode
+   and sandbox applicability. The real tool surface is scored across five
+   weighted dimensions — file access, network access, shell execution,
+   destructive capability, and exfiltration potential — into a 0-10 composite
+   mapped to an A (lowest danger) to F (highest) band. A server with a
+   high-confidence destructive or exfiltration capability is capped no better
+   than D.
 
 2. Transparency (high/medium/low). How much the server declares about its own
    behavior via tool annotations. Low transparency means "cannot verify safe",
@@ -34,11 +37,13 @@ MCP Trust grades public MCP servers on two orthogonal axes.
 Honesty model:
 - Grades are real, derived from a real scan. A server with no scan on record is
   never assigned a letter grade.
-- Scanning is network-off in a locked-down sandbox, so a grade reflects the tool
-  surface, not live behavior that needs egress.
-- Credential-gated servers are scanned with NON-FUNCTIONAL dummy values so they
-  reach tool enumeration; the network is off, so nothing can authenticate. The
-  enumerated tool surface is real; dummy values are never recorded.
+- Local-process scanning is network-off in a locked-down sandbox. Remote
+  endpoint scanning necessarily uses live network transport and is labeled as
+  such; neither mode proves runtime behavior beyond the observed tool surface.
+- Credential-gated local-process servers are scanned with NON-FUNCTIONAL dummy
+  values so they reach tool enumeration; the network is off, so nothing can
+  authenticate. The enumerated tool surface is real; dummy values are never
+  recorded.
 - A grade is an automated signal, not an endorsement or a certification.
 """
 
