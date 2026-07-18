@@ -295,10 +295,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:47.278372+00:00",
@@ -909,10 +909,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:50.848574+00:00",
@@ -2435,10 +2435,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:51.560795+00:00",
@@ -2695,10 +2695,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:52.064100+00:00",
@@ -2853,10 +2853,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:53.570929+00:00",
@@ -2939,10 +2939,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:54.195624+00:00",
@@ -3049,10 +3049,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:54.705488+00:00",
@@ -3201,10 +3201,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-live-batch:20260628"
       },
       "scanned_at": "2026-07-04T08:17:55.221307+00:00",
@@ -3575,10 +3575,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-batch4:20260703"
       },
       "scanned_at": "2026-07-04T08:17:59.062205+00:00",
@@ -3691,10 +3691,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-batch3:20260703"
       },
       "scanned_at": "2026-07-04T08:18:01.663787+00:00",
@@ -3807,10 +3807,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-batch4:20260703"
       },
       "scanned_at": "2026-07-04T08:18:02.943380+00:00",
@@ -3879,10 +3879,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:03.422269+00:00",
@@ -3979,10 +3979,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:03.846210+00:00",
@@ -4049,10 +4049,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:04.395647+00:00",
@@ -4233,10 +4233,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:05.806607+00:00",
@@ -4445,10 +4445,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:07.193473+00:00",
@@ -4741,10 +4741,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:08.071354+00:00",
@@ -4809,10 +4809,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:09.107793+00:00",
@@ -5153,10 +5153,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:09.658509+00:00",
@@ -5365,10 +5365,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:10.590157+00:00",
@@ -5625,10 +5625,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:11.146190+00:00",
@@ -5705,10 +5705,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:11.679214+00:00",
@@ -5773,10 +5773,10 @@
       },
       "engine": "mcpaudit",
       "engine_version": "2.4.0",
-      "scan_mode": "mcpaudit-local-network-off",
+      "scan_mode": "mcpaudit-local-network-unknown",
       "sandbox": {
         "mode": "docker",
-        "network": "none",
+        "network": "unknown",
         "image": "mcp-trust-scan:corpus-2026-07-03"
       },
       "scanned_at": "2026-07-04T08:18:12.626276+00:00",

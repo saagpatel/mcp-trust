@@ -19,8 +19,9 @@ def test_snapshot_ships_with_real_grades() -> None:
     for s in snap["servers"]:
         assert s["grade"] in valid  # never "unscanned" in the baked snapshot
         assert s["engine"] == "mcpaudit"  # only real grades are baked
-        assert s["scan_mode"] == "mcpaudit-local-network-off"
+        assert s["scan_mode"] == "mcpaudit-local-network-unknown"
         assert s["sandbox"]["mode"] == "docker"
+        assert s["sandbox"]["network"] == "unknown"
 
 
 def test_list_servers_payload_is_complete_json() -> None:
