@@ -269,6 +269,28 @@ def _scan_environment(default_image: str) -> Iterator[None]:
                 os.environ[key] = value
 
 
+@contextmanager
+def _remote_transport_environment() -> Iterator[None]:
+    """Prevent remote endpoints from inheriting local-process sandbox claims."""
+    keys = {
+        "MCP_TRUST_SANDBOX",
+        "MCP_TRUST_SANDBOX_NETWORK",
+        "MCP_TRUST_SANDBOX_IMAGE",
+        "MCP_TRUST_SCAN_CREDENTIALS",
+    }
+    previous = {key: os.environ.get(key) for key in keys}
+    try:
+        for key in keys:
+            os.environ.pop(key, None)
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
     name = f"{scan.server_slug}-{scan.id}.json"
     payload = build_scan_receipt(server, scan)
@@ -459,6 +481,9 @@ def create_refresh_candidate(
         scanner_engine = MCPAuditEngine(timeout=90.0)
 
         def scan_server(server: Server) -> EngineResult:
+            if not _requires_local_sandbox(server):
+                with _remote_transport_environment():
+                    return scanner_engine.scan(server.source)
             return scanner_engine.scan(server.source)
 
         scanner = scan_server
@@ -481,12 +506,26 @@ def create_refresh_candidate(
         conn = connect(str(candidate_db))
         init_schema(conn)
         scan_repo = ScanRepository(conn)
+        placeholders = ",".join("?" for _ in catalog_slugs)
+        if placeholders:
+            catalog_parameters = tuple(sorted(catalog_slugs))
+            conn.execute(
+                f"DELETE FROM scans WHERE server_slug NOT IN ({placeholders})",  # noqa: S608
+                catalog_parameters,
+            )
+            conn.execute(
+                f"DELETE FROM servers WHERE slug NOT IN ({placeholders})",  # noqa: S608
+                catalog_parameters,
+            )
+        else:
+            conn.execute("DELETE FROM scans")
+            conn.execute("DELETE FROM servers")
         if masked_slugs:
             conn.executemany(
                 "DELETE FROM scans WHERE server_slug = ?",
                 ((slug,) for slug in sorted(masked_slugs)),
             )
-            conn.commit()
+        conn.commit()
 
         results: list[dict[str, object]] = []
         excluded: set[str] = set()

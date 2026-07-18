@@ -717,6 +717,10 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
 
         def scan(self, source: ServerSource) -> EngineResult:
             assert source == remote.source
+            assert "MCP_TRUST_SANDBOX" not in os.environ
+            assert "MCP_TRUST_SANDBOX_NETWORK" not in os.environ
+            assert "MCP_TRUST_SANDBOX_IMAGE" not in os.environ
+            assert "MCP_TRUST_SCAN_CREDENTIALS" not in os.environ
             return _stub_scanner(remote).model_copy(
                 update={
                     "engine_name": "mcpaudit",
@@ -756,6 +760,47 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
     }
     assert verification["structural_valid"] is True
     assert verification["publication_ready"] is True
+
+
+def test_candidate_registry_and_snapshot_exclude_non_catalog_server(
+    tmp_path: Path,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+    conn = connect(db_path)
+    extra = _server("extra")
+    ServerRepository(conn).upsert(extra)
+    ScanRepository(conn).record(
+        ScanRecord(
+            id="extra-real-scan",
+            server_slug=extra.slug,
+            engine_name="mcpaudit",
+            engine_version="2.4.0",
+            grade=TrustGrade.A,
+            risk=RiskSummary(composite=0.0),
+            evidence=ScanEvidence(tools=[ToolEvidence(name="extra-tool")]),
+            scanned_at=FIXED_NOW,
+        )
+    )
+    conn.close()
+
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="fixture:image",
+        scanner=_stub_scanner,
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    snapshot = json.loads((candidate / "static_snapshot.json").read_text(encoding="utf-8"))
+    candidate_conn = connect(candidate / "registry.db")
+    candidate_servers = ServerRepository(candidate_conn).list()
+    candidate_conn.close()
+
+    assert [server.slug for server in candidate_servers] == ["alpha"]
+    assert "extra" not in {server["slug"] for server in snapshot["servers"]}
+    assert verify_refresh_candidate(candidate, now=FIXED_NOW)["structural_valid"] is True
 
 
 def test_candidate_name_cannot_escape_output_directory(tmp_path: Path) -> None:
