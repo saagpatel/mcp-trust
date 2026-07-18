@@ -138,9 +138,7 @@ def _make_deploy_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     (repo / ".gitignore").write_text("site/\n.vercel/\n", encoding="utf-8")
     (repo / ".vercel").mkdir()
     (repo / "site/.vercel").mkdir()
-    link = json.dumps(
-        {"projectId": PROJECT_ID, "orgId": ORG_ID, "projectName": "mcp-trust"}
-    )
+    link = json.dumps({"projectId": PROJECT_ID, "orgId": ORG_ID, "projectName": "mcp-trust"})
     (repo / ".vercel/project.json").write_text(link, encoding="utf-8")
     (repo / "site/.vercel/project.json").write_text(link, encoding="utf-8")
     _git(repo, "add", ".")
@@ -249,6 +247,14 @@ def _deploy_env(tmp_path: Path, record: Path) -> dict[str, str]:
     env = os.environ.copy()
     for key in ("XPC_SERVICE_NAME", "LAUNCH_JOBKEY_LABEL", "MCP_TRUST_AUTO_DEPLOY"):
         env.pop(key, None)
+    # deploy_production.sh rejects every VERCEL_*/NOW_* except VERCEL_TOKEN, and
+    # reports whichever it meets FIRST. Any such variable inherited from the
+    # developer's shell therefore shadows the one a test injects, and the case
+    # fails on the reported name while the guard is working correctly. Observed
+    # 2026-07-18: a Claude Code Vercel plugin exports VERCEL_PLUGIN_BOOTSTRAP_HINTS
+    # and turned 36 cases red. Strip the whole surface so the harness owns it.
+    for key in [k for k in env if k.startswith(("VERCEL_", "NOW_"))]:
+        env.pop(key, None)
     env.update(
         {
             "HOME": str(tmp_path / "home"),
@@ -284,7 +290,7 @@ def test_refresh_rejects_legacy_auto_deploy_before_prerequisites(tmp_path: Path)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     for name in ("docker", "uv", "vercel"):
-        _write_executable(fake_bin / name, f"#!/bin/sh\necho {name} >> \"$CALLS\"\nexit 99\n")
+        _write_executable(fake_bin / name, f'#!/bin/sh\necho {name} >> "$CALLS"\nexit 99\n')
     calls = tmp_path / "calls"
     env = os.environ.copy()
     env.update(
@@ -309,9 +315,9 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     _write_executable(
         launchctl,
         "#!/bin/sh\n"
-        "printf '%s\\n' \"$*\" >> \"$FAKE_LAUNCHCTL_RECORD\"\n"
-        "if [ \"$1\" = print ]; then exit 1; fi\n"
-        "if [ \"$1\" = print-disabled ]; then "
+        'printf \'%s\\n\' "$*" >> "$FAKE_LAUNCHCTL_RECORD"\n'
+        'if [ "$1" = print ]; then exit 1; fi\n'
+        'if [ "$1" = print-disabled ]; then '
         "printf '\"com.d.mcp-trust-refresh\" => disabled\\n'; fi\n",
     )
     env = os.environ.copy()
@@ -364,9 +370,7 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
         ("behind", "ahead/behind"),
     ],
 )
-def test_manual_deploy_fails_closed(
-    tmp_path: Path, mutation: str, expected: str
-) -> None:
+def test_manual_deploy_fails_closed(tmp_path: Path, mutation: str, expected: str) -> None:
     repo, vercel_bin, record = _make_deploy_repo(tmp_path)
     commit = _git(repo, "rev-parse", "HEAD")
     approval = tmp_path / "approval.json"
@@ -387,9 +391,7 @@ def test_manual_deploy_fails_closed(
     elif mutation == "sha_mismatch":
         command = _deploy_command(repo, approval, vercel_bin, commit="0" * 40)
     elif mutation == "target_substitution":
-        command = _deploy_command(
-            repo, approval, vercel_bin, target_url="https://attacker.invalid"
-        )
+        command = _deploy_command(repo, approval, vercel_bin, target_url="https://attacker.invalid")
     elif mutation == "project_substitution":
         command[command.index("--project-id") + 1] = "prj_attacker"
     elif mutation == "org_substitution":
@@ -477,7 +479,7 @@ def test_path_injection_cannot_replace_approved_deployment_tool(tmp_path: Path) 
     rogue_record = tmp_path / "rogue.txt"
     _write_executable(
         rogue_dir / "vercel",
-        "#!/bin/sh\nprintf called > \"$ROGUE_RECORD\"\n",
+        '#!/bin/sh\nprintf called > "$ROGUE_RECORD"\n',
     )
     env = _deploy_env(tmp_path, record)
     env["PATH"] = f"{rogue_dir}:{env['PATH']}"
@@ -655,9 +657,7 @@ def test_deployment_binding_sources_fail_closed(
         "NOW_ORG_ID",
     ],
 )
-def test_inherited_provider_binding_variables_are_rejected(
-    tmp_path: Path, name: str
-) -> None:
+def test_inherited_provider_binding_variables_are_rejected(tmp_path: Path, name: str) -> None:
     repo, vercel_bin, record = _make_deploy_repo(tmp_path)
     commit = _git(repo, "rev-parse", "HEAD")
     approval = tmp_path / "approval.json"
@@ -718,7 +718,7 @@ def test_post_confirmation_revalidation_catches_approval_and_node_changes(
     repo, vercel_bin, record = _make_deploy_repo(tmp_path)
     commit = _git(repo, "rev-parse", "HEAD")
     node_bin = tmp_path / "fake-node"
-    _write_executable(node_bin, "#!/bin/sh\nexec \"$@\"\n")
+    _write_executable(node_bin, '#!/bin/sh\nexec "$@"\n')
     approval = tmp_path / "approval.json"
     _write_approval(
         approval,
