@@ -96,10 +96,13 @@ re-run the badge check against the production URL.
 
 `scripts/refresh_and_publish.sh` is now a compatibility wrapper that creates an
 immutable refresh candidate only. It scans an isolated SQLite copy in the
-network-off Docker sandbox and fails closed on unavailable images, missing
-receipts/evidence, or partial scans. It does not mutate `registry.db`, rebuild
-the canonical site, publish, or deploy. The installer writes a weekly definition
-and leaves it unloaded and persistently disabled:
+network-off Docker sandbox for local-process sources. Remote sources use their
+live network transport without a local process sandbox and may make outbound
+connections; their receipts and public records label that mode explicitly. The
+wrapper fails closed on unavailable required images, missing receipts/evidence,
+or partial scans. It does not mutate `registry.db`, rebuild the canonical site,
+publish, or deploy. The installer writes a weekly definition and leaves it
+unloaded and persistently disabled:
 
 ```bash
 bash deploy/launchd/install.sh            # Sunday 19:00 definition; remains disabled
@@ -131,6 +134,7 @@ This staging step grants no Vercel or public-deployment authority.
 - `registry.db` and `receipts/` are **never** uploaded — only `site/`.
 - launchd and the refresh script never hold production deployment authority.
 - The static site is read-only; there is no scan-trigger endpoint to protect
-  (unlike the VM service). Re-scans happen locally, behind the sandbox.
+  (unlike the VM service). Local-process re-scans happen behind the sandbox;
+  remote-source re-scans use live network transport and are labeled accordingly.
 - Grades are honest by construction: stub/demo data carries a loud banner and
   `(demo)`-suffixed badges; only real `mcpaudit` scans render bare grades.
