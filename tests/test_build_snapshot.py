@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from mcp_trust.core.models import (
     RiskSummary,
@@ -71,6 +74,29 @@ def test_build_snapshot_bakes_only_real_engine_scans(tmp_path) -> None:
     assert "stub-one" not in slugs
     assert snap["server_count"] == 1
     assert snap["schema_version"] == 2
+
+
+def test_build_snapshot_main_rejects_unknown_mask_before_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(_server("real-one"))
+    conn.close()
+    masked = tmp_path / "masked.json"
+    masked.write_text(json.dumps(["rael-one"]), encoding="utf-8")
+    output = tmp_path / "snapshot.json"
+    module = _load_build_snapshot()
+    monkeypatch.setattr(module, "_OUT", output)
+    monkeypatch.setenv("MCP_TRUST_DB", db)
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+
+    with pytest.raises(ValueError, match="unknown catalog slug.*rael-one"):
+        module.main()
+
+    assert not output.exists()
 
 
 def test_build_snapshot_projects_real_grade_change_without_private_deltas(tmp_path) -> None:

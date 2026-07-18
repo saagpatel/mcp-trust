@@ -500,6 +500,48 @@ def test_rebound_manifest_cannot_omit_catalog_result(tmp_path: Path) -> None:
     assert "catalog_scan_coverage_mismatch" in verification["errors"]
 
 
+def test_rebound_manifest_cannot_change_snapshot_grade(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+    snapshot_path = candidate / "static_snapshot.json"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    os.chmod(candidate, 0o700)
+    os.chmod(snapshot_path, 0o600)
+    os.chmod(manifest_path, 0o600)
+    os.chmod(digest_path, 0o600)
+    snapshot = json.loads(snapshot_path.read_text())
+    snapshot["servers"] = [
+        {
+            "slug": "alpha",
+            "grade": "A",
+            "scan_age_days": 0.0,
+        }
+    ]
+    snapshot["server_count"] = 1
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text())
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == "static_snapshot.json":
+            artifact["bytes"] = snapshot_path.stat().st_size
+            artifact["sha256"] = hashlib.sha256(
+                snapshot_path.read_bytes()
+            ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (snapshot_path, manifest_path, digest_path):
+        os.chmod(path, 0o400)
+    os.chmod(candidate, 0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "static_snapshot_scan_binding_mismatch" in verification["errors"]
+
+
 def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

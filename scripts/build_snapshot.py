@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 from mcp_trust.catalog.snapshot import build_snapshot
+from mcp_trust.store.repository import ServerRepository
 
 _OUT = Path(__file__).resolve().parents[1] / "src" / "mcp_trust" / "catalog_snapshot.json"
 
@@ -33,6 +35,18 @@ def main() -> None:
     ):
         raise ValueError("masked-grades must be a JSON list of slug strings")
     masked = frozenset(loaded_masked)
+    db_uri = f"{Path(db_path).resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(db_uri, uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        catalog_slugs = {
+            server.slug for server in ServerRepository(conn).list()
+        }
+    unknown_masked = sorted(masked - catalog_slugs)
+    if unknown_masked:
+        raise ValueError(
+            "masked-grades contains unknown catalog slug(s): "
+            + ",".join(unknown_masked)
+        )
     snapshot = build_snapshot(db_path, masked_slugs=masked)
     _OUT.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {snapshot['server_count']} servers -> {_OUT}")

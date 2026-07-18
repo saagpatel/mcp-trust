@@ -901,6 +901,26 @@ def verify_refresh_candidate(
     }
     if candidate_state != "fixture" and exposed != fresh_slugs:
         errors.append("static_snapshot_coverage_mismatch")
+    if age_hours is not None:
+        try:
+            from mcp_trust.catalog.snapshot import build_snapshot
+
+            expected_snapshot = build_snapshot(
+                str(candidate / "registry.db"),
+                excluded_slugs=frozenset(
+                    str(slug) for slug in excluded if isinstance(slug, str)
+                ),
+                masked_slugs=frozenset(
+                    str(result.get("server_slug"))
+                    for result in results
+                    if isinstance(result, dict) and result.get("state") == "masked"
+                ),
+                now=created_at,
+            )
+            if snapshot_payload != expected_snapshot:
+                errors.append("static_snapshot_scan_binding_mismatch")
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            errors.append("static_snapshot_scan_binding_unavailable")
     for server in snapshot_servers:
         if isinstance(server, dict) and not isinstance(server.get("scan_age_days"), (int, float)):
             errors.append("scan_age_missing")
