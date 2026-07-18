@@ -355,6 +355,27 @@ def test_seed_source_metadata_mismatch_refuses_before_scanning(
     assert scanned == []
 
 
+def test_candidate_supports_sqlite_uri_characters_in_source_path(
+    tmp_path: Path,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+    special_db = tmp_path / "registry#operator?.db"
+    db_path.rename(special_db)
+
+    candidate = create_refresh_candidate(
+        source_db=special_db,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="fixture:image",
+        scanner=_stub_scanner,
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+
+    assert verify_refresh_candidate(candidate, now=FIXED_NOW)["structural_valid"] is True
+
+
 def test_manifest_tampering_fails_content_verification(tmp_path: Path) -> None:
     candidate = _candidate(tmp_path)
     manifest = candidate / "MANIFEST.json"

@@ -106,7 +106,7 @@ def _write_private_text(path: Path, text: str) -> None:
 def _sqlite_online_copy(source: Path, destination: Path) -> None:
     if not source.is_file():
         raise RefreshCandidateError(f"registry database is missing: {source}")
-    source_db = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    source_db = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)
     destination_db = sqlite3.connect(destination)
     try:
         source_db.backup(destination_db)
@@ -453,7 +453,7 @@ def create_refresh_candidate(
         )
     catalog_by_slug = {row["slug"]: row for row in catalog_rows}
 
-    source_conn = sqlite3.connect(f"file:{source_db}?mode=ro", uri=True)
+    source_conn = sqlite3.connect(f"{source_db.resolve().as_uri()}?mode=ro", uri=True)
     source_conn.row_factory = sqlite3.Row
     try:
         source_servers = ServerRepository(source_conn)
@@ -1230,8 +1230,9 @@ def verify_refresh_candidate(
         errors.append("masked_result_authorization_mismatch")
     if masked_slugs:
         try:
+            candidate_db_path = (candidate / "registry.db").resolve()
             candidate_db = sqlite3.connect(
-                f"file:{candidate / 'registry.db'}?mode=ro",
+                f"{candidate_db_path.as_uri()}?mode=ro",
                 uri=True,
             )
             try:
