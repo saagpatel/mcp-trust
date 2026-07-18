@@ -126,12 +126,13 @@ uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --out-dir ./dist/refresh-candidates
 ```
 
-The command fails before scanning unless Docker and every catalog-pinned image
-are already available locally. Untrusted servers run through the existing
-network-off, read-only, capability-dropped, resource-bounded sandbox. The
-immutable bundle contains receipts, catalog identity, scan times and ages,
-masked/failed/unknown evidence states, attributed scan drift, an honest static
-snapshot, and a content-bound manifest.
+The command refuses local-process scans unless Docker and every catalog-pinned
+image are already available locally. Those sources run through the existing
+network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
+endpoints are probed over their live network transport without a local process
+sandbox and are labeled accordingly. The immutable bundle contains receipts,
+catalog identity, scan times and ages, masked/failed/unknown evidence states,
+attributed scan drift, an honest static snapshot, and a content-bound manifest.
 
 Candidate creation has no publication or deployment authority. A structurally
 valid candidate must first pass `verify`, then receive a separate digest-bound,
