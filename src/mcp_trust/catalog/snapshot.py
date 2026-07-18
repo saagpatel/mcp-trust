@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from mcp_trust.core import grading
@@ -19,7 +20,7 @@ def build_snapshot(
     *,
     excluded_slugs: frozenset[str] = frozenset(),
     masked_slugs: frozenset[str] = frozenset(),
-    verified_local_network: str | None = None,
+    verified_scan_modes: Mapping[str, str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     """Build the public-safe snapshot without stale fallback or masked grades.
@@ -75,21 +76,30 @@ def build_snapshot(
                     "mode": "not_applicable",
                     "reason": "remote_endpoint_no_local_process",
                 }
-            elif scan.sandbox_image and verified_local_network == "none":
+            verified_scan_mode = (
+                verified_scan_modes.get(scan.id)
+                if verified_scan_modes is not None
+                else None
+            )
+            if (
+                not remote_live
+                and scan.sandbox_image
+                and verified_scan_mode == "mcpaudit-local-network-off"
+            ):
                 scan_mode = "mcpaudit-local-network-off"
                 sandbox = {
                     "mode": "docker",
                     "network": "none",
                     "image": scan.sandbox_image,
                 }
-            elif scan.sandbox_image:
+            elif not remote_live and scan.sandbox_image:
                 scan_mode = "mcpaudit-local-network-unknown"
                 sandbox = {
                     "mode": "docker",
                     "network": "unknown",
                     "image": scan.sandbox_image,
                 }
-            else:
+            elif not remote_live:
                 scan_mode = "mcpaudit-local-provenance-unknown"
                 sandbox = {
                     "mode": "unknown",

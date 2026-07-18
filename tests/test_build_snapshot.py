@@ -83,7 +83,7 @@ def test_build_snapshot_bakes_only_real_engine_scans(tmp_path) -> None:
     }
 
 
-def test_build_snapshot_only_claims_network_off_with_verified_context(tmp_path) -> None:
+def test_build_snapshot_only_claims_network_off_with_per_scan_proof(tmp_path) -> None:
     db = str(tmp_path / "t.db")
     conn = connect(db)
     init_schema(conn)
@@ -92,7 +92,7 @@ def test_build_snapshot_only_claims_network_off_with_verified_context(tmp_path) 
 
     server = _load_build_snapshot().build_snapshot(
         db,
-        verified_local_network="none",
+        verified_scan_modes={"real-one": "mcpaudit-local-network-off"},
     )["servers"][0]
 
     assert server["scan_mode"] == "mcpaudit-local-network-off"
@@ -152,7 +152,7 @@ def test_build_snapshot_main_rejects_unknown_mask_before_output(
     assert not output.exists()
 
 
-def test_build_snapshot_main_preserves_verified_network_context(
+def test_build_snapshot_main_rejects_unbound_network_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -171,11 +171,10 @@ def test_build_snapshot_main_preserves_verified_network_context(
     monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
     monkeypatch.setenv("MCP_TRUST_VERIFIED_LOCAL_NETWORK", "none")
 
-    module.main()
+    with pytest.raises(ValueError, match="cannot prove per-scan network mode"):
+        module.main()
 
-    server = json.loads(output.read_text(encoding="utf-8"))["servers"][0]
-    assert server["scan_mode"] == "mcpaudit-local-network-off"
-    assert server["sandbox"]["network"] == "none"
+    assert not output.exists()
 
 
 def test_baked_snapshot_excludes_every_reviewed_masked_slug() -> None:

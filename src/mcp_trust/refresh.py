@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import tempfile
 import uuid
@@ -123,6 +124,48 @@ def _load_json(path: Path) -> Any:
         raise RefreshCandidateError(f"unreadable JSON artifact: {path.name}") from exc
 
 
+def _load_read_only_json(path: Path) -> Any:
+    """Read one owner-private immutable JSON artifact without following links."""
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or path.is_symlink():
+            raise RefreshCandidateError(f"immutable JSON artifact is not regular: {path.name}")
+        if before.st_uid != os.geteuid() or before.st_mode & 0o277:
+            raise RefreshCandidateError(
+                f"immutable JSON artifact has unsafe ownership or permissions: {path.name}"
+            )
+        flags = os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            opened = os.fstat(handle.fileno())
+            content = handle.read()
+            after_read = os.fstat(handle.fileno())
+        after_path = path.lstat()
+        signatures = {
+            (
+                item.st_dev,
+                item.st_ino,
+                item.st_mode,
+                item.st_size,
+                item.st_mtime_ns,
+            )
+            for item in (before, opened, after_read, after_path)
+        }
+        if len(signatures) != 1:
+            raise RefreshCandidateError(
+                f"immutable JSON artifact changed during read: {path.name}"
+            )
+        return json.loads(content.decode("utf-8"))
+    except RefreshCandidateError:
+        raise
+    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+        raise RefreshCandidateError(f"unreadable immutable JSON artifact: {path.name}") from exc
+
+
 def _load_string_list(path: Path) -> frozenset[str]:
     loaded = _load_json(path)
     if not isinstance(loaded, list) or not all(isinstance(item, str) for item in loaded):
@@ -187,6 +230,17 @@ def _sandbox_profile(image: str) -> dict[str, object]:
 
 def _requires_local_sandbox(server: Server) -> bool:
     return not (server.source.kind == SourceKind.REMOTE and server.source.command is None)
+
+
+def _catalog_row_requires_local_sandbox(row: object) -> bool:
+    if not isinstance(row, dict):
+        return False
+    source = row.get("source")
+    return not (
+        isinstance(source, dict)
+        and source.get("kind") == "remote"
+        and source.get("command") is None
+    )
 
 
 def _real_scan_mode(*, local_count: int, total_count: int) -> str:
@@ -566,6 +620,7 @@ def create_refresh_candidate(
 
         results: list[dict[str, object]] = []
         excluded: set[str] = set()
+        verified_snapshot_scan_modes: dict[str, str] = {}
         writer = receipt_writer or _write_receipt
         with _scan_environment(default_image):
             for server in servers:
@@ -668,6 +723,14 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
+                    if (
+                        not fixture_mode
+                        and not masked
+                        and _requires_local_sandbox(server)
+                    ):
+                        verified_snapshot_scan_modes[scan.id] = (
+                            "mcpaudit-local-network-off"
+                        )
                     if masked:
                         drift = None
                     else:
@@ -731,7 +794,7 @@ def create_refresh_candidate(
             str(candidate_db),
             excluded_slugs=frozenset(excluded),
             masked_slugs=masked_slugs,
-            verified_local_network=None if fixture_mode else "none",
+            verified_scan_modes=verified_snapshot_scan_modes,
             now=fixed_now,
         )
         _write_private(
@@ -1317,7 +1380,17 @@ def verify_refresh_candidate(
                     for result in results
                     if isinstance(result, dict) and result.get("state") == "masked"
                 ),
-                verified_local_network=(None if candidate_state == "fixture" else "none"),
+                verified_scan_modes={
+                    str(result["scan_id"]): "mcpaudit-local-network-off"
+                    for result in results
+                    if candidate_state != "fixture"
+                    and isinstance(result, dict)
+                    and result.get("state") == "fresh"
+                    and isinstance(result.get("scan_id"), str)
+                    and _catalog_row_requires_local_sandbox(
+                        catalog_by_slug.get(result.get("server_slug"))
+                    )
+                },
                 now=created_at,
             )
             if snapshot_payload != expected_snapshot:
@@ -1461,6 +1534,7 @@ def approve_refresh_candidate(
             "deployment_authority": False,
         },
     )
+    os.chmod(approval_path, 0o400)
     return approval_path
 
 
@@ -1485,7 +1559,7 @@ def publish_refresh_candidate(
     )
     if not verification["publication_ready"]:
         raise RefreshCandidateError("candidate failed immediate publication verification")
-    approval = _load_json(approval_path)
+    approval = _load_read_only_json(approval_path)
     if not isinstance(approval, dict) or approval.get("schema") != APPROVAL_SCHEMA:
         raise RefreshCandidateError("publication approval is invalid")
     try:

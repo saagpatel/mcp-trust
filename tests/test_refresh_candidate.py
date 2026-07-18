@@ -1402,6 +1402,7 @@ def test_local_publication_binds_the_reviewed_seed_and_mask_inputs(
     publication = json.loads((published / "PUBLICATION.json").read_text(encoding="utf-8"))
 
     assert approval["reviewed_seed_sha256"] == hashlib.sha256(seed_path.read_bytes()).hexdigest()
+    assert approval_path.stat().st_mode & 0o777 == 0o400
     assert (
         approval["reviewed_masked_sha256"] == hashlib.sha256(masked_path.read_bytes()).hexdigest()
     )
@@ -1415,6 +1416,45 @@ def test_local_publication_binds_the_reviewed_seed_and_mask_inputs(
         )["publication_ready"]
         is True
     )
+
+
+def test_publication_rejects_writable_approval_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+    approval_path = tmp_path / "approval.json"
+    approve_refresh_candidate(
+        candidate=candidate,
+        approval_path=approval_path,
+        actor="operator",
+        reason="reviewed candidate",
+        publication_target=tmp_path / "published",
+        confirmation_digest=str(verification["manifest_sha256"]),
+        seed_path=seed_path,
+        masked_path=masked_path,
+        now=FIXED_NOW,
+    )
+    approval_path.chmod(0o600)
+
+    with pytest.raises(RefreshCandidateError, match="unsafe ownership or permissions"):
+        publish_refresh_candidate(
+            candidate=candidate,
+            approval_path=approval_path,
+            destination_parent=tmp_path / "published",
+            seed_path=seed_path,
+            masked_path=masked_path,
+            now=FIXED_NOW,
+        )
 
 
 def test_fixture_candidate_cannot_receive_publication_approval(tmp_path: Path) -> None:

@@ -6,8 +6,7 @@ run) into ``src/mcp_trust/catalog_snapshot.json``, which ships in the wheel and
 is read read-only by ``mcp_trust.mcp_server``.
 
 Regenerate after a scan run:
-    MCP_TRUST_DB=./registry.db MCP_TRUST_VERIFIED_LOCAL_NETWORK=none \
-        uv run python scripts/build_snapshot.py
+    MCP_TRUST_DB=./registry.db uv run python scripts/build_snapshot.py
 
 Only real grades are baked: a server with no scan on record is skipped (the MCP
 server never serves an invented letter grade). Dummy credential values never
@@ -29,9 +28,11 @@ _OUT = Path(__file__).resolve().parents[1] / "src" / "mcp_trust" / "catalog_snap
 
 def main() -> None:
     db_path = os.environ.get("MCP_TRUST_DB", "./registry.db")
-    verified_local_network = os.environ.get("MCP_TRUST_VERIFIED_LOCAL_NETWORK")
-    if verified_local_network not in {None, "none"}:
-        raise ValueError("MCP_TRUST_VERIFIED_LOCAL_NETWORK must be unset or exactly 'none'")
+    if os.environ.get("MCP_TRUST_VERIFIED_LOCAL_NETWORK") is not None:
+        raise ValueError(
+            "MCP_TRUST_VERIFIED_LOCAL_NETWORK cannot prove per-scan network mode; "
+            "use a verified refresh candidate"
+        )
     masked_path = Path(os.environ.get("MCP_TRUST_MASKED_GRADES", "./masked-grades.json"))
     loaded_masked = json.loads(masked_path.read_text(encoding="utf-8"))
     if not isinstance(loaded_masked, list) or not all(
@@ -51,7 +52,6 @@ def main() -> None:
     snapshot = build_snapshot(
         db_path,
         masked_slugs=masked,
-        verified_local_network=verified_local_network,
     )
     _OUT.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {snapshot['server_count']} servers -> {_OUT}")
