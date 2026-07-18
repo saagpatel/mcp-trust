@@ -3,7 +3,8 @@
 Serves the baked catalog snapshot (``catalog_snapshot.json``) so an agent can
 check a public MCP server's danger grade *before connecting* — "check before you
 connect". No database or network is needed at runtime; the snapshot is a
-projection of a real, sandboxed scan run (see ``scripts/build_snapshot.py``).
+projection of real scans with explicit per-record provenance (see
+``scripts/build_snapshot.py``).
 
 Launched as ``mcp-trust mcp-serve`` (or ``uvx mcp-trust mcp-serve``).
 """
@@ -11,6 +12,7 @@ Launched as ``mcp-trust mcp-serve`` (or ``uvx mcp-trust mcp-serve``).
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from functools import lru_cache
 from importlib.resources import files
 from typing import Any
@@ -18,12 +20,17 @@ from typing import Any
 _METHODOLOGY = """\
 MCP Trust grades public MCP servers on two orthogonal axes.
 
-1. Danger grade (A-F). Each server is launched in a network-off Docker sandbox
-   and its real tool surface is enumerated, then scored across five weighted
-   dimensions — file access, network access, shell execution, destructive
-   capability, and exfiltration potential — into a 0-10 composite mapped to an
-   A (lowest danger) to F (highest) band. A server with a high-confidence
-   destructive or exfiltration capability is capped no better than D.
+1. Danger grade (A-F). A local-process record is labeled network-off only when
+   that Docker context was verified; otherwise its network or sandbox
+   provenance is explicitly unknown. A remote endpoint is probed over its live
+   network transport without a local process sandbox. Each public record
+   discloses its scan mode and sandbox applicability. The real tool surface is
+   scored across five
+   weighted dimensions — file access, network access, shell execution,
+   destructive capability, and exfiltration potential — into a 0-10 composite
+   mapped to an A (lowest danger) to F (highest) band. A server with a
+   high-confidence destructive or exfiltration capability is capped no better
+   than D.
 
 2. Transparency (high/medium/low). How much the server declares about its own
    behavior via tool annotations. Low transparency means "cannot verify safe",
@@ -33,11 +40,14 @@ MCP Trust grades public MCP servers on two orthogonal axes.
 Honesty model:
 - Grades are real, derived from a real scan. A server with no scan on record is
   never assigned a letter grade.
-- Scanning is network-off in a locked-down sandbox, so a grade reflects the tool
-  surface, not live behavior that needs egress.
-- Credential-gated servers are scanned with NON-FUNCTIONAL dummy values so they
-  reach tool enumeration; the network is off, so nothing can authenticate. The
-  enumerated tool surface is real; dummy values are never recorded.
+- Verified local-process scans are network-off in a locked-down sandbox;
+  records without that proof say network or provenance unknown. Remote endpoint
+  scanning necessarily uses live network transport and is labeled as such;
+  none of these modes proves runtime behavior beyond the observed tool surface.
+- Credential-gated local-process servers are scanned with NON-FUNCTIONAL dummy
+  values so they reach tool enumeration; the network is off, so nothing can
+  authenticate. The enumerated tool surface is real; dummy values are never
+  recorded.
 - A grade is an automated signal, not an endorsement or a certification.
 """
 
@@ -50,6 +60,37 @@ def _snapshot() -> dict[str, Any]:
 
 def _servers() -> list[dict[str, Any]]:
     return _snapshot()["servers"]
+
+
+def _current_server_record(
+    server: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return a copy with scan age recomputed at response time."""
+    record = dict(server)
+    scanned_at = record.get("scanned_at")
+    if not isinstance(scanned_at, str):
+        record["scan_age_days"] = None
+        return record
+    try:
+        parsed = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+    except ValueError:
+        record["scan_age_days"] = None
+        return record
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    fixed_now = now or datetime.now(tz=UTC)
+    if fixed_now.tzinfo is None:
+        fixed_now = fixed_now.replace(tzinfo=UTC)
+    record["scan_age_days"] = round(
+        max(
+            0.0,
+            (fixed_now.astimezone(UTC) - parsed.astimezone(UTC)).total_seconds() / 86400,
+        ),
+        6,
+    )
+    return record
 
 
 def list_servers_payload() -> str:
@@ -68,11 +109,11 @@ def list_servers_payload() -> str:
     return json.dumps({"server_count": len(rows), "servers": rows}, indent=2)
 
 
-def check_server_payload(slug: str) -> str:
+def check_server_payload(slug: str, *, now: datetime | None = None) -> str:
     """Full JSON record for one server by slug, or an error + the known slugs."""
     for s in _servers():
         if s["slug"] == slug:
-            return json.dumps(s, indent=2)
+            return json.dumps(_current_server_record(s, now=now), indent=2)
     return json.dumps(
         {
             "error": f"No graded server with slug {slug!r}.",
@@ -90,7 +131,8 @@ def build_server() -> Any:
         name="mcp-trust",
         instructions=(
             "Check the danger grade of a public MCP server before you connect. "
-            "Read-only registry of real, sandbox-derived A-F trust grades."
+            "Read-only registry of real scan-derived A-F trust grades with "
+            "explicit per-record sandbox and network provenance."
         ),
     )
 

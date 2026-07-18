@@ -15,8 +15,8 @@
 ## Use as an MCP server
 
 `mcp-trust` runs as a read-only MCP server so an agent can check a server's
-danger grade *before connecting* — it serves a baked snapshot of real,
-sandboxed grades, so no database or network is needed.
+danger grade *before connecting* — it serves a baked snapshot of real scan
+grades with explicit per-record provenance, so no database or network is needed.
 
 ```bash
 mcp-trust mcp-serve          # from a source/dev install (works today)
@@ -115,22 +115,50 @@ Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
 
+## Manual refresh candidates
+
+Create a review candidate without mutating the canonical registry, baked
+snapshot, static site, schedule, or deployment:
+
+```bash
+uv run --frozen --extra engine python scripts/refresh_candidate.py create \
+  --db ./registry.db \
+  --out-dir ./dist/refresh-candidates
+```
+
+The command refuses local-process scans unless Docker and every catalog-pinned
+image are already available locally. Those sources run through the existing
+network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
+endpoints are probed over their live network transport without a local process
+sandbox and are labeled accordingly. The immutable bundle contains receipts,
+catalog identity, scan times and ages, masked/failed/unknown evidence states,
+attributed scan drift, an honest static snapshot, and a content-bound manifest.
+
+Candidate creation has no publication or deployment authority. A structurally
+valid candidate must first pass `verify`, then receive a separate digest-bound,
+short-lived `approve` receipt before `publish` may stage it in a local output
+directory. That publication step still does not deploy the public site.
+
 ## Status
 
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
 generated catalog, regenerated from the local registry. The bundled catalog
-snapshot contains 31 real `mcp-audits` grades from network-off Docker sandbox
-scans, including reviewed Registry-derived sandboxed entries.
-Every grade is labeled by provenance, so demo/stub data can never read as a
-real scan, and an unscanned server never shows a letter grade. The current
-production deployment is the 31-server static catalog; grades are static
-since 2026-07-11, when the weekly re-scan lane was disabled and its deploy
-authority removed (see `docs/CAPABILITY-RULING-2026-07-10.md`).
+snapshot contains 23 visible real `mcp-audits` grades; eight reviewed entries
+are withheld by `masked-grades.json` and are absent from the public snapshot.
+The bundled snapshot labels the visible local-process grades' network and
+sandbox provenance as unknown; only a receipt-verified refresh candidate may
+claim network-off execution. Every grade is labeled by provenance, so
+demo/stub data can never read as a real scan, and an unscanned server never
+shows a letter grade. The current production deployment is the 31-server
+static catalog; grades are static since 2026-07-11, when the weekly re-scan
+lane was disabled and its deploy authority removed (see
+`docs/CAPABILITY-RULING-2026-07-10.md`).
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
-[`deploy/launchd/`](deploy/launchd/) re-scans, rebuilds, and optionally
-redeploys (deploy is opt-in). The live FastAPI service + VM path remains
+[`deploy/launchd/`](deploy/launchd/) remains installed but disabled. Its
+compatibility entrypoint can create a local review candidate only; it cannot
+publish or deploy. The live FastAPI service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
 for launch history.

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from mcp_trust.core.models import (
     RiskSummary,
@@ -50,6 +53,7 @@ def _scan(slug: str, engine: str) -> ScanRecord:
         grade=TrustGrade.C,
         risk=RiskSummary(composite=5.0),
         scanned_at=datetime(2026, 6, 28),
+        sandbox_image="fixture:image",
     )
 
 
@@ -71,6 +75,117 @@ def test_build_snapshot_bakes_only_real_engine_scans(tmp_path) -> None:
     assert "stub-one" not in slugs
     assert snap["server_count"] == 1
     assert snap["schema_version"] == 2
+    assert snap["servers"][0]["scan_mode"] == "mcpaudit-local-network-unknown"
+    assert snap["servers"][0]["sandbox"] == {
+        "mode": "docker",
+        "network": "unknown",
+        "image": "fixture:image",
+    }
+
+
+def test_build_snapshot_only_claims_network_off_with_per_scan_proof(tmp_path) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(_server("real-one"))
+    ScanRepository(conn).record(_scan("real-one", "mcpaudit"))
+
+    server = _load_build_snapshot().build_snapshot(
+        db,
+        verified_scan_modes={"real-one": "mcpaudit-local-network-off"},
+    )["servers"][0]
+
+    assert server["scan_mode"] == "mcpaudit-local-network-off"
+    assert server["sandbox"] == {
+        "mode": "docker",
+        "network": "none",
+        "image": "fixture:image",
+    }
+
+
+def test_build_snapshot_discloses_remote_live_transport(tmp_path) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    remote = _server("remote-one").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.test/mcp",
+            )
+        }
+    )
+    ServerRepository(conn).upsert(remote)
+    ScanRepository(conn).record(
+        _scan("remote-one", "mcpaudit").model_copy(update={"sandbox_image": None})
+    )
+
+    server = _load_build_snapshot().build_snapshot(db)["servers"][0]
+
+    assert server["scan_mode"] == "mcpaudit-remote-live-network"
+    assert server["sandbox"] == {
+        "mode": "not_applicable",
+        "reason": "remote_endpoint_no_local_process",
+    }
+
+
+def test_build_snapshot_main_rejects_unknown_mask_before_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(_server("real-one"))
+    conn.close()
+    masked = tmp_path / "masked.json"
+    masked.write_text(json.dumps(["rael-one"]), encoding="utf-8")
+    output = tmp_path / "snapshot.json"
+    module = _load_build_snapshot()
+    monkeypatch.setattr(module, "_OUT", output)
+    monkeypatch.setenv("MCP_TRUST_DB", db)
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+
+    with pytest.raises(ValueError, match="unknown catalog slug.*rael-one"):
+        module.main()
+
+    assert not output.exists()
+
+
+def test_build_snapshot_main_rejects_unbound_network_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(_server("real-one"))
+    ScanRepository(conn).record(_scan("real-one", "mcpaudit"))
+    conn.close()
+    masked = tmp_path / "masked.json"
+    masked.write_text("[]", encoding="utf-8")
+    output = tmp_path / "snapshot.json"
+    module = _load_build_snapshot()
+    monkeypatch.setattr(module, "_OUT", output)
+    monkeypatch.setenv("MCP_TRUST_DB", db)
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+    monkeypatch.setenv("MCP_TRUST_VERIFIED_LOCAL_NETWORK", "none")
+
+    with pytest.raises(ValueError, match="cannot prove per-scan network mode"):
+        module.main()
+
+    assert not output.exists()
+
+
+def test_baked_snapshot_excludes_every_reviewed_masked_slug() -> None:
+    masked = set(json.loads((ROOT / "masked-grades.json").read_text(encoding="utf-8")))
+    snapshot = json.loads(
+        (ROOT / "src/mcp_trust/catalog_snapshot.json").read_text(encoding="utf-8")
+    )
+    exposed = {server["slug"] for server in snapshot["servers"]}
+
+    assert masked
+    assert masked.isdisjoint(exposed)
 
 
 def test_build_snapshot_projects_real_grade_change_without_private_deltas(tmp_path) -> None:
