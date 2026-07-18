@@ -34,6 +34,7 @@ from mcp_trust.refresh import (
 )
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
+from scripts import refresh_candidate as refresh_cli
 
 FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[1]
@@ -250,6 +251,37 @@ def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
     assert "build_site.py" not in script
     assert "deploy_production" not in script
     assert "vercel deploy" not in script
+
+
+def test_create_cli_returns_failure_for_partial_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    candidate = tmp_path / "partial"
+    monkeypatch.setattr(
+        refresh_cli,
+        "create_refresh_candidate",
+        lambda **_kwargs: candidate,
+    )
+    monkeypatch.setattr(
+        refresh_cli,
+        "verify_refresh_candidate",
+        lambda *_args, **_kwargs: {
+            "structural_valid": True,
+            "candidate_state": "partial",
+            "publication_ready": False,
+            "errors": [],
+        },
+    )
+
+    result = refresh_cli.main(["create"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 1
+    assert output["candidate_state"] == "partial"
+    assert output["publication_ready"] is False
+    assert output["deployment_performed"] is False
 
 
 def test_unknown_masked_slug_refuses_before_scanning(tmp_path: Path) -> None:

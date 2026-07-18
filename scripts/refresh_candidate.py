@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                     sort_keys=True,
                 )
             )
-            return 0
+            return 0 if verification["publication_ready"] else 1
         if args.command == "verify":
             verification = verify_refresh_candidate(
                 args.candidate,
