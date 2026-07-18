@@ -364,11 +364,11 @@ def _spec_shift_card(slug: str) -> str:
         for unit, verdict in record["dimensions"].items()
     )
     fixes = ""
-    if record["prescriptions"]:
+    if record["remediations"]:
         items = "".join(
             f"<li><strong>{escape(p['dimension'])}</strong> "
             f"[{escape(p['effort'])}] {escape(p['action'])}</li>"
-            for p in record["prescriptions"]
+            for p in record["remediations"]
         )
         fixes = (
             '<h3 style="font-size:0.9rem;font-weight:600;margin:1rem 0 0.5rem">'

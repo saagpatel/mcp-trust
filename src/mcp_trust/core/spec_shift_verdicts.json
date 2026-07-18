@@ -26,7 +26,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "ai-ravenmcp-raven-mcp-1-3-3": {
       "overall": "READY",
@@ -38,7 +38,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "com-kage-core-kage-2-3-0": {
       "overall": "READY",
@@ -50,7 +50,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "com-kogcat-kogcat-mcp-0-46-2": {
       "overall": "READY",
@@ -62,7 +62,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11": {
       "overall": "BREAKS",
@@ -74,7 +74,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "small",
@@ -92,7 +92,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "com-pulsemcp-image-diff-0-1-3": {
       "overall": "READY",
@@ -104,7 +104,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "com-seanwinslow-intent-engineering-0-2-0": {
       "overall": "READY",
@@ -116,7 +116,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0": {
       "overall": "READY",
@@ -128,7 +128,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "io-github-basicmachines-co-basic-memory-0-22-1": {
       "overall": "BREAKS",
@@ -140,7 +140,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "trivial",
@@ -158,7 +158,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "substantial",
@@ -167,7 +167,7 @@
         {
           "dimension": "D2",
           "effort": "small",
-          "action": "Add a non-deprecated way to configure workspace roots - a repeatable --root/--workspace CLI flag, or a path allowlist in server configuration - so the file-write sandbox no longer depends on the Roots capability, and keep roots/list only as an optional convenience while it remains available. Drop the declared logging capability and its no-op SetLevel handler, or start actually emitting through it; as shipped it advertises a deprecated feature the server never uses. No deadline before the one-year floor in RC-D2-b. Shares its fix with the D1 prescription - one change, scoped at D1's effort, not two separate efforts."
+          "action": "Add a non-deprecated way to configure workspace roots - a repeatable --root/--workspace CLI flag, or a path allowlist in server configuration - so the file-write sandbox no longer depends on the Roots capability, and keep roots/list only as an optional convenience while it remains available. Drop the declared logging capability and its no-op SetLevel handler, or start actually emitting through it; as shipped it advertises a deprecated feature the server never uses. No deadline before the one-year floor in RC-D2-b. Shares its fix with the D1 remediation - one change, scoped at D1's effort, not two separate efforts."
         }
       ]
     },
@@ -181,7 +181,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "io-github-microsoft-playwright-mcp-0-0-77": {
       "overall": "BREAKS",
@@ -193,7 +193,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "small",
@@ -211,7 +211,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "io-github-nvidia-elements-2-1-4": {
       "overall": "READY",
@@ -223,7 +223,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "io-github-ui5-webcomponents-react-mcp-server-2-23-2": {
       "overall": "READY",
@@ -235,7 +235,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-aws-kb-retrieval": {
       "overall": "READY",
@@ -247,7 +247,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-brave-search": {
       "overall": "READY",
@@ -259,7 +259,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-everart": {
       "overall": "READY",
@@ -271,7 +271,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-github": {
       "overall": "READY",
@@ -283,7 +283,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-gitlab": {
       "overall": "READY",
@@ -295,7 +295,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-google-maps": {
       "overall": "READY",
@@ -307,7 +307,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-slack": {
       "overall": "READY",
@@ -319,7 +319,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-archived-sqlite": {
       "overall": "BREAKS",
@@ -331,7 +331,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "upstream-blocked",
@@ -349,7 +349,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "substantial",
@@ -372,7 +372,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "trivial",
@@ -390,7 +390,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "small",
@@ -408,7 +408,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "trivial",
@@ -426,7 +426,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-reference-sequential-thinking": {
       "overall": "READY",
@@ -438,7 +438,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": []
+      "remediations": []
     },
     "mcp-reference-time": {
       "overall": "BREAKS",
@@ -450,7 +450,7 @@
         "D4": "READY",
         "D5": "NOTE"
       },
-      "prescriptions": [
+      "remediations": [
         {
           "dimension": "D1",
           "effort": "trivial",

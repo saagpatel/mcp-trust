@@ -56,19 +56,19 @@ def test_counts_match_the_records_they_summarize() -> None:
     assert spec_shift.load()["counts"] == tallied
 
 
-def test_every_adverse_record_carries_a_prescription() -> None:
+def test_every_adverse_record_carries_a_remediation() -> None:
     """An adverse verdict with no remedy is an accusation, not a finding."""
     for slug, record in spec_shift.load()["servers"].items():
         if record["overall"] in spec_shift.ADVERSE_VERDICTS:
-            assert record["prescriptions"], slug
-            for prescription in record["prescriptions"]:
-                assert prescription["effort"] in {
+            assert record["remediations"], slug
+            for remediation in record["remediations"]:
+                assert remediation["effort"] in {
                     "trivial",
                     "small",
                     "substantial",
                     "upstream-blocked",
                 }
-                assert prescription["action"].strip()
+                assert remediation["action"].strip()
 
 
 def test_ruled_slugs_are_real_catalog_slugs() -> None:
