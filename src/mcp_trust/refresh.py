@@ -290,8 +290,7 @@ def _remote_transport_environment() -> Iterator[None]:
                 os.environ[key] = value
 
 
-def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
-    name = f"{scan.server_slug}-{scan.id}.json"
+def _scan_receipt_payload(server: Server, scan: ScanRecord) -> dict[str, Any]:
     if not _requires_local_sandbox(server):
         with _remote_transport_environment():
             payload = build_scan_receipt(server, scan)
@@ -308,7 +307,37 @@ def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
             ] + ["Remote transport used the live network; no local process sandbox was applicable."]
     else:
         payload = build_scan_receipt(server, scan)
+    return payload
+
+
+def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
+    name = f"{scan.server_slug}-{scan.id}.json"
+    payload = _scan_receipt_payload(server, scan)
     _write_private(receipts_dir / name, payload)
+    return name
+
+
+def _write_masked_scan_proof(
+    server: Server,
+    scan: ScanRecord,
+    proofs_dir: Path,
+) -> str:
+    """Retain scan-success provenance without retaining masked grade evidence."""
+    receipt = _scan_receipt_payload(server, scan)
+    name = f"{scan.server_slug}-{scan.id}.json"
+    proof = {
+        "format_version": 1,
+        "proof_type": "masked_scan_success",
+        "outcome": "scan_succeeded",
+        "server_slug": scan.server_slug,
+        "scan_id": scan.id,
+        "server": receipt["server"],
+        "scanned_at": scan.scanned_at.isoformat(),
+        "scanner": receipt["scanner"],
+        "sandbox": receipt["sandbox"],
+        "evidence_present": scan.evidence is not None,
+    }
+    _write_private(proofs_dir / name, proof)
     return name
 
 
@@ -505,6 +534,8 @@ def create_refresh_candidate(
     try:
         receipts_dir = temporary / "receipts"
         receipts_dir.mkdir(mode=0o700)
+        masked_proofs_dir = temporary / "masked-proofs"
+        masked_proofs_dir.mkdir(mode=0o700)
         candidate_db = temporary / "registry.db"
         _sqlite_online_copy(source_db, candidate_db)
         conn = connect(str(candidate_db))
@@ -593,11 +624,18 @@ def create_refresh_candidate(
                     masked = server.slug in masked_slugs
                     if masked:
                         receipt_ref = None
+                        masked_proof_ref = _write_masked_scan_proof(
+                            server,
+                            scan,
+                            masked_proofs_dir,
+                        )
                     elif receipt_writer is None:
+                        masked_proof_ref = None
                         receipt_ref = f"{scan.server_slug}-{scan.id}.json"
                         scan = scan.model_copy(update={"report_ref": receipt_ref})
                         _write_receipt(server, scan, receipts_dir)
                     else:
+                        masked_proof_ref = None
                         receipt_ref = writer(server, scan, receipts_dir)
                     receipt_portable = bool(
                         receipt_ref
@@ -651,6 +689,10 @@ def create_refresh_candidate(
                             "engine_version": scan.engine_version,
                             "receipt": None if masked else receipt_ref,
                             "receipt_visibility": ("withheld" if masked else "reviewable"),
+                            "scan_proof": masked_proof_ref,
+                            "scan_proof_visibility": (
+                                "reviewable-redacted" if masked else "not_applicable"
+                            ),
                             "drift": (
                                 {
                                     "cause": str(drift.cause),
@@ -1038,6 +1080,13 @@ def verify_refresh_candidate(
         and result.get("state") == "fresh"
         and isinstance((receipt_ref := result.get("receipt")), str)
     )
+    expected_artifacts.update(
+        f"masked-proofs/{proof_ref}"
+        for result in results
+        if isinstance(result, dict)
+        and result.get("state") == "masked"
+        and isinstance((proof_ref := result.get("scan_proof")), str)
+    )
     if actual != expected_artifacts:
         errors.append("unreferenced_candidate_artifact")
     for result in results:
@@ -1056,8 +1105,104 @@ def verify_refresh_candidate(
                 or result.get("drift") is not None
             ):
                 errors.append("masked_scan_evidence_exposed")
-            if candidate_state == "complete" and result.get("engine_name") != "mcpaudit":
-                errors.append("masked_scan_provenance_invalid")
+            proof_ref = result.get("scan_proof")
+            if (
+                not isinstance(proof_ref, str)
+                or "/" in proof_ref
+                or "\\" in proof_ref
+                or result.get("scan_proof_visibility") != "reviewable-redacted"
+            ):
+                errors.append("masked_scan_proof_ref_invalid")
+                continue
+            try:
+                proof = _load_json(candidate / "masked-proofs" / proof_ref)
+            except RefreshCandidateError:
+                errors.append(f"masked_scan_proof_missing:{proof_ref}")
+                continue
+            proof_keys = {
+                "format_version",
+                "proof_type",
+                "outcome",
+                "server_slug",
+                "scan_id",
+                "server",
+                "scanned_at",
+                "scanner",
+                "sandbox",
+                "evidence_present",
+            }
+            scanner = proof.get("scanner") if isinstance(proof, dict) else None
+            sandbox = proof.get("sandbox") if isinstance(proof, dict) else None
+            proof_server = proof.get("server") if isinstance(proof, dict) else None
+            proof_valid = bool(
+                isinstance(proof, dict)
+                and set(proof) == proof_keys
+                and proof.get("format_version") == 1
+                and proof.get("proof_type") == "masked_scan_success"
+                and proof.get("outcome") == "scan_succeeded"
+                and proof.get("server_slug") == result.get("server_slug")
+                and isinstance(proof.get("scan_id"), str)
+                and proof.get("scanned_at") == result.get("scanned_at")
+                and proof.get("evidence_present") is True
+                and isinstance(scanner, dict)
+                and scanner.get("engine_name") == result.get("engine_name")
+                and scanner.get("engine_version") == result.get("engine_version")
+                and isinstance(sandbox, dict)
+                and isinstance(proof_server, dict)
+            )
+            if not proof_valid:
+                errors.append(f"masked_scan_proof_invalid:{proof_ref}")
+                continue
+            if candidate_state == "complete":
+                reviewed_server: Server | None = None
+                catalog_row = catalog_by_slug.get(result.get("server_slug"))
+                if isinstance(catalog_row, dict):
+                    try:
+                        reviewed_server = _reviewed_server_from_seed(
+                            catalog_row,
+                            added_at=datetime.fromisoformat(
+                                str(proof_server.get("added_at")).replace("Z", "+00:00")
+                            ),
+                        )
+                    except (RefreshCandidateError, TypeError, ValueError):
+                        reviewed_server = None
+                catalog_bound = bool(
+                    reviewed_server is not None
+                    and proof_server == reviewed_server.model_dump(mode="json")
+                )
+                remote_without_command = bool(
+                    reviewed_server is not None
+                    and not _requires_local_sandbox(reviewed_server)
+                )
+                proof_image = sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
+                reviewed_image = (
+                    reviewed_server.source.sandbox_image
+                    if reviewed_server is not None
+                    else None
+                )
+                local_image_valid = bool(
+                    isinstance(proof_image, str)
+                    and proof_image in reviewed_profile_images
+                    and (reviewed_image is None or proof_image == reviewed_image)
+                )
+                sandbox_valid = bool(
+                    catalog_bound
+                    and (
+                        (
+                            sandbox.get("mode") == "not_applicable"
+                            and sandbox.get("reason")
+                            == "remote_endpoint_no_local_process"
+                        )
+                        if remote_without_command
+                        else (
+                            sandbox.get("MCP_TRUST_SANDBOX") == "docker"
+                            and sandbox.get("MCP_TRUST_SANDBOX_NETWORK") == "none"
+                            and local_image_valid
+                        )
+                    )
+                )
+                if result.get("engine_name") != "mcpaudit" or not sandbox_valid:
+                    errors.append(f"masked_scan_provenance_invalid:{proof_ref}")
             continue
         receipt_ref = result.get("receipt")
         if not isinstance(receipt_ref, str) or "/" in receipt_ref or "\\" in receipt_ref:

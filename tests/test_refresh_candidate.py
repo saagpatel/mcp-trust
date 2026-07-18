@@ -712,10 +712,52 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
     assert result["scan_id"] is None
     assert result["drift"] is None
     assert list((candidate / "receipts").iterdir()) == []
+    proof_ref = result["scan_proof"]
+    assert isinstance(proof_ref, str)
+    proof = json.loads((candidate / "masked-proofs" / proof_ref).read_text())
+    assert proof["outcome"] == "scan_succeeded"
+    assert proof["evidence_present"] is True
+    assert "scan" not in proof
+    assert "evidence" not in proof
+    assert "danger_score" not in proof
+    assert masked_sentinel not in json.dumps(proof)
     assert masked_scan_count == 0
     assert freelist_count == 0
     assert masked_sentinel.encode() not in (candidate / "registry.db").read_bytes()
     assert snapshot["servers"] == []
+
+
+def test_rebound_masked_result_without_scan_proof_is_rejected(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path, masked=("alpha",))
+    results_path = candidate / "scan_results.json"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    candidate.chmod(0o700)
+    results_path.chmod(0o600)
+    manifest_path.chmod(0o600)
+    digest_path.chmod(0o600)
+    results_payload = json.loads(results_path.read_text())
+    results_payload["results"][0]["scan_proof"] = None
+    results_path.write_text(json.dumps(results_payload), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text())
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == "scan_results.json":
+            artifact["bytes"] = results_path.stat().st_size
+            artifact["sha256"] = hashlib.sha256(results_path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (results_path, manifest_path, digest_path):
+        path.chmod(0o400)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "masked_scan_proof_ref_invalid" in verification["errors"]
 
 
 def test_rebound_manifest_cannot_omit_catalog_result(tmp_path: Path) -> None:
