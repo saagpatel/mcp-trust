@@ -115,6 +115,29 @@ Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
 
+## Manual refresh candidates
+
+Create a review candidate without mutating the canonical registry, baked
+snapshot, static site, schedule, or deployment:
+
+```bash
+uv run --frozen python scripts/refresh_candidate.py create \
+  --db ./registry.db \
+  --out-dir ./dist/refresh-candidates
+```
+
+The command fails before scanning unless Docker and every catalog-pinned image
+are already available locally. Untrusted servers run through the existing
+network-off, read-only, capability-dropped, resource-bounded sandbox. The
+immutable bundle contains receipts, catalog identity, scan times and ages,
+masked/failed/unknown evidence states, attributed scan drift, an honest static
+snapshot, and a content-bound manifest.
+
+Candidate creation has no publication or deployment authority. A structurally
+valid candidate must first pass `verify`, then receive a separate digest-bound,
+short-lived `approve` receipt before `publish` may stage it in a local output
+directory. That publication step still does not deploy the public site.
+
 ## Status
 
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
@@ -129,8 +152,9 @@ authority removed (see `docs/CAPABILITY-RULING-2026-07-10.md`).
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
-[`deploy/launchd/`](deploy/launchd/) re-scans, rebuilds, and optionally
-redeploys (deploy is opt-in). The live FastAPI service + VM path remains
+[`deploy/launchd/`](deploy/launchd/) remains installed but disabled. Its
+compatibility entrypoint can create a local review candidate only; it cannot
+publish or deploy. The live FastAPI service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
 for launch history.

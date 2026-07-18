@@ -94,9 +94,12 @@ re-run the badge check against the production URL.
 
 ## 4. Scheduled freshness
 
-`scripts/refresh_and_publish.sh` re-scans the corpus in the network-off Docker
-sandbox and rebuilds the site locally. It cannot deploy. The installer writes a
-weekly definition and leaves it unloaded and persistently disabled:
+`scripts/refresh_and_publish.sh` is now a compatibility wrapper that creates an
+immutable refresh candidate only. It scans an isolated SQLite copy in the
+network-off Docker sandbox and fails closed on unavailable images, missing
+receipts/evidence, or partial scans. It does not mutate `registry.db`, rebuild
+the canonical site, publish, or deploy. The installer writes a weekly definition
+and leaves it unloaded and persistently disabled:
 
 ```bash
 bash deploy/launchd/install.sh            # Sunday 19:00 definition; remains disabled
@@ -108,6 +111,20 @@ requires a separate operator decision plus Docker/image, template parity,
 focused-test, and ownership evidence. Re-scanning a version-pinned image is
 deterministic; to catch upstream drift, periodically rebuild `Dockerfile.scan`
 with current server versions.
+
+Manual candidate publication is a separate local staging action:
+
+```bash
+uv run --frozen python scripts/refresh_candidate.py verify <candidate>
+uv run --frozen python scripts/refresh_candidate.py approve <candidate> \
+  --approval <approval.json> --actor <operator> --reason <reason> \
+  --target <local-staging-dir> --confirm-manifest-sha256 <verified-digest>
+uv run --frozen python scripts/refresh_candidate.py publish <candidate> \
+  --approval <approval.json> --destination <local-staging-dir>
+```
+
+The approval is short-lived and bound to the exact manifest and local target.
+This staging step grants no Vercel or public-deployment authority.
 
 ## Safety notes
 

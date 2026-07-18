@@ -1,0 +1,477 @@
+"""Approval-gated refresh-candidate workflow and honesty boundaries."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from mcp_trust.core.models import (
+    RiskSummary,
+    ScanEvidence,
+    ScanRecord,
+    Server,
+    ServerSource,
+    SourceKind,
+    ToolEvidence,
+    TrustGrade,
+)
+from mcp_trust.engine.base import EngineResult
+from mcp_trust.engine.stub import StubEngine
+from mcp_trust.refresh import (
+    RefreshCandidateError,
+    approve_refresh_candidate,
+    create_refresh_candidate,
+    preflight_real_refresh,
+    publish_refresh_candidate,
+    verify_refresh_candidate,
+)
+from mcp_trust.store.db import connect, init_schema
+from mcp_trust.store.repository import ScanRepository, ServerRepository
+
+FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _server(slug: str) -> Server:
+    return Server(
+        slug=slug,
+        name=slug,
+        source=ServerSource(
+            kind=SourceKind.NPM,
+            reference=f"@example/{slug}",
+            command=f"/opt/{slug}",
+        ),
+        added_at=FIXED_NOW,
+    )
+
+
+def _inputs(
+    tmp_path: Path,
+    *,
+    slugs: tuple[str, ...] = ("alpha",),
+    masked: tuple[str, ...] = (),
+) -> tuple[Path, Path, Path]:
+    db_path = tmp_path / "registry.db"
+    conn = connect(db_path)
+    init_schema(conn)
+    servers = ServerRepository(conn)
+    for slug in slugs:
+        servers.upsert(_server(slug))
+    conn.close()
+    seed_path = tmp_path / "seed.json"
+    seed_path.write_text(
+        json.dumps(
+            [
+                {
+                    "slug": slug,
+                    "name": slug,
+                    "source": {"kind": "npm", "reference": f"@example/{slug}"},
+                }
+                for slug in slugs
+            ]
+        ),
+        encoding="utf-8",
+    )
+    masked_path = tmp_path / "masked.json"
+    masked_path.write_text(json.dumps(list(masked)), encoding="utf-8")
+    return db_path, seed_path, masked_path
+
+
+def _stub_scanner(server: Server) -> EngineResult:
+    return StubEngine().scan(server.source).model_copy(
+        update={
+            "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+        }
+    )
+
+
+def _candidate(
+    tmp_path: Path,
+    *,
+    slugs: tuple[str, ...] = ("alpha",),
+    masked: tuple[str, ...] = (),
+    scanner=_stub_scanner,
+    receipt_writer=None,
+    now: datetime = FIXED_NOW,
+) -> Path:
+    db_path, seed_path, masked_path = _inputs(
+        tmp_path,
+        slugs=slugs,
+        masked=masked,
+    )
+    return create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="fixture:image",
+        scanner=scanner,
+        receipt_writer=receipt_writer,
+        now=now,
+        candidate_name="candidate",
+    )
+
+
+def _results(candidate: Path) -> list[dict[str, object]]:
+    return json.loads((candidate / "scan_results.json").read_text())["results"]
+
+
+def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+    manifest = json.loads((candidate / "MANIFEST.json").read_text())
+
+    assert verification["structural_valid"] is True
+    assert verification["state"] == "fixture"
+    assert verification["publication_ready"] is False
+    assert manifest["scan_mode"] == "deterministic-fixture"
+    assert manifest["authority"] == {
+        "candidate_creation": True,
+        "publication": False,
+        "deployment": False,
+        "schedule_change": False,
+    }
+    assert _results(candidate)[0]["state"] == "fresh"
+    assert (candidate / "MANIFEST.json").stat().st_mode & 0o222 == 0
+    assert candidate.stat().st_mode & 0o222 == 0
+
+
+def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
+    script = (ROOT / "scripts/refresh_and_publish.sh").read_text(encoding="utf-8")
+
+    assert "refresh_candidate.py create" in script
+    assert "uv run --frozen" in script
+    assert "mcp-trust scan" not in script
+    assert "build_site.py" not in script
+    assert "deploy_production" not in script
+    assert "vercel deploy" not in script
+
+
+def test_manifest_tampering_fails_content_verification(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+    manifest = candidate / "MANIFEST.json"
+    os.chmod(candidate, 0o700)
+    os.chmod(manifest, 0o600)
+    payload = json.loads(manifest.read_text())
+    payload["publication_allowed"] = True
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    os.chmod(manifest, 0o400)
+    os.chmod(candidate, 0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert "manifest_digest_mismatch" in verification["errors"]
+
+
+def test_rebound_manifest_cannot_relabel_fixture_as_publishable(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    os.chmod(candidate, 0o700)
+    os.chmod(manifest_path, 0o600)
+    os.chmod(digest_path, 0o600)
+    manifest = json.loads(manifest_path.read_text())
+    manifest["candidate_state"] = "complete"
+    manifest["scan_mode"] = "mcpaudit-network-off"
+    manifest["publication_allowed"] = True
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(manifest_path, 0o400)
+    os.chmod(digest_path, 0o400)
+    os.chmod(candidate, 0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert any(
+        "publishable_scan_provenance_invalid" in error
+        for error in verification["errors"]
+    )
+
+
+def test_stale_candidate_is_not_publication_ready(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW + timedelta(hours=25),
+    )
+
+    assert verification["structural_valid"] is True
+    assert verification["state"] == "stale"
+    assert verification["publication_ready"] is False
+
+
+def test_partial_scan_failure_never_retains_old_grade_as_fresh(tmp_path: Path) -> None:
+    def scanner(server: Server) -> EngineResult:
+        if server.slug == "beta":
+            raise RuntimeError("fixture failure")
+        return _stub_scanner(server)
+
+    candidate = _candidate(tmp_path, slugs=("alpha", "beta"), scanner=scanner)
+    by_slug = {row["server_slug"]: row for row in _results(candidate)}
+
+    assert by_slug["alpha"]["state"] == "fresh"
+    assert by_slug["beta"]["state"] == "scan-failed"
+    assert by_slug["beta"]["fresh_grade"] is None
+    assert by_slug["beta"]["error_type"] == "RuntimeError"
+    assert "fixture failure" not in json.dumps(by_slug["beta"])
+
+
+def test_failed_rescan_excludes_the_previous_grade_from_static_snapshot(
+    tmp_path: Path,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path, slugs=("alpha", "beta"))
+    conn = connect(db_path)
+    ScanRepository(conn).record(
+        ScanRecord(
+            id="old-beta",
+            server_slug="beta",
+            engine_name="mcpaudit",
+            engine_version="2.3.0",
+            grade=TrustGrade.D,
+            risk=RiskSummary(composite=6.0),
+            evidence=ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+            scanned_at=FIXED_NOW - timedelta(days=30),
+        )
+    )
+    conn.close()
+
+    def scanner(server: Server) -> EngineResult:
+        if server.slug == "beta":
+            raise RuntimeError("fixture failure")
+        return _stub_scanner(server)
+
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="fixture:image",
+        scanner=scanner,
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    snapshot = json.loads((candidate / "static_snapshot.json").read_text())
+
+    assert "beta" not in {server["slug"] for server in snapshot["servers"]}
+    beta = next(row for row in _results(candidate) if row["server_slug"] == "beta")
+    assert beta["fresh_grade"] is None
+    assert beta["previous_grade"] == "D"
+    assert beta["previous_scan_age_days"] == 30.0
+
+
+def test_candidate_reuses_grade_drift_attribution(tmp_path: Path) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+    conn = connect(db_path)
+    ScanRepository(conn).record(
+        ScanRecord(
+            id="old-alpha",
+            server_slug="alpha",
+            engine_name="mcpaudit",
+            engine_version="2.3.0",
+            grade=TrustGrade.D,
+            risk=RiskSummary(composite=6.0),
+            evidence=ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+            scanned_at=FIXED_NOW - timedelta(days=7),
+        )
+    )
+    conn.close()
+
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="fixture:image",
+        scanner=_stub_scanner,
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    result = _results(candidate)[0]
+
+    assert result["drift"]["cause"] == "engine-changed"
+    assert result["drift"]["surface_comparison"] == "unchanged"
+    assert "engine change" in result["drift"]["summary"]
+
+
+def test_missing_receipt_is_explicit_and_not_fresh(tmp_path: Path) -> None:
+    candidate = _candidate(
+        tmp_path,
+        receipt_writer=lambda _server, _scan, _directory: None,
+    )
+
+    result = _results(candidate)[0]
+    assert result["state"] == "missing-receipt"
+    assert result["fresh_grade"] is None
+
+
+def test_unknown_evidence_is_explicit_and_not_fresh(tmp_path: Path) -> None:
+    def scanner(_server: Server) -> EngineResult:
+        return EngineResult(
+            engine_name="stub",
+            engine_version="fixture",
+            risk=RiskSummary(composite=1.0),
+            evidence=None,
+        )
+
+    candidate = _candidate(tmp_path, scanner=scanner)
+
+    result = _results(candidate)[0]
+    assert result["state"] == "unknown-evidence"
+    assert result["fresh_grade"] is None
+
+
+def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path, masked=("alpha",))
+
+    result = _results(candidate)[0]
+    snapshot = json.loads((candidate / "static_snapshot.json").read_text())
+    assert result["state"] == "masked"
+    assert result["fresh_grade"] is None
+    assert result["grade_visibility"] == "withheld"
+    assert snapshot["servers"] == []
+
+
+def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: None)
+
+    with pytest.raises(RefreshCandidateError, match="Docker executable"):
+        preflight_real_refresh([_server("alpha")], default_image="required:image")
+
+
+def test_real_preflight_refuses_missing_pinned_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
+
+    def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            0 if command == ["docker", "info"] else 1,
+            "",
+            "",
+        )
+
+    with pytest.raises(RefreshCandidateError, match="required local sandbox image"):
+        preflight_real_refresh(
+            [_server("alpha")],
+            default_image="required:image",
+            runner=runner,
+        )
+
+
+def test_real_preflight_refuses_missing_mcpaudit_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr("mcp_trust.refresh.importlib.util.find_spec", lambda _name: None)
+
+    def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with pytest.raises(RefreshCandidateError, match="MCPAudit engine"):
+        preflight_real_refresh(
+            [_server("alpha")],
+            default_image="required:image",
+            runner=runner,
+        )
+
+
+def test_candidate_name_cannot_escape_output_directory(tmp_path: Path) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+
+    with pytest.raises(RefreshCandidateError, match="safe single path component"):
+        create_refresh_candidate(
+            source_db=db_path,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            output_parent=tmp_path / "candidates",
+            default_image="fixture:image",
+            scanner=_stub_scanner,
+            now=FIXED_NOW,
+            candidate_name="../escaped",
+        )
+
+    assert not (tmp_path / "escaped").exists()
+
+
+def test_publication_without_distinct_approval_is_refused(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+
+    with pytest.raises(RefreshCandidateError, match="approval is required"):
+        publish_refresh_candidate(
+            candidate=candidate,
+            approval_path=None,
+            destination_parent=tmp_path / "published",
+            now=FIXED_NOW,
+        )
+
+
+def test_fixture_candidate_cannot_receive_publication_approval(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    with pytest.raises(RefreshCandidateError, match="not complete"):
+        approve_refresh_candidate(
+            candidate=candidate,
+            approval_path=tmp_path / "approval.json",
+            actor="operator",
+            reason="fixture must remain fixture",
+            publication_target=tmp_path / "published",
+            confirmation_digest=str(verification["manifest_sha256"]),
+            now=FIXED_NOW,
+        )
+
+
+def test_snapshot_projection_surfaces_scan_age_and_excludes_masked(
+    tmp_path: Path,
+) -> None:
+    from mcp_trust.catalog.snapshot import build_snapshot
+    db_path, _seed, _masked = _inputs(tmp_path, slugs=("alpha", "beta"))
+    conn = connect(db_path)
+    scans = ScanRepository(conn)
+    for slug in ("alpha", "beta"):
+        scans.record(
+            ScanRecord(
+                id=slug,
+                server_slug=slug,
+                engine_name="mcpaudit",
+                engine_version="2.4.0",
+                grade=TrustGrade.B,
+                risk=RiskSummary(composite=2.0),
+                evidence=ScanEvidence(tools=[ToolEvidence(name="ping")]),
+                scanned_at=FIXED_NOW - timedelta(days=2),
+            )
+        )
+    conn.close()
+
+    snapshot = build_snapshot(
+        str(db_path),
+        masked_slugs=frozenset({"beta"}),
+        now=FIXED_NOW,
+    )
+
+    assert snapshot["schema_version"] == 2
+    assert snapshot["server_count"] == 1
+    assert snapshot["servers"][0]["slug"] == "alpha"
+    assert snapshot["servers"][0]["scan_age_days"] == 2.0
