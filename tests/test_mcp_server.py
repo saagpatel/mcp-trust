@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mcp_trust import mcp_server
@@ -60,6 +61,31 @@ def test_check_server_payload_preserves_public_grade_change_summary(monkeypatch)
     payload = json.loads(mcp_server.check_server_payload("changed"))
     assert payload["grade_change"]["cause"] == "engine-changed"
     assert payload["grade_change"]["surface_comparison"] == "unknown"
+
+
+def test_check_server_payload_recomputes_scan_age_at_response_time(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "_snapshot",
+        lambda: {
+            "servers": [
+                {
+                    "slug": "aged",
+                    "scanned_at": "2026-07-01T00:00:00+00:00",
+                    "scan_age_days": 0.0,
+                }
+            ]
+        },
+    )
+
+    payload = json.loads(
+        mcp_server.check_server_payload(
+            "aged",
+            now=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+    )
+
+    assert payload["scan_age_days"] == 31.0
 
 
 def test_check_server_payload_unknown_slug_errors_with_known_list() -> None:

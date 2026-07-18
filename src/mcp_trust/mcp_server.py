@@ -11,6 +11,7 @@ Launched as ``mcp-trust mcp-serve`` (or ``uvx mcp-trust mcp-serve``).
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from functools import lru_cache
 from importlib.resources import files
 from typing import Any
@@ -52,6 +53,38 @@ def _servers() -> list[dict[str, Any]]:
     return _snapshot()["servers"]
 
 
+def _current_server_record(
+    server: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return a copy with scan age recomputed at response time."""
+    record = dict(server)
+    scanned_at = record.get("scanned_at")
+    if not isinstance(scanned_at, str):
+        record["scan_age_days"] = None
+        return record
+    try:
+        parsed = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+    except ValueError:
+        record["scan_age_days"] = None
+        return record
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    fixed_now = now or datetime.now(tz=UTC)
+    if fixed_now.tzinfo is None:
+        fixed_now = fixed_now.replace(tzinfo=UTC)
+    record["scan_age_days"] = round(
+        max(
+            0.0,
+            (fixed_now.astimezone(UTC) - parsed.astimezone(UTC)).total_seconds()
+            / 86400,
+        ),
+        6,
+    )
+    return record
+
+
 def list_servers_payload() -> str:
     """JSON summary of every graded server (slug, grade, transparency, score)."""
     rows = [
@@ -68,11 +101,11 @@ def list_servers_payload() -> str:
     return json.dumps({"server_count": len(rows), "servers": rows}, indent=2)
 
 
-def check_server_payload(slug: str) -> str:
+def check_server_payload(slug: str, *, now: datetime | None = None) -> str:
     """Full JSON record for one server by slug, or an error + the known slugs."""
     for s in _servers():
         if s["slug"] == slug:
-            return json.dumps(s, indent=2)
+            return json.dumps(_current_server_record(s, now=now), indent=2)
     return json.dumps(
         {
             "error": f"No graded server with slug {slug!r}.",
