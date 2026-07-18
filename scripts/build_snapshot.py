@@ -1,9 +1,11 @@
 """Bake the graded catalog into a static snapshot for the MCP server.
 
 The published package serves trust grades over MCP without a database: this
-script projects the live ``registry.db`` (the result of a real, sandboxed scan
-run) into ``src/mcp_trust/catalog_snapshot.json``, which ships in the wheel and
-is read read-only by ``mcp_trust.mcp_server``.
+script projects real scan rows from the live ``registry.db`` into
+``src/mcp_trust/catalog_snapshot.json``, which ships in the wheel and is read
+read-only by ``mcp_trust.mcp_server``. This standalone path cannot prove
+per-scan sandbox or network mode, so it renders that provenance as unknown; the
+receipt-verified refresh candidate path supplies stronger per-scan proof.
 
 Regenerate after a scan run:
     MCP_TRUST_DB=./registry.db uv run python scripts/build_snapshot.py
