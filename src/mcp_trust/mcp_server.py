@@ -3,7 +3,8 @@
 Serves the baked catalog snapshot (``catalog_snapshot.json``) so an agent can
 check a public MCP server's danger grade *before connecting* — "check before you
 connect". No database or network is needed at runtime; the snapshot is a
-projection of a real, sandboxed scan run (see ``scripts/build_snapshot.py``).
+projection of real scans with explicit per-record provenance (see
+``scripts/build_snapshot.py``).
 
 Launched as ``mcp-trust mcp-serve`` (or ``uvx mcp-trust mcp-serve``).
 """
@@ -130,7 +131,8 @@ def build_server() -> Any:
         name="mcp-trust",
         instructions=(
             "Check the danger grade of a public MCP server before you connect. "
-            "Read-only registry of real, sandbox-derived A-F trust grades."
+            "Read-only registry of real scan-derived A-F trust grades with "
+            "explicit per-record sandbox and network provenance."
         ),
     )
 

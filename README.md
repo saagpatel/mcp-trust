@@ -15,8 +15,8 @@
 ## Use as an MCP server
 
 `mcp-trust` runs as a read-only MCP server so an agent can check a server's
-danger grade *before connecting* — it serves a baked snapshot of real,
-sandboxed grades, so no database or network is needed.
+danger grade *before connecting* — it serves a baked snapshot of real scan
+grades with explicit per-record provenance, so no database or network is needed.
 
 ```bash
 mcp-trust mcp-serve          # from a source/dev install (works today)
@@ -144,12 +144,14 @@ directory. That publication step still does not deploy the public site.
 generated catalog, regenerated from the local registry. The bundled catalog
 snapshot contains 23 visible real `mcp-audits` grades; eight reviewed entries
 are withheld by `masked-grades.json` and are absent from the public snapshot.
-The visible local-process grades come from network-off Docker sandbox scans.
-Every grade is labeled by provenance, so demo/stub data can never read as a
-real scan, and an unscanned server never shows a letter grade. The current
-production deployment is the 31-server static catalog; grades are static
-since 2026-07-11, when the weekly re-scan lane was disabled and its deploy
-authority removed (see `docs/CAPABILITY-RULING-2026-07-10.md`).
+The bundled snapshot labels the visible local-process grades' network and
+sandbox provenance as unknown; only a receipt-verified refresh candidate may
+claim network-off execution. Every grade is labeled by provenance, so
+demo/stub data can never read as a real scan, and an unscanned server never
+shows a letter grade. The current production deployment is the 31-server
+static catalog; grades are static since 2026-07-11, when the weekly re-scan
+lane was disabled and its deploy authority removed (see
+`docs/CAPABILITY-RULING-2026-07-10.md`).
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
