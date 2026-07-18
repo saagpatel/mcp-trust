@@ -20,9 +20,11 @@ Row shape used by :func:`render_catalog`:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import datetime
 from html import escape
 
+from mcp_trust.core import spec_shift
 from mcp_trust.core.drift import GradeChange, SurfaceComparison
 from mcp_trust.core.governance import (
     DISPUTE_SLA_DAYS,
@@ -292,6 +294,106 @@ def _rescan_pause_notice() -> str:
         "new scan is currently scheduled for any server below. Every grade is "
         "point-in-time: read the Last scanned column, not the presence of a grade."
         "</p>"
+    )
+
+
+def _spec_shift_notice(slugs: Iterable[str]) -> str:
+    """Disclose that a danger grade says nothing about spec conformance.
+
+    Every grade in the table answers "what can this server do to me?" None of
+    them answers "will this server still work after the 2026-07-28 spec lands?"
+    A reader scanning a column of A and B grades cannot tell those apart, and
+    silence would let the omission read as a clean bill.
+
+    Counts are computed over the servers ACTUALLY RENDERED, not over the frozen
+    verdict set. An earlier version quoted the dataset totals and cheerfully
+    announced "10 of 31 servers below carry spec-shift exposure" on a build with
+    an empty table — the numbers have to describe the page they appear on.
+    Returns "" when nothing rendered is exposed, so the notice retires itself.
+    """
+    ruled = spec_shift.load()["servers"]
+    shown = [slug for slug in slugs if slug in ruled]
+    exposed = [slug for slug in shown if ruled[slug]["overall"] in spec_shift.ADVERSE_VERDICTS]
+    if not exposed:
+        return ""
+    summary = spec_shift.summary()
+    return (
+        '<p class="page-subtitle" style="border-left:3px solid #d0d7de;'
+        'padding-left:0.75rem;margin-top:-0.75rem">'
+        "Danger grades measure capability risk, not conformance with the MCP "
+        f"{escape(summary['spec_version'])} specification — a server can be safe "
+        "and still break. An independent audit dated "
+        f"{escape(summary['ruled_at'])} found {len(exposed)} of "
+        f"{len(shown)} servers below carry spec-shift exposure, and most "
+        "fail silently: the capability stops working with no error raised. Open "
+        "a server to see its spec-shift verdict."
+        "</p>"
+    )
+
+
+def _spec_shift_card(slug: str) -> str:
+    """Per-server spec-shift verdict, rendered as its own card.
+
+    Deliberately separate from the grade card. Folding conformance into the
+    danger grade would redefine what a grade means for every consumer already
+    relying on it, so the two axes are shown side by side and never merged.
+    """
+    record = spec_shift.for_server(slug)
+    summary = spec_shift.summary()
+    if record is None:
+        # Absence means not-yet-audited, which must never be read as clean.
+        return (
+            '<div class="card">'
+            '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+            "Spec-shift exposure</h2>"
+            '<p style="color:#57606a;font-size:0.9rem;margin:0">'
+            "This server was not part of the "
+            f"{escape(summary['ruled_at'])} audit against the MCP "
+            f"{escape(summary['spec_version'])} specification. Not audited is not "
+            "a pass — its exposure is simply unknown."
+            "</p></div>"
+        )
+
+    overall = record["overall"]
+    adverse = spec_shift.is_adverse(record)
+    color = "#cf222e" if adverse else "#1a7f37"
+    dims = "".join(
+        f"<tr><td>{escape(unit)}</td>"
+        f"<td>{escape(spec_shift.dimension_title(unit))}</td>"
+        f"<td>{escape(verdict)}</td></tr>"
+        for unit, verdict in record["dimensions"].items()
+    )
+    fixes = ""
+    if record["prescriptions"]:
+        items = "".join(
+            f"<li><strong>{escape(p['dimension'])}</strong> "
+            f"[{escape(p['effort'])}] {escape(p['action'])}</li>"
+            for p in record["prescriptions"]
+        )
+        fixes = (
+            '<h3 style="font-size:0.9rem;font-weight:600;margin:1rem 0 0.5rem">'
+            "What to change</h3>"
+            f'<ul style="font-size:0.85rem;color:#57606a;margin:0;padding-left:1.2rem">'
+            f"{items}</ul>"
+        )
+    return (
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+        "Spec-shift exposure</h2>"
+        f'<p style="margin:0 0 0.75rem"><span class="pill" '
+        f'style="background:{color}">{escape(overall)}</span> '
+        f'<span style="color:#57606a;font-size:0.85rem">'
+        f"against MCP {escape(summary['spec_version'])} · confidence "
+        f"{escape(record['confidence'])} · ruled {escape(summary['ruled_at'])}"
+        "</span></p>"
+        "<table><thead><tr><th>Dimension</th><th>Area</th><th>Verdict</th></tr></thead>"
+        f"<tbody>{dims}</tbody></table>"
+        f"{fixes}"
+        '<p style="color:#57606a;font-size:0.8rem;margin:0.75rem 0 0">'
+        "This is a point-in-time ruling against a release candidate, not the "
+        "published specification, and it is independent of the danger grade "
+        "above. Neither figure constrains the other."
+        "</p></div>"
     )
 
 
@@ -579,7 +681,10 @@ def render_catalog(
         '<p class="page-subtitle">'
         "Each server gets an A–F danger grade plus a separate transparency signal. "
         "Grades come from automated scans and mean check before you connect, not endorsement."
-        "</p>" + _rescan_pause_notice() + "<table>"
+        "</p>"
+        + _rescan_pause_notice()
+        + _spec_shift_notice(r.get("slug", "") for r in rows)
+        + "<table>"
         "<thead><tr>"
         "<th>Server</th><th>Danger grade</th><th>Transparency</th>"
         "<th>Danger score</th><th>Last scanned</th><th></th>"
@@ -906,7 +1011,8 @@ def render_detail(
 
     body = (
         f"<main>{back}<div style='margin-top:1rem'>{hero}</div>"
-        f"{grade_change_notice}{floor}{provenance_card}{badge_box}{findings_section}</main>"
+        f"{grade_change_notice}{floor}{_spec_shift_card(server.slug)}"
+        f"{provenance_card}{badge_box}{findings_section}</main>"
     )
     return _page(f"MCP Trust — {server.name}", body, banner=banner)
 
