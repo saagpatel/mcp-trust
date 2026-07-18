@@ -15,7 +15,7 @@ run via ``mcp-trust scan`` before this script — those are preserved untouched.
 
 Usage::
 
-    uv run python scripts/build_site.py [--db PATH] [--out DIR] [--base-url URL]
+    uv run python scripts/build_site.py [--db PATH | --candidate DIR] [--out DIR]
 
 Exits non-zero if the verification gate fails, so a scheduled job can detect a
 broken build.
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import uuid
 from contextlib import closing
@@ -36,6 +37,7 @@ from mcp_trust.core import grading
 from mcp_trust.core.governance import MASKED_BADGE_MESSAGE
 from mcp_trust.core.models import ScanRecord
 from mcp_trust.engine.stub import StubEngine
+from mcp_trust.refresh import verified_masked_scan_slugs
 from mcp_trust.site.generator import generate_site
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -45,6 +47,7 @@ _DEFAULT_DB = "./registry.db"
 _DEFAULT_OUT = "./site"
 _DEFAULT_CORRECTIONS = "./corrections.json"
 _DEFAULT_MASKED = str(_REPO_ROOT / "masked-grades.json")
+_DEFAULT_SEED = str(_REPO_ROOT / "src" / "mcp_trust" / "catalog" / "seed_servers.json")
 _PLACEHOLDER_BASE_URL = "https://mcp-trust.example"
 _GOVERNANCE_PAGES = (
     ("ui", "methodology", "index.html"),
@@ -108,7 +111,26 @@ def _load_masked_slugs(path: str) -> set[str]:
     return set(loaded)
 
 
-def _verify(build, *, servers, scanned_slugs, masked_slugs=frozenset()) -> list[str]:
+def _connect_read_only(path: Path) -> sqlite3.Connection:
+    """Open an immutable candidate database without creating journals or schema."""
+    conn = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro&immutable=1",
+        uri=True,
+        check_same_thread=False,
+    )
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def _verify(
+    build,
+    *,
+    servers,
+    scanned_slugs,
+    masked_slugs=frozenset(),
+    masked_scan_succeeded_slugs=frozenset(),
+) -> list[str]:
     """Return a list of verification failures (empty == passed)."""
     failures: list[str] = []
     out = build.out_dir
@@ -121,7 +143,7 @@ def _verify(build, *, servers, scanned_slugs, masked_slugs=frozenset()) -> list[
         if slug not in catalog_slugs:
             failures.append(f"masked slug {slug!r} is not in the catalog (typo?)")
             continue
-        if slug in scanned_slugs:
+        if slug in scanned_slugs or slug in masked_scan_succeeded_slugs:
             badge = out / "servers" / slug / "badge.json"
             if badge.is_file():
                 message = json.loads(badge.read_text(encoding="utf-8")).get("message")
@@ -158,7 +180,11 @@ def _verify(build, *, servers, scanned_slugs, masked_slugs=frozenset()) -> list[
         message = json.loads(badge.read_text(encoding="utf-8")).get("message")
         if message is None:
             failures.append(f"badge.json malformed for {server.slug}")
-        elif server.slug not in scanned_slugs and message != "unscanned":
+        elif (
+            server.slug not in scanned_slugs
+            and server.slug not in masked_scan_succeeded_slugs
+            and message != "unscanned"
+        ):
             # Honesty floor: a server with no scan must never show a letter grade.
             failures.append(
                 f"{server.slug} has no scan but badge says {message!r}, not 'unscanned'"
@@ -169,7 +195,20 @@ def _verify(build, *, servers, scanned_slugs, masked_slugs=frozenset()) -> list[
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", default=_DEFAULT_DB, help="Registry SQLite path.")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--db", help="Registry SQLite path.")
+    source.add_argument(
+        "--candidate",
+        help=(
+            "Immutable refresh-candidate directory. The full candidate and reviewed "
+            "inputs must verify as current and publication-ready before any site is built."
+        ),
+    )
+    parser.add_argument(
+        "--seed",
+        default=_DEFAULT_SEED,
+        help="Reviewed catalog seed bound to --candidate verification.",
+    )
     parser.add_argument("--out", default=_DEFAULT_OUT, help="Static site output directory.")
     parser.add_argument(
         "--base-url",
@@ -200,14 +239,36 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    with closing(connect(args.db)) as conn:
-        init_schema(conn)
+    now = datetime.now(tz=UTC)
+    masked_slugs = _load_masked_slugs(args.masked_grades)
+    masked_scan_succeeded_slugs: set[str] = set()
+    candidate = Path(args.candidate) if args.candidate else None
+    if candidate is not None:
+        if args.demo_fill:
+            parser.error("--demo-fill cannot be used with an immutable refresh candidate")
+        masked_scan_succeeded_slugs = set(
+            verified_masked_scan_slugs(
+                candidate,
+                seed_path=Path(args.seed),
+                masked_path=Path(args.masked_grades),
+                now=now,
+            )
+        )
+        db_path = candidate / "registry.db"
+        connection = _connect_read_only(db_path)
+    else:
+        db_path = Path(args.db or _DEFAULT_DB)
+        connection = connect(db_path)
+
+    with closing(connection) as conn:
+        if candidate is None:
+            init_schema(conn)
         server_repo = ServerRepository(conn)
         scan_repo = ScanRepository(conn)
 
-        if not server_repo.list():
+        if candidate is None and not server_repo.list():
             seeded = seed_into(server_repo)
-            print(f"Seeded {seeded} server(s) into {args.db}.")
+            print(f"Seeded {seeded} server(s) into {db_path}.")
 
         if args.demo_fill:
             newly_scanned = _stub_scan_unscanned(server_repo, scan_repo)
@@ -218,14 +279,14 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
         corrections = _load_corrections(args.corrections)
-        masked_slugs = _load_masked_slugs(args.masked_grades)
         build = generate_site(
             conn,
             args.out,
             base_url=args.base_url,
-            now=datetime.now(tz=UTC),
+            now=now,
             corrections=corrections,
             masked_slugs=masked_slugs,
+            masked_scan_succeeded_slugs=masked_scan_succeeded_slugs,
         )
         print(
             f"Built static site for {build.server_count} server(s) "
@@ -239,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
             servers=server_repo.list(),
             scanned_slugs=set(scan_repo.latest_all()),
             masked_slugs=masked_slugs,
+            masked_scan_succeeded_slugs=masked_scan_succeeded_slugs,
         )
 
     if failures:

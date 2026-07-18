@@ -483,6 +483,21 @@ def test_badge_unscanned_wins_over_masked():
     assert payload["message"] == "unscanned"
 
 
+def test_badge_verified_masked_scan_reads_under_review_without_grade():
+    payload = badge_payload(
+        "unscanned",
+        ScanProvenance.UNSCANNED,
+        masked=True,
+        masked_scan_succeeded=True,
+    )
+    assert payload == {
+        "schemaVersion": 1,
+        "label": "mcp trust",
+        "message": "under review",
+        "color": "lightgrey",
+    }
+
+
 def test_detail_masked_withholds_grade_score_and_findings():
     server = _server().model_copy(update={"description": "The F grade should not leak."})
     record = _real_scan().model_copy(
@@ -527,6 +542,30 @@ def test_detail_masked_ignored_for_unscanned():
     assert "UNSCANNED" in html
     assert "The F grade should not leak." not in html
     assert MASKED_SERVER_DESCRIPTION in html
+
+
+def test_detail_verified_masked_scan_withholds_all_verdict_data():
+    server = _server().model_copy(
+        update={"description": "masked-detail-sentinel-should-not-leak"}
+    )
+    html = render_detail(
+        server,
+        None,
+        base_url=BASE_URL,
+        now=NOW,
+        masked=True,
+        masked_scan_succeeded=True,
+    )
+    assert "Grade withheld:" in html
+    assert "successful scan" in html
+    assert "grade withheld — under governance review" in html
+    assert "masked-detail-sentinel-should-not-leak" not in html
+    assert MASKED_SERVER_DESCRIPTION in html
+    assert "Not yet scanned." not in html
+    assert "No findings on record." not in html
+    assert "Finding detail is withheld" in html
+    assert " / 10" not in html
+    assert "this page reports detected or inferred risk" not in html
 
 
 def test_catalog_masked_row_hides_grade_and_score():
@@ -582,6 +621,50 @@ def test_generator_masks_unscanned_operator_metadata(conn, tmp_path):
     assert MASKED_SERVER_DESCRIPTION in detail
     assert "Grade withheld:" not in detail
     assert badge["message"] == "unscanned"
+
+
+def test_generator_projects_verified_masked_scan_without_grade(conn, tmp_path):
+    server = _server("masked-server").model_copy(
+        update={"description": "masked-generator-sentinel-should-not-leak"}
+    )
+    ServerRepository(conn).upsert(server)
+
+    build = generate_site(
+        conn,
+        tmp_path,
+        base_url=BASE_URL,
+        now=NOW,
+        masked_slugs={"masked-server"},
+        masked_scan_succeeded_slugs={"masked-server"},
+    )
+
+    assert build.scanned_count == 1
+    assert build.masked_count == 1
+    badge = json.loads(
+        (tmp_path / "servers" / "masked-server" / "badge.json").read_text(encoding="utf-8")
+    )
+    detail = (tmp_path / "ui" / "servers" / "masked-server" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    catalog = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert badge["message"] == "under review"
+    assert "Grade withheld:" in detail
+    assert "successful scan" in detail
+    assert "masked-generator-sentinel-should-not-leak" not in detail
+    assert "No findings on record." not in detail
+    assert ">masked<" in catalog
+    assert ">unscanned<" not in catalog
+
+
+def test_generator_rejects_verified_scan_without_operator_mask(conn, tmp_path):
+    ServerRepository(conn).upsert(_server("not-masked"))
+    with pytest.raises(ValueError, match="must also be operator-masked"):
+        generate_site(
+            conn,
+            tmp_path,
+            base_url=BASE_URL,
+            masked_scan_succeeded_slugs={"not-masked"},
+        )
 
 
 def test_app_masks_badge_and_detail_routes(conn):

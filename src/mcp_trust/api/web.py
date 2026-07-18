@@ -456,7 +456,12 @@ def _transparency_chip(level: str) -> str:
     return f'<span class="chip" style="background:{escape(color)}">{escape(level)}</span>'
 
 
-def _provenance_card(server: Server, record: ScanRecord | None) -> str:
+def _provenance_card(
+    server: Server,
+    record: ScanRecord | None,
+    *,
+    masked_scan_succeeded: bool = False,
+) -> str:
     """Provenance & dispute card: how this entry got listed, exactly what was
     scanned, and the standing dispute path for the graded party."""
     source = server.source
@@ -468,7 +473,14 @@ def _provenance_card(server: Server, record: ScanRecord | None) -> str:
         "<li><strong>Listing basis:</strong> operator-listed from a public catalog. "
         "This entry was not submitted by its vendor.</li>"
     ]
-    if record is None:
+    if masked_scan_succeeded:
+        items.append(
+            f"<li><strong>Scan target:</strong> the configured {escape(str(kind))} "
+            f"target <code>{ref}</code>. A bound, grade-free proof records a "
+            "successful scan; detailed scan provenance and results are withheld "
+            "during governance review.</li>"
+        )
+    elif record is None:
         items.append(
             f"<li><strong>Scan target:</strong> the {escape(str(kind))} artifact "
             f"<code>{ref}</code>. Not yet scanned.</li>"
@@ -745,6 +757,7 @@ def render_detail(
     banner: str | None = None,
     now: datetime | None = None,
     masked: bool = False,
+    masked_scan_succeeded: bool = False,
     grade_change: GradeChange | None = None,
 ) -> str:
     """Render the detail page for one server.
@@ -765,6 +778,10 @@ def render_detail(
         Operator-withheld grade (masked-grades list): the letter grade, danger
         score, per-dimension breakdown, and finding detail are withheld pending
         governance review; scan metadata and the dispute path stay disclosed.
+    masked_scan_succeeded:
+        A verified, grade-free candidate proof records a successful scan even
+        though no grade-bearing ``ScanRecord`` is retained. This only changes
+        the neutral review state; no verdict fields are reconstructed.
     grade_change:
         Latest recorded letter-grade movement. It is rendered only while the
         grade itself is public; missing evidence remains an unknown comparison.
@@ -794,7 +811,7 @@ def render_detail(
 
     stale = record is not None and now is not None and is_stale(record.scanned_at, now)
     operator_masked = masked
-    masked = operator_masked and record is not None  # nothing to withhold on an unscanned entry
+    masked = operator_masked and (record is not None or masked_scan_succeeded)
     description_text = (
         MASKED_SERVER_DESCRIPTION if operator_masked else str(server.description or "")
     )
@@ -808,7 +825,13 @@ def render_detail(
     )
     composite_str = f"{composite_val:.1f}" if composite_val is not None else "—"
     danger_cell = "withheld" if masked else f"{escape(composite_str)} / 10"
-    scanned_str = scanned_at_raw[:19].replace("T", " ") if scanned_at_raw else "Never"
+    scanned_str = (
+        scanned_at_raw[:19].replace("T", " ")
+        if scanned_at_raw
+        else "Verified; details withheld"
+        if masked_scan_succeeded
+        else "Never"
+    )
     if stale and not masked:
         scanned_str += " (stale)"
 
@@ -885,14 +908,24 @@ def render_detail(
 
     hero += "</div>"  # close meta-row
 
-    hero += (
-        '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
-        'border-left:3px solid #57606a;padding-left:0.75rem">'
-        "<strong>Automated danger grade:</strong> this page reports detected or "
-        "inferred risk from a scan. It is not an endorsement, certification, or "
-        "claim that the server is malicious."
-        "</p>"
-    )
+    if masked_scan_succeeded and record is None:
+        hero += (
+            '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+            'border-left:3px solid #57606a;padding-left:0.75rem">'
+            "<strong>Automated scan:</strong> a grade-free proof records scan "
+            "success, but this page publishes no risk verdict while review is open. "
+            "It is not an endorsement or certification."
+            "</p>"
+        )
+    else:
+        hero += (
+            '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+            'border-left:3px solid #57606a;padding-left:0.75rem">'
+            "<strong>Automated danger grade:</strong> this page reports detected or "
+            "inferred risk from a scan. It is not an endorsement, certification, or "
+            "claim that the server is malicious."
+            "</p>"
+        )
 
     # Low transparency is a caveat, NOT a danger verdict — state it plainly.
     if transparency == "low":
@@ -905,7 +938,17 @@ def render_detail(
             "</p>"
         )
 
-    if masked:
+    if masked and masked_scan_succeeded and record is None:
+        hero += (
+            '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+            'border-left:3px solid #8b949e;padding-left:0.75rem">'
+            "<strong>Grade withheld:</strong> a successful scan is bound to this "
+            "entry through a verified, grade-free proof. The grade, danger score, "
+            "findings, and detailed scan provenance remain withheld during "
+            "governance review. The dispute channel below remains open."
+            "</p>"
+        )
+    elif masked:
         hero += (
             '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
             'border-left:3px solid #8b949e;padding-left:0.75rem">'
@@ -1045,7 +1088,11 @@ def render_detail(
     )
 
     # --- Provenance & dispute card ---
-    provenance_card = _provenance_card(server, record)
+    provenance_card = _provenance_card(
+        server,
+        record,
+        masked_scan_succeeded=masked_scan_succeeded,
+    )
 
     # --- Back link ---
     back = '<p><a href="/">← Back to catalog</a></p>'
