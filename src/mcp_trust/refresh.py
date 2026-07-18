@@ -289,25 +289,41 @@ def _validate_receipt(
     )
 
 
-def _redact_masked_receipt(path: Path) -> None:
-    receipt = _load_json(path)
-    if not isinstance(receipt, dict):
-        raise RefreshCandidateError("masked receipt is not a JSON object")
-    redacted = {
-        "format_version": receipt.get("format_version"),
-        "receipt_visibility": "withheld",
-        "server_slug": receipt.get("server_slug"),
-        "scan_id": receipt.get("scan_id"),
-        "scanner": receipt.get("scanner"),
-        "sandbox": receipt.get("sandbox"),
-        "approval": receipt.get("approval"),
-        "caveats": [
-            "Grade, risk, findings, evidence, and drift are operator-withheld."
-        ],
-    }
-    replacement = path.with_name(f".{path.name}.redacted")
-    _write_private(replacement, redacted)
-    os.replace(replacement, path)
+def _fresh_result_matches_persisted_scan(
+    candidate: Path,
+    *,
+    result: dict[str, object],
+    receipt: dict[str, Any],
+) -> bool:
+    slug = result.get("server_slug")
+    if not isinstance(slug, str):
+        return False
+    try:
+        db_uri = f"{(candidate / 'registry.db').resolve().as_uri()}?mode=ro"
+        with sqlite3.connect(db_uri, uri=True) as conn:
+            conn.row_factory = sqlite3.Row
+            server = ServerRepository(conn).get(slug)
+            scan = ScanRepository(conn).latest(slug)
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return False
+    if server is None or scan is None:
+        return False
+    expected_evidence = (
+        scan.evidence.model_dump(mode="json") if scan.evidence is not None else None
+    )
+    return bool(
+        result.get("scan_id") == scan.id
+        and result.get("fresh_grade") == str(scan.grade)
+        and result.get("transparency") == str(scan.transparency)
+        and result.get("scanned_at") == scan.scanned_at.isoformat()
+        and result.get("engine_name") == scan.engine_name
+        and result.get("engine_version") == scan.engine_version
+        and result.get("receipt") == scan.report_ref
+        and receipt.get("server") == server.model_dump(mode="json")
+        and receipt.get("scan") == scan.model_dump(mode="json")
+        and receipt.get("evidence") == expected_evidence
+        and receipt.get("danger_score") == grading.danger_score(scan.risk)
+    )
 
 
 def _scan_age_days(scanned_at: datetime, now: datetime) -> float:
@@ -494,7 +510,15 @@ def create_refresh_candidate(
                         scanned_at=fixed_now,
                         sandbox_image=engine_result.sandbox_image,
                     )
-                    receipt_ref = writer(server, scan, receipts_dir)
+                    masked = server.slug in masked_slugs
+                    if masked:
+                        receipt_ref = None
+                    elif receipt_writer is None:
+                        receipt_ref = f"{scan.server_slug}-{scan.id}.json"
+                        scan = scan.model_copy(update={"report_ref": receipt_ref})
+                        _write_receipt(server, scan, receipts_dir)
+                    else:
+                        receipt_ref = writer(server, scan, receipts_dir)
                     receipt_portable = bool(
                         receipt_ref
                         and "/" not in receipt_ref
@@ -504,7 +528,7 @@ def create_refresh_candidate(
                     receipt_path = (
                         receipts_dir / receipt_ref if receipt_portable else None
                     )
-                    receipt_valid = bool(
+                    receipt_valid = masked or bool(
                         receipt_path is not None
                         and receipt_path.is_file()
                         and (
@@ -517,7 +541,7 @@ def create_refresh_candidate(
                             )
                         )
                     )
-                    if not receipt_ref or not receipt_valid:
+                    if not masked and (not receipt_ref or not receipt_valid):
                         results.append(
                             {
                                 "server_slug": server.slug,
@@ -528,13 +552,11 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
-                    masked = server.slug in masked_slugs
                     if masked:
-                        assert receipt_path is not None
-                        _redact_masked_receipt(receipt_path)
                         drift = None
                     else:
-                        scan = scan.model_copy(update={"report_ref": receipt_ref})
+                        if scan.report_ref != receipt_ref:
+                            scan = scan.model_copy(update={"report_ref": receipt_ref})
                         scan_repo.record(scan)
                         drift = diff_latest(scan_repo.history(server.slug, limit=2))
                     results.append(
@@ -548,10 +570,10 @@ def create_refresh_candidate(
                             ),
                             "scanned_at": scan.scanned_at.isoformat(),
                             "scan_age_days": _scan_age_days(scan.scanned_at, fixed_now),
-                            "scan_id": scan.id,
+                            "scan_id": None if masked else scan.id,
                             "engine_name": scan.engine_name,
                             "engine_version": scan.engine_version,
-                            "receipt": receipt_ref,
+                            "receipt": None if masked else receipt_ref,
                             "receipt_visibility": (
                                 "withheld" if masked else "reviewable"
                             ),
@@ -830,6 +852,19 @@ def verify_refresh_candidate(
             "masked",
         }:
             continue
+        if result.get("state") == "masked":
+            if (
+                result.get("receipt") is not None
+                or result.get("scan_id") is not None
+                or result.get("receipt_visibility") != "withheld"
+                or result.get("fresh_grade") is not None
+                or result.get("transparency") is not None
+                or result.get("drift") is not None
+            ):
+                errors.append("masked_scan_evidence_exposed")
+            if candidate_state == "complete" and result.get("engine_name") != "mcpaudit":
+                errors.append("masked_scan_provenance_invalid")
+            continue
         receipt_ref = result.get("receipt")
         if not isinstance(receipt_ref, str) or "/" in receipt_ref or "\\" in receipt_ref:
             errors.append("successful_scan_receipt_ref_invalid")
@@ -846,23 +881,12 @@ def verify_refresh_candidate(
         ):
             errors.append(f"successful_scan_receipt_mismatch:{receipt_ref}")
             continue
-        if result.get("state") == "masked":
-            if (
-                receipt.get("receipt_visibility") != "withheld"
-                or any(
-                    field in receipt
-                    for field in (
-                        "server",
-                        "scan",
-                        "evidence",
-                        "danger_score",
-                    )
-                )
-                or result.get("fresh_grade") is not None
-                or result.get("transparency") is not None
-                or result.get("drift") is not None
-            ):
-                errors.append(f"masked_scan_evidence_exposed:{receipt_ref}")
+        if not _fresh_result_matches_persisted_scan(
+            candidate,
+            result=result,
+            receipt=receipt,
+        ):
+            errors.append(f"fresh_scan_binding_mismatch:{receipt_ref}")
         if candidate_state == "complete":
             scanner = receipt.get("scanner")
             sandbox = receipt.get("sandbox")
