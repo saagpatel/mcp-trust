@@ -117,9 +117,7 @@ def test_build_snapshot_discloses_remote_live_transport(tmp_path) -> None:
     )
     ServerRepository(conn).upsert(remote)
     ScanRepository(conn).record(
-        _scan("remote-one", "mcpaudit").model_copy(
-            update={"sandbox_image": None}
-        )
+        _scan("remote-one", "mcpaudit").model_copy(update={"sandbox_image": None})
     )
 
     server = _load_build_snapshot().build_snapshot(db)["servers"][0]
@@ -154,10 +152,34 @@ def test_build_snapshot_main_rejects_unknown_mask_before_output(
     assert not output.exists()
 
 
+def test_build_snapshot_main_preserves_verified_network_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(_server("real-one"))
+    ScanRepository(conn).record(_scan("real-one", "mcpaudit"))
+    conn.close()
+    masked = tmp_path / "masked.json"
+    masked.write_text("[]", encoding="utf-8")
+    output = tmp_path / "snapshot.json"
+    module = _load_build_snapshot()
+    monkeypatch.setattr(module, "_OUT", output)
+    monkeypatch.setenv("MCP_TRUST_DB", db)
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+    monkeypatch.setenv("MCP_TRUST_VERIFIED_LOCAL_NETWORK", "none")
+
+    module.main()
+
+    server = json.loads(output.read_text(encoding="utf-8"))["servers"][0]
+    assert server["scan_mode"] == "mcpaudit-local-network-off"
+    assert server["sandbox"]["network"] == "none"
+
+
 def test_baked_snapshot_excludes_every_reviewed_masked_slug() -> None:
-    masked = set(
-        json.loads((ROOT / "masked-grades.json").read_text(encoding="utf-8"))
-    )
+    masked = set(json.loads((ROOT / "masked-grades.json").read_text(encoding="utf-8")))
     snapshot = json.loads(
         (ROOT / "src/mcp_trust/catalog_snapshot.json").read_text(encoding="utf-8")
     )

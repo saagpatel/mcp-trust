@@ -817,14 +817,15 @@ def verify_refresh_candidate(
 
     manifest_path = candidate / MANIFEST_NAME
     digest_path = candidate / MANIFEST_DIGEST_NAME
+    actual_manifest_digest: str | None = None
     try:
         manifest = _load_json(manifest_path)
         expected_manifest_digest = digest_path.read_text(encoding="utf-8").strip()
+        actual_manifest_digest = _sha256(manifest_path)
     except (OSError, RefreshCandidateError):
         manifest = {}
         expected_manifest_digest = ""
         errors.append("manifest_unreadable")
-    actual_manifest_digest = _sha256(manifest_path) if manifest_path.is_file() else None
     if not expected_manifest_digest or expected_manifest_digest != actual_manifest_digest:
         errors.append("manifest_digest_mismatch")
     if not isinstance(manifest, dict) or manifest.get("schema") != CANDIDATE_SCHEMA:

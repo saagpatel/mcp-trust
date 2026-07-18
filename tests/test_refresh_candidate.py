@@ -340,6 +340,29 @@ def test_manifest_tampering_fails_content_verification(tmp_path: Path) -> None:
     assert "manifest_digest_mismatch" in verification["errors"]
 
 
+def test_unreadable_manifest_returns_structured_invalid_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _candidate(tmp_path)
+    manifest_path = candidate / "MANIFEST.json"
+    original_read_text = Path.read_text
+
+    def fail_manifest_read(path: Path, *args, **kwargs):
+        if path == manifest_path:
+            raise PermissionError("simulated unreadable manifest")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_manifest_read)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "manifest_unreadable" in verification["errors"]
+    assert "manifest_digest_mismatch" in verification["errors"]
+
+
 def test_invalid_masking_manifest_fails_closed_with_reviewed_inputs(
     tmp_path: Path,
 ) -> None:
