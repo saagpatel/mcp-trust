@@ -1,0 +1,731 @@
+{
+  "format_version": 2,
+  "spec_version": "2026-07-28-rc",
+  "rubric_version": "SCOPE-2026-07-17",
+  "ruled_at": "2026-07-18",
+  "source": "spec-shift-tribunal",
+  "bound_fields": [
+    "kind",
+    "reference",
+    "command",
+    "args",
+    "sandbox_image"
+  ],
+  "dimension_titles": {
+    "D1": "Stateless-core compatibility",
+    "D2": "Deprecated-capability reliance",
+    "D3": "Authorization posture",
+    "D4": "Schema and wire conformance",
+    "D5": "Extensions readiness"
+  },
+  "counts": {
+    "READY": 21,
+    "BREAKS": 10
+  },
+  "servers": {
+    "ai-adeu-adeu-1-7-1": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@adeu/mcp-server",
+        "command": "adeu-mcp-server",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "1.20.0"
+    },
+    "ai-ravenmcp-raven-mcp-1-3-3": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "raven-mcp",
+        "command": "raven-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "1.17.0"
+    },
+    "com-kage-core-kage-2-3-0": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@kage-core/kage-graph-mcp",
+        "command": "kage-graph-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "3.3.0"
+    },
+    "com-kogcat-kogcat-mcp-0-46-2": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "pypi",
+        "reference": "kogcat-mcp",
+        "command": "kogcat-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "0.46.2"
+    },
+    "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "small",
+          "action": "Invert the null branch in HandleConfirmRequest so an absent Elicitation capability fails CLOSED - refuse or defer the destructive operation rather than treating it as confirmed. That is the safety-critical half and it is a small, local change that is correct today regardless of the spec transition. Separately, once a C# SDK release carries SEP-2575 support, source client capabilities from per-request _meta rather than from handshake state."
+        }
+      ],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@microsoft/powerbi-modeling-mcp",
+        "command": "powerbi-modeling-mcp",
+        "args": [
+          "--start"
+        ],
+        "sandbox_image": "mcp-trust-batch3:20260703"
+      },
+      "audited_version": "0.5.0-beta.11"
+    },
+    "com-mythsensus-mythsensus-mcp-0-2-1": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "mythsensus-mcp",
+        "command": "mythsensus-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "0.3.0"
+    },
+    "com-pulsemcp-image-diff-0-1-3": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@pulsemcp/image-diff-mcp-server",
+        "command": "image-diff-mcp-server",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "0.1.3"
+    },
+    "com-seanwinslow-intent-engineering-0-2-0": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@swins/intent-engineering-mcp",
+        "command": "intent-engineering-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "0.2.0"
+    },
+    "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "sovereign-ai-act-mcp",
+        "command": "sovereign-ai-act-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-live-batch:20260628"
+      },
+      "audited_version": "1.3.0"
+    },
+    "io-github-basicmachines-co-basic-memory-0-22-1": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "trivial",
+          "action": "Pass stateless=True through to the stdio transport at src/basic_memory/cli/commands/mcp.py:118-120, i.e. mcp_server.run(transport=transport, stateless=True). FastMCP already forwards the kwarg to the SDK's ServerSession, and the server keeps its state in SQLite and the filesystem rather than in the protocol session, so nothing depends on the handshake. Separately retire the 'sse' transport option at mcp.py:28,121 per RC-D1-c."
+        }
+      ],
+      "audited_source": {
+        "kind": "pypi",
+        "reference": "basic-memory",
+        "command": "basic-memory",
+        "args": [
+          "mcp"
+        ],
+        "sandbox_image": "mcp-trust-batch4:20260703"
+      },
+      "audited_version": "0.22.1"
+    },
+    "io-github-chromedevtools-chrome-devtools-mcp-1-5-0": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "BREAKS",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "substantial",
+          "action": "Stop deriving the workspace-root allowlist from connect-time state. Read client capabilities per request from _meta, or call server/discover when they are genuinely needed up front, and move the RootsListChanged handler registration out of oninitialized to construction time. Independently, give McpContext a non-handshake source of roots - a --workspace/--root CLI flag or a tool parameter - so the file-write sandbox has a configured allowlist when no handshake occurs, rather than silently collapsing to the temp directory. Effort note: this row is scored substantial and D2 small for what overlaps in one change, because D1 additionally bundles moving the handler out of oninitialized and sourcing capabilities from _meta / server-discover. Treat them as one piece of work with D1's scope, not two."
+        },
+        {
+          "dimension": "D2",
+          "effort": "small",
+          "action": "Add a non-deprecated way to configure workspace roots - a repeatable --root/--workspace CLI flag, or a path allowlist in server configuration - so the file-write sandbox no longer depends on the Roots capability, and keep roots/list only as an optional convenience while it remains available. Drop the declared logging capability and its no-op SetLevel handler, or start actually emitting through it; as shipped it advertises a deprecated feature the server never uses. No deadline before the one-year floor in RC-D2-b. Shares its fix with the D1 remediation - one change, scoped at D1's effort, not two separate efforts."
+        }
+      ],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "chrome-devtools-mcp",
+        "command": "chrome-devtools-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-batch4:20260703"
+      },
+      "audited_version": "1.6.0"
+    },
+    "io-github-discourse-mcp-0-2-9": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@discourse/mcp",
+        "command": "discourse-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-batch4:20260703"
+      },
+      "audited_version": "0.2.9"
+    },
+    "io-github-microsoft-playwright-mcp-0-0-77": {
+      "overall": "BREAKS",
+      "confidence": "medium",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "small",
+          "action": "In playwright-core's initializeServer (lib/coreBundle.js source: packages/playwright-core/src/tools/utils/mcp/server.ts), read client capabilities and client info from the per-request _meta supplied on each tools/call rather than from server.getClientCapabilities()/getClientVersion(), and stop memoizing the derived clientInfo across requests - or resolve roots up front via server/discover. The existing process.cwd() fallback at :70888-70889 means the change is additive and carries no behavior risk for handshake-era clients."
+        }
+      ],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@playwright/mcp",
+        "command": "playwright-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-batch4:20260703"
+      },
+      "audited_version": "0.0.78"
+    },
+    "io-github-nickjlamb-redacta-mcp-1-2-1": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "redacta-mcp",
+        "command": "redacta-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-batch3:20260703"
+      },
+      "audited_version": "1.2.1"
+    },
+    "io-github-nvidia-elements-2-1-4": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@nvidia-elements/cli",
+        "command": "nve",
+        "args": [
+          "mcp"
+        ],
+        "sandbox_image": "mcp-trust-batch4:20260703"
+      },
+      "audited_version": "2.1.4"
+    },
+    "io-github-ui5-webcomponents-react-mcp-server-2-23-2": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@ui5/webcomponents-react-mcp",
+        "command": "ui5-wcr-mcp",
+        "args": [],
+        "sandbox_image": "mcp-trust-batch4:20260703"
+      },
+      "audited_version": "2.24.1"
+    },
+    "mcp-archived-aws-kb-retrieval": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-aws-kb-retrieval@0.6.2",
+        "command": "mcp-server-aws-kb-retrieval",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "0.6.2"
+    },
+    "mcp-archived-brave-search": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-brave-search@0.6.2",
+        "command": "mcp-server-brave-search",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "0.6.2"
+    },
+    "mcp-archived-everart": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-everart@0.6.2",
+        "command": "mcp-server-everart",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "0.6.2"
+    },
+    "mcp-archived-github": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-github@2025.4.8",
+        "command": "mcp-server-github",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2025.4.8"
+    },
+    "mcp-archived-gitlab": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-gitlab@2025.4.25",
+        "command": "mcp-server-gitlab",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2025.4.25"
+    },
+    "mcp-archived-google-maps": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-google-maps@0.6.2",
+        "command": "mcp-server-google-maps",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "0.6.2"
+    },
+    "mcp-archived-slack": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-slack@2025.4.25",
+        "command": "mcp-server-slack",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2025.4.25"
+    },
+    "mcp-archived-sqlite": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "upstream-blocked",
+          "action": "Pass stateless=True to server.run() at src/mcp_server_sqlite/server.py:373, alongside a floor bump to an SDK release that exposes the parameter. The server holds no per-connection state that depends on the handshake, so the change is behavior-preserving. Effort is upstream-blocked, not trivial: modelcontextprotocol/servers-archived is unmaintained by policy and mcp-server-sqlite has not published since 2025-04-25, so no maintainer exists to land it - a consumer would have to fork or vendor."
+        }
+      ],
+      "audited_source": {
+        "kind": "pypi",
+        "reference": "mcp-server-sqlite",
+        "command": "mcp-server-sqlite",
+        "args": [
+          "--db-path",
+          "/scan/probe.db"
+        ],
+        "sandbox_image": null
+      },
+      "audited_version": "2025.4.25"
+    },
+    "mcp-reference-everything": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "BREAKS",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "substantial",
+          "action": "Register the seven conditional tools unconditionally and gate their behavior at call time on client capabilities read from _meta, rather than registering them from an oninitialized callback; replace the eight registration-time getClientCapabilities() reads with per-request reads, using server/discover only where capabilities are genuinely needed up front."
+        },
+        {
+          "dimension": "D2",
+          "effort": "substantial",
+          "action": "Move Roots to tool parameters or resource URIs (the existing roots-list tool already proves a parameterized shape works); route Sampling through a direct LLM provider API behind the tool boundary; emit logging to stderr under stdio and OpenTelemetry otherwise. No deadline before the one-year floor in RC-D2-b, but a fixture should model the replacements it exists to demonstrate."
+        }
+      ],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-everything",
+        "command": "mcp-server-everything",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.4"
+    },
+    "mcp-reference-fetch": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "trivial",
+          "action": "Pass stateless=True to server.run() at src/mcp_server_fetch/server.py:288. The parameter already exists in every SDK release this package resolves to, the server holds no per-connection state that depends on the handshake (the only closure state is the user agent and proxy settings fixed at startup from argv), and the change is correct whether or not a later SDK release flips the default."
+        }
+      ],
+      "audited_source": {
+        "kind": "pypi",
+        "reference": "mcp-server-fetch",
+        "command": "mcp-server-fetch",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.10"
+    },
+    "mcp-reference-filesystem": {
+      "overall": "BREAKS",
+      "confidence": "medium",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "small",
+          "action": "Drop the server.server.oninitialized assignment at dist/index.js:600 and establish roots without depending on handshake-time state - fetch them on first use, or accept them as tool parameters or server configuration. The surviving roots/list_changed handler at :587 already proves the non-handshake path works; it just needs an establishment entry point as well as a change entry point."
+        }
+      ],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-filesystem",
+        "command": "mcp-server-filesystem",
+        "args": [
+          "/scan"
+        ],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.10"
+    },
+    "mcp-reference-git": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "trivial",
+          "action": "Pass stateless=True to server.run() in src/mcp_server_git/server.py:602. The parameter already exists in the shipped SDK, the server holds no per-connection state that depends on the handshake, and the change is correct whether or not a later SDK release flips the default."
+        }
+      ],
+      "audited_source": {
+        "kind": "pypi",
+        "reference": "mcp-server-git",
+        "command": "mcp-server-git",
+        "args": [
+          "--repository",
+          "/fixtures/repo"
+        ],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.10"
+    },
+    "mcp-reference-memory": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-memory",
+        "command": "mcp-server-memory",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.4"
+    },
+    "mcp-reference-sequential-thinking": {
+      "overall": "READY",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "READY",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [],
+      "audited_source": {
+        "kind": "npm",
+        "reference": "@modelcontextprotocol/server-sequential-thinking",
+        "command": "mcp-server-sequential-thinking",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.4"
+    },
+    "mcp-reference-time": {
+      "overall": "BREAKS",
+      "confidence": "high",
+      "dimensions": {
+        "D1": "BREAKS",
+        "D2": "READY",
+        "D3": "N_A",
+        "D4": "READY",
+        "D5": "NOTE"
+      },
+      "remediations": [
+        {
+          "dimension": "D1",
+          "effort": "trivial",
+          "action": "Pass stateless=True to server.run() at src/mcp_server_time/server.py:220. The server is genuinely stateless already - both tools are pure functions of their arguments plus the host clock, and the only closure state is the local timezone string resolved once at startup - so the argument records a property the code already has."
+        }
+      ],
+      "audited_source": {
+        "kind": "pypi",
+        "reference": "mcp-server-time",
+        "command": "mcp-server-time",
+        "args": [],
+        "sandbox_image": null
+      },
+      "audited_version": "2026.7.10"
+    }
+  }
+}
