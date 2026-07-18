@@ -23,7 +23,7 @@ DB="${MCP_TRUST_DB:-./registry.db}"
 IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:corpus-2026-07-03}"
 CANDIDATES="${MCP_TRUST_CANDIDATES_DIR:-./dist/refresh-candidates}"
 
-exec uv run --frozen python scripts/refresh_candidate.py create \
+exec uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db "${DB}" \
   --seed "./src/mcp_trust/catalog/seed_servers.json" \
   --masked-grades "./masked-grades.json" \

@@ -528,6 +528,7 @@ def create_refresh_candidate(
         conn = connect(str(candidate_db))
         init_schema(conn)
         scan_repo = ScanRepository(conn)
+        conn.execute("PRAGMA secure_delete = ON")
         placeholders = ",".join("?" for _ in catalog_slugs)
         if placeholders:
             catalog_parameters = tuple(sorted(catalog_slugs))
@@ -548,6 +549,7 @@ def create_refresh_candidate(
                 ((slug,) for slug in sorted(masked_slugs)),
             )
         conn.commit()
+        conn.execute("VACUUM")
 
         results: list[dict[str, object]] = []
         excluded: set[str] = set()

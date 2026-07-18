@@ -228,7 +228,7 @@ def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
     script = (ROOT / "scripts/refresh_and_publish.sh").read_text(encoding="utf-8")
 
     assert "refresh_candidate.py create" in script
-    assert "uv run --frozen" in script
+    assert "uv run --frozen --extra engine" in script
     assert "mcp-trust scan" not in script
     assert "build_site.py" not in script
     assert "deploy_production" not in script
@@ -523,6 +523,7 @@ def test_unknown_evidence_is_explicit_and_not_fresh(tmp_path: Path) -> None:
 
 def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> None:
     db_path, seed_path, masked_path = _inputs(tmp_path, masked=("alpha",))
+    masked_sentinel = "masked-secret-sentinel-8fd3c764"
     conn = connect(db_path)
     ScanRepository(conn).record(
         ScanRecord(
@@ -532,7 +533,7 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
             engine_version="2.3.0",
             grade=TrustGrade.D,
             risk=RiskSummary(composite=6.0),
-            evidence=ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
+            evidence=ScanEvidence(tools=[ToolEvidence(name=masked_sentinel)]),
             scanned_at=FIXED_NOW - timedelta(days=30),
         )
     )
@@ -554,6 +555,7 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
     masked_scan_count = candidate_conn.execute(
         "SELECT COUNT(*) FROM scans WHERE server_slug = 'alpha'"
     ).fetchone()[0]
+    freelist_count = candidate_conn.execute("PRAGMA freelist_count").fetchone()[0]
     candidate_conn.close()
     assert result["state"] == "masked"
     assert result["fresh_grade"] is None
@@ -564,6 +566,8 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
     assert result["drift"] is None
     assert list((candidate / "receipts").iterdir()) == []
     assert masked_scan_count == 0
+    assert freelist_count == 0
+    assert masked_sentinel.encode() not in (candidate / "registry.db").read_bytes()
     assert snapshot["servers"] == []
 
 
