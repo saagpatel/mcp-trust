@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from mcp_trust.core import grading
 from mcp_trust.core.drift import diff_latest
-from mcp_trust.core.models import ScanRecord, Server
+from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
 from mcp_trust.engine.sandbox import DockerSandbox
@@ -186,6 +186,13 @@ def _sandbox_profile(image: str) -> dict[str, object]:
     }
 
 
+def _requires_local_sandbox(server: Server) -> bool:
+    return not (
+        server.source.kind == SourceKind.REMOTE
+        and server.source.command is None
+    )
+
+
 def preflight_real_refresh(
     servers: list[Server],
     *,
@@ -193,38 +200,45 @@ def preflight_real_refresh(
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, object]:
     """Prove the network-off Docker controls and every pinned image locally."""
-    if shutil.which("docker") is None:
-        raise RefreshCandidateError("required Docker executable is unavailable")
-    info = runner(
-        ["docker", "info"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if info.returncode != 0:
-        raise RefreshCandidateError("required Docker daemon is unavailable")
-
+    local_servers = [server for server in servers if _requires_local_sandbox(server)]
     images = sorted(
         {
             server.source.sandbox_image or default_image
-            for server in servers
+            for server in local_servers
         }
-        | {default_image}
+        | ({default_image} if local_servers else set())
     )
     profiles: list[dict[str, object]] = []
-    for image in images:
-        inspected = runner(
-            ["docker", "image", "inspect", image],
+    if local_servers:
+        if shutil.which("docker") is None:
+            raise RefreshCandidateError("required Docker executable is unavailable")
+        info = runner(
+            ["docker", "info"],
             text=True,
             capture_output=True,
             check=False,
         )
-        if inspected.returncode != 0:
-            raise RefreshCandidateError(f"required local sandbox image is unavailable: {image}")
-        profiles.append(_sandbox_profile(image))
+        if info.returncode != 0:
+            raise RefreshCandidateError("required Docker daemon is unavailable")
+        for image in images:
+            inspected = runner(
+                ["docker", "image", "inspect", image],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if inspected.returncode != 0:
+                raise RefreshCandidateError(
+                    f"required local sandbox image is unavailable: {image}"
+                )
+            profiles.append(_sandbox_profile(image))
     if importlib.util.find_spec("mcp_audit") is None:
         raise RefreshCandidateError("required MCPAudit engine package is unavailable")
-    return {"docker_daemon": "available", "profiles": profiles}
+    return {
+        "docker_daemon": "available" if local_servers else "not_required",
+        "profiles": profiles,
+        "remote_transport_count": len(servers) - len(local_servers),
+    }
 
 
 @contextmanager
@@ -257,7 +271,13 @@ def _scan_environment(default_image: str) -> Iterator[None]:
 
 def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
     name = f"{scan.server_slug}-{scan.id}.json"
-    _write_private(receipts_dir / name, build_scan_receipt(server, scan))
+    payload = build_scan_receipt(server, scan)
+    if not _requires_local_sandbox(server):
+        payload["sandbox"] = {
+            "mode": "not_applicable",
+            "reason": "remote_endpoint_no_local_process",
+        }
+    _write_private(receipts_dir / name, payload)
     return name
 
 
@@ -266,7 +286,7 @@ def _validate_receipt(
     *,
     server: Server,
     scan: ScanRecord,
-    expected_image: str,
+    expected_image: str | None,
 ) -> bool:
     try:
         receipt = _load_json(path)
@@ -276,14 +296,24 @@ def _validate_receipt(
         return False
     scanner = receipt.get("scanner")
     sandbox = receipt.get("sandbox")
-    return bool(
+    base_valid = bool(
         receipt.get("server_slug") == server.slug
         and receipt.get("scan_id") == scan.id
         and isinstance(scanner, dict)
         and scanner.get("engine_name") == scan.engine_name
         and scanner.get("engine_version") == scan.engine_version
         and isinstance(sandbox, dict)
-        and sandbox.get("MCP_TRUST_SANDBOX") == "docker"
+    )
+    if not base_valid:
+        return False
+    if not _requires_local_sandbox(server):
+        return bool(
+            sandbox.get("mode") == "not_applicable"
+            and sandbox.get("reason") == "remote_endpoint_no_local_process"
+            and "MCP_TRUST_SANDBOX_IMAGE" not in sandbox
+        )
+    return bool(
+        sandbox.get("MCP_TRUST_SANDBOX") == "docker"
         and sandbox.get("MCP_TRUST_SANDBOX_NETWORK") == "none"
         and sandbox.get("MCP_TRUST_SANDBOX_IMAGE") == expected_image
     )
@@ -482,9 +512,14 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
-                    expected_image = server.source.sandbox_image or default_image
+                    expected_image = (
+                        server.source.sandbox_image or default_image
+                        if _requires_local_sandbox(server)
+                        else None
+                    )
                     if (
                         not fixture_mode
+                        and _requires_local_sandbox(server)
                         and engine_result.sandbox_image != expected_image
                     ):
                         results.append(
@@ -846,6 +881,21 @@ def verify_refresh_candidate(
         for result in results
         if isinstance(result, dict) and result.get("state") in {"fresh", "masked"}
     ]
+    expected_artifacts = {
+        "registry.db",
+        "catalog_identity.json",
+        "scan_results.json",
+        "static_snapshot.json",
+    }
+    expected_artifacts.update(
+        f"receipts/{receipt_ref}"
+        for result in results
+        if isinstance(result, dict)
+        and result.get("state") == "fresh"
+        and isinstance((receipt_ref := result.get("receipt")), str)
+    )
+    if actual != expected_artifacts:
+        errors.append("unreferenced_candidate_artifact")
     for result in results:
         if not isinstance(result, dict) or result.get("state") not in {
             "fresh",
@@ -890,14 +940,38 @@ def verify_refresh_candidate(
         if candidate_state == "complete":
             scanner = receipt.get("scanner")
             sandbox = receipt.get("sandbox")
+            receipt_server = receipt.get("server")
+            receipt_source = (
+                receipt_server.get("source")
+                if isinstance(receipt_server, dict)
+                else None
+            )
+            remote_without_command = bool(
+                isinstance(receipt_source, dict)
+                and receipt_source.get("kind") == "remote"
+                and receipt_source.get("command") is None
+            )
+            sandbox_valid = bool(
+                isinstance(sandbox, dict)
+                and (
+                    (
+                        sandbox.get("mode") == "not_applicable"
+                        and sandbox.get("reason")
+                        == "remote_endpoint_no_local_process"
+                    )
+                    if remote_without_command
+                    else (
+                        sandbox.get("MCP_TRUST_SANDBOX") == "docker"
+                        and sandbox.get("MCP_TRUST_SANDBOX_NETWORK") == "none"
+                        and sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
+                    )
+                )
+            )
             if (
                 result.get("engine_name") != "mcpaudit"
                 or not isinstance(scanner, dict)
                 or scanner.get("engine_name") != "mcpaudit"
-                or not isinstance(sandbox, dict)
-                or sandbox.get("MCP_TRUST_SANDBOX") != "docker"
-                or sandbox.get("MCP_TRUST_SANDBOX_NETWORK") != "none"
-                or not sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
+                or not sandbox_valid
             ):
                 errors.append(f"publishable_scan_provenance_invalid:{receipt_ref}")
     excluded = {

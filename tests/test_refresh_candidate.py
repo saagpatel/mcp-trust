@@ -575,6 +575,40 @@ def test_rebound_manifest_cannot_change_fresh_result_grade(tmp_path: Path) -> No
     )
 
 
+def test_rebound_manifest_rejects_unreferenced_artifact(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+    extra = candidate / "receipts" / "masked-leak.json"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    os.chmod(candidate, 0o700)
+    os.chmod(extra.parent, 0o700)
+    os.chmod(manifest_path, 0o600)
+    os.chmod(digest_path, 0o600)
+    extra.write_text('{"grade":"A"}\n', encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"].append(
+        {
+            "path": "receipts/masked-leak.json",
+            "bytes": extra.stat().st_size,
+            "sha256": hashlib.sha256(extra.read_bytes()).hexdigest(),
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (extra, manifest_path, digest_path):
+        os.chmod(path, 0o400)
+    os.chmod(extra.parent, 0o500)
+    os.chmod(candidate, 0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert "unreferenced_candidate_artifact" in verification["errors"]
+
+
 def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -621,6 +655,107 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
             default_image="required:image",
             runner=runner,
         )
+
+
+def test_remote_only_preflight_does_not_require_docker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    remote = _server("alpha").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.test/mcp",
+            )
+        }
+    )
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "mcp_trust.refresh.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+
+    evidence = preflight_real_refresh(
+        [remote],
+        default_image="not-needed:image",
+    )
+
+    assert evidence == {
+        "docker_daemon": "not_required",
+        "profiles": [],
+        "remote_transport_count": 1,
+    }
+
+
+def test_remote_only_real_candidate_records_sandbox_not_applicable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "registry.db"
+    remote = _server("alpha").model_copy(
+        update={
+            "source": ServerSource(
+                kind=SourceKind.REMOTE,
+                reference="https://example.test/mcp",
+            )
+        }
+    )
+    conn = connect(db_path)
+    init_schema(conn)
+    ServerRepository(conn).upsert(remote)
+    conn.close()
+    seed_path = tmp_path / "seed.json"
+    seed_path.write_text(
+        json.dumps([remote.model_dump(mode="json", exclude={"added_at"})]),
+        encoding="utf-8",
+    )
+    masked_path = tmp_path / "masked.json"
+    masked_path.write_text("[]", encoding="utf-8")
+
+    class RemoteMCPAuditEngine:
+        def __init__(self, timeout: float) -> None:
+            assert timeout == 90.0
+
+        def scan(self, source: ServerSource) -> EngineResult:
+            assert source == remote.source
+            return _stub_scanner(remote).model_copy(
+                update={
+                    "engine_name": "mcpaudit",
+                    "engine_version": "2.4.0",
+                    "sandbox_image": None,
+                }
+            )
+
+    monkeypatch.setattr(
+        "mcp_trust.refresh.preflight_real_refresh",
+        lambda servers, *, default_image: {
+            "docker_daemon": "not_required",
+            "profiles": [],
+            "remote_transport_count": len(servers),
+        },
+    )
+    monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", RemoteMCPAuditEngine)
+
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="not-needed:image",
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    result = _results(candidate)[0]
+    receipt = json.loads(
+        (candidate / "receipts" / str(result["receipt"])).read_text(encoding="utf-8")
+    )
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert receipt["sandbox"] == {
+        "mode": "not_applicable",
+        "reason": "remote_endpoint_no_local_process",
+    }
+    assert verification["structural_valid"] is True
+    assert verification["publication_ready"] is True
 
 
 def test_candidate_name_cannot_escape_output_directory(tmp_path: Path) -> None:
