@@ -609,6 +609,25 @@ def test_rebound_manifest_rejects_unreferenced_artifact(tmp_path: Path) -> None:
     assert "unreferenced_candidate_artifact" in verification["errors"]
 
 
+def test_nested_manifest_named_file_is_not_excluded_from_artifact_set(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+    nested = candidate / "receipts" / "MANIFEST.json"
+    os.chmod(candidate, 0o700)
+    os.chmod(nested.parent, 0o700)
+    nested.write_text('{"masked":"receipt"}\n', encoding="utf-8")
+    nested.chmod(0o400)
+    nested.parent.chmod(0o500)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert "artifact_set_mismatch" in verification["errors"]
+    assert "unreferenced_candidate_artifact" in verification["errors"]
+
+
 def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -760,6 +779,105 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
     }
     assert verification["structural_valid"] is True
     assert verification["publication_ready"] is True
+
+
+def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+
+    class LocalMCPAuditEngine:
+        def __init__(self, timeout: float) -> None:
+            assert timeout == 90.0
+
+        def scan(self, source: ServerSource) -> EngineResult:
+            return StubEngine().scan(source).model_copy(
+                update={
+                    "engine_name": "mcpaudit",
+                    "engine_version": "2.4.0",
+                    "evidence": ScanEvidence(
+                        tools=[ToolEvidence(name="fixture-tool")]
+                    ),
+                    "sandbox_image": "required:image",
+                }
+            )
+
+    monkeypatch.setattr(
+        "mcp_trust.refresh.preflight_real_refresh",
+        lambda servers, *, default_image: {
+            "docker_daemon": "available",
+            "profiles": [
+                {
+                    "kind": "docker",
+                    "image": default_image,
+                    "network": "none",
+                    "read_only_root": True,
+                    "capabilities": "dropped-all",
+                    "no_new_privileges": True,
+                    "memory": "512m",
+                    "pids_limit": 128,
+                    "cpus": "1.0",
+                    "user": "65532:65532",
+                    "tmpfs": "/work:rw,noexec,nosuid,size=64m",
+                }
+            ],
+            "remote_transport_count": 0,
+        },
+    )
+    monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", LocalMCPAuditEngine)
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="required:image",
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    assert verify_refresh_candidate(candidate, now=FIXED_NOW)["publication_ready"] is True
+
+    result = _results(candidate)[0]
+    receipt_path = candidate / "receipts" / str(result["receipt"])
+    registry_path = candidate / "registry.db"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    candidate.chmod(0o700)
+    for path in (receipt_path, registry_path, manifest_path, digest_path):
+        path.chmod(0o600)
+    conn = connect(registry_path)
+    conn.execute(
+        "UPDATE scans SET sandbox_image = ? WHERE id = ?",
+        ("unreviewed:image", result["scan_id"]),
+    )
+    conn.commit()
+    conn.close()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["scan"]["sandbox_image"] = "unreviewed:image"
+    receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] = "unreviewed:image"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for artifact in manifest["artifacts"]:
+        artifact_path = candidate / artifact["path"]
+        artifact["bytes"] = artifact_path.stat().st_size
+        artifact["sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (receipt_path, registry_path, manifest_path, digest_path):
+        path.chmod(0o400)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert any(
+        error.startswith("publishable_scan_provenance_invalid:")
+        for error in verification["errors"]
+    )
 
 
 def test_candidate_registry_and_snapshot_exclude_non_catalog_server(

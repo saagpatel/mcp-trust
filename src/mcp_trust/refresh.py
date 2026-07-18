@@ -844,10 +844,13 @@ def verify_refresh_candidate(
         ):
             errors.append(f"artifact_mismatch:{relative}")
     actual = {
-        path.relative_to(candidate).as_posix()
+        relative
         for path in candidate.rglob("*")
         if path.is_file()
-        and path.name not in {MANIFEST_NAME, MANIFEST_DIGEST_NAME}
+        and (
+            relative := path.relative_to(candidate).as_posix()
+        )
+        not in {MANIFEST_NAME, MANIFEST_DIGEST_NAME}
     }
     if actual != listed:
         errors.append("artifact_set_mismatch")
@@ -894,6 +897,11 @@ def verify_refresh_candidate(
         for row in catalog_rows
         if isinstance(row, dict) and isinstance(row.get("slug"), str)
     }
+    catalog_by_slug = {
+        row["slug"]: row
+        for row in catalog_rows
+        if isinstance(row, dict) and isinstance(row.get("slug"), str)
+    }
     result_slugs = {
         result.get("server_slug")
         for result in results
@@ -915,6 +923,29 @@ def verify_refresh_candidate(
         errors.append("catalog_manifest_mismatch")
     candidate_state = manifest.get("candidate_state")
     scan_mode = manifest.get("scan_mode")
+    sandbox_manifest = manifest.get("sandbox")
+    sandbox_profiles = (
+        sandbox_manifest.get("profiles")
+        if isinstance(sandbox_manifest, dict)
+        else None
+    )
+    sandbox_profile_rows = sandbox_profiles if isinstance(sandbox_profiles, list) else []
+    reviewed_profile_images = {
+        profile.get("image")
+        for profile in sandbox_profile_rows
+        if isinstance(profile, dict)
+        and isinstance(profile.get("image"), str)
+        and profile.get("kind") == "docker"
+        and profile.get("network") == "none"
+        and profile.get("read_only_root") is True
+        and profile.get("capabilities") == "dropped-all"
+        and profile.get("no_new_privileges") is True
+        and isinstance(profile.get("memory"), str)
+        and isinstance(profile.get("pids_limit"), int)
+        and isinstance(profile.get("cpus"), str)
+        and isinstance(profile.get("user"), str)
+        and isinstance(profile.get("tmpfs"), str)
+    }
     successful_results = [
         result
         for result in results
@@ -980,18 +1011,45 @@ def verify_refresh_candidate(
             scanner = receipt.get("scanner")
             sandbox = receipt.get("sandbox")
             receipt_server = receipt.get("server")
-            receipt_source = (
-                receipt_server.get("source")
-                if isinstance(receipt_server, dict)
-                else None
+            reviewed_server: Server | None = None
+            catalog_row = catalog_by_slug.get(result.get("server_slug"))
+            if isinstance(catalog_row, dict) and isinstance(receipt_server, dict):
+                try:
+                    reviewed_server = _reviewed_server_from_seed(
+                        catalog_row,
+                        added_at=datetime.fromisoformat(
+                            str(receipt_server.get("added_at")).replace("Z", "+00:00")
+                        ),
+                    )
+                except (RefreshCandidateError, TypeError, ValueError):
+                    reviewed_server = None
+            catalog_bound = bool(
+                reviewed_server is not None
+                and isinstance(receipt_server, dict)
+                and receipt_server == reviewed_server.model_dump(mode="json")
             )
             remote_without_command = bool(
-                isinstance(receipt_source, dict)
-                and receipt_source.get("kind") == "remote"
-                and receipt_source.get("command") is None
+                reviewed_server is not None
+                and not _requires_local_sandbox(reviewed_server)
+            )
+            receipt_image = (
+                sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
+                if isinstance(sandbox, dict)
+                else None
+            )
+            reviewed_image = (
+                reviewed_server.source.sandbox_image
+                if reviewed_server is not None
+                else None
+            )
+            local_image_valid = bool(
+                isinstance(receipt_image, str)
+                and receipt_image in reviewed_profile_images
+                and (reviewed_image is None or receipt_image == reviewed_image)
             )
             sandbox_valid = bool(
-                isinstance(sandbox, dict)
+                catalog_bound
+                and isinstance(sandbox, dict)
                 and (
                     (
                         sandbox.get("mode") == "not_applicable"
@@ -1002,7 +1060,7 @@ def verify_refresh_candidate(
                     else (
                         sandbox.get("MCP_TRUST_SANDBOX") == "docker"
                         and sandbox.get("MCP_TRUST_SANDBOX_NETWORK") == "none"
-                        and sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
+                        and local_image_valid
                     )
                 )
             )
