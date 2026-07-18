@@ -25,6 +25,7 @@ from mcp_trust.engine.base import EngineResult
 from mcp_trust.engine.stub import StubEngine
 from mcp_trust.refresh import (
     RefreshCandidateError,
+    _real_scan_mode,
     approve_refresh_candidate,
     create_refresh_candidate,
     preflight_real_refresh,
@@ -149,6 +150,18 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     assert candidate.stat().st_mode & 0o222 == 0
 
 
+def test_real_scan_mode_describes_local_remote_and_mixed_transports() -> None:
+    assert (
+        _real_scan_mode(local_count=2, total_count=2)
+        == "mcpaudit-local-network-off"
+    )
+    assert (
+        _real_scan_mode(local_count=0, total_count=2)
+        == "mcpaudit-remote-live-network"
+    )
+    assert _real_scan_mode(local_count=1, total_count=2) == "mcpaudit-mixed-transport"
+
+
 def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
     script = (ROOT / "scripts/refresh_and_publish.sh").read_text(encoding="utf-8")
 
@@ -259,7 +272,7 @@ def test_rebound_manifest_cannot_relabel_fixture_as_publishable(
     os.chmod(digest_path, 0o600)
     manifest = json.loads(manifest_path.read_text())
     manifest["candidate_state"] = "complete"
-    manifest["scan_mode"] = "mcpaudit-network-off"
+    manifest["scan_mode"] = "mcpaudit-local-network-off"
     manifest["publication_allowed"] = True
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     digest_path.write_text(
@@ -771,12 +784,20 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
     receipt = json.loads(
         (candidate / "receipts" / str(result["receipt"])).read_text(encoding="utf-8")
     )
+    manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
     verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
 
+    assert manifest["scan_mode"] == "mcpaudit-remote-live-network"
     assert receipt["sandbox"] == {
         "mode": "not_applicable",
         "reason": "remote_endpoint_no_local_process",
     }
+    assert not any(
+        caveat.startswith("Network-off sandboxing")
+        or "dummy credentials" in caveat
+        for caveat in receipt["caveats"]
+    )
+    assert any("live network" in caveat for caveat in receipt["caveats"])
     assert verification["structural_valid"] is True
     assert verification["publication_ready"] is True
 
@@ -835,6 +856,8 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
         now=FIXED_NOW,
         candidate_name="candidate",
     )
+    manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert manifest["scan_mode"] == "mcpaudit-local-network-off"
     assert verify_refresh_candidate(candidate, now=FIXED_NOW)["publication_ready"] is True
 
     result = _results(candidate)[0]

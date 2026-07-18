@@ -193,6 +193,14 @@ def _requires_local_sandbox(server: Server) -> bool:
     )
 
 
+def _real_scan_mode(*, local_count: int, total_count: int) -> str:
+    if local_count == total_count:
+        return "mcpaudit-local-network-off"
+    if local_count == 0:
+        return "mcpaudit-remote-live-network"
+    return "mcpaudit-mixed-transport"
+
+
 def preflight_real_refresh(
     servers: list[Server],
     *,
@@ -293,12 +301,26 @@ def _remote_transport_environment() -> Iterator[None]:
 
 def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
     name = f"{scan.server_slug}-{scan.id}.json"
-    payload = build_scan_receipt(server, scan)
     if not _requires_local_sandbox(server):
+        with _remote_transport_environment():
+            payload = build_scan_receipt(server, scan)
         payload["sandbox"] = {
             "mode": "not_applicable",
             "reason": "remote_endpoint_no_local_process",
         }
+        caveats = payload.get("caveats")
+        if isinstance(caveats, list):
+            payload["caveats"] = [
+                caveat
+                for caveat in caveats
+                if isinstance(caveat, str)
+                and not caveat.startswith("Network-off sandboxing")
+            ] + [
+                "Remote transport used the live network; no local process "
+                "sandbox was applicable."
+            ]
+    else:
+        payload = build_scan_receipt(server, scan)
     _write_private(receipts_dir / name, payload)
     return name
 
@@ -727,7 +749,12 @@ def create_refresh_candidate(
             "candidate_state": candidate_state,
             "publication_allowed": candidate_state == "complete",
             "scan_mode": (
-                "deterministic-fixture" if fixture_mode else "mcpaudit-network-off"
+                "deterministic-fixture"
+                if fixture_mode
+                else _real_scan_mode(
+                    local_count=sum(_requires_local_sandbox(server) for server in servers),
+                    total_count=len(servers),
+                )
             ),
             "catalog": {
                 "seed_sha256": _sha256(seed_path),
@@ -923,6 +950,17 @@ def verify_refresh_candidate(
         errors.append("catalog_manifest_mismatch")
     candidate_state = manifest.get("candidate_state")
     scan_mode = manifest.get("scan_mode")
+    catalog_remote_count = sum(
+        isinstance(row, dict)
+        and isinstance(row.get("source"), dict)
+        and row["source"].get("kind") == "remote"
+        and row["source"].get("command") is None
+        for row in catalog_rows
+    )
+    expected_real_scan_mode = _real_scan_mode(
+        local_count=len(catalog_rows) - catalog_remote_count,
+        total_count=len(catalog_rows),
+    )
     sandbox_manifest = manifest.get("sandbox")
     sandbox_profiles = (
         sandbox_manifest.get("profiles")
@@ -1140,7 +1178,7 @@ def verify_refresh_candidate(
             errors.append("scan_counts_mismatch")
     if candidate_state == "complete":
         if (
-            scan_mode != "mcpaudit-network-off"
+            scan_mode != expected_real_scan_mode
             or len(successful_results) != len(results)
             or manifest.get("publication_allowed") is not True
             or len(snapshot_servers)
