@@ -40,6 +40,15 @@ _log = logging.getLogger(__name__)
 # Per-grade dispute / correction channel — single source: core.governance.
 _DISPUTE_URL = DISPUTE_URL
 
+# Date the scheduled re-scan lane was persistently disabled (PR #57), or None
+# when scans are scheduled again. The staleness horizon (STALE_AFTER_DAYS)
+# assumes a refresh lane exists: with the lane off, grades age toward that
+# horizon with no scheduled path back to fresh, and a reader cannot tell that
+# from a scan date alone. Set this back to None the moment the lane is re-armed
+# — the catalog notice then disappears on its own, so the page can never claim
+# a pause that has ended.
+_RESCAN_LANE_PAUSED_ON: str | None = "2026-07-11"
+
 # Human-readable labels for the risk dimensions, in display order. Keys match
 # both ``RiskSummary`` field names and the ``rubric()`` dimension_weights keys.
 _DIMENSION_LABELS: dict[str, str] = {
@@ -263,6 +272,27 @@ def _page(title: str, body: str, *, banner: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 # Grade + transparency helpers
 # ---------------------------------------------------------------------------
+
+
+def _rescan_pause_notice() -> str:
+    """Disclose that scheduled re-scans are paused, when they are.
+
+    A scan date alone cannot tell a reader whether a grade is merely recent or
+    permanently frozen: both look identical until the staleness horizon is
+    crossed, months later. Returning "" while the lane is live keeps the catalog
+    quiet in the normal case and honest in this one.
+    """
+    if _RESCAN_LANE_PAUSED_ON is None:
+        return ""
+    return (
+        '<p class="page-subtitle" style="border-left:3px solid #d0d7de;'
+        'padding-left:0.75rem;margin-top:-0.75rem">'
+        "Scheduled re-scans have been paused since "
+        f"{escape(_RESCAN_LANE_PAUSED_ON)} pending an operator decision, so no "
+        "new scan is currently scheduled for any server below. Every grade is "
+        "point-in-time: read the Last scanned column, not the presence of a grade."
+        "</p>"
+    )
 
 
 def _grade_pill(grade: str, *, stale: bool = False, masked: bool = False) -> str:
@@ -549,8 +579,7 @@ def render_catalog(
         '<p class="page-subtitle">'
         "Each server gets an A–F danger grade plus a separate transparency signal. "
         "Grades come from automated scans and mean check before you connect, not endorsement."
-        "</p>"
-        "<table>"
+        "</p>" + _rescan_pause_notice() + "<table>"
         "<thead><tr>"
         "<th>Server</th><th>Danger grade</th><th>Transparency</th>"
         "<th>Danger score</th><th>Last scanned</th><th></th>"
