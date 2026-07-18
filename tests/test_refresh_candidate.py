@@ -30,6 +30,7 @@ from mcp_trust.refresh import (
     create_refresh_candidate,
     preflight_real_refresh,
     publish_refresh_candidate,
+    verified_masked_scan_slugs,
     verify_refresh_candidate,
 )
 from mcp_trust.store.db import connect, init_schema
@@ -192,6 +193,43 @@ def _complete_remote_candidate(
 
 def _results(candidate: Path) -> list[dict[str, object]]:
     return json.loads((candidate / "scan_results.json").read_text())["results"]
+
+
+def test_verified_masked_scan_slugs_exposes_only_success_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+        masked=("alpha",),
+    )
+
+    assert verified_masked_scan_slugs(
+        candidate,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        now=FIXED_NOW,
+    ) == frozenset({"alpha"})
+
+
+def test_verified_masked_scan_slugs_rejects_stale_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+        masked=("alpha",),
+    )
+
+    with pytest.raises(RefreshCandidateError, match="complete, current, publishable"):
+        verified_masked_scan_slugs(
+            candidate,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            now=FIXED_NOW + timedelta(hours=25),
+        )
 
 
 def _rebind_manifest_time(candidate: Path, created_at: datetime) -> None:

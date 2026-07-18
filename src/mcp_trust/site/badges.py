@@ -30,6 +30,7 @@ def badge_payload(
     *,
     stale: bool = False,
     masked: bool = False,
+    masked_scan_succeeded: bool = False,
 ) -> dict[str, Any]:
     """Build a shields.io *endpoint* JSON payload for one server's grade.
 
@@ -38,8 +39,19 @@ def badge_payload(
     real grade is suffixed ``(stale)`` and greys out — a badge embedded in a
     README must never present an expired scan as a current verdict. A *masked*
     grade (operator-withheld pending governance review) shows no letter at all.
+    ``masked_scan_succeeded`` is the narrow grade-free candidate-proof case:
+    it may show the neutral review state even though no grade-bearing scan row
+    remains.
     """
     grade_str = str(grade)
+
+    if masked and masked_scan_succeeded:
+        return {
+            "schemaVersion": 1,
+            "label": "mcp trust",
+            "message": MASKED_BADGE_MESSAGE,
+            "color": "lightgrey",
+        }
 
     if provenance is ScanProvenance.UNSCANNED:
         return {

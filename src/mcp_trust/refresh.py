@@ -1488,6 +1488,52 @@ def verify_refresh_candidate(
     }
 
 
+def verified_masked_scan_slugs(
+    candidate: Path,
+    *,
+    seed_path: Path,
+    masked_path: Path,
+    now: datetime | None = None,
+) -> frozenset[str]:
+    """Return proof-backed masked slugs from one publishable candidate.
+
+    The site projection may consume only a complete, current candidate whose
+    immutable artifact manifest and reviewed catalog/masking inputs have passed
+    the full refresh verifier. The returned slugs carry one narrow claim:
+    a scan succeeded. They intentionally carry no grade, score, or findings.
+    """
+    verification = verify_refresh_candidate(
+        candidate,
+        now=now,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+    if not verification["publication_ready"]:
+        errors = verification.get("errors")
+        detail = ",".join(str(error) for error in errors) if isinstance(errors, list) else ""
+        raise RefreshCandidateError(
+            "site projection requires a complete, current, publishable candidate"
+            + (f": {detail}" if detail else "")
+        )
+
+    payload = _load_json(candidate / "scan_results.json")
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, list):
+        raise RefreshCandidateError("verified candidate scan results are unavailable")
+    slugs = frozenset(
+        str(result["server_slug"])
+        for result in results
+        if isinstance(result, dict)
+        and result.get("state") == "masked"
+        and isinstance(result.get("server_slug"), str)
+    )
+    scan_counts = verification.get("scan_counts")
+    expected_count = scan_counts.get("masked") if isinstance(scan_counts, dict) else None
+    if expected_count != len(slugs):
+        raise RefreshCandidateError("verified candidate masked proof coverage changed")
+    return slugs
+
+
 def approve_refresh_candidate(
     *,
     candidate: Path,

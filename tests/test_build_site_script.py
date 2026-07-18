@@ -8,10 +8,16 @@ are an explicit opt-in (``--demo-fill``) and, when used, must be loudly labelled
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+
+from mcp_trust.core.models import Server, ServerSource, SourceKind
+from mcp_trust.store.db import connect, init_schema
+from mcp_trust.store.repository import ServerRepository
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -174,6 +180,75 @@ def test_masked_scanned_server_badge_reads_under_review(tmp_path: Path) -> None:
     assert rc == 0
     badge = (out / "servers" / "mcp-reference-time" / "badge.json").read_text(encoding="utf-8")
     assert "under review" in badge
+
+
+def test_verified_candidate_masked_proof_projects_under_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    db = candidate / "registry.db"
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(
+        Server(
+            slug="masked-proof-server",
+            name="Masked proof server",
+            description="masked-proof-grade-sentinel",
+            source=ServerSource(kind=SourceKind.REMOTE, reference="https://example.test/mcp"),
+            added_at=datetime(2026, 7, 18, tzinfo=UTC),
+        )
+    )
+    conn.close()
+    masked = tmp_path / "masked-grades.json"
+    masked.write_text(json.dumps(["masked-proof-server"]), encoding="utf-8")
+    seed = tmp_path / "seed.json"
+    seed.write_text("[]", encoding="utf-8")
+    out = tmp_path / "site"
+    monkeypatch.setattr(
+        build_site,
+        "verified_masked_scan_slugs",
+        lambda *args, **kwargs: frozenset({"masked-proof-server"}),
+    )
+
+    rc = build_site.main(
+        [
+            "--candidate",
+            str(candidate),
+            "--seed",
+            str(seed),
+            "--masked-grades",
+            str(masked),
+            "--out",
+            str(out),
+            "--base-url",
+            "https://x.example",
+        ]
+    )
+
+    assert rc == 0
+    badge = json.loads(
+        (out / "servers" / "masked-proof-server" / "badge.json").read_text(encoding="utf-8")
+    )
+    detail = (out / "ui" / "servers" / "masked-proof-server" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert badge["message"] == "under review"
+    assert "Grade withheld:" in detail
+    assert "masked-proof-grade-sentinel" not in detail
+    assert "No findings on record." not in detail
+
+
+def test_candidate_build_rejects_demo_fill(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        build_site.main(
+            [
+                "--candidate",
+                str(tmp_path / "candidate"),
+                "--demo-fill",
+            ]
+        )
 
 
 def test_corrections_flag_renders_entries(tmp_path: Path) -> None:

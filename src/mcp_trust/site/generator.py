@@ -94,6 +94,7 @@ def generate_site(
     now: datetime | None = None,
     corrections: list[dict] | None = None,
     masked_slugs: set[str] | None = None,
+    masked_scan_succeeded_slugs: set[str] | None = None,
 ) -> SiteBuild:
     """Generate the static catalog from *conn* into *out_dir*.
 
@@ -117,6 +118,10 @@ def generate_site(
         review: pages and badges render "withheld / under review" instead of
         the letter grade. Slugs must exist in the catalog (the build script's
         verify gate enforces this).
+    masked_scan_succeeded_slugs:
+        Operator-masked slugs with a verified, grade-free proof of scan success.
+        These render the neutral review state even though their grade-bearing
+        scan rows were deliberately removed from the publication database.
     """
     out_dir = Path(out_dir)
     base_url = base_url.rstrip("/")
@@ -124,6 +129,10 @@ def generate_site(
         now = datetime.now(tz=UTC)
     if masked_slugs is None:
         masked_slugs = set()
+    if masked_scan_succeeded_slugs is None:
+        masked_scan_succeeded_slugs = set()
+    if not masked_scan_succeeded_slugs <= masked_slugs:
+        raise ValueError("verified masked scans must also be operator-masked")
     server_repo = ServerRepository(conn)
     scan_repo = ScanRepository(conn)
 
@@ -146,7 +155,8 @@ def generate_site(
         grade_change = latest_grade_change(scan_repo.history(srv.slug))
         provenance = classify(scan)
         server_count += 1
-        if scan is not None:
+        masked_scan_succeeded = srv.slug in masked_scan_succeeded_slugs
+        if scan is not None or masked_scan_succeeded:
             scanned_count += 1
         if provenance is ScanProvenance.DEMO:
             demo_count += 1
@@ -154,7 +164,7 @@ def generate_site(
         if stale:
             stale_count += 1
         operator_masked = srv.slug in masked_slugs
-        scan_masked = operator_masked and scan is not None
+        scan_masked = operator_masked and (scan is not None or masked_scan_succeeded)
         if scan_masked:
             masked_count += 1
 
@@ -182,6 +192,7 @@ def generate_site(
                 banner=page_banner,
                 now=now,
                 masked=operator_masked,
+                masked_scan_succeeded=masked_scan_succeeded,
                 grade_change=grade_change,
             ),
         )
@@ -191,7 +202,13 @@ def generate_site(
         _write(
             badge_path,
             json.dumps(
-                badge_payload(grade, provenance, stale=stale, masked=scan_masked),
+                badge_payload(
+                    grade,
+                    provenance,
+                    stale=stale,
+                    masked=scan_masked,
+                    masked_scan_succeeded=masked_scan_succeeded,
+                ),
                 indent=2,
             )
             + "\n",
