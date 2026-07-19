@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_masked_path=args.masked_grades,
             )
             print(json.dumps(verification, indent=2, sort_keys=True))
-            return 0 if verification["structural_valid"] else 1
+            return 0 if verification["publication_ready"] else 1
         if args.command == "approve":
             path = approve_refresh_candidate(
                 candidate=args.candidate,
