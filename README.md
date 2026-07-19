@@ -137,7 +137,9 @@ attributed scan drift, an honest static snapshot, and a content-bound manifest.
 Candidate creation has no publication or deployment authority. A structurally
 valid candidate must first pass `verify`, then receive a separate digest-bound,
 short-lived `approve` receipt before `publish` may stage it in a local output
-directory. That publication step still does not deploy the public site.
+directory. `verify` exits successfully only for a current, complete,
+reviewed-input-bound candidate that is eligible for publication. Eligibility
+never grants approval, publication, deployment, or scheduling authority.
 
 ## Status
 
