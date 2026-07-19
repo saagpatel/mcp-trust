@@ -1205,6 +1205,13 @@ def _scan_age_days(scanned_at: datetime, now: datetime) -> float:
     )
 
 
+def _parse_utc_datetime(value: object) -> datetime:
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def _artifact_inventory(root: Path) -> list[dict[str, object]]:
     artifacts: list[dict[str, object]] = []
     for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
@@ -1742,39 +1749,28 @@ def verify_refresh_candidate(
     created_at: datetime | None = None
     expires_at: datetime | None = None
     try:
-        created_at = datetime.fromisoformat(str(manifest["created_at"]).replace("Z", "+00:00"))
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-        age_seconds = (fixed_now.astimezone(UTC) - created_at.astimezone(UTC)).total_seconds()
+        created_at = _parse_utc_datetime(manifest["created_at"])
+        age_seconds = (fixed_now.astimezone(UTC) - created_at).total_seconds()
         age_hours = max(0.0, age_seconds / 3600)
         if age_seconds < 0:
             errors.append("candidate_timestamp_in_future")
-    except (KeyError, ValueError, TypeError):
+    except (KeyError, OverflowError, ValueError, TypeError):
         age_hours = None
         errors.append("candidate_timestamp_invalid")
     try:
-        expires_at = datetime.fromisoformat(
-            str(manifest["expires_at"]).replace("Z", "+00:00")
-        )
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=UTC)
-    except (KeyError, ValueError, TypeError):
+        expires_at = _parse_utc_datetime(manifest["expires_at"])
+    except (KeyError, OverflowError, ValueError, TypeError):
         errors.append("candidate_expiry_invalid")
     if created_at is not None and expires_at is not None:
         try:
-            expected_expiry = created_at.astimezone(UTC) + timedelta(
-                hours=DEFAULT_MAX_AGE_HOURS
-            )
+            expected_expiry = created_at + timedelta(hours=DEFAULT_MAX_AGE_HOURS)
         except OverflowError:
             errors.append("candidate_expiry_invalid")
         else:
-            if expires_at.astimezone(UTC) != expected_expiry:
+            if expires_at != expected_expiry:
                 errors.append("candidate_expiry_mismatch")
     candidate_time_stale = bool(
-        (
-            expires_at is not None
-            and fixed_now.astimezone(UTC) >= expires_at.astimezone(UTC)
-        )
+        (expires_at is not None and fixed_now.astimezone(UTC) >= expires_at)
         or (age_hours is not None and age_hours >= max_age_hours)
     )
 
@@ -1983,17 +1979,11 @@ def verify_refresh_candidate(
             slug = result.get("server_slug")
             slug_label = _safe_error_label(slug)
             try:
-                scanned_at = datetime.fromisoformat(
-                    str(result["scanned_at"]).replace("Z", "+00:00")
-                )
-                if scanned_at.tzinfo is None:
-                    scanned_at = scanned_at.replace(tzinfo=UTC)
-            except (KeyError, ValueError, TypeError):
+                scanned_at = _parse_utc_datetime(result["scanned_at"])
+            except (KeyError, OverflowError, ValueError, TypeError):
                 errors.append(f"scan_timestamp_invalid:{slug_label}")
                 continue
-            scan_age_seconds = (
-                fixed_now.astimezone(UTC) - scanned_at.astimezone(UTC)
-            ).total_seconds()
+            scan_age_seconds = (fixed_now.astimezone(UTC) - scanned_at).total_seconds()
             if scan_age_seconds < 0:
                 errors.append(f"scan_timestamp_in_future:{slug_label}")
             elif (
@@ -2648,24 +2638,18 @@ def publish_refresh_candidate(
     ):
         raise RefreshCandidateError("publication approval is invalid")
     try:
-        approved_at = datetime.fromisoformat(
-            str(approval["approved_at"]).replace("Z", "+00:00")
-        )
-        expires = datetime.fromisoformat(str(approval["expires_at"]).replace("Z", "+00:00"))
-        if approved_at.tzinfo is None:
-            approved_at = approved_at.replace(tzinfo=UTC)
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=UTC)
-    except (KeyError, ValueError, TypeError) as exc:
+        approved_at = _parse_utc_datetime(approval["approved_at"])
+        expires = _parse_utc_datetime(approval["expires_at"])
+    except (KeyError, OverflowError, ValueError, TypeError) as exc:
         raise RefreshCandidateError("publication approval expiry is invalid") from exc
-    approval_lifetime = expires.astimezone(UTC) - approved_at.astimezone(UTC)
+    approval_lifetime = expires - approved_at
     if (
-        approved_at.astimezone(UTC) > fixed_now.astimezone(UTC)
+        approved_at > fixed_now.astimezone(UTC)
         or approval_lifetime <= timedelta(0)
         or approval_lifetime > timedelta(hours=MAX_APPROVAL_TTL_HOURS)
     ):
         raise RefreshCandidateError("publication approval lifetime is invalid")
-    if expires.astimezone(UTC) <= fixed_now.astimezone(UTC):
+    if expires <= fixed_now.astimezone(UTC):
         raise RefreshCandidateError("publication approval is expired")
     if approval.get("candidate_manifest_sha256") != verification["manifest_sha256"]:
         raise RefreshCandidateError("publication approval is bound to another candidate")

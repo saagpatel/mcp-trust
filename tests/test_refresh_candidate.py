@@ -888,6 +888,34 @@ def test_timestamp_near_datetime_limit_returns_structured_expiry_failure(
     assert "candidate_expiry_invalid" in verification["errors"]
 
 
+@pytest.mark.parametrize(
+    ("field", "expected_error"),
+    [
+        ("created_at", "candidate_timestamp_invalid"),
+        ("expires_at", "candidate_expiry_invalid"),
+    ],
+)
+def test_extreme_timezone_offset_returns_structured_timestamp_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    expected_error: str,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(tmp_path, monkeypatch)
+    _rebind_manifest(candidate, **{field: "0001-01-01T00:00:00+23:59"})
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert expected_error in verification["errors"]
+
+
 def test_future_dated_complete_candidate_is_not_publication_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
