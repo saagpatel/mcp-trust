@@ -865,6 +865,29 @@ def test_invalid_or_mismatched_expiry_fails_closed(
     assert expected_error in verification["errors"]
 
 
+def test_timestamp_near_datetime_limit_returns_structured_expiry_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(tmp_path, monkeypatch)
+    _rebind_manifest(
+        candidate,
+        created_at="9999-12-31T23:00:00+00:00",
+        expires_at="9999-12-31T23:59:59+00:00",
+    )
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "candidate_expiry_invalid" in verification["errors"]
+
+
 def test_future_dated_complete_candidate_is_not_publication_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1760,13 +1760,16 @@ def verify_refresh_candidate(
             expires_at = expires_at.replace(tzinfo=UTC)
     except (KeyError, ValueError, TypeError):
         errors.append("candidate_expiry_invalid")
-    if (
-        created_at is not None
-        and expires_at is not None
-        and expires_at.astimezone(UTC)
-        != created_at.astimezone(UTC) + timedelta(hours=DEFAULT_MAX_AGE_HOURS)
-    ):
-        errors.append("candidate_expiry_mismatch")
+    if created_at is not None and expires_at is not None:
+        try:
+            expected_expiry = created_at.astimezone(UTC) + timedelta(
+                hours=DEFAULT_MAX_AGE_HOURS
+            )
+        except OverflowError:
+            errors.append("candidate_expiry_invalid")
+        else:
+            if expires_at.astimezone(UTC) != expected_expiry:
+                errors.append("candidate_expiry_mismatch")
     candidate_time_stale = bool(
         (
             expires_at is not None
