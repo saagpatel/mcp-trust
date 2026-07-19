@@ -64,14 +64,15 @@ Production deployment is available only through
 `MCP_TRUST_AUTO_DEPLOY` are unsupported.
 
 The operator must create a mode-`0600`, non-symlinked, short-lived JSON approval
-using schema `McpTrustProductionDeployAuthorizationV1`. It binds its own exact
+using schema `McpTrustProductionDeployAuthorizationV2`. It binds its own exact
 absolute path plus repository root, `main` branch, full commit SHA, production
 URL, the repository-pinned Vercel project and organization IDs, canonical
-GitHub origin, absolute Vercel executable path and SHA-256, an exact
-deterministic digest of every file in `site/`, receipt ID, issuance time, and
-expiry no more than 15 minutes later. Symlinks and special files in `site/` are
-rejected. The ignored output digest, provider link, approval, and tool bytes are
-revalidated after confirmation and immediately before the provider call.
+GitHub origin, Vercel and Node invocation/resolved executable paths and SHA-256
+digests, an exact deterministic digest of every file in `site/`, receipt ID,
+issuance time, and expiry no more than 15 minutes later. Symlinks and special
+files in `site/` are rejected. The ignored output digest, provider link,
+approval, and tool bytes are revalidated after confirmation and immediately
+before the provider call.
 The manual entrypoint separately requires those exact values and requires the
 operator to type `DEPLOY_MCP_TRUST_PRODUCTION` at a live interactive TTY after
 the approval validates; the confirmation cannot be supplied by argument or

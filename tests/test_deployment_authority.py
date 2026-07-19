@@ -5,6 +5,7 @@ import json
 import os
 import plistlib
 import pty
+import re
 import select
 import shutil
 import stat
@@ -20,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REFRESH = ROOT / "scripts/refresh_and_publish.sh"
 DEPLOY = ROOT / "scripts/deploy_production.sh"
 VALIDATOR = ROOT / "scripts/validate_deploy_authorization.py"
+DEPLOY_DOC = ROOT / "DEPLOY-VERCEL.md"
 PLIST = ROOT / "deploy/launchd/com.d.mcp-trust-refresh.plist"
 INSTALLER = ROOT / "deploy/launchd/install.sh"
 PROJECT_ID = "prj_ugC28dxX9xAGYnYjIkQXigxZB672"
@@ -290,6 +292,16 @@ def test_refresh_and_scheduler_have_no_deployment_authority() -> None:
 def test_refresh_schedule_is_monday_at_0900_local() -> None:
     schedule = plistlib.loads(PLIST.read_bytes())["StartCalendarInterval"]
     assert schedule == {"Weekday": 1, "Hour": 9, "Minute": 0}
+
+
+def test_deploy_doc_names_current_authorization_schema_and_bound_tools() -> None:
+    validator = VALIDATOR.read_text(encoding="utf-8")
+    schema_match = re.search(r'^SCHEMA = "([^"]+)"$', validator, flags=re.MULTILINE)
+    assert schema_match is not None
+
+    documentation = DEPLOY_DOC.read_text(encoding="utf-8")
+    assert f"`{schema_match.group(1)}`" in documentation
+    assert "Vercel and Node invocation/resolved executable paths and SHA-256" in documentation
 
 
 def test_refresh_rejects_legacy_auto_deploy_before_prerequisites(tmp_path: Path) -> None:
