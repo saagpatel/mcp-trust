@@ -105,7 +105,7 @@ publish, or deploy. The installer writes a weekly definition and leaves it
 unloaded and persistently disabled:
 
 ```bash
-bash deploy/launchd/install.sh            # Sunday 19:00 definition; remains disabled
+bash deploy/launchd/install.sh            # Monday 09:00 definition; remains disabled
 bash deploy/launchd/uninstall.sh          # remove the job
 ```
 

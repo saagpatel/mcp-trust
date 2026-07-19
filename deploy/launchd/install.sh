@@ -55,7 +55,7 @@ if ! "${LAUNCHCTL_BIN}" print-disabled "${DOMAIN}" \
 fi
 
 echo "Installed ${DEST}"
-echo "Defined schedule: weekly, Sunday 19:00 (local)."
+echo "Defined schedule: weekly, Monday 09:00 (local)."
 echo "State: verified unloaded and persistently disabled."
 echo "Verify: ${LAUNCHCTL_BIN} print-disabled ${DOMAIN}"
 echo "Logs:     tail -F ${LOG_DIR}/${LABEL}.out ${LOG_DIR}/${LABEL}.err"

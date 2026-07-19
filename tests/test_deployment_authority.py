@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import plistlib
 import pty
 import select
 import shutil
@@ -286,6 +287,11 @@ def test_refresh_and_scheduler_have_no_deployment_authority() -> None:
     assert DEPLOY.exists()
 
 
+def test_refresh_schedule_is_monday_at_0900_local() -> None:
+    schedule = plistlib.loads(PLIST.read_bytes())["StartCalendarInterval"]
+    assert schedule == {"Weekday": 1, "Hour": 9, "Minute": 0}
+
+
 def test_refresh_rejects_legacy_auto_deploy_before_prerequisites(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -329,7 +335,7 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
             "MCP_TRUST_AUTO_DEPLOY": "1",
         }
     )
-    _run(["bash", str(INSTALLER)], cwd=ROOT, env=env)
+    result = _run(["bash", str(INSTALLER)], cwd=ROOT, env=env)
     installed = home / "Library/LaunchAgents/com.d.mcp-trust-refresh.plist"
     text = installed.read_text(encoding="utf-8")
     actions = record.read_text(encoding="utf-8")
@@ -340,6 +346,7 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     assert "bootout gui/" in actions
     assert "load" not in actions
     assert "bootstrap" not in actions
+    assert "Defined schedule: weekly, Monday 09:00 (local)." in result.stdout
 
 
 @pytest.mark.parametrize(
