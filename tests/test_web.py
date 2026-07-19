@@ -307,25 +307,16 @@ def test_detail_does_not_link_javascript_homepage() -> None:
     assert "javascript:alert(origin)" in html
 
 
-def test_catalog_discloses_paused_rescan_lane(client: TestClient) -> None:
-    """While scheduled re-scans are off, the catalog must say so.
+def test_catalog_binds_refresh_truth_to_observable_scan_time(client: TestClient) -> None:
+    """The static catalog must not claim machine-local scheduler state.
 
-    A scan date alone reads identically whether the next scan is days away or
-    never coming, and the staleness horizon is months wide — so the pause has
-    to be stated, not inferred.
+    launchd can change independently of deployed HTML. The page may preserve
+    the historical pause, but current truth must stay attached to Last scanned.
     """
     html = client.get("/").text
-    assert "Scheduled re-scans have been paused" in html
-    assert "no new scan is currently scheduled" in html
-
-
-def test_catalog_drops_the_pause_notice_once_scans_resume(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The notice must disappear on its own when the lane is re-armed, so the
-    page can never advertise a pause that has ended."""
-    monkeypatch.setattr("mcp_trust.api.web._RESCAN_LANE_PAUSED_ON", None)
-    html = client.get("/").text
-    assert "Scheduled re-scans have been paused" not in html
-    # The catalog itself still renders — the notice is additive, not load-bearing.
+    assert "Automated refresh was paused on 2026-07-11" in html
+    assert "does not attest the current scheduler state" in html
+    assert "promise a future scan" in html
+    assert "no new scan is currently scheduled" not in html
+    assert "Last scanned" in html
     assert "MCP Server Danger Catalog" in html

@@ -161,7 +161,9 @@ compatibility entrypoint can create a local review candidate only; it cannot
 publish or deploy. The live FastAPI service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
-for launch history.
+for launch history. The deployed catalog reports scan timestamps as its
+freshness authority; static HTML does not claim to attest machine-local
+scheduler state.
 
 ## Contributing
 
