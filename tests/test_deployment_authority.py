@@ -330,6 +330,27 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     home = tmp_path / "home"
     launchctl = tmp_path / "fake-launchctl"
     record = tmp_path / "launchctl.txt"
+    test_launchd = tmp_path / "launchd"
+    test_launchd.mkdir()
+    shutil.copy2(PLIST, test_launchd / PLIST.name)
+    test_installer = test_launchd / INSTALLER.name
+    installer_text = INSTALLER.read_text(encoding="utf-8").replace(
+        'LAUNCHCTL_BIN="/bin/launchctl"',
+        f'LAUNCHCTL_BIN="{launchctl}"',
+    )
+    assert installer_text != INSTALLER.read_text(encoding="utf-8")
+    test_installer.write_text(installer_text, encoding="utf-8")
+    test_installer.chmod(INSTALLER.stat().st_mode)
+    hostile_bin = tmp_path / "hostile-bin"
+    hostile_bin.mkdir()
+    hostile_calls = tmp_path / "hostile-calls.txt"
+    for command in ("dirname", "id", "mkdir", "sed", "plutil", "launchctl"):
+        _write_executable(
+            hostile_bin / command,
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "{command}" >> "$HOSTILE_CALLS"\n'
+            "exit 99\n",
+        )
     _write_executable(
         launchctl,
         "#!/bin/sh\n"
@@ -342,18 +363,26 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     env.update(
         {
             "HOME": str(home),
-            "MCP_TRUST_LAUNCHCTL_BIN": str(launchctl),
+            "MCP_TRUST_LAUNCHCTL_BIN": str(hostile_bin / "launchctl"),
             "FAKE_LAUNCHCTL_RECORD": str(record),
             "MCP_TRUST_AUTO_DEPLOY": "1",
+            "HOSTILE_CALLS": str(hostile_calls),
+            "PATH": str(hostile_bin),
         }
     )
-    result = _run(["bash", str(INSTALLER)], cwd=ROOT, env=env)
+    result = _run(["/bin/bash", str(test_installer)], cwd=ROOT, env=env)
     installed = home / "Library/LaunchAgents/com.d.mcp-trust-refresh.plist"
     text = installed.read_text(encoding="utf-8")
+    installed_path = plistlib.loads(installed.read_bytes())["EnvironmentVariables"]["PATH"]
     actions = record.read_text(encoding="utf-8")
     assert "MCP_TRUST_AUTO_DEPLOY" not in text
     assert "deploy_production" not in text
     assert "refresh_and_publish.sh" in text
+    assert installed_path == (
+        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    )
+    assert str(hostile_bin) not in installed_path
+    assert not hostile_calls.exists()
     assert "disable gui/" in actions
     assert "bootout gui/" in actions
     assert "load" not in actions
