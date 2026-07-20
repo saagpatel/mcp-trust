@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Install the weekly catalog-refresh launchd definition for the current user.
 # The label is booted out and persistently disabled; this installer never enables
 # or starts the job.
@@ -23,7 +23,7 @@ HERE="$(cd "$(/usr/bin/dirname "${BASH_SOURCE[0]}")" && /bin/pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && /bin/pwd)"
 LOG_DIR="${HOME}/.local/share/log"
 DEST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-LAUNCHCTL_BIN="${MCP_TRUST_LAUNCHCTL_BIN:-/bin/launchctl}"
+LAUNCHCTL_BIN="/bin/launchctl"
 DOMAIN="gui/$(/usr/bin/id -u)"
 
 if [ ! -x "${LAUNCHCTL_BIN}" ]; then
