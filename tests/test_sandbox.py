@@ -48,6 +48,15 @@ def test_docker_wrap_applies_isolation_flags() -> None:
     assert args[-2:] == ["uvx", "acme-mcp"]
 
 
+def test_docker_wrap_binds_the_preflighted_local_daemon() -> None:
+    host = "unix:///Users/operator/.colima/default/docker.sock"
+
+    command, args = DockerSandbox(host=host).wrap("npx", ["x"])
+
+    assert command == "docker"
+    assert args[:3] == ["--host", host, "run"]
+
+
 def test_docker_network_is_configurable() -> None:
     _, args = DockerSandbox(network="bridge").wrap("npx", ["x"])
     assert "bridge" in args
@@ -73,6 +82,19 @@ def test_select_sandbox_by_name_and_env(monkeypatch: pytest.MonkeyPatch) -> None
     assert isinstance(select_sandbox(), NoSandbox)  # default
     monkeypatch.setenv("MCP_TRUST_SANDBOX", "docker")
     assert isinstance(select_sandbox(), DockerSandbox)
+
+
+def test_select_sandbox_uses_only_the_dedicated_preflighted_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = "unix:///Users/operator/.colima/default/docker.sock"
+    monkeypatch.setenv("DOCKER_HOST", "tcp://remote.example:2375")
+    monkeypatch.setenv("MCP_TRUST_DOCKER_HOST", expected)
+
+    sandbox = select_sandbox("docker")
+
+    assert isinstance(sandbox, DockerSandbox)
+    assert sandbox.host == expected
 
 
 def test_select_sandbox_unknown_raises() -> None:

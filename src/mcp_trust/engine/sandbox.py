@@ -31,6 +31,28 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
+_DOCKER_HOST_ENV = "MCP_TRUST_DOCKER_HOST"
+
+
+def normalize_local_docker_host(value: str) -> str:
+    """Return one explicit local Docker Unix-socket endpoint.
+
+    Refresh scans launch untrusted code, so a remote Docker daemon would move
+    that execution outside the reviewed local isolation boundary. The endpoint
+    is passed as a Docker CLI argument because the MCP SDK intentionally drops
+    ambient variables such as ``DOCKER_HOST`` from child-process environments.
+    """
+    if (
+        not isinstance(value, str)
+        or not value.startswith("unix:///")
+        or value != value.strip()
+        or any(character in value for character in ("\x00", "\n", "\r", "?", "#"))
+    ):
+        raise ValueError("Docker daemon authority must be one absolute local Unix socket")
+    socket_path = value.removeprefix("unix://")
+    if not socket_path.startswith("/") or socket_path in {"", "/"}:
+        raise ValueError("Docker daemon authority must be one absolute local Unix socket")
+    return f"unix://{socket_path}"
 
 
 @runtime_checkable
@@ -83,6 +105,10 @@ class DockerSandbox:
     workdir: str = "/scan"
     tmpfs_size: str = "64m"
     tmpfs_mode: str = "1777"
+    # Exact local daemon endpoint proven during refresh preflight. It is
+    # expressed as a Docker CLI global option so the MCP SDK's intentionally
+    # reduced child environment cannot silently drop the execution authority.
+    host: str | None = None
     # Non-root by default: run untrusted code as an unprivileged uid so a
     # container/kernel escape does not start from root. Numeric so it needs no
     # passwd entry in the image. Set None to opt out (an image that needs root).
@@ -95,11 +121,18 @@ class DockerSandbox:
     name: ClassVar[str] = "docker"
     isolates: ClassVar[bool] = True
 
+    def __post_init__(self) -> None:
+        if self.host is not None:
+            self.host = normalize_local_docker_host(self.host)
+
     def available(self) -> bool:
         return shutil.which("docker") is not None
 
     def wrap(self, command: str, args: list[str]) -> tuple[str, list[str]]:
-        docker_args: list[str] = [
+        docker_args: list[str] = []
+        if self.host is not None:
+            docker_args += ["--host", self.host]
+        docker_args += [
             "run",
             "--rm",
             "-i",  # keep stdin open for the MCP stdio transport
@@ -170,5 +203,6 @@ def select_sandbox(name: str | None = None, image: str | None = None) -> Sandbox
         return DockerSandbox(
             image=effective_docker_image(image),
             network=os.environ.get("MCP_TRUST_SANDBOX_NETWORK", "none"),
+            host=(os.environ.get(_DOCKER_HOST_ENV) if os.environ.get(_DOCKER_HOST_ENV) else None),
         )
     raise ValueError(f"Unknown sandbox {resolved!r} (expected 'none' or 'docker').")

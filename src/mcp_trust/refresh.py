@@ -29,7 +29,7 @@ from mcp_trust.core.drift import ScanDrift, diff_latest
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
-from mcp_trust.engine.sandbox import DockerSandbox
+from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
 from mcp_trust.receipts import build_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -42,6 +42,7 @@ MANIFEST_DIGEST_NAME = "MANIFEST.sha256"
 DEFAULT_MAX_AGE_HOURS = 24
 MAX_APPROVAL_TTL_HOURS = 4
 _DEPLOYMENT_ENV = ("VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_SCOPE")
+_DOCKER_HOST_ENV = "MCP_TRUST_DOCKER_HOST"
 _SANDBOX_FLAGS = (
     "--network",
     "none",
@@ -871,8 +872,12 @@ def _server_identity(server: Server) -> dict[str, Any]:
     return server.model_dump(mode="json", exclude={"added_at"})
 
 
-def _sandbox_profile(image: str) -> dict[str, object]:
-    sandbox = DockerSandbox(image=image, network="none")
+def _sandbox_profile(
+    image: str,
+    *,
+    docker_host: str | None = None,
+) -> dict[str, object]:
+    sandbox = DockerSandbox(image=image, network="none", host=docker_host)
     command, args = sandbox.wrap("server-command", ["--probe"])
     joined = [command, *args]
     for required in _SANDBOX_FLAGS:
@@ -918,6 +923,39 @@ def _real_scan_mode(*, local_count: int, total_count: int) -> str:
     return "mcpaudit-mixed-transport"
 
 
+def _resolve_local_docker_host(
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> str:
+    """Resolve and validate the one local Docker endpoint used by this refresh."""
+    configured = os.environ.get("DOCKER_HOST")
+    if configured is None:
+        inspected = runner(
+            [
+                "docker",
+                "context",
+                "inspect",
+                "--format",
+                "{{json .Endpoints.docker.Host}}",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if inspected.returncode != 0:
+            raise RefreshCandidateError("required Docker context endpoint is unavailable")
+        try:
+            configured = json.loads(inspected.stdout.strip())
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise RefreshCandidateError("required Docker context endpoint is unreadable") from exc
+    try:
+        return normalize_local_docker_host(configured)
+    except ValueError as exc:
+        raise RefreshCandidateError(
+            "Docker daemon authority must use one absolute local Unix socket"
+        ) from exc
+
+
 def preflight_real_refresh(
     servers: list[Server],
     *,
@@ -934,8 +972,10 @@ def preflight_real_refresh(
     if local_servers:
         if shutil.which("docker") is None:
             raise RefreshCandidateError("required Docker executable is unavailable")
+        docker_host = _resolve_local_docker_host(runner=runner)
+        docker_command = ["docker", "--host", docker_host]
         info = runner(
-            ["docker", "info"],
+            [*docker_command, "info"],
             text=True,
             capture_output=True,
             check=False,
@@ -944,31 +984,41 @@ def preflight_real_refresh(
             raise RefreshCandidateError("required Docker daemon is unavailable")
         for image in images:
             inspected = runner(
-                ["docker", "image", "inspect", image],
+                [*docker_command, "image", "inspect", image],
                 text=True,
                 capture_output=True,
                 check=False,
             )
             if inspected.returncode != 0:
                 raise RefreshCandidateError(f"required local sandbox image is unavailable: {image}")
-            profiles.append(_sandbox_profile(image))
+            profiles.append(_sandbox_profile(image, docker_host=docker_host))
     if importlib.util.find_spec("mcp_audit") is None:
         raise RefreshCandidateError("required MCPAudit engine package is unavailable")
-    return {
+    evidence: dict[str, object] = {
         "docker_daemon": "available" if local_servers else "not_required",
         "profiles": profiles,
         "remote_transport_count": len(servers) - len(local_servers),
     }
+    if local_servers:
+        # Private execution binding: removed before the candidate manifest is
+        # written, then supplied to every DockerSandbox through a dedicated
+        # mcp-trust variable. This is authority, not a public trust claim.
+        evidence["_execution_docker_host"] = docker_host
+    return evidence
 
 
 @contextmanager
-def _scan_environment(default_image: str) -> Iterator[None]:
+def _scan_environment(
+    default_image: str,
+    docker_host: str | None = None,
+) -> Iterator[None]:
     keys = {
         "MCP_TRUST_ENGINE",
         "MCP_TRUST_SANDBOX",
         "MCP_TRUST_SANDBOX_NETWORK",
         "MCP_TRUST_SANDBOX_IMAGE",
         "MCP_TRUST_SCAN_CREDENTIALS",
+        _DOCKER_HOST_ENV,
         *_DEPLOYMENT_ENV,
     }
     previous = {key: os.environ.get(key) for key in keys}
@@ -978,6 +1028,10 @@ def _scan_environment(default_image: str) -> Iterator[None]:
         os.environ["MCP_TRUST_SANDBOX_NETWORK"] = "none"
         os.environ["MCP_TRUST_SANDBOX_IMAGE"] = default_image
         os.environ["MCP_TRUST_SCAN_CREDENTIALS"] = "dummy"
+        if docker_host is None:
+            os.environ.pop(_DOCKER_HOST_ENV, None)
+        else:
+            os.environ[_DOCKER_HOST_ENV] = normalize_local_docker_host(docker_host)
         for key in _DEPLOYMENT_ENV:
             os.environ.pop(key, None)
         yield
@@ -1319,6 +1373,7 @@ def create_refresh_candidate(
         source_conn.close()
 
     sandbox_evidence: dict[str, object]
+    docker_host: str | None = None
     if fixture_mode:
         sandbox_evidence = {
             "mode": "deterministic-fixture",
@@ -1326,6 +1381,14 @@ def create_refresh_candidate(
         }
     else:
         sandbox_evidence = preflight_real_refresh(servers, default_image=default_image)
+        execution_host = sandbox_evidence.pop("_execution_docker_host", None)
+        if execution_host is not None:
+            try:
+                docker_host = normalize_local_docker_host(str(execution_host))
+            except ValueError as exc:
+                raise RefreshCandidateError(
+                    "preflight returned an invalid Docker execution authority"
+                ) from exc
         scanner_engine = MCPAuditEngine(timeout=90.0)
 
         def scan_server(server: Server) -> EngineResult:
@@ -1383,7 +1446,7 @@ def create_refresh_candidate(
         excluded: set[str] = set()
         verified_snapshot_scan_modes: dict[str, str] = {}
         writer = receipt_writer or _write_receipt
-        with _scan_environment(default_image):
+        with _scan_environment(default_image, docker_host):
             for server in servers:
                 previous = scan_repo.latest(server.slug)
                 try:
@@ -2432,7 +2495,12 @@ def verify_refresh_candidate(
         for result in results
         if isinstance(result, dict) and result.get("state") == "masked"
     )
-    if masked_slugs != sorted(declared_masked_slugs):
+    successful_masked_slugs = sorted(
+        str(result.get("server_slug"))
+        for result in successful_results
+        if result.get("server_slug") in declared_masked_slugs
+    )
+    if masked_slugs != successful_masked_slugs:
         errors.append("masked_result_authorization_mismatch")
     if masked_slugs:
         try:

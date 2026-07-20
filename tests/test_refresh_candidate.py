@@ -979,6 +979,52 @@ def test_partial_scan_failure_never_retains_old_grade_as_fresh(tmp_path: Path) -
     assert "fixture failure" not in json.dumps(by_slug["beta"])
 
 
+def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path, masked=("alpha",))
+
+    class FailingMCPAuditEngine:
+        def __init__(self, timeout: float) -> None:
+            assert timeout == 90.0
+
+        def scan(self, source: ServerSource) -> EngineResult:
+            raise RuntimeError(f"controlled failure for {source.reference}")
+
+    monkeypatch.setattr(
+        "mcp_trust.refresh.preflight_real_refresh",
+        lambda servers, *, default_image: {
+            "docker_daemon": "available",
+            "profiles": [refresh_module._sandbox_profile(default_image)],
+            "remote_transport_count": 0,
+        },
+    )
+    monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", FailingMCPAuditEngine)
+
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="required:image",
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert _results(candidate)[0]["state"] == "scan-failed"
+    assert verification["structural_valid"] is True
+    assert verification["state"] == "partial"
+    assert verification["publication_ready"] is False
+    assert verification["errors"] == []
+
+
 def test_failed_rescan_excludes_the_previous_grade_from_static_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -1684,12 +1730,14 @@ def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
 def test_real_preflight_refuses_missing_pinned_image(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    host = "unix:///Users/operator/.colima/default/docker.sock"
+    monkeypatch.setenv("DOCKER_HOST", host)
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(
             command,
-            0 if command == ["docker", "info"] else 1,
+            0 if command == ["docker", "--host", host, "info"] else 1,
             "",
             "",
         )
@@ -1705,6 +1753,10 @@ def test_real_preflight_refuses_missing_pinned_image(
 def test_real_preflight_refuses_missing_mcpaudit_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv(
+        "DOCKER_HOST",
+        "unix:///Users/operator/.colima/default/docker.sock",
+    )
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr("mcp_trust.refresh.importlib.util.find_spec", lambda _name: None)
 
@@ -1716,6 +1768,89 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
             [_server("alpha")],
             default_image="required:image",
             runner=runner,
+        )
+
+
+def test_real_preflight_binds_one_explicit_local_docker_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = "unix:///Users/operator/.colima/default/docker.sock"
+    commands: list[list[str]] = []
+    monkeypatch.setenv("DOCKER_HOST", host)
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "mcp_trust.refresh.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+
+    def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    evidence = preflight_real_refresh(
+        [_server("alpha")],
+        default_image="required:image",
+        runner=runner,
+    )
+
+    assert commands == [
+        ["docker", "--host", host, "info"],
+        ["docker", "--host", host, "image", "inspect", "required:image"],
+    ]
+    assert evidence["_execution_docker_host"] == host
+
+
+def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = "unix:///Users/operator/.colima/default/docker.sock"
+    commands: list[list[str]] = []
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "mcp_trust.refresh.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+
+    def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        stdout = json.dumps(host) if command[1:3] == ["context", "inspect"] else ""
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    evidence = preflight_real_refresh(
+        [_server("alpha")],
+        default_image="required:image",
+        runner=runner,
+    )
+
+    assert commands == [
+        [
+            "docker",
+            "context",
+            "inspect",
+            "--format",
+            "{{json .Endpoints.docker.Host}}",
+        ],
+        ["docker", "--host", host, "info"],
+        ["docker", "--host", host, "image", "inspect", "required:image"],
+    ]
+    assert evidence["_execution_docker_host"] == host
+
+
+def test_real_preflight_rejects_remote_docker_daemon_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DOCKER_HOST", "tcp://example.test:2375")
+    monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "mcp_trust.refresh.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+
+    with pytest.raises(RefreshCandidateError, match="local Unix socket"):
+        preflight_real_refresh(
+            [_server("alpha")],
+            default_image="required:image",
         )
 
 
