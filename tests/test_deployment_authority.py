@@ -330,6 +330,16 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     home = tmp_path / "home"
     launchctl = tmp_path / "fake-launchctl"
     record = tmp_path / "launchctl.txt"
+    hostile_bin = tmp_path / "hostile-bin"
+    hostile_bin.mkdir()
+    hostile_calls = tmp_path / "hostile-calls.txt"
+    for command in ("dirname", "id", "mkdir", "sed", "plutil"):
+        _write_executable(
+            hostile_bin / command,
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "{command}" >> "$HOSTILE_CALLS"\n'
+            "exit 99\n",
+        )
     _write_executable(
         launchctl,
         "#!/bin/sh\n"
@@ -345,19 +355,11 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
             "MCP_TRUST_LAUNCHCTL_BIN": str(launchctl),
             "FAKE_LAUNCHCTL_RECORD": str(record),
             "MCP_TRUST_AUTO_DEPLOY": "1",
-            "PATH": ":".join(
-                [
-                    str(home / ".codex/tmp/arg0/codex-arg0-test"),
-                    str(home / ".cache/codex-runtimes/test/bin/override"),
-                    "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin",
-                    str(tmp_path / "stable-bin"),
-                    "/usr/bin",
-                    "/bin",
-                ]
-            ),
+            "HOSTILE_CALLS": str(hostile_calls),
+            "PATH": str(hostile_bin),
         }
     )
-    result = _run(["bash", str(INSTALLER)], cwd=ROOT, env=env)
+    result = _run(["/bin/bash", str(INSTALLER)], cwd=ROOT, env=env)
     installed = home / "Library/LaunchAgents/com.d.mcp-trust-refresh.plist"
     text = installed.read_text(encoding="utf-8")
     installed_path = plistlib.loads(installed.read_bytes())["EnvironmentVariables"]["PATH"]
@@ -365,35 +367,16 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     assert "MCP_TRUST_AUTO_DEPLOY" not in text
     assert "deploy_production" not in text
     assert "refresh_and_publish.sh" in text
-    assert installed_path == f"{tmp_path}/stable-bin:/usr/bin:/bin"
-    assert ".codex/tmp/arg0" not in installed_path
-    assert ".cache/codex-runtimes" not in installed_path
-    assert "codex.system" not in installed_path
+    assert installed_path == (
+        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    )
+    assert str(hostile_bin) not in installed_path
+    assert not hostile_calls.exists()
     assert "disable gui/" in actions
     assert "bootout gui/" in actions
     assert "load" not in actions
     assert "bootstrap" not in actions
     assert "Defined schedule: weekly, Monday 09:00 (local)." in result.stdout
-
-
-def test_installer_rejects_path_entries_that_cannot_be_embedded_safely(
-    tmp_path: Path,
-) -> None:
-    home = tmp_path / "home"
-    env = os.environ.copy()
-    env.update(
-        {
-            "HOME": str(home),
-            "MCP_TRUST_LAUNCHCTL_BIN": "/usr/bin/true",
-            "PATH": "/tmp/untrusted#sed-replacement:/usr/bin:/bin",
-        }
-    )
-
-    result = _run(["bash", str(INSTALLER)], cwd=ROOT, env=env, check=False)
-
-    assert result.returncode != 0
-    assert "cannot be safely embedded in a plist" in result.stderr
-    assert not (home / "Library/LaunchAgents/com.d.mcp-trust-refresh.plist").exists()
 
 
 @pytest.mark.parametrize(
