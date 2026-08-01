@@ -29,6 +29,18 @@ uvx mcp-trust mcp-serve      # once published to PyPI
 | `check_server` | Full grade, risk dimensions, and findings for one server by slug. |
 | `get_methodology` | How the A-F grade and transparency axis are computed, plus the honesty model. |
 
+The MCP runtime admits the packaged catalog only after deterministic schema-v2
+validation, including duplicate-key rejection, required field/type checks, unique
+slugs and source coordinates, supported enums, sandbox/scan-mode agreement, and
+timezone-aware scan timestamps. Schema v2 preserves additive unknown fields;
+missing or invalid required fields and unknown schema versions fail closed.
+
+If catalog admission fails, `list_servers` and `check_server` serve zero records
+and return `mcp-trust-mcp-error.v1` with status `UNKNOWN`, error code
+`CATALOG_SNAPSHOT_INVALID`, sorted reason codes, and `server_count_served: 0`.
+`get_methodology` remains available. This boundary checks internal consistency;
+it does not prove snapshot authenticity, authorship, immutability, or freshness.
+
 Connecting an MCP server hands it influence over what your agent does. Tool
 poisoning, prompt injection, over-broad permissions, and rug-pull tool
 mutations are documented attack classes -- and today there's no quick way to vet

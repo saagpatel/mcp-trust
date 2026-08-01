@@ -17,6 +17,11 @@ from functools import lru_cache
 from importlib.resources import files
 from typing import Any
 
+from mcp_trust.catalog.runtime_snapshot import (
+    CatalogSnapshotValidationError,
+    parse_catalog_snapshot,
+)
+
 _METHODOLOGY = """\
 MCP Trust grades public MCP servers on two orthogonal axes.
 
@@ -52,14 +57,34 @@ Honesty model:
 """
 
 
+def _read_snapshot_text() -> str:
+    return (files("mcp_trust") / "catalog_snapshot.json").read_text(encoding="utf-8")
+
+
 @lru_cache(maxsize=1)
 def _snapshot() -> dict[str, Any]:
-    raw = (files("mcp_trust") / "catalog_snapshot.json").read_text(encoding="utf-8")
-    return json.loads(raw)
+    try:
+        raw = _read_snapshot_text()
+    except (OSError, UnicodeError):
+        raise CatalogSnapshotValidationError({"SNAPSHOT_RESOURCE_UNREADABLE"}) from None
+    return parse_catalog_snapshot(raw)
 
 
 def _servers() -> list[dict[str, Any]]:
     return _snapshot()["servers"]
+
+
+def _catalog_snapshot_error_payload(error: CatalogSnapshotValidationError) -> str:
+    return json.dumps(
+        {
+            "schema": "mcp-trust-mcp-error.v1",
+            "status": "UNKNOWN",
+            "error_code": "CATALOG_SNAPSHOT_INVALID",
+            "reason_codes": list(error.reason_codes),
+            "server_count_served": 0,
+        },
+        indent=2,
+    )
 
 
 def _current_server_record(
@@ -95,6 +120,10 @@ def _current_server_record(
 
 def list_servers_payload() -> str:
     """JSON summary of every graded server (slug, grade, transparency, score)."""
+    try:
+        servers = _servers()
+    except CatalogSnapshotValidationError as error:
+        return _catalog_snapshot_error_payload(error)
     rows = [
         {
             "slug": s["slug"],
@@ -104,20 +133,24 @@ def list_servers_payload() -> str:
             "danger_score": s["danger_score"],
             "requires_credentials": s["requires_credentials"],
         }
-        for s in _servers()
+        for s in servers
     ]
     return json.dumps({"server_count": len(rows), "servers": rows}, indent=2)
 
 
 def check_server_payload(slug: str, *, now: datetime | None = None) -> str:
     """Full JSON record for one server by slug, or an error + the known slugs."""
-    for s in _servers():
+    try:
+        servers = _servers()
+    except CatalogSnapshotValidationError as error:
+        return _catalog_snapshot_error_payload(error)
+    for s in servers:
         if s["slug"] == slug:
             return json.dumps(_current_server_record(s, now=now), indent=2)
     return json.dumps(
         {
             "error": f"No graded server with slug {slug!r}.",
-            "known_slugs": [s["slug"] for s in _servers()],
+            "known_slugs": [s["slug"] for s in servers],
         },
         indent=2,
     )
