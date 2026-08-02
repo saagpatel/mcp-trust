@@ -338,9 +338,12 @@ def test_failed_snapshot_is_not_cached_but_valid_snapshot_is(monkeypatch) -> Non
     mcp_server._snapshot.cache_clear()
     monkeypatch.setattr(mcp_server, "_read_snapshot_text", changing_resource)
 
-    invalid = json.loads(mcp_server.list_servers_payload())
-    first_valid = mcp_server.list_servers_payload()
-    second_valid = mcp_server.list_servers_payload()
+    # A fixed now isolates the caching property under test: scan_age_days is
+    # recomputed per response, so wall-clock calls are not byte-identical.
+    fixed_now = datetime(2026, 8, 1, tzinfo=UTC)
+    invalid = json.loads(mcp_server.list_servers_payload(now=fixed_now))
+    first_valid = mcp_server.list_servers_payload(now=fixed_now)
+    second_valid = mcp_server.list_servers_payload(now=fixed_now)
 
     assert invalid["error_code"] == "CATALOG_SNAPSHOT_INVALID"
     assert json.loads(first_valid)["server_count"] == 23
