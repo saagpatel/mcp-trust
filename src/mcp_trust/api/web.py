@@ -60,23 +60,39 @@ _DIMENSION_LABELS: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Grade → visual colour (matches badge.json route)
+# Grade → visual colour
+#
+# DELIBERATELY DECOUPLED from ``site.badges._BADGE_COLORS``. That map speaks the
+# shields.io endpoint vocabulary ("brightgreen", "yellow", ...), which is a
+# published consumer contract we do not control the rendering of. These hexes
+# are ours to pick, and they are picked under a constraint shields.io is not
+# bound by: every one is painted under white bold ~12.5px text, so each must
+# clear WCAG AA at 4.5:1. Changing a colour here must not change a badge, and
+# vice versa. tests/test_contrast.py enforces the AA floor.
+#
+# The ramp separates adjacent grades by HUE (green → yellow-green → gold →
+# orange → red) rather than by lightness. Every colour has to be dark enough for
+# white text, so lightness is nearly spoken for; hue is the axis left to carry
+# the signal.
 # ---------------------------------------------------------------------------
 
 _GRADE_CSS: dict[str, str] = {
-    "A": "#2da44e",  # brightgreen
-    "B": "#4CAF50",  # green
-    "C": "#e6a817",  # amber / yellow
-    "D": "#f08030",  # orange
-    "F": "#d1242f",  # red
-    "unscanned": "#8b949e",  # grey
+    "A": "#007a3d",  # green — 5.45:1
+    "B": "#487500",  # yellow-green — 5.50:1
+    "C": "#8f5f00",  # gold / amber — 5.52:1
+    "D": "#b24700",  # orange — 5.53:1
+    "F": "#d1242f",  # red — 5.24:1 (already compliant; left unchanged)
+    "unscanned": "#656e7b",  # grey — 5.16:1
 }
 
+# Chips share the grade ramp: green reads "good" on both axes. Solid hexes only
+# — a chip must never composite through ``opacity``, which lightens the label
+# and its background together and can sink a hex that measures fine alone.
 _TRANSPARENCY_CSS: dict[str, str] = {
-    "high": "#2da44e",
-    "medium": "#e6a817",
-    "low": "#f08030",
-    "": "#8b949e",
+    "high": "#007a3d",
+    "medium": "#8f5f00",
+    "low": "#b24700",
+    "": "#656e7b",
 }
 
 # ---------------------------------------------------------------------------
@@ -156,7 +172,6 @@ _PAGE_STYLE = """
     font-size: 0.75rem;
     font-weight: 500;
     color: #fff;
-    opacity: 0.9;
   }
 
   /* Detail page */
@@ -445,7 +460,7 @@ def _grade_pill(grade: str, *, stale: bool = False, masked: bool = False) -> str
 
 def _transparency_chip(level: str) -> str:
     if not level:
-        return '<span class="chip" style="background:#8b949e">—</span>'
+        return f'<span class="chip" style="background:{_TRANSPARENCY_CSS[""]}">—</span>'
     color = _TRANSPARENCY_CSS.get(level.lower(), _TRANSPARENCY_CSS[""])
     return f'<span class="chip" style="background:{escape(color)}">{escape(level)}</span>'
 
@@ -728,10 +743,7 @@ def render_catalog(
         '<p class="page-subtitle">'
         "Each server gets an A–F danger grade plus a separate transparency signal. "
         "Grades come from automated scans and mean check before you connect, not endorsement."
-        "</p>"
-        + _refresh_cadence_notice()
-        + _spec_shift_notice(rows)
-        + "<table>"
+        "</p>" + _refresh_cadence_notice() + _spec_shift_notice(rows) + "<table>"
         "<thead><tr>"
         "<th>Server</th><th>Danger grade</th><th>Transparency</th>"
         "<th>Danger score</th><th>Last scanned</th><th></th>"
@@ -831,11 +843,14 @@ def render_detail(
 
     if masked:
         status_chip = (
-            '<span class="chip" style="background:#8b949e">'
+            f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
             "grade withheld — under governance review</span>"
         )
     elif stale:
-        status_chip = '<span class="chip" style="background:#8b949e">stale — pending re-scan</span>'
+        status_chip = (
+            f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
+            "stale — pending re-scan</span>"
+        )
     else:
         status_chip = ""
 

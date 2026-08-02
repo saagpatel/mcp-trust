@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from mcp_trust.api.app import create_app
 from mcp_trust.api.web import (
+    _GRADE_CSS,
     render_catalog,
     render_corrections,
     render_detail,
@@ -53,6 +54,12 @@ from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
 BASE_URL = "https://mcp-trust.example"
+
+# What the greyed-out assertions below mean is "the unscanned grey", not one
+# particular hex. Bound to the palette so an accessibility retune of the colour
+# cannot break tests that are really about governance behaviour.
+_UNSCANNED = _GRADE_CSS["unscanned"]
+
 NOW = datetime(2026, 7, 3, 12, 0, 0, tzinfo=UTC)
 FRESH_AT = NOW - timedelta(days=5)
 STALE_AT = NOW - timedelta(days=STALE_AFTER_DAYS + 1)
@@ -170,9 +177,7 @@ def test_detail_provenance_card_scan_target_and_listing_basis():
 
 
 def test_detail_provenance_no_sandbox_does_not_claim_sandbox():
-    html = render_detail(
-        _server(), _real_scan(sandbox_image=None), base_url=BASE_URL, now=NOW
-    )
+    html = render_detail(_server(), _real_scan(sandbox_image=None), base_url=BASE_URL, now=NOW)
     assert "network-isolated sandbox" not in html
     assert "cannot verify sandbox provenance or network isolation" in html
 
@@ -260,7 +265,7 @@ def test_detail_stale_grade_greys_and_carries_caveat():
     assert "Stale grade:" in html
     assert "pending re-scan" in html
     # The hero block greys out: the grade colour must be the unscanned grey.
-    assert '<div class="grade-big" style="background:#8b949e">' in html
+    assert f'<div class="grade-big" style="background:{_UNSCANNED}">' in html
 
 
 def test_detail_without_now_renders_no_staleness():
@@ -521,7 +526,7 @@ def test_detail_masked_withholds_grade_score_and_findings():
     assert "The F grade should not leak." not in html
     assert MASKED_SERVER_DESCRIPTION in html
     assert "No findings on record" not in html  # must not read as a clean scan
-    assert '<div class="grade-big" style="background:#8b949e">—</div>' in html
+    assert f'<div class="grade-big" style="background:{_UNSCANNED}">—</div>' in html
     # Dispute path and scan metadata stay disclosed.
     assert '<a href="/ui/dispute">' in html
     assert "mcpaudit" in html
@@ -545,9 +550,7 @@ def test_detail_masked_ignored_for_unscanned():
 
 
 def test_detail_verified_masked_scan_withholds_all_verdict_data():
-    server = _server().model_copy(
-        update={"description": "masked-detail-sentinel-should-not-leak"}
-    )
+    server = _server().model_copy(update={"description": "masked-detail-sentinel-should-not-leak"})
     html = render_detail(
         server,
         None,
@@ -572,7 +575,7 @@ def test_catalog_masked_row_hides_grade_and_score():
     row = _catalog_row(FRESH_AT) | {"masked": True}
     html = render_catalog([row], now=NOW)
     assert ">masked<" in html
-    assert 'class="pill" style="background:#8b949e"' in html
+    assert f'class="pill" style="background:{_UNSCANNED}"' in html
     assert "8.0" not in html
 
 
@@ -694,7 +697,7 @@ def test_app_masks_public_json_routes(conn):
                     severity=Severity.CRITICAL,
                     category="shell",
                 )
-            ]
+            ],
         }
     )
     ScanRepository(conn).record(record)
