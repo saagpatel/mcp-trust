@@ -36,7 +36,7 @@ compares normally.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from enum import StrEnum
 
@@ -381,3 +381,99 @@ def latest_grade_change(history: Sequence[ScanRecord]) -> GradeChange | None:
                 surface_comparison=drift.surface_comparison,
             )
     return None
+
+
+class HistoryEntry(BaseModel):
+    """One scan on record, carrying the attribution of the step that produced it.
+
+    ``cause`` is ``None`` only for the oldest scan, which has no predecessor to
+    be attributed against — a distinct state from ``NO_CHANGE``, and one the
+    renderer must not collapse into it.
+    """
+
+    scanned_at: datetime
+    grade: TrustGrade
+    engine: str = Field(description="Engine name and version, e.g. 'mcpaudit 2.3.0'.")
+    cause: DriftCause | None = None
+    surface_comparison: SurfaceComparison | None = None
+    grade_changed: bool = False
+
+
+def grade_timeline(history: Sequence[ScanRecord]) -> list[HistoryEntry]:
+    """Attribute every step in a stored *history* (newest-first), oldest-first out.
+
+    Each entry after the first is attributed by :func:`diff`, so the timeline
+    and the single-change projection in :func:`latest_grade_change` can never
+    disagree about a cause. The ordering flip lives here rather than at the call
+    site: a history reads newest-first, a timeline reads oldest-first.
+    """
+    ordered = list(reversed(history))
+    entries: list[HistoryEntry] = []
+    for index, scan in enumerate(ordered):
+        drift = diff(ordered[index - 1], scan) if index else None
+        entries.append(
+            HistoryEntry(
+                scanned_at=scan.scanned_at,
+                grade=scan.grade,
+                engine=f"{scan.engine_name} {scan.engine_version}",
+                cause=drift.cause if drift else None,
+                surface_comparison=drift.surface_comparison if drift else None,
+                grade_changed=bool(drift and drift.previous_grade != drift.current_grade),
+            )
+        )
+    return entries
+
+
+class HistoryTotals(BaseModel):
+    """Corpus-wide counts over every recorded scan history.
+
+    These are the numbers behind the registry's public claim about its own
+    instrument: how often published grades have moved, and how often that
+    movement coincided with a change of grader rather than a change of server.
+    ``comparable_pairs`` is reported alongside ``surface_changes`` so a
+    zero-change count is never read as covering comparisons the evidence could
+    not support.
+    """
+
+    servers: int = 0
+    scans: int = 0
+    compared_pairs: int = 0
+    comparable_pairs: int = Field(
+        default=0, description="Pairs with declared-surface evidence recorded on both sides."
+    )
+    surface_changes: int = 0
+    grade_changes: int = 0
+    grade_changes_with_engine_change: int = 0
+    first_scanned_at: datetime | None = None
+    last_scanned_at: datetime | None = None
+
+
+def corpus_history_totals(histories: Iterable[Sequence[ScanRecord]]) -> HistoryTotals:
+    """Aggregate per-server histories into the corpus-wide record.
+
+    Built on :func:`grade_timeline`, so the aggregate the registry publishes is
+    a sum over exactly the attributions its detail pages show. Histories with no
+    scans contribute nothing, including to the server count: a server the
+    registry has never scanned is not part of a claim about scan history.
+    """
+    totals = HistoryTotals()
+    for history in histories:
+        timeline = grade_timeline(history)
+        if not timeline:
+            continue
+        totals.servers += 1
+        totals.scans += len(timeline)
+        for previous, entry in zip(timeline, timeline[1:], strict=False):
+            totals.compared_pairs += 1
+            if entry.surface_comparison is not SurfaceComparison.UNKNOWN:
+                totals.comparable_pairs += 1
+            if entry.surface_comparison is SurfaceComparison.CHANGED:
+                totals.surface_changes += 1
+            if entry.grade_changed:
+                totals.grade_changes += 1
+                if entry.engine != previous.engine:
+                    totals.grade_changes_with_engine_change += 1
+        first, last = timeline[0].scanned_at, timeline[-1].scanned_at
+        totals.first_scanned_at = min(totals.first_scanned_at or first, first)
+        totals.last_scanned_at = max(totals.last_scanned_at or last, last)
+    return totals
