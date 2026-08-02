@@ -152,15 +152,15 @@ def test_detail_renders_exact_history_rows() -> None:
     html = _detail(_three_scan_history())
 
     assert (
-        '<tr><td class="hist-num">2026-06-20</td>'
+        '<tr><td class="hist-num">2026-06-20 06:00</td>'
         '<td><span class="pill" style="background:#d1242f">F</span></td>'
         '<td class="hist-num">mcpaudit 2.1.0</td>'
         "<td>First scan on record</td></tr>"
-        '<tr><td class="hist-num">2026-06-27</td>'
+        '<tr><td class="hist-num">2026-06-27 06:00</td>'
         '<td><span class="pill" style="background:#d1242f">F</span></td>'
         '<td class="hist-num">mcpaudit 2.1.0</td>'
         '<td class="hist-quiet">No change</td></tr>'
-        '<tr><td class="hist-num">2026-07-03</td>'
+        '<tr><td class="hist-num">2026-07-03 06:00</td>'
         '<td><span class="pill" style="background:#487500">B</span></td>'
         '<td class="hist-num">mcpaudit 2.3.0</td>'
         "<td>Scanner engine changed</td></tr>"
@@ -170,7 +170,7 @@ def test_detail_renders_exact_history_rows() -> None:
 def test_history_table_headers_are_scoped_column_headers() -> None:
     html = _detail(_three_scan_history())
     assert (
-        '<thead><tr><th scope="col">Date</th><th scope="col">Grade</th>'
+        '<thead><tr><th scope="col">Scanned (UTC)</th><th scope="col">Grade</th>'
         '<th scope="col">Engine</th><th scope="col">Attributed cause</th></tr></thead>'
     ) in html
 
@@ -298,7 +298,7 @@ def test_unmasked_generated_site_renders_the_history_table(tmp_path: Path) -> No
     generate_site(conn, tmp_path, base_url=BASE_URL, now=BUILD_DATE)
     detail = (tmp_path / "ui" / "servers" / "history-server" / "index.html").read_text()
 
-    assert '<td class="hist-num">2026-06-27</td>' in detail
+    assert '<td class="hist-num">2026-06-27 06:00</td>' in detail
     assert "<td>Scanner engine changed</td>" in detail
     assert "Generated 2026-08-01" in detail
 

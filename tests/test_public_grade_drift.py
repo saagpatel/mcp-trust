@@ -93,7 +93,7 @@ def test_public_grade_change_keeps_missing_evidence_unknown() -> None:
     # comparison visible rather than letting "engine changed" imply the
     # surface was checked and found the same.
     assert "<td>Scanner engine changed; surface not comparable</td>" in html
-    assert '<td class="hist-num">2026-07-08</td>' in html
+    assert '<td class="hist-num">2026-07-08 00:00</td>' in html
     assert "engine-changed" not in html
 
 

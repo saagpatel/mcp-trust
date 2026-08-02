@@ -540,9 +540,13 @@ def _history_section(
             grade_cell = f"<td>{_grade_pill(str(entry.grade))}</td>"
         cause = _cause_text(entry)
         quiet = ' class="hist-quiet"' if entry.cause is DriftCause.NO_CHANGE else ""
+        # Minute precision, not day: the corpus is re-scanned in same-day
+        # batches, and a column of repeated dates reads as duplicated rows
+        # rather than as the distinct scans they are.
+        scanned = entry.scanned_at.strftime("%Y-%m-%d %H:%M")
         rows.append(
             "<tr>"
-            f'<td class="hist-num">{escape(entry.scanned_at.date().isoformat())}</td>'
+            f'<td class="hist-num">{escape(scanned)}</td>'
             f"{grade_cell}"
             f'<td class="hist-num">{escape(entry.engine)}</td>'
             f"<td{quiet}>{escape(cause)}</td>"
@@ -557,7 +561,7 @@ def _history_section(
         '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">Grade history</h2>'
         f'<p style="font-size:0.875rem;color:#24292f;margin-bottom:0.75rem">'
         f"{escape(_history_intro(timeline))}</p>"
-        '<table><thead><tr><th scope="col">Date</th><th scope="col">Grade</th>'
+        '<table><thead><tr><th scope="col">Scanned (UTC)</th><th scope="col">Grade</th>'
         '<th scope="col">Engine</th><th scope="col">Attributed cause</th></tr></thead>'
         f"<tbody>{''.join(rows)}</tbody></table>"
         '<p style="font-size:0.85rem;color:#57606a;margin-top:0.75rem">'
