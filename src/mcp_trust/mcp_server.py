@@ -21,8 +21,9 @@ from mcp_trust.catalog.runtime_snapshot import (
     CatalogSnapshotValidationError,
     parse_catalog_snapshot,
 )
+from mcp_trust.core.governance import STALE_AFTER_DAYS, is_stale
 
-_METHODOLOGY = """\
+_METHODOLOGY = f"""\
 MCP Trust grades public MCP servers on two orthogonal axes.
 
 1. Danger grade (A-F). A local-process record is labeled network-off only when
@@ -54,6 +55,15 @@ Honesty model:
   authenticate. The enumerated tool surface is real; dummy values are never
   recorded.
 - A grade is an automated signal, not an endorsement or a certification.
+
+Freshness:
+- Every graded record carries its scan timestamp. list_servers and check_server
+  report scanned_at, a scan_age_days value recomputed at response time, and a
+  stale flag; a record with no scan on file reports null for all three.
+- A grade whose scan is older than {STALE_AFTER_DAYS} days is marked stale and
+  rendered as "pending re-scan" on the public pages and badges. Vendors ship
+  fixes; a grade that outlives its scan stops being a supportable opinion.
+  Treat a stale grade as historical context, not a current assessment.
 """
 
 
@@ -97,11 +107,13 @@ def _current_server_record(
     scanned_at = record.get("scanned_at")
     if not isinstance(scanned_at, str):
         record["scan_age_days"] = None
+        record["stale"] = None
         return record
     try:
         parsed = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
     except ValueError:
         record["scan_age_days"] = None
+        record["stale"] = None
         return record
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
@@ -115,26 +127,34 @@ def _current_server_record(
         ),
         6,
     )
+    record["stale"] = is_stale(parsed, fixed_now)
     return record
 
 
-def list_servers_payload() -> str:
-    """JSON summary of every graded server (slug, grade, transparency, score)."""
+def list_servers_payload(*, now: datetime | None = None) -> str:
+    """JSON summary of every graded server (slug, grade, transparency, score,
+    freshness). Scan age and staleness are recomputed at response time so a
+    long-lived process never serves the snapshot's baked-in age."""
     try:
         servers = _servers()
     except CatalogSnapshotValidationError as error:
         return _catalog_snapshot_error_payload(error)
-    rows = [
-        {
-            "slug": s["slug"],
-            "name": s["name"],
-            "grade": s["grade"],
-            "transparency": s["transparency"],
-            "danger_score": s["danger_score"],
-            "requires_credentials": s["requires_credentials"],
-        }
-        for s in servers
-    ]
+    rows = []
+    for s in servers:
+        record = _current_server_record(s, now=now)
+        rows.append(
+            {
+                "slug": record["slug"],
+                "name": record["name"],
+                "grade": record["grade"],
+                "transparency": record["transparency"],
+                "danger_score": record["danger_score"],
+                "requires_credentials": record["requires_credentials"],
+                "scanned_at": record.get("scanned_at"),
+                "scan_age_days": record["scan_age_days"],
+                "stale": record["stale"],
+            }
+        )
     return json.dumps({"server_count": len(rows), "servers": rows}, indent=2)
 
 
@@ -171,7 +191,11 @@ def build_server() -> Any:
 
     @app.tool()  # type: ignore[misc]
     def list_servers() -> str:
-        """List every graded MCP server with its trust grade. Returns JSON."""
+        """List every graded MCP server with its trust grade and scan freshness.
+
+        Returns JSON; each row carries scanned_at, scan_age_days, and a stale
+        flag alongside the grade.
+        """
         return list_servers_payload()
 
     @app.tool()  # type: ignore[misc]
