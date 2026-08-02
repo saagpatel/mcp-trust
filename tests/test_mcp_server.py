@@ -37,24 +37,14 @@ def _corrupt_snapshot_inputs() -> list[str]:
         changed(lambda value: value.__setitem__("schema_version", 3)),
         changed(lambda value: value.__setitem__("server_count", 24)),
         changed(lambda value: value.__setitem__("servers", {})),
-        changed(
-            lambda value: value["servers"][1].__setitem__(
-                "slug", value["servers"][0]["slug"]
-            )
-        ),
+        changed(lambda value: value["servers"][1].__setitem__("slug", value["servers"][0]["slug"])),
         changed(duplicate_coordinate),
         changed(lambda value: value["servers"][0].pop("source")),
         changed(lambda value: value["servers"][0].__setitem__("source", [])),
         changed(lambda value: value["servers"][0].__setitem__("grade", "endorsed")),
         changed(lambda value: value["servers"][0].__setitem__("transparency", "opaque")),
-        changed(
-            lambda value: value["servers"][0].__setitem__("sandbox", {"mode": "container"})
-        ),
-        changed(
-            lambda value: value["servers"][0].__setitem__(
-                "scanned_at", "2026-08-01T00:00:00"
-            )
-        ),
+        changed(lambda value: value["servers"][0].__setitem__("sandbox", {"mode": "container"})),
+        changed(lambda value: value["servers"][0].__setitem__("scanned_at", "2026-08-01T00:00:00")),
         changed(lambda value: value["servers"][0].__setitem__("findings", {})),
     ]
 
@@ -76,13 +66,22 @@ def test_list_servers_payload_is_complete_json() -> None:
     payload = json.loads(mcp_server.list_servers_payload())
     assert payload["server_count"] >= 15
     sample = payload["servers"][0]
-    assert {"slug", "name", "grade", "transparency", "danger_score"} <= set(sample)
+    assert {
+        "slug",
+        "name",
+        "grade",
+        "transparency",
+        "danger_score",
+        "scanned_at",
+        "scan_age_days",
+        "stale",
+    } <= set(sample)
 
 
 def test_valid_snapshot_payload_bytes_remain_compatible() -> None:
     fixed_now = datetime(2026, 8, 1, tzinfo=UTC)
     payloads = {
-        "list": mcp_server.list_servers_payload(),
+        "list": mcp_server.list_servers_payload(now=fixed_now),
         "known": mcp_server.check_server_payload(
             "mcp-archived-brave-search",
             now=fixed_now,
@@ -94,8 +93,8 @@ def test_valid_snapshot_payload_bytes_remain_compatible() -> None:
         name: hashlib.sha256(value.encode()).hexdigest() for name, value in payloads.items()
     }
     assert payload_hashes == {
-        "list": "41ab852301896ea8123a9ec447dd84716133a67d49c155d9bc893544078f630f",
-        "known": "02eee12b999d14228ee16bcf2b8c0f29a4e200e4fb8d911ffa418f622e963c34",
+        "list": "7f6d514f26e144631afcd04286f91af29e467fb2dbd5e435c73774a87431c61e",
+        "known": "309514eed9f5fafe994420f0a70acd5a5e61afd93ef448e248bdfa9cbf1cf808",
         "unknown": "da2aa20cb35aa3339f459668f339c7e14d1727239c37014152498dfdb9c482a6",
     }
 
@@ -158,6 +157,122 @@ def test_check_server_payload_recomputes_scan_age_at_response_time(monkeypatch) 
     )
 
     assert payload["scan_age_days"] == 31.0
+
+
+def test_list_servers_payload_reports_freshness(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "_snapshot",
+        lambda: {
+            "servers": [
+                {
+                    "slug": "fresh-server",
+                    "name": "Fresh",
+                    "grade": "A",
+                    "transparency": "high",
+                    "danger_score": 1.0,
+                    "requires_credentials": False,
+                    "scanned_at": "2026-07-01T00:00:00+00:00",
+                    "scan_age_days": 0.0,
+                },
+                {
+                    "slug": "stale-server",
+                    "name": "Stale",
+                    "grade": "B",
+                    "transparency": "medium",
+                    "danger_score": 3.0,
+                    "requires_credentials": True,
+                    "scanned_at": "2026-04-01T00:00:00+00:00",
+                    "scan_age_days": 0.0,
+                },
+            ]
+        },
+    )
+
+    payload = json.loads(mcp_server.list_servers_payload(now=datetime(2026, 8, 1, tzinfo=UTC)))
+
+    fresh, stale = payload["servers"]
+    assert fresh["scanned_at"] == "2026-07-01T00:00:00+00:00"
+    assert fresh["scan_age_days"] == 31.0
+    assert fresh["stale"] is False
+    assert stale["scan_age_days"] == 122.0
+    assert stale["stale"] is True
+
+
+def test_list_servers_payload_staleness_boundary_uses_governance_horizon(monkeypatch) -> None:
+    # 2026-05-03 -> 2026-08-01 is exactly 90 days: at the horizon, not past it.
+    monkeypatch.setattr(
+        mcp_server,
+        "_snapshot",
+        lambda: {
+            "servers": [
+                {
+                    "slug": "at-horizon",
+                    "name": "At Horizon",
+                    "grade": "A",
+                    "transparency": "high",
+                    "danger_score": 1.0,
+                    "requires_credentials": False,
+                    "scanned_at": "2026-05-03T00:00:00+00:00",
+                    "scan_age_days": 0.0,
+                }
+            ]
+        },
+    )
+
+    payload = json.loads(mcp_server.list_servers_payload(now=datetime(2026, 8, 1, tzinfo=UTC)))
+
+    row = payload["servers"][0]
+    assert row["scan_age_days"] == 90.0
+    assert row["stale"] is False
+
+
+def test_list_servers_payload_unscanned_record_reports_null_freshness(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "_snapshot",
+        lambda: {
+            "servers": [
+                {
+                    "slug": "never-scanned",
+                    "name": "Never Scanned",
+                    "grade": "unscanned",
+                    "transparency": "low",
+                    "danger_score": 0.0,
+                    "requires_credentials": False,
+                }
+            ]
+        },
+    )
+
+    payload = json.loads(mcp_server.list_servers_payload(now=datetime(2026, 8, 1, tzinfo=UTC)))
+
+    row = payload["servers"][0]
+    assert row["scanned_at"] is None
+    assert row["scan_age_days"] is None
+    assert row["stale"] is None
+
+
+def test_check_server_payload_reports_stale_flag(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "_snapshot",
+        lambda: {
+            "servers": [
+                {
+                    "slug": "aged",
+                    "scanned_at": "2026-04-01T00:00:00+00:00",
+                    "scan_age_days": 0.0,
+                }
+            ]
+        },
+    )
+
+    payload = json.loads(
+        mcp_server.check_server_payload("aged", now=datetime(2026, 8, 1, tzinfo=UTC))
+    )
+
+    assert payload["stale"] is True
 
 
 def test_check_server_payload_unknown_slug_errors_with_known_list() -> None:
@@ -223,9 +338,12 @@ def test_failed_snapshot_is_not_cached_but_valid_snapshot_is(monkeypatch) -> Non
     mcp_server._snapshot.cache_clear()
     monkeypatch.setattr(mcp_server, "_read_snapshot_text", changing_resource)
 
-    invalid = json.loads(mcp_server.list_servers_payload())
-    first_valid = mcp_server.list_servers_payload()
-    second_valid = mcp_server.list_servers_payload()
+    # A fixed now isolates the caching property under test: scan_age_days is
+    # recomputed per response, so wall-clock calls are not byte-identical.
+    fixed_now = datetime(2026, 8, 1, tzinfo=UTC)
+    invalid = json.loads(mcp_server.list_servers_payload(now=fixed_now))
+    first_valid = mcp_server.list_servers_payload(now=fixed_now)
+    second_valid = mcp_server.list_servers_payload(now=fixed_now)
 
     assert invalid["error_code"] == "CATALOG_SNAPSHOT_INVALID"
     assert json.loads(first_valid)["server_count"] == 23
@@ -269,3 +387,11 @@ def test_methodology_does_not_flatten_unknown_local_provenance() -> None:
     methodology = mcp_server._METHODOLOGY  # pyright: ignore[reportPrivateUsage]
     assert "only when" in methodology
     assert "provenance is explicitly unknown" in methodology
+
+
+def test_methodology_states_freshness_policy_from_governance_constant() -> None:
+    from mcp_trust.core.governance import STALE_AFTER_DAYS
+
+    methodology = mcp_server._METHODOLOGY  # pyright: ignore[reportPrivateUsage]
+    assert f"{STALE_AFTER_DAYS} days" in methodology
+    assert "stale" in methodology
