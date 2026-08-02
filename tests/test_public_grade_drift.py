@@ -82,16 +82,19 @@ def test_public_grade_change_keeps_missing_evidence_unknown() -> None:
     assert change.cause is DriftCause.ENGINE_CHANGED
     assert change.surface_comparison is SurfaceComparison.UNKNOWN
 
+    history = _history()
     html = render_detail(
         _server(),
-        _history()[0],
+        history[0],
         base_url="https://registry.example",
-        grade_change=change,
+        history=history,
     )
-    assert "Grade changed 2026-07-08" in html
-    assert "Cause:</strong> engine-changed" in html
-    assert "comparison is unknown because evidence is missing" in html
-    assert "surface was unchanged" not in html
+    # The detail page states the cause in words, and keeps the missing
+    # comparison visible rather than letting "engine changed" imply the
+    # surface was checked and found the same.
+    assert "<td>Scanner engine changed; surface not comparable</td>" in html
+    assert '<td class="hist-num">2026-07-08 00:00</td>' in html
+    assert "engine-changed" not in html
 
 
 def test_public_grade_change_survives_later_repeated_scans() -> None:
@@ -137,9 +140,11 @@ def test_masked_api_does_not_leak_the_withheld_grade_change() -> None:
     for scan in reversed(_history()):
         scans.record(scan)
 
-    payload = TestClient(
-        create_app(conn=conn, masked_slugs={"grade-change-server"})
-    ).get("/servers/grade-change-server").json()
+    payload = (
+        TestClient(create_app(conn=conn, masked_slugs={"grade-change-server"}))
+        .get("/servers/grade-change-server")
+        .json()
+    )
     assert payload["grade_change"] is None
     assert "D" not in json.dumps(payload)
 
@@ -154,9 +159,10 @@ def test_static_detail_surfaces_change_and_hides_it_when_masked(tmp_path) -> Non
 
     generate_site(conn, tmp_path, base_url="https://registry.example")
     detail = (tmp_path / "ui" / "servers" / "grade-change-server" / "index.html").read_text()
-    assert "Grade changed 2026-07-08" in detail
-    assert "Cause:</strong> engine-changed" in detail
-    assert "declared tool surface was unchanged" in detail
+    assert "2 scans on record between 2026-07-01 and 2026-07-08." in detail
+    assert "The grade changed once in that time." in detail
+    assert "<td>Scanner engine changed</td>" in detail
+    assert '<span class="pill" style="background:#487500">B</span>' in detail
 
     generate_site(
         conn,
@@ -164,8 +170,10 @@ def test_static_detail_surfaces_change_and_hides_it_when_masked(tmp_path) -> Non
         base_url="https://registry.example",
         masked_slugs={"grade-change-server"},
     )
-    masked_detail = (
-        tmp_path / "ui" / "servers" / "grade-change-server" / "index.html"
-    ).read_text()
-    assert "Grade changed" not in masked_detail
+    masked_detail = (tmp_path / "ui" / "servers" / "grade-change-server" / "index.html").read_text()
+    # The record stays public; every letter in it does not.
+    assert "2 scans on record between 2026-07-01 and 2026-07-08." in masked_detail
+    assert '<td class="hist-withheld">withheld</td>' in masked_detail
+    assert ">D<" not in masked_detail
+    assert ">B<" not in masked_detail
     assert "D → B" not in masked_detail

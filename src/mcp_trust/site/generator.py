@@ -37,9 +37,9 @@ from mcp_trust.api.web import (
     render_methodology,
     render_not_found,
 )
-from mcp_trust.core.drift import latest_grade_change
+from mcp_trust.core.drift import corpus_history_totals
 from mcp_trust.core.governance import is_stale
-from mcp_trust.core.models import TrustGrade
+from mcp_trust.core.models import ScanRecord, TrustGrade
 from mcp_trust.core.provenance import ScanProvenance, classify
 from mcp_trust.site.badges import badge_payload
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -149,10 +149,14 @@ def generate_site(
     stale_count = 0
     masked_count = 0
     rows: list[dict] = []
+    # Kept so the corpus aggregate on the methodology page is a sum over exactly
+    # the histories the detail pages rendered, counted in the same build.
+    histories: list[list[ScanRecord]] = []
 
     for srv in servers:
         scan = latest.get(srv.slug)
-        grade_change = latest_grade_change(scan_repo.history(srv.slug))
+        history = scan_repo.history(srv.slug)
+        histories.append(history)
         provenance = classify(scan)
         server_count += 1
         masked_scan_succeeded = srv.slug in masked_scan_succeeded_slugs
@@ -193,7 +197,7 @@ def generate_site(
                 now=now,
                 masked=operator_masked,
                 masked_scan_succeeded=masked_scan_succeeded,
-                grade_change=grade_change,
+                history=history,
             ),
         )
         pages.append(detail_path)
@@ -224,7 +228,10 @@ def generate_site(
 
     # Governance pages: methodology, dispute policy, corrections log.
     for rel_path, content in (
-        (("ui", "methodology", "index.html"), render_methodology()),
+        (
+            ("ui", "methodology", "index.html"),
+            render_methodology(history_totals=corpus_history_totals(histories)),
+        ),
         (("ui", "dispute", "index.html"), render_dispute()),
         (("ui", "corrections", "index.html"), render_corrections(corrections or [])),
     ):

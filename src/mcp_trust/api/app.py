@@ -236,9 +236,9 @@ def create_app(
         return {
             "server": _public_server_payload(server, masked=operator_masked),
             "latest_scan": _public_scan_payload(scan, masked=scan_masked),
-            "grade_change": None if scan_masked else (
-                grade_change.model_dump(mode="json") if grade_change else None
-            ),
+            "grade_change": None
+            if scan_masked
+            else (grade_change.model_dump(mode="json") if grade_change else None),
         }
 
     @application.post("/servers/{slug}/scan")
@@ -344,17 +344,16 @@ def create_app(
         if server is None:
             return HTMLResponse(content=render_not_found(slug), status_code=404)
 
-        scan = scan_repo.latest(slug)
-        grade_change = latest_grade_change(scan_repo.history(slug))
+        history = scan_repo.history(slug)
         base_url = str(request.base_url).rstrip("/")
         return HTMLResponse(
             content=render_detail(
                 server,
-                scan,
+                scan_repo.latest(slug),
                 base_url=base_url,
                 now=datetime.now(tz=UTC),
                 masked=slug in _masked,
-                grade_change=grade_change,
+                history=history,
             )
         )
 

@@ -20,13 +20,19 @@ Row shape used by :func:`render_catalog`:
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from html import escape
 from typing import Any
 
 from mcp_trust.core import spec_shift
-from mcp_trust.core.drift import GradeChange, SurfaceComparison
+from mcp_trust.core.drift import (
+    DriftCause,
+    HistoryEntry,
+    HistoryTotals,
+    SurfaceComparison,
+    grade_timeline,
+)
 from mcp_trust.core.governance import (
     DISPUTE_SLA_DAYS,
     DISPUTE_URL,
@@ -60,23 +66,39 @@ _DIMENSION_LABELS: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Grade → visual colour (matches badge.json route)
+# Grade → visual colour
+#
+# DELIBERATELY DECOUPLED from ``site.badges._BADGE_COLORS``. That map speaks the
+# shields.io endpoint vocabulary ("brightgreen", "yellow", ...), which is a
+# published consumer contract we do not control the rendering of. These hexes
+# are ours to pick, and they are picked under a constraint shields.io is not
+# bound by: every one is painted under white bold ~12.5px text, so each must
+# clear WCAG AA at 4.5:1. Changing a colour here must not change a badge, and
+# vice versa. tests/test_contrast.py enforces the AA floor.
+#
+# The ramp separates adjacent grades by HUE (green → yellow-green → gold →
+# orange → red) rather than by lightness. Every colour has to be dark enough for
+# white text, so lightness is nearly spoken for; hue is the axis left to carry
+# the signal.
 # ---------------------------------------------------------------------------
 
 _GRADE_CSS: dict[str, str] = {
-    "A": "#2da44e",  # brightgreen
-    "B": "#4CAF50",  # green
-    "C": "#e6a817",  # amber / yellow
-    "D": "#f08030",  # orange
-    "F": "#d1242f",  # red
-    "unscanned": "#8b949e",  # grey
+    "A": "#007a3d",  # green — 5.45:1
+    "B": "#487500",  # yellow-green — 5.50:1
+    "C": "#8f5f00",  # gold / amber — 5.52:1
+    "D": "#b24700",  # orange — 5.53:1
+    "F": "#d1242f",  # red — 5.24:1 (already compliant; left unchanged)
+    "unscanned": "#656e7b",  # grey — 5.16:1
 }
 
+# Chips share the grade ramp: green reads "good" on both axes. Solid hexes only
+# — a chip must never composite through ``opacity``, which lightens the label
+# and its background together and can sink a hex that measures fine alone.
 _TRANSPARENCY_CSS: dict[str, str] = {
-    "high": "#2da44e",
-    "medium": "#e6a817",
-    "low": "#f08030",
-    "": "#8b949e",
+    "high": "#007a3d",
+    "medium": "#8f5f00",
+    "low": "#b24700",
+    "": "#656e7b",
 }
 
 # ---------------------------------------------------------------------------
@@ -156,7 +178,6 @@ _PAGE_STYLE = """
     font-size: 0.75rem;
     font-weight: 500;
     color: #fff;
-    opacity: 0.9;
   }
 
   /* Detail page */
@@ -209,6 +230,15 @@ _PAGE_STYLE = """
     padding: 0.6rem 0.75rem;
     margin-top: 0.4rem;
   }
+
+  /* Grade-history table. Dates and engine versions are mono so a column of
+     them scans vertically; the muted colours are the AA-compliant grey already
+     used for grades, so quietness never costs legibility. Emphasis is carried
+     by the words in the cause column, never by colour alone. */
+  .hist-num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              font-variant-numeric: tabular-nums; font-size: 0.82rem; color: #57606a; }
+  .hist-quiet { color: #656e7b; }
+  .hist-withheld { color: #57606a; font-style: italic; }
 
   .not-found-box {
     text-align: center;
@@ -445,9 +475,103 @@ def _grade_pill(grade: str, *, stale: bool = False, masked: bool = False) -> str
 
 def _transparency_chip(level: str) -> str:
     if not level:
-        return '<span class="chip" style="background:#8b949e">—</span>'
+        return f'<span class="chip" style="background:{_TRANSPARENCY_CSS[""]}">—</span>'
     color = _TRANSPARENCY_CSS.get(level.lower(), _TRANSPARENCY_CSS[""])
     return f'<span class="chip" style="background:{escape(color)}">{escape(level)}</span>'
+
+
+def _cause_text(entry: HistoryEntry) -> str:
+    """The attributed cause of one step, in words.
+
+    The stored vocabulary is an enum; a reader is owed a sentence. Where the
+    attribution rests on evidence the registry does not have, the cell says so
+    rather than letting a confident phrase stand in for a missing comparison.
+    """
+    if entry.cause is None:
+        return "First scan on record"
+    if entry.cause is DriftCause.NO_CHANGE:
+        return "No change"
+    if entry.cause is DriftCause.SURFACE_CHANGED:
+        return "Tool surface changed"
+    if entry.cause is DriftCause.ENGINE_CHANGED:
+        if entry.surface_comparison is SurfaceComparison.UNKNOWN:
+            return "Scanner engine changed; surface not comparable"
+        return "Scanner engine changed"
+    if entry.cause is DriftCause.SCORE_MOVED:
+        return "Score moved (same engine and surface)"
+    return "Cause undetermined; no comparable surface evidence"
+
+
+def _history_intro(timeline: Sequence[HistoryEntry]) -> str:
+    """One plain line stating what the record below shows."""
+    first = timeline[0].scanned_at.date().isoformat()
+    last = timeline[-1].scanned_at.date().isoformat()
+    if len(timeline) == 1:
+        return f"One scan on record, {first}. There is no earlier scan to compare it against."
+
+    changes = sum(1 for entry in timeline if entry.grade_changed)
+    if not changes:
+        movement = "The grade has not changed across them."
+    elif changes == 1:
+        movement = "The grade changed once in that time."
+    else:
+        movement = f"The grade changed {changes} times in that time."
+    return f"{len(timeline)} scans on record between {first} and {last}. {movement}"
+
+
+def _history_section(
+    timeline: Sequence[HistoryEntry], *, masked: bool, generated_at: datetime | None
+) -> str:
+    """Render the full grade history for one server, oldest scan first.
+
+    Every scan on record is listed, not only the ones that moved a grade: the
+    unchanged rows are the denominator that makes a change legible as a change.
+    A masked entry publishes the same record with its letters withheld — the
+    withholding is of the verdict, not of the fact that the registry scanned.
+    """
+    if not timeline:
+        return ""
+
+    rows: list[str] = []
+    for entry in timeline:
+        if masked:
+            grade_cell = '<td class="hist-withheld">withheld</td>'
+        else:
+            grade_cell = f"<td>{_grade_pill(str(entry.grade))}</td>"
+        cause = _cause_text(entry)
+        quiet = ' class="hist-quiet"' if entry.cause is DriftCause.NO_CHANGE else ""
+        # Minute precision, not day: the corpus is re-scanned in same-day
+        # batches, and a column of repeated dates reads as duplicated rows
+        # rather than as the distinct scans they are.
+        scanned = entry.scanned_at.strftime("%Y-%m-%d %H:%M")
+        rows.append(
+            "<tr>"
+            f'<td class="hist-num">{escape(scanned)}</td>'
+            f"{grade_cell}"
+            f'<td class="hist-num">{escape(entry.engine)}</td>'
+            f"<td{quiet}>{escape(cause)}</td>"
+            "</tr>"
+        )
+
+    generated = (
+        f" Generated {escape(generated_at.date().isoformat())}." if generated_at is not None else ""
+    )
+    return (
+        '<div class="card">'
+        '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">Grade history</h2>'
+        f'<p style="font-size:0.875rem;color:#24292f;margin-bottom:0.75rem">'
+        f"{escape(_history_intro(timeline))}</p>"
+        '<table><thead><tr><th scope="col">Scanned (UTC)</th><th scope="col">Grade</th>'
+        '<th scope="col">Engine</th><th scope="col">Attributed cause</th></tr></thead>'
+        f"<tbody>{''.join(rows)}</tbody></table>"
+        '<p style="font-size:0.85rem;color:#57606a;margin-top:0.75rem">'
+        "History as recorded by this registry's own scans. The cause is an "
+        "attribution from the inputs the registry records — the scanner engine "
+        "identity and the declared tool surface — not proof of what changed on "
+        f"the server.{generated}"
+        "</p>"
+        "</div>"
+    )
 
 
 def _provenance_card(
@@ -728,10 +852,7 @@ def render_catalog(
         '<p class="page-subtitle">'
         "Each server gets an A–F danger grade plus a separate transparency signal. "
         "Grades come from automated scans and mean check before you connect, not endorsement."
-        "</p>"
-        + _refresh_cadence_notice()
-        + _spec_shift_notice(rows)
-        + "<table>"
+        "</p>" + _refresh_cadence_notice() + _spec_shift_notice(rows) + "<table>"
         "<thead><tr>"
         "<th>Server</th><th>Danger grade</th><th>Transparency</th>"
         "<th>Danger score</th><th>Last scanned</th><th></th>"
@@ -752,7 +873,7 @@ def render_detail(
     now: datetime | None = None,
     masked: bool = False,
     masked_scan_succeeded: bool = False,
-    grade_change: GradeChange | None = None,
+    history: Sequence[ScanRecord] = (),
 ) -> str:
     """Render the detail page for one server.
 
@@ -776,9 +897,11 @@ def render_detail(
         A verified, grade-free candidate proof records a successful scan even
         though no grade-bearing ``ScanRecord`` is retained. This only changes
         the neutral review state; no verdict fields are reconstructed.
-    grade_change:
-        Latest recorded letter-grade movement. It is rendered only while the
-        grade itself is public; missing evidence remains an unknown comparison.
+    history:
+        Every scan on record for this server, newest first (the shape
+        ``ScanRepository.history()`` returns). Rendered as the public grade
+        timeline with a cause attributed to each step. A masked entry keeps the
+        timeline but withholds its letters, historical ones included.
     """
     # --- Extract server fields ---
     name = escape(str(server.name))
@@ -831,11 +954,14 @@ def render_detail(
 
     if masked:
         status_chip = (
-            '<span class="chip" style="background:#8b949e">'
+            f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
             "grade withheld — under governance review</span>"
         )
     elif stale:
-        status_chip = '<span class="chip" style="background:#8b949e">stale — pending re-scan</span>'
+        status_chip = (
+            f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
+            "stale — pending re-scan</span>"
+        )
     else:
         status_chip = ""
 
@@ -966,30 +1092,7 @@ def render_detail(
 
     hero += "</div>"  # close card
 
-    if grade_change is not None and not masked:
-        changed_at = grade_change.changed_at.date().isoformat()
-        surface_note = (
-            "The declared tool-surface comparison is unknown because evidence is missing "
-            "from at least one scan."
-            if grade_change.surface_comparison is SurfaceComparison.UNKNOWN
-            else (
-                "Recorded evidence shows the declared tool surface changed."
-                if grade_change.surface_comparison is SurfaceComparison.CHANGED
-                else "Recorded evidence shows the declared tool surface was unchanged."
-            )
-        )
-        grade_change_notice = (
-            '<div class="card" style="margin-top:1rem">'
-            '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">Grade change</h2>'
-            f"<p><strong>Grade changed {escape(changed_at)}:</strong> "
-            f"{escape(str(grade_change.previous_grade))} → "
-            f"{escape(str(grade_change.current_grade))}. "
-            f"<strong>Cause:</strong> {escape(str(grade_change.cause))}.</p>"
-            f'<p style="font-size:0.85rem;color:#57606a">{escape(surface_note)}</p>'
-            "</div>"
-        )
-    else:
-        grade_change_notice = ""
+    history_section = _history_section(grade_timeline(history), masked=masked, generated_at=now)
 
     # --- Badge embed box ---
     badge_url = f"{base_url}/servers/{server.slug}/badge.json"
@@ -1093,19 +1196,77 @@ def render_detail(
 
     body = (
         f"<main>{back}<div style='margin-top:1rem'>{hero}</div>"
-        f"{grade_change_notice}{floor}{_spec_shift_card(server.slug, masked=masked, source=source)}"
+        f"{history_section}{floor}{_spec_shift_card(server.slug, masked=masked, source=source)}"
         f"{provenance_card}{badge_box}{findings_section}</main>"
     )
     return _page(f"MCP Trust — {server.name}", body, banner=banner)
 
 
-def render_methodology() -> str:
+def _grade_movement_sentences(totals: HistoryTotals) -> str:
+    """State what the registry's own history says about its grades moving.
+
+    Every number is passed in from a count over the stored scans, so this
+    paragraph cannot drift from the timelines on the detail pages. It describes
+    the record to date and makes no claim about scans not yet run.
+    """
+    if not totals.scans or totals.first_scanned_at is None or totals.last_scanned_at is None:
+        return ""
+
+    first = totals.first_scanned_at.date().isoformat()
+    last = totals.last_scanned_at.date().isoformat()
+    changes = totals.grade_changes
+    noun = "grade change" if changes == 1 else "grade changes"
+    counted = "no grade change" if not changes else f"{changes} {noun}"
+    sentences = [
+        f"Across {totals.scans} scans of {totals.servers} servers recorded between "
+        f"{first} and {last}, this registry has recorded {counted}."
+    ]
+
+    with_engine = totals.grade_changes_with_engine_change
+    if changes == 1:
+        sentences.append(
+            "It coincided with a change of scanner engine version."
+            if with_engine
+            else "It did not coincide with a change of scanner engine version."
+        )
+    elif changes > 1:
+        sentences.append(
+            f"All {changes} coincided with a change of scanner engine version."
+            if with_engine == changes
+            else f"{with_engine} of {changes} coincided with a change of scanner engine version."
+        )
+
+    comparisons = totals.comparable_pairs
+    plural = "comparison" if comparisons == 1 else "comparisons"
+    if totals.surface_changes:
+        sentences.append(
+            f"{totals.surface_changes} declared tool-surface changes were recorded "
+            f"across the {comparisons} scan-to-scan {plural} where evidence was "
+            "recorded on both sides."
+        )
+    else:
+        sentences.append(
+            f"No declared tool surface changed in the {comparisons} scan-to-scan "
+            f"{plural} where evidence was recorded on both sides."
+        )
+    return escape(" ".join(sentences))
+
+
+def render_methodology(*, history_totals: HistoryTotals | None = None) -> str:
     """Render the public methodology page.
 
     Single, linkable source of the grading rubric — weights, bands, the
     critical cap, and the transparency axis — rendered from :func:`rubric` so
     the page can never disagree with the code that grades. Every per-grade
     "How to read this grade" block links here.
+
+    Parameters
+    ----------
+    history_totals:
+        Counts over every stored scan history, supplied by the site generator at
+        build time. When present, the page reports how often its own published
+        grades have moved and what that movement coincided with. Omitted rather
+        than estimated when the caller has no registry to count.
     """
     spec = rubric()
     weights = spec["dimension_weights"]
@@ -1147,6 +1308,24 @@ def render_methodology() -> str:
 
     high = float(thresholds["high"])
     medium = float(thresholds["medium"])
+
+    movement = _grade_movement_sentences(history_totals) if history_totals else ""
+    movement_card = (
+        (
+            '<div class="card">'
+            '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
+            "6. How much grades have moved</h2>"
+            '<p style="font-size:0.875rem;color:#24292f;line-height:1.7">'
+            f"{movement} A grade movement attributed to a scanner engine change is "
+            "a re-evaluation of the same recorded surface, not evidence that the "
+            "server itself changed. Each server's full history, with the cause "
+            "attributed to every step, is on its own page."
+            "</p>"
+            "</div>"
+        )
+        if movement
+        else ""
+    )
 
     body = (
         "<main>"
@@ -1216,6 +1395,7 @@ def render_methodology() -> str:
         "silently."
         "</p>"
         "</div>"
+        f"{movement_card}"
         '<div class="card">'
         '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
         "Scope and disputes</h2>"
