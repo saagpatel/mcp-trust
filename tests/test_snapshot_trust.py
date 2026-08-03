@@ -59,6 +59,14 @@ def _json_bytes(value: object) -> bytes:
     return json.dumps(value, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 
 
+def _root_digest(root: object) -> str:
+    return hashlib.sha256(_json_bytes(root)).hexdigest()
+
+
+def _statement_digest(statement: dict[str, object]) -> str:
+    return hashlib.sha256(_canonical(statement["signed"])).hexdigest()  # type: ignore[arg-type]
+
+
 def _key(
     private: Ed25519PrivateKey,
     role: str,
@@ -168,6 +176,7 @@ def _verified_fixture() -> tuple[
         snapshot,
         _json_bytes(statement),
         _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
     assert result["status"] == "VERIFIED"
@@ -181,6 +190,7 @@ def test_valid_snapshot_verifies_identity_freshness_and_checkpoint() -> None:
         snapshot,
         _json_bytes(statement),
         _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -194,7 +204,7 @@ def test_valid_snapshot_verifies_identity_freshness_and_checkpoint() -> None:
         "issued_at": (NOW - timedelta(minutes=5)).isoformat(),
         "expires_at": (NOW + timedelta(hours=1)).isoformat(),
         "snapshot_sha256": hashlib.sha256(snapshot).hexdigest(),
-        "statement_sha256": hashlib.sha256(_json_bytes(statement)).hexdigest(),
+        "statement_sha256": _statement_digest(statement),
         "signer_key_ids": [_key_id(signer)],
         "next_checkpoint": checkpoint,
     }
@@ -243,7 +253,13 @@ def test_invalid_snapshot_returns_unknown_without_catalog_data(
     elif mutation == "root_version":
         statement = _statement(snapshot, [signer], root_version=2)
 
-    result = verify_snapshot(snapshot, _json_bytes(statement), _json_bytes(root), now=NOW)
+    result = verify_snapshot(
+        snapshot,
+        _json_bytes(statement),
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
 
     assert result["status"] == "UNKNOWN"
     assert reason in result["reason_codes"]
@@ -260,7 +276,13 @@ def test_unknown_signer_is_unknown_even_with_a_valid_known_signature() -> None:
     root = _root([_key(signer, "snapshot")], [_key(recovery, "recovery")])
     statement = _statement(snapshot, [signer, unknown])
 
-    result = verify_snapshot(snapshot, _json_bytes(statement), _json_bytes(root), now=NOW)
+    result = verify_snapshot(
+        snapshot,
+        _json_bytes(statement),
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
 
     assert result["status"] == "UNKNOWN"
     assert result["reason_codes"] == ["UNKNOWN_SIGNER"]
@@ -281,7 +303,13 @@ def test_threshold_and_publication_key_bounds_are_enforced() -> None:
     )
     statement = _statement(snapshot, [first, second], publication_id=1)
 
-    result = verify_snapshot(snapshot, _json_bytes(statement), _json_bytes(root), now=NOW)
+    result = verify_snapshot(
+        snapshot,
+        _json_bytes(statement),
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
 
     assert result["status"] == "UNKNOWN"
     assert "SIGNER_NOT_AUTHORIZED" in result["reason_codes"]
@@ -296,6 +324,7 @@ def test_exact_checkpoint_replay_is_idempotent() -> None:
         _json_bytes(statement),
         _json_bytes(root),
         checkpoint_bytes=_json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -316,6 +345,7 @@ def test_older_publication_is_rejected_as_rollback() -> None:
         _json_bytes(newer),
         _json_bytes(root),
         checkpoint_bytes=_json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
     assert newer_result["status"] == "VERIFIED"
@@ -325,6 +355,7 @@ def test_older_publication_is_rejected_as_rollback() -> None:
         _json_bytes(statement),
         _json_bytes(root),
         checkpoint_bytes=_json_bytes(newer_result["next_checkpoint"]),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -345,6 +376,7 @@ def test_same_publication_id_with_different_statement_is_unknown() -> None:
         _json_bytes(conflicting),
         _json_bytes(root),
         checkpoint_bytes=_json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -361,6 +393,7 @@ def test_new_publication_must_chain_to_the_checkpoint() -> None:
         _json_bytes(unchained),
         _json_bytes(root),
         checkpoint_bytes=_json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -379,7 +412,13 @@ def test_first_use_requires_the_root_publication_floor() -> None:
     )
     statement = _statement(snapshot, [signer], publication_id=6)
 
-    result = verify_snapshot(snapshot, _json_bytes(statement), _json_bytes(root), now=NOW)
+    result = verify_snapshot(
+        snapshot,
+        _json_bytes(statement),
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
 
     assert result["status"] == "UNKNOWN"
     assert "PUBLICATION_BELOW_ROOT_FLOOR" in result["reason_codes"]
@@ -430,6 +469,7 @@ def test_recovery_threshold_can_rotate_the_trust_root() -> None:
         _json_bytes(root),
         _json_bytes(update),
         _json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -440,6 +480,30 @@ def test_recovery_threshold_can_rotate_the_trust_root() -> None:
         _json_bytes(new_root)
     ).hexdigest()
     assert result["next_checkpoint"]["publication_id"] == 1
+
+
+def test_root_update_requires_an_explicit_root_digest_pin() -> None:
+    _snapshot, _signer, recovery, root, _statement_one, checkpoint = _verified_fixture()
+    new_root = _root(
+        [_key(_private(4), "snapshot", valid_from=2)],
+        [_key(_private(5), "recovery")],
+        version=2,
+        minimum_publication_id=2,
+    )
+    update = _root_update(root, new_root, [recovery])
+
+    result = verify_root_update(
+        _json_bytes(root),
+        _json_bytes(update),
+        _json_bytes(checkpoint),
+        now=NOW,
+    )
+
+    assert result == {
+        "schema": "mcp-trust-root-update-verification.v1",
+        "status": "UNKNOWN",
+        "reason_codes": ["TRUST_ROOT_DIGEST_REQUIRED"],
+    }
 
 
 def test_snapshot_key_cannot_authorize_root_recovery() -> None:
@@ -456,6 +520,7 @@ def test_snapshot_key_cannot_authorize_root_recovery() -> None:
         _json_bytes(root),
         _json_bytes(update),
         _json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -479,6 +544,7 @@ def test_root_recovery_cannot_lower_the_accepted_publication_floor() -> None:
         _json_bytes(root),
         _json_bytes(update),
         _json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -506,6 +572,7 @@ def test_expired_root_update_is_unknown() -> None:
         _json_bytes(root),
         _json_bytes(update),
         _json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         now=NOW,
     )
 
@@ -521,8 +588,20 @@ def test_duplicate_keys_and_malformed_documents_fail_closed() -> None:
         1,
     )
 
-    duplicate_result = verify_snapshot(snapshot, duplicated, _json_bytes(root), now=NOW)
-    malformed_result = verify_snapshot(snapshot, b"{", _json_bytes(root), now=NOW)
+    duplicate_result = verify_snapshot(
+        snapshot,
+        duplicated,
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
+    malformed_result = verify_snapshot(
+        snapshot,
+        b"{",
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
 
     assert duplicate_result == {
         "schema": "mcp-trust-snapshot-verification.v1",
@@ -532,7 +611,23 @@ def test_duplicate_keys_and_malformed_documents_fail_closed() -> None:
     assert malformed_result == duplicate_result
 
 
-def test_first_use_requires_an_explicit_root_digest_pin() -> None:
+def test_missing_root_digest_pin_fails_closed() -> None:
+    snapshot = _snapshot_bytes()
+    signer = _private(1)
+    recovery = _private(2)
+    root = _root([_key(signer, "snapshot")], [_key(recovery, "recovery")])
+    statement = _statement(snapshot, [signer])
+
+    result = verify_snapshot(snapshot, _json_bytes(statement), _json_bytes(root), now=NOW)
+
+    assert result == {
+        "schema": "mcp-trust-snapshot-verification.v1",
+        "status": "UNKNOWN",
+        "reason_codes": ["TRUST_ROOT_DIGEST_REQUIRED"],
+    }
+
+
+def test_mismatched_root_digest_pin_fails_closed() -> None:
     snapshot = _snapshot_bytes()
     signer = _private(1)
     recovery = _private(2)
@@ -554,6 +649,43 @@ def test_first_use_requires_an_explicit_root_digest_pin() -> None:
     }
 
 
+def test_statement_identity_ignores_unsigned_json_serialization() -> None:
+    snapshot, signer, _recovery, root, statement, checkpoint = _verified_fixture()
+    reformatted = json.dumps(
+        statement,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=False,
+    ).encode("utf-8")
+
+    reformatted_result = verify_snapshot(
+        snapshot,
+        reformatted,
+        _json_bytes(root),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
+    assert reformatted_result["status"] == "VERIFIED"
+    assert reformatted_result["next_checkpoint"] == checkpoint
+
+    next_statement = _statement(
+        snapshot,
+        [signer],
+        publication_id=2,
+        previous=_checkpoint_previous(checkpoint),
+    )
+    next_result = verify_snapshot(
+        snapshot,
+        _json_bytes(next_statement),
+        _json_bytes(root),
+        checkpoint_bytes=_json_bytes(reformatted_result["next_checkpoint"]),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
+
+    assert next_result["status"] == "VERIFIED"
+
+
 def test_runtime_style_verification_requires_checkpoint_to_be_current() -> None:
     snapshot, signer, _recovery, root, _statement_one, checkpoint = _verified_fixture()
     next_statement = _statement(
@@ -568,6 +700,7 @@ def test_runtime_style_verification_requires_checkpoint_to_be_current() -> None:
         _json_bytes(next_statement),
         _json_bytes(root),
         checkpoint_bytes=_json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
         require_current_checkpoint=True,
         now=NOW,
     )

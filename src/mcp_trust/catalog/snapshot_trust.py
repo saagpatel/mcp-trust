@@ -208,6 +208,11 @@ def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _statement_sha256(signed: dict[str, Any]) -> str:
+    """Return the identity digest for one authenticated statement payload."""
+    return _sha256(canonical_signed_bytes(signed))
+
+
 def _stat_signature(value: os.stat_result) -> tuple[int, ...]:
     return (
         value.st_dev,
@@ -540,7 +545,9 @@ def verify_snapshot(
     now: datetime | None = None,
 ) -> dict[str, object]:
     """Verify one detached snapshot statement with no network or state writes."""
-    if expected_root_sha256 is not None and (
+    if expected_root_sha256 is None:
+        return _unknown(VERIFICATION_SCHEMA, {"TRUST_ROOT_DIGEST_REQUIRED"})
+    if (
         _SHA256.fullmatch(expected_root_sha256) is None
         or _sha256(trust_root_bytes) != expected_root_sha256
     ):
@@ -578,7 +585,7 @@ def verify_snapshot(
     assert issued_at is not None and expires_at is not None
     publisher_id = root["publisher"]["id"]
     publication_id = int(signed["publication_id"])
-    statement_sha256 = _sha256(statement_bytes)
+    statement_sha256 = _statement_sha256(signed)
     snapshot_sha256 = _sha256(snapshot_bytes)
 
     if signed["publisher_id"] != publisher_id:
@@ -757,7 +764,12 @@ def verify_root_update(
     now: datetime | None = None,
 ) -> dict[str, object]:
     """Verify a recovery-threshold root rotation without writing either root."""
-    if expected_root_sha256 is not None and (
+    if expected_root_sha256 is None:
+        return _unknown(
+            ROOT_UPDATE_VERIFICATION_SCHEMA,
+            {"TRUST_ROOT_DIGEST_REQUIRED"},
+        )
+    if (
         _SHA256.fullmatch(expected_root_sha256) is None
         or _sha256(current_root_bytes) != expected_root_sha256
     ):

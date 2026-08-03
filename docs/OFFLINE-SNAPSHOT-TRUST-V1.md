@@ -74,6 +74,8 @@ attacker to replace its checkpoint has discarded the evidence needed to detect
 rollback. On first use, the caller must compare the exact trust-root bytes to an
 independently obtained SHA-256 pin; accepting a root delivered beside the
 snapshot is trust-on-first-use and does not establish publisher identity.
+The byte-level snapshot and root-update verifiers therefore return
+`TRUST_ROOT_DIGEST_REQUIRED` when the expected root digest is omitted.
 
 The stable-path helpers reject symlinks, non-regular inputs, oversized files,
 and files that change while being read. They do not claim adversarial isolation
@@ -152,6 +154,10 @@ Signatures cover the UTF-8 bytes returned by
 keys sorted lexicographically, no insignificant whitespace, UTF-8 characters
 preserved, and no non-finite numbers. The admitted v1 signed schemas use no
 floating-point fields.
+
+The checkpoint's `statement_sha256` is the SHA-256 of those canonical signed
+bytes. It identifies the authenticated statement payload, not the detached
+envelope's whitespace or signature-list serialization.
 
 ## Checkpoint and rollback contract
 
