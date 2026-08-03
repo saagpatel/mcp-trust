@@ -204,6 +204,20 @@ def canonical_signed_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def canonical_root_bytes(value: object) -> bytes:
+    """Return the exact UTF-8 root artifact used by recovery checkpoints."""
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
 def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
@@ -843,7 +857,7 @@ def verify_root_update(
     if reasons or new_root is None:
         return _unknown(ROOT_UPDATE_VERIFICATION_SCHEMA, reasons or {"ROOT_UPDATE_INVALID"})
 
-    new_root_bytes = json.dumps(new_root, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    new_root_bytes = canonical_root_bytes(new_root)
     next_checkpoint = dict(checkpoint)
     next_checkpoint["root_version"] = new_root["root_version"]
     next_checkpoint["root_sha256"] = _sha256(new_root_bytes)
@@ -856,6 +870,7 @@ def verify_root_update(
         "new_root_version": new_root["root_version"],
         "recovery_signer_key_ids": signer_key_ids,
         "new_root": new_root,
+        "new_root_json": new_root_bytes.decode("utf-8"),
         "next_checkpoint": next_checkpoint,
     }
 

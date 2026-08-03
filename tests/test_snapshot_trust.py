@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from typer.testing import CliRunner
 
 from mcp_trust.catalog.snapshot_trust import (
+    canonical_root_bytes,
     verify_root_update,
     verify_snapshot,
     verify_snapshot_paths,
@@ -475,11 +476,31 @@ def test_recovery_threshold_can_rotate_the_trust_root() -> None:
 
     assert result["status"] == "VERIFIED"
     assert result["new_root"] == new_root
+    assert result["new_root_json"] == canonical_root_bytes(new_root).decode("utf-8")
     assert result["next_checkpoint"]["root_version"] == 2
     assert result["next_checkpoint"]["root_sha256"] == hashlib.sha256(
-        _json_bytes(new_root)
+        canonical_root_bytes(new_root)
     ).hexdigest()
     assert result["next_checkpoint"]["publication_id"] == 1
+
+    rotated_root_bytes = result["new_root_json"].encode("utf-8")
+    next_statement = _statement(
+        _snapshot_bytes(),
+        [next_signer],
+        publication_id=2,
+        root_version=2,
+        previous=_checkpoint_previous(result["next_checkpoint"]),
+    )
+    next_result = verify_snapshot(
+        _snapshot_bytes(),
+        _json_bytes(next_statement),
+        rotated_root_bytes,
+        checkpoint_bytes=_json_bytes(result["next_checkpoint"]),
+        expected_root_sha256=result["next_checkpoint"]["root_sha256"],
+        now=NOW,
+    )
+
+    assert next_result["status"] == "VERIFIED"
 
 
 def test_root_update_requires_an_explicit_root_digest_pin() -> None:

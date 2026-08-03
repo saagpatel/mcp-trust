@@ -217,9 +217,12 @@ mcp-trust verify-root-update ./catalog_snapshot.root.json \
   --current-root-sha256 <independently-obtained-64-hex-digest>
 ```
 
-A `VERIFIED` response returns a normalized `new_root` object and a
-`next_checkpoint` rebound to their SHA-256. The command does not replace either
-file. Snapshot-role keys cannot authorize this transition.
+A `VERIFIED` response returns a normalized `new_root` object, the exact UTF-8
+artifact as `new_root_json`, and a `next_checkpoint` rebound to that artifact's
+SHA-256. Persist the UTF-8 bytes of `new_root_json` verbatim before using the
+returned checkpoint; `canonical_root_bytes(new_root)` reproduces the same bytes
+for Python consumers. The command does not replace either file. Snapshot-role
+keys cannot authorize this transition.
 
 ## Publication and deployment boundary
 
