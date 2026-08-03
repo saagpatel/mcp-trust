@@ -632,6 +632,57 @@ def test_duplicate_keys_and_malformed_documents_fail_closed() -> None:
     assert malformed_result == duplicate_result
 
 
+def test_excessively_nested_metadata_fails_closed_on_every_input_path() -> None:
+    snapshot, _signer, _recovery, root, statement, checkpoint = _verified_fixture()
+    root_bytes = _json_bytes(root)
+    root_digest = _root_digest(root)
+    deeply_nested = b"[" * 2_000 + b"0" + b"]" * 2_000
+
+    root_result = verify_snapshot(
+        snapshot,
+        _json_bytes(statement),
+        deeply_nested,
+        expected_root_sha256=hashlib.sha256(deeply_nested).hexdigest(),
+        now=NOW,
+    )
+    statement_result = verify_snapshot(
+        snapshot,
+        deeply_nested,
+        root_bytes,
+        expected_root_sha256=root_digest,
+        now=NOW,
+    )
+    checkpoint_result = verify_snapshot(
+        snapshot,
+        _json_bytes(statement),
+        root_bytes,
+        checkpoint_bytes=deeply_nested,
+        expected_root_sha256=root_digest,
+        now=NOW,
+    )
+    root_update_result = verify_root_update(
+        root_bytes,
+        deeply_nested,
+        _json_bytes(checkpoint),
+        expected_root_sha256=root_digest,
+        now=NOW,
+    )
+
+    assert root_result["reason_codes"] == ["TRUST_ROOT_INVALID"]
+    assert statement_result["reason_codes"] == ["STATEMENT_INVALID"]
+    assert checkpoint_result["reason_codes"] == ["CHECKPOINT_INVALID"]
+    assert root_update_result["reason_codes"] == ["ROOT_UPDATE_INVALID"]
+    assert all(
+        result["status"] == "UNKNOWN"
+        for result in (
+            root_result,
+            statement_result,
+            checkpoint_result,
+            root_update_result,
+        )
+    )
+
+
 def test_missing_root_digest_pin_fails_closed() -> None:
     snapshot = _snapshot_bytes()
     signer = _private(1)

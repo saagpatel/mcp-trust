@@ -177,13 +177,16 @@ def _values_are_safe(value: Any) -> bool:
 def _strict_json(raw: bytes) -> Any:
     if len(raw) > _MAX_METADATA_BYTES:
         raise _UnsafeJSON
-    value = json.loads(
-        raw.decode("utf-8"),
-        object_pairs_hook=_reject_duplicate_keys,
-        parse_constant=_reject_constant,
-        parse_int=_bounded_int,
-        parse_float=_bounded_float,
-    )
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+            parse_int=_bounded_int,
+            parse_float=_bounded_float,
+        )
+    except RecursionError as exc:
+        raise _UnsafeJSON from exc
     if not _values_are_safe(value):
         raise _UnsafeJSON
     return value
