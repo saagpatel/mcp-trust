@@ -41,6 +41,21 @@ and return `mcp-trust-mcp-error.v1` with status `UNKNOWN`, error code
 `get_methodology` remains available. This boundary checks internal consistency;
 it does not prove snapshot authenticity, authorship, immutability, or freshness.
 
+Offline consumers can add those missing publication checks with
+`mcp-trust verify-snapshot`: a detached Ed25519 statement binds the exact
+snapshot bytes, publisher ID, bounded issue/expiry window, monotonic publication
+ID, and prior consumer checkpoint. The consumer must independently pin the
+trust-root SHA-256 and preserve the returned checkpoint for rollback resistance.
+Invalid, expired, unknown-signer, forked, or rolled-back inputs return only
+`UNKNOWN` reason codes and no grades. See
+[`docs/OFFLINE-SNAPSHOT-TRUST-V1.md`](docs/OFFLINE-SNAPSHOT-TRUST-V1.md).
+Statement freshness proves recent publication authorization, not a recent scan;
+the per-record scan timestamp and 90-day stale policy remain separate checks.
+
+No production trust root, signing key, statement, or checkpoint ships today, so
+the built-in MCP snapshot remains structural-only unless a consumer separately
+supplies and pins those inputs. Test fixture keys are not publication keys.
+
 Connecting an MCP server hands it influence over what your agent does. Tool
 poisoning, prompt injection, over-broad permissions, and rug-pull tool
 mutations are documented attack classes -- and today there's no quick way to vet
@@ -152,6 +167,12 @@ short-lived `approve` receipt before `publish` may stage it in a local output
 directory. `verify` exits successfully only for a current, complete,
 reviewed-input-bound candidate that is eligible for publication. Eligibility
 never grants approval, publication, deployment, or scheduling authority.
+
+Snapshot signing is a separate authority after candidate approval/staging. The
+refresh process never receives a signing or recovery key, and its SHA-256
+manifest is not a publisher identity. Production signing remains disabled until
+an operator chooses the root, custody, thresholds, publication counter, and
+checkpoint owner described in the offline trust contract.
 
 ## Status
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import uuid
@@ -273,6 +274,92 @@ def mcp_serve() -> None:
     from mcp_trust.mcp_server import run  # noqa: PLC0415
 
     run()
+
+
+@app.command(name="verify-snapshot")
+def verify_snapshot_command(
+    snapshot: Annotated[
+        Path,
+        typer.Argument(help="Exact catalog snapshot JSON to verify."),
+    ],
+    statement: Annotated[
+        Path,
+        typer.Option("--statement", help="Detached signed snapshot statement."),
+    ],
+    trust_root: Annotated[
+        Path,
+        typer.Option("--trust-root", help="Consumer-pinned snapshot trust root."),
+    ],
+    trust_root_sha256: Annotated[
+        str,
+        typer.Option(
+            "--trust-root-sha256",
+            help="Out-of-band SHA-256 pin for the exact trust-root bytes.",
+        ),
+    ],
+    checkpoint: Annotated[
+        Path | None,
+        typer.Option(
+            "--checkpoint",
+            help="Previously persisted checkpoint used to reject rollback and forks.",
+        ),
+    ] = None,
+) -> None:
+    """Verify publisher identity, bounded freshness, and monotonic snapshot state.
+
+    This command is offline and read-only. On success, persist the returned
+    ``next_checkpoint`` before treating a newer publication as current.
+    """
+    from mcp_trust.catalog.snapshot_trust import verify_snapshot_paths  # noqa: PLC0415
+
+    result = verify_snapshot_paths(
+        snapshot,
+        statement,
+        trust_root,
+        expected_root_sha256=trust_root_sha256,
+        checkpoint_path=checkpoint,
+    )
+    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+    if result["status"] != "VERIFIED":
+        raise typer.Exit(code=1)
+
+
+@app.command(name="verify-root-update")
+def verify_root_update_command(
+    current_root: Annotated[
+        Path,
+        typer.Argument(help="Currently pinned snapshot trust root."),
+    ],
+    update: Annotated[
+        Path,
+        typer.Option("--update", help="Recovery-signed root update envelope."),
+    ],
+    checkpoint: Annotated[
+        Path,
+        typer.Option("--checkpoint", help="Last accepted snapshot checkpoint."),
+    ],
+    current_root_sha256: Annotated[
+        str,
+        typer.Option(
+            "--current-root-sha256",
+            help="Out-of-band SHA-256 pin for the current trust-root bytes.",
+        ),
+    ],
+) -> None:
+    """Verify a recovery-threshold key rotation without changing local state."""
+    from mcp_trust.catalog.snapshot_trust import (  # noqa: PLC0415
+        verify_root_update_paths,
+    )
+
+    result = verify_root_update_paths(
+        current_root,
+        update,
+        checkpoint,
+        expected_root_sha256=current_root_sha256,
+    )
+    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+    if result["status"] != "VERIFIED":
+        raise typer.Exit(code=1)
 
 
 @app.command(name="build-site")
