@@ -683,6 +683,32 @@ def test_excessively_nested_metadata_fails_closed_on_every_input_path() -> None:
     )
 
 
+def test_root_update_rejects_unicode_surrogates_before_canonicalization() -> None:
+    _snapshot, _signer, recovery, root, _statement_one, checkpoint = _verified_fixture()
+    new_root = _root(
+        [_key(_private(4), "snapshot", valid_from=2)],
+        [_key(_private(5), "recovery")],
+        version=2,
+        minimum_publication_id=2,
+    )
+    update = _root_update(root, new_root, [recovery])
+    update["signed"]["new_root"]["publisher"]["name"] = "\ud800"  # type: ignore[index]
+
+    result = verify_root_update(
+        _json_bytes(root),
+        _json_bytes(update),
+        _json_bytes(checkpoint),
+        expected_root_sha256=_root_digest(root),
+        now=NOW,
+    )
+
+    assert result == {
+        "schema": "mcp-trust-root-update-verification.v1",
+        "status": "UNKNOWN",
+        "reason_codes": ["ROOT_UPDATE_INVALID"],
+    }
+
+
 def test_missing_root_digest_pin_fails_closed() -> None:
     snapshot = _snapshot_bytes()
     signer = _private(1)

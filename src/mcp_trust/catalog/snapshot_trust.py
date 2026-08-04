@@ -165,7 +165,7 @@ def _values_are_safe(value: Any) -> bool:
             pending.extend(current)
         elif isinstance(current, str):
             if len(current) > _MAX_JSON_STRING_CHARS or any(
-                unicodedata.category(character) in {"Cc", "Cf"}
+                unicodedata.category(character) in {"Cc", "Cf", "Cs"}
                 for character in current
             ):
                 return False
