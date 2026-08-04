@@ -93,6 +93,13 @@ environment markers and allocate a pseudo-terminal.
 Then point your domain at the Vercel project (Vercel dashboard → Domains) and
 re-run the badge check against the production URL.
 
+The Vercel authorization proves bounded operator intent for one exact rendered
+site tree. It is not a catalog-publisher signature and must not be used as an
+offline snapshot trust root. Content-authenticated offline snapshots use the
+separate consumer-pinned root, detached statement, and checkpoint contract in
+`docs/OFFLINE-SNAPSHOT-TRUST-V1.md`. No production root or signer is activated
+by this deploy lane.
+
 ## 4. Scheduled freshness
 
 `scripts/refresh_and_publish.sh` is now a compatibility wrapper that creates an
@@ -139,3 +146,6 @@ This staging step grants no Vercel or public-deployment authority.
   remote-source re-scans use live network transport and are labeled accordingly.
 - Grades are honest by construction: stub/demo data carries a loud banner and
   `(demo)`-suffixed badges; only real `mcpaudit` scans render bare grades.
+- A successful deploy does not authenticate a copied offline snapshot. Offline
+  consumers must independently pin and verify the snapshot trust inputs; an
+  `UNKNOWN` verification result grants no grade-serving authority.

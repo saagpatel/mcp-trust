@@ -380,6 +380,7 @@ name = "mcp-trust"
 version = "0.1.1"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "mcp" },
     { name = "pydantic" },
@@ -399,6 +400,7 @@ engine = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=45,<50" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.28.1,<2" },
