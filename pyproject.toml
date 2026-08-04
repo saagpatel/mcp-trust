@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
-    "cryptography>=45,<50",
+    "cryptography>=45,<51",
     "pydantic>=2.0",
     "fastapi>=0.115",
     "uvicorn>=0.30",
