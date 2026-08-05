@@ -142,6 +142,31 @@ Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
 
+## Reusable web release readback
+
+This repository owns the language-neutral `WebReleaseReadbackV1` contract and
+its standard-library reference verifier. A consumer supplies an explicit HTTPS
+origin plus a versioned route-sentinel manifest:
+
+```bash
+python scripts/web_release_readback.py \
+  --manifest path/to/release-routes.json \
+  --target-url https://preview.example.com \
+  --pretty
+```
+
+The command emits one structured receipt to stdout and exits nonzero when any
+status, required or forbidden sentinel, exact body, digest, body bound, timeout,
+or redirect assertion fails. It implements only GET and HEAD, ignores ambient
+proxies, accepts no credentials, and has no deployment, alias, DNS, promotion,
+or rollback capability. The schemas, deterministic artifact manifest, versioning
+policy, and rollback boundary live under
+`contracts/web-release-readback-v1/`.
+
+This generic receipt is additive. Product-specific API, badge, privacy, release
+lineage, and denied-mutation checks remain owned by each consumer until proven
+receipt parity justifies removing only their duplicated HTTP assertion plumbing.
+
 ## Manual refresh candidates
 
 Create a review candidate without mutating the canonical registry, baked

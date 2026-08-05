@@ -114,3 +114,9 @@ deploy the API with persistent SQLite storage for a live badge-loop smoke test.
 - Prefer adding tests beside the module being changed.
 - Treat scanner behavior, grading changes, and public-launch steps as
   high-trust-surface changes that require explicit verification.
+- `contracts/web-release-readback-v1/` owns the additive
+  `WebReleaseReadbackV1` schemas and compatibility policy. Keep the reference
+  verifier limited to explicit-target GET/HEAD readback with no credentials,
+  proxy environment, deployment, alias, DNS, promotion, or output-file
+  capability. Consumer-specific release and denied-mutation checks remain
+  local until receipt parity is demonstrated.
