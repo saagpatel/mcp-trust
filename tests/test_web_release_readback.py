@@ -26,6 +26,7 @@ CONFORMANCE_PATH = (
     / "conformance-manifest.json"
 )
 CONTRACT_MANIFEST_PATH = CONFORMANCE_PATH.with_name("manifest.json")
+PRODUCT_MANIFEST_PATH = REPO_ROOT / "deploy" / "web-release-readback.json"
 
 
 def _load_verifier() -> ModuleType:
@@ -56,7 +57,16 @@ class _FixtureHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/text":
+        if self.path == "/":
+            self._send(200, b"MCP Server Danger Catalog - Check before you connect\n")
+        elif self.path == "/ui/servers/mcp-reference-time":
+            self._send(200, b"MCP Reference Time - Automated danger grade:\n")
+        elif self.path == "/servers/mcp-reference-time/badge.json":
+            self._send(
+                200,
+                b'{"schemaVersion": 1, "label": "mcp trust", "message": "A"}\n',
+            )
+        elif self.path == "/text":
             self._send(200, "release-ready · café\n".encode())
         elif self.path == "/digest":
             self._send(200, b"\x00web-release\xff")
@@ -136,6 +146,29 @@ def test_reference_manifest_passes_and_emits_bounded_receipt() -> None:
         "mutation_capabilities": [],
     }
     assert _FixtureHandler.unsafe_requests == 0
+
+
+def test_mcp_trust_release_manifest_passes_without_replacing_local_checks() -> None:
+    manifest = json.loads(PRODUCT_MANIFEST_PATH.read_text(encoding="utf-8"))
+    with _server() as target_url:
+        receipt = _receipt(manifest, target_url)
+
+    assert receipt["state"] == "passed"
+    assert receipt["summary"] == {"total": 3, "passed": 3, "failed": 0}
+    assert [route["id"] for route in receipt["routes"]] == [
+        "catalog",
+        "reference-detail",
+        "reference-badge",
+    ]
+    assert _FixtureHandler.unsafe_requests == 0
+
+    smoke = (REPO_ROOT / "deploy" / "smoke-readonly.sh").read_text(encoding="utf-8")
+    assert "scripts/web_release_readback.py" in smoke
+    assert "deploy/web-release-readback.json" in smoke
+    assert '"$BASE_URL/healthz"' in smoke
+    assert '"$BASE_URL/servers"' in smoke
+    assert "report_ref must be portable" in smoke
+    assert '-X POST "$BASE_URL/servers/$SLUG/scan"' in smoke
 
 
 def test_status_sentinel_digest_and_body_bound_fail_closed() -> None:
