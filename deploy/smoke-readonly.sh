@@ -3,6 +3,11 @@ set -euo pipefail
 
 BASE_URL="${BASE_URL:?Set BASE_URL, e.g. https://mcptrust.example.com}"
 SLUG="${SLUG:-mcp-reference-time}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+python3 "$ROOT_DIR/scripts/web_release_readback.py" \
+  --manifest "$ROOT_DIR/deploy/web-release-readback.json" \
+  --target-url "$BASE_URL"
 
 curl -fsS "$BASE_URL/healthz" | grep -q '"status":"ok"'
 curl -fsS "$BASE_URL/servers" | grep -q "$SLUG"

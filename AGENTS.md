@@ -120,3 +120,6 @@ deploy the API with persistent SQLite storage for a live badge-loop smoke test.
   proxy environment, deployment, alias, DNS, promotion, or output-file
   capability. Consumer-specific release and denied-mutation checks remain
   local until receipt parity is demonstrated.
+- `deploy/web-release-readback.json` is this product's self-adoption profile.
+  Keep it wired into `deploy/smoke-readonly.sh` ahead of, and additive to, the
+  health, API, badge, portable-reference, and denied scan-POST assertions.

@@ -163,6 +163,12 @@ or rollback capability. The schemas, deterministic artifact manifest, versioning
 policy, and rollback boundary live under
 `contracts/web-release-readback-v1/`.
 
+The owner repository also consumes the contract through
+`deploy/web-release-readback.json`. `deploy/smoke-readonly.sh` emits the shared
+route receipt before running the registry-specific health, API, badge, portable
+receipt-reference, and denied scan-POST assertions. This self-adoption is a
+release readback check only; it neither deploys nor changes an alias.
+
 This generic receipt is additive. Product-specific API, badge, privacy, release
 lineage, and denied-mutation checks remain owned by each consumer until proven
 receipt parity justifies removing only their duplicated HTTP assertion plumbing.
