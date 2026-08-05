@@ -276,6 +276,73 @@ def mcp_serve() -> None:
     run()
 
 
+@app.command(name="auth-posture")
+def auth_posture_command(
+    candidate: Annotated[
+        str,
+        typer.Argument(help="Exact candidate stable ID from the saved Registry manifest."),
+    ],
+    manifest: Annotated[
+        Path,
+        typer.Option(
+            "--manifest",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+            help="Candidate manifest produced by scripts/plan_registry_corpus.py.",
+        ),
+    ],
+    www_authenticate: Annotated[
+        str | None,
+        typer.Option(
+            "--www-authenticate",
+            help="Optional public Bearer challenge copied from the candidate endpoint.",
+        ),
+    ] = None,
+    timeout_seconds: Annotated[
+        float,
+        typer.Option(
+            "--timeout-seconds",
+            min=0.1,
+            max=10.0,
+            help="Per-request metadata timeout (maximum 10 seconds).",
+        ),
+    ] = 5.0,
+    pretty: Annotated[
+        bool,
+        typer.Option("--pretty", help="Indent the JSON result."),
+    ] = False,
+) -> None:
+    """Probe credential-free OAuth discovery metadata for one remote candidate.
+
+    This preflight performs bounded HTTPS GETs only. It never sends credentials,
+    follows redirects, contacts the MCP endpoint itself, changes a trust grade,
+    or authorizes a scan. Exit 0 means metadata is ready for policy review; exit
+    1 means the posture remains unknown; exit 2 means the local binding is invalid.
+    """
+    from mcp_trust.auth_posture import (  # noqa: PLC0415
+        AuthPostureInputError,
+        load_registry_binding,
+        probe_authorization_posture,
+    )
+
+    try:
+        binding = load_registry_binding(manifest, candidate)
+        result = probe_authorization_posture(
+            binding,
+            www_authenticate=www_authenticate,
+            timeout_seconds=timeout_seconds,
+        )
+    except AuthPostureInputError as exc:
+        typer.echo(f"auth-posture: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(json.dumps(result, indent=2 if pretty else None, sort_keys=True))
+    if result["state"] != "metadata-ready":
+        raise typer.Exit(code=1)
+
+
 @app.command(name="verify-snapshot")
 def verify_snapshot_command(
     snapshot: Annotated[

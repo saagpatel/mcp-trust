@@ -42,6 +42,7 @@ loop working end-to-end.
 | `api/app.py` | FastAPI app + routes (below). Dependency-injects repositories + an engine. | `store/`, `core/`, `engine/` |
 | `cli/main.py` | Typer app: `scan`, `check`, `serve`, `seed`. | all of the above |
 | `catalog/seed.py` + `seed_servers.json` | Seed list of ~8–12 well-known *public* MCP servers (name, source spec, homepage). No private servers. | `core/models.py` |
+| `auth_posture.py` | Advisory, credential-free discovery of public protected-resource and authorization-server metadata for one exact Registry-manifest remote. No scan or grade authority. | saved Registry candidate manifest; RFC 9728, RFC 8414, OIDC discovery |
 
 ## Grading — calibration & roadmap
 The public A–F danger grade is derived only via `core.grading.grade(risk)`. It does NOT
@@ -84,6 +85,10 @@ copy must keep that distinction visible.
 - `mcp-trust scan <slug>` — scan a catalog server, print grade + top findings, persist.
 - `mcp-trust check <slug>` — print the latest stored grade (no scan).
 - `mcp-trust serve [--host --port]` — run the API (uvicorn).
+- `mcp-trust auth-posture <stable-id> --manifest <path>` — perform bounded
+  metadata-only HTTPS discovery for one exact remote Registry candidate. Exit 0
+  means policy-review metadata is present, never that authorization or scanning
+  is approved.
 
 ## Storage
 SQLite (matches the substrate's house style). Two tables: `servers` (slug PK,
@@ -112,6 +117,8 @@ route is stricter: unauthenticated stub scans are disabled unless
 - `test_store.py`: round-trip a server + scan; latest-scan resolution.
 - `test_api.py`: FastAPI `TestClient` — healthz, list, get-404, scan persists, badge shape.
 - `test_cli.py`: Typer `CliRunner` — seed → scan → check happy path.
+- `test_auth_posture.py`: manifest binding, MCP discovery order, PKCE/issuer/resource
+  validation, terminal exit codes, and DNS/private-address/redirect fail-closed behavior.
 
 ## Sandboxing the real-engine path
 Scanning launches the server process. `engine/sandbox.py` provides a pluggable
@@ -124,6 +131,9 @@ package fetch (`npx -y`/`uvx`); for untrusted scanning bake a purpose-built
 image. Stronger isolation (gVisor, microVMs) is a roadmap option.
 
 ## Explicitly out of MVP scope (named, not silently cut)
-Auth/accounts, hosted multi-tenant dashboard, continuous monitoring/cron,
+Credential acquisition and authorization flows, accounts, hosted multi-tenant dashboard,
+continuous monitoring/cron,
 submission moderation queue, the public marketing site, the verification-badge
 program for server authors. These are the post-MVP roadmap, not part of the one loop.
+The metadata-only `auth-posture` command is an advisory preflight and does not
+bring credentialed scans or OAuth client behavior into the MVP.
