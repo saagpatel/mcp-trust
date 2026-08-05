@@ -173,6 +173,20 @@ This generic receipt is additive. Product-specific API, badge, privacy, release
 lineage, and denied-mutation checks remain owned by each consumer until proven
 receipt parity justifies removing only their duplicated HTTP assertion plumbing.
 
+## Evidence lineage decisions
+
+`EvidenceLineageLedgerV1` is a metadata-only, fail-closed contract for MCP
+corpus admit, refresh, publish, and withdraw decisions. It binds exact identity,
+digests, portable receipt references, freshness, rights evidence, public
+projections, supersession, and retention without storing raw logs or secrets.
+The read-only assessor requires an explicit observation time and emits stable
+reason codes; only an explicit `ALLOWED` status can authorize admit or publish.
+
+See [`docs/EVIDENCE-LINEAGE-LEDGER-V1.md`](docs/EVIDENCE-LINEAGE-LEDGER-V1.md)
+for the schema, decision semantics, three-record packaged-catalog pilot, claim
+ceiling, and rollback boundary. This source capability does not itself migrate
+the catalog, publish or withdraw records, run scans, or change deployment state.
+
 ## Manual refresh candidates
 
 Create a review candidate without mutating the canonical registry, baked
