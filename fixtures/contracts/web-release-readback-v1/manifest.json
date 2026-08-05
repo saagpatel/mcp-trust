@@ -1,0 +1,67 @@
+{
+  "adoption_order": [
+    "saagpatel/portfolio-index",
+    "saagpatel/mcp-trust",
+    "saagpatel/operator-os-explainer"
+  ],
+  "artifacts": {
+    "conformance_manifest": {
+      "bytes": 1118,
+      "path": "fixtures/contracts/web-release-readback-v1/conformance-manifest.json",
+      "sha256": "3b40801c7555d966214fd796e247ee49f2f4c99b62e14a3c2dd128661fead57b"
+    },
+    "receipt_schema": {
+      "bytes": 4489,
+      "path": "contracts/web-release-readback-v1/receipt.schema.json",
+      "sha256": "c9166a078a61ac698a45e8bc6341ce34e5fc4b2dc52edb88d1f317a6157472bb"
+    },
+    "reference_verifier": {
+      "bytes": 20630,
+      "path": "scripts/web_release_readback.py",
+      "sha256": "6c62d7def9591be180b3677dca7c21d26da6c60975db3fa47a8b29b627a88869"
+    },
+    "route_manifest_schema": {
+      "bytes": 3689,
+      "path": "contracts/web-release-readback-v1/manifest.schema.json",
+      "sha256": "4c9d6cfdf679eebff1a7408be9ca3caafaee02586583ece970ae4bbdda27027b"
+    }
+  },
+  "capabilities": {
+    "assertions": [
+      "expected-status",
+      "required-sentinel",
+      "forbidden-sentinel",
+      "exact-utf8-body",
+      "sha256-body-digest",
+      "bounded-timeout",
+      "bounded-body"
+    ],
+    "denied_methods": [
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "CONNECT",
+      "TRACE"
+    ],
+    "network_methods": [
+      "GET",
+      "HEAD"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "non_goals": [
+    "deployment",
+    "alias-mutation",
+    "dns-mutation",
+    "credential-use",
+    "promotion",
+    "domain-specific-release-policy"
+  ],
+  "owner": {
+    "policy": "additive-within-major",
+    "repository": "saagpatel/mcp-trust"
+  },
+  "rollback": "remove-consumer-invocation-and-keep-existing-domain-checks",
+  "schema": "WebReleaseReadbackContractManifestV1"
+}

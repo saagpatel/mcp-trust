@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/saagpatel/mcp-trust/contracts/web-release-readback-v1/receipt.schema.json",
+  "title": "WebReleaseReadbackV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "contract_version",
+    "target_url",
+    "manifest",
+    "checked_at",
+    "verifier",
+    "state",
+    "summary",
+    "routes"
+  ],
+  "properties": {
+    "schema": { "const": "WebReleaseReadbackV1" },
+    "contract_version": { "const": "1.0.0" },
+    "target_url": { "type": "string", "format": "uri" },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "network_methods",
+        "denied_methods",
+        "credentials_supported",
+        "proxy_environment_used",
+        "same_origin_redirects_only",
+        "mutation_capabilities"
+      ],
+      "properties": {
+        "name": { "const": "web-release-readback" },
+        "version": { "const": "1.0.0" },
+        "network_methods": {
+          "type": "array",
+          "const": ["GET", "HEAD"]
+        },
+        "denied_methods": {
+          "type": "array",
+          "const": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"]
+        },
+        "credentials_supported": { "const": false },
+        "proxy_environment_used": { "const": false },
+        "same_origin_redirects_only": { "const": true },
+        "mutation_capabilities": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "state": { "enum": ["passed", "failed"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "passed", "failed"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/routeResult" }
+    }
+  },
+  "$defs": {
+    "sentinelResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "missing"],
+      "properties": {
+        "expected": { "type": "array", "items": { "type": "string" } },
+        "missing": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "forbiddenSentinelResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_absent", "present"],
+      "properties": {
+        "expected_absent": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "present": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "routeResult": {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "route",
+        "requested_url",
+        "final_url",
+        "expected_status",
+        "actual_status",
+        "body_bytes",
+        "body_sha256",
+        "required_sentinels",
+        "forbidden_sentinels",
+        "state",
+        "reason_codes"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "method": { "enum": ["GET", "HEAD"] },
+        "route": { "type": "string" },
+        "requested_url": { "type": "string", "format": "uri" },
+        "final_url": { "type": ["string", "null"], "format": "uri" },
+        "expected_status": { "type": "integer" },
+        "actual_status": { "type": ["integer", "null"] },
+        "body_bytes": { "type": ["integer", "null"] },
+        "body_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "required_sentinels": { "$ref": "#/$defs/sentinelResult" },
+        "forbidden_sentinels": {
+          "$ref": "#/$defs/forbiddenSentinelResult"
+        },
+        "state": { "enum": ["passed", "failed"] },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "network_error": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
