@@ -142,6 +142,49 @@ Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
 
+## Remote authorization metadata preflight
+
+Remote Registry candidates can be checked for discoverable MCP authorization
+metadata without contacting the MCP endpoint or handling credentials. First
+build a candidate manifest from a previously saved official Registry response,
+then select one exact `stable_id`:
+
+```bash
+uv run python scripts/plan_registry_corpus.py \
+  --input path/to/saved-registry-response.json > /tmp/registry-candidates.json
+
+uv run mcp-trust auth-posture com.example/remote@1.0.0 \
+  --manifest /tmp/registry-candidates.json \
+  --pretty
+```
+
+If a public `WWW-Authenticate: Bearer` challenge has already been obtained by a
+separate operator workflow, pass its value with `--www-authenticate`. Otherwise
+the command tries the MCP-required protected-resource well-known paths, followed
+by RFC 8414 and OpenID Connect authorization-server discovery in specification
+order.
+
+The command emits `McpAuthorizationPostureV1` JSON. Exit 0 and
+`state=metadata-ready` mean only that at least one authorization server exposes
+the endpoints and PKCE `S256` metadata needed for policy review. They do **not**
+prove authorization, credential availability, runtime security, scan
+eligibility, or a trust grade. Unknown or invalid evidence exits 1 and stays
+blocked; an invalid local manifest binding exits 2.
+
+The network boundary is deliberately narrow: HTTPS metadata GETs only, no
+ambient proxies, redirects, credentials, endpoint session, or writes. DNS is
+resolved once per request; every answer must be globally routable, and the
+connection is pinned to an accepted address while TLS validation and SNI remain
+bound to the original hostname. Response bodies are size-bounded, validated,
+and represented in output only by byte count and SHA-256. Successful metadata
+responses must also carry a valid HTTP `Date`; declared cache freshness is
+honored up to a 24-hour policy cap, while missing, future-dated, or stale source
+evidence remains unknown. The implementation is based on the
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization),
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html),
+[RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html), and
+[OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html).
+
 ## Reusable web release readback
 
 This repository owns the language-neutral `WebReleaseReadbackV1` contract and

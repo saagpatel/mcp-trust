@@ -96,8 +96,8 @@ before scanning or public grading.
 | Slug | Name | Proposed source | Env/auth | Status |
 |---|---|---|---|---|
 | `brave-search` | Brave Search MCP Server | `kind=npm`, `reference=@brave/brave-search-mcp-server`, `command=npx`, `args=["-y", "@brave/brave-search-mcp-server", "--transport", "stdio"]` | `BRAVE_API_KEY` | Vendor-owned and public. Do not scan until API-key handling and no-network behavior are decided. |
-| `github-remote` | GitHub Remote MCP Server | `kind=remote`, `reference=https://api.githubcopilot.com/mcp/` | OAuth/Copilot | Vendor-hosted remote MCP endpoint. Current scan adapter may not handle OAuth; catalog entry may be useful later, but automated grading is blocked. |
-| `slack-mcp` | Slack MCP Server | remote/vendor app flow | OAuth/scopes | Public vendor docs exist, but scanning requires OAuth app flow and workspace scopes; defer. |
+| `github-remote` | GitHub Remote MCP Server | `kind=remote`, `reference=https://api.githubcopilot.com/mcp/` | OAuth/Copilot | Vendor-hosted remote MCP endpoint. Public authorization metadata may be preflighted; credential acquisition, authenticated scanning, and automated grading remain blocked. |
+| `slack-mcp` | Slack MCP Server | remote/vendor app flow | OAuth/scopes | Public authorization metadata may be preflighted, but scanning still requires an approved OAuth app flow and workspace scopes; defer. |
 
 Primary sources:
 
@@ -107,6 +107,26 @@ Primary sources:
   https://github.blog/ai-and-ml/generative-ai/a-practical-guide-on-how-to-use-the-github-mcp-server/
 - Slack MCP Server guide:
   https://slack.com/help/articles/48855576908307-Guide-to-Model-Context-Protocol-in-Slack
+
+## Remote Authorization Posture Preflight
+
+`mcp-trust auth-posture` closes only the public-metadata discovery gap for a
+remote candidate. It binds the exact candidate `stable_id` and remote URL from a
+saved `scripts/plan_registry_corpus.py` manifest, then performs bounded
+credential-free discovery under the MCP 2025-11-25 authorization profile.
+
+The command can validate RFC 9728 protected-resource metadata, the advertised
+authorization-server issuer, required authorization and token endpoints, and
+PKCE `S256` support. It can report client-ID metadata document or dynamic
+registration support when advertised. It never obtains credentials, starts an
+OAuth flow, calls the MCP endpoint, enumerates tools, mutates the catalog, or
+assigns a grade.
+
+Use `state=metadata-ready` only to route a candidate into a separate policy
+review. Keep the candidate blocked when metadata is absent, malformed,
+redirected, mismatched, resolves to any non-public address, or otherwise remains
+unknown. Authenticated scan design and consent/secret custody remain separate
+approval lanes.
 
 ## Exclusions For First Public Seed
 
