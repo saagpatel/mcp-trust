@@ -282,3 +282,36 @@ def test_read_only_cli_returns_nonzero_for_fail_closed_pilot() -> None:
     assert result.returncode == 1
     assert payload["schema"] == "mcp-trust-evidence-lineage-assessment-set.v1"
     assert {record["status"] for record in payload["records"]} == {"UNKNOWN"}
+
+
+def test_cli_validation_error_is_content_free(tmp_path: Path) -> None:
+    secret_marker = "do-not-echo-this-value"
+    invalid = tmp_path / "invalid-ledger.json"
+    payload = json.loads(PILOT.read_text(encoding="utf-8"))
+    payload["records"][0]["raw_log"] = secret_marker
+    invalid.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/assess_evidence_lineage.py",
+            str(invalid),
+            "--decision",
+            "publish",
+            "--now",
+            "2026-08-05T12:00:00Z",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert secret_marker not in result.stdout
+    assert secret_marker not in result.stderr
+    assert json.loads(result.stdout) == {
+        "reason_codes": ["LEDGER_INVALID"],
+        "schema": "mcp-trust-evidence-lineage-error.v1",
+        "status": "UNKNOWN",
+    }

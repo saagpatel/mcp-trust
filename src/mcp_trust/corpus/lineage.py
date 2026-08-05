@@ -137,9 +137,9 @@ class SourceEvidence(_StrictModel):
 
 class RightsEvidence(_StrictModel):
     status: RightsStatus
-    basis: str | None = Field(default=None, min_length=1, max_length=160)
-    scope: str | None = Field(default=None, min_length=1, max_length=160)
-    custodian: str | None = Field(default=None, min_length=1, max_length=160)
+    basis: StableId | None = None
+    scope: StableId | None = None
+    custodian: StableId | None = None
     evidence_ref: PortableReference | None = None
 
     @model_validator(mode="after")

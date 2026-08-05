@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -21,6 +23,7 @@ from mcp_trust.corpus.lineage import (  # noqa: E402
 )
 
 OUTPUT_SCHEMA = "mcp-trust-evidence-lineage-assessment-set.v1"
+ERROR_SCHEMA = "mcp-trust-evidence-lineage-error.v1"
 
 
 def _datetime(value: str) -> datetime:
@@ -47,6 +50,21 @@ def _successful(decision: LineageDecision, statuses: set[AssessmentStatus]) -> b
     return statuses <= allowed[decision]
 
 
+def _emit_error(reason_code: str, *, pretty: bool) -> None:
+    print(
+        json.dumps(
+            {
+                "schema": ERROR_SCHEMA,
+                "status": "UNKNOWN",
+                "reason_codes": [reason_code],
+            },
+            indent=2 if pretty else None,
+            separators=None if pretty else (",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ledger", type=Path)
@@ -60,7 +78,17 @@ def main() -> int:
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
-    ledger = load_evidence_lineage_ledger(args.ledger)
+    try:
+        ledger = load_evidence_lineage_ledger(args.ledger)
+    except OSError:
+        _emit_error("LEDGER_UNREADABLE", pretty=args.pretty)
+        return 2
+    except json.JSONDecodeError:
+        _emit_error("LEDGER_JSON_INVALID", pretty=args.pretty)
+        return 2
+    except ValidationError:
+        _emit_error("LEDGER_INVALID", pretty=args.pretty)
+        return 2
     decision = LineageDecision(args.decision)
     assessments = [
         assess_lineage(
