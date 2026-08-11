@@ -41,6 +41,21 @@ and return `mcp-trust-mcp-error.v1` with status `UNKNOWN`, error code
 `get_methodology` remains available. This boundary checks internal consistency;
 it does not prove snapshot authenticity, authorship, immutability, or freshness.
 
+Offline consumers can add those missing publication checks with
+`mcp-trust verify-snapshot`: a detached Ed25519 statement binds the exact
+snapshot bytes, publisher ID, bounded issue/expiry window, monotonic publication
+ID, and prior consumer checkpoint. The consumer must independently pin the
+trust-root SHA-256 and preserve the returned checkpoint for rollback resistance.
+Invalid, expired, unknown-signer, forked, or rolled-back inputs return only
+`UNKNOWN` reason codes and no grades. See
+[`docs/OFFLINE-SNAPSHOT-TRUST-V1.md`](docs/OFFLINE-SNAPSHOT-TRUST-V1.md).
+Statement freshness proves recent publication authorization, not a recent scan;
+the per-record scan timestamp and 90-day stale policy remain separate checks.
+
+No production trust root, signing key, statement, or checkpoint ships today, so
+the built-in MCP snapshot remains structural-only unless a consumer separately
+supplies and pins those inputs. Test fixture keys are not publication keys.
+
 Connecting an MCP server hands it influence over what your agent does. Tool
 poisoning, prompt injection, over-broad permissions, and rug-pull tool
 mutations are documented attack classes -- and today there's no quick way to vet
@@ -127,6 +142,94 @@ Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
 
+## Remote authorization metadata preflight
+
+Remote Registry candidates can be checked for discoverable MCP authorization
+metadata without contacting the MCP endpoint or handling credentials. First
+build a candidate manifest from a previously saved official Registry response,
+then select one exact `stable_id`:
+
+```bash
+uv run python scripts/plan_registry_corpus.py \
+  --input path/to/saved-registry-response.json > /tmp/registry-candidates.json
+
+uv run mcp-trust auth-posture com.example/remote@1.0.0 \
+  --manifest /tmp/registry-candidates.json \
+  --pretty
+```
+
+If a public `WWW-Authenticate: Bearer` challenge has already been obtained by a
+separate operator workflow, pass its value with `--www-authenticate`. Otherwise
+the command tries the MCP-required protected-resource well-known paths, followed
+by RFC 8414 and OpenID Connect authorization-server discovery in specification
+order.
+
+The command emits `McpAuthorizationPostureV1` JSON. Exit 0 and
+`state=metadata-ready` mean only that at least one authorization server exposes
+the endpoints and PKCE `S256` metadata needed for policy review. They do **not**
+prove authorization, credential availability, runtime security, scan
+eligibility, or a trust grade. Unknown or invalid evidence exits 1 and stays
+blocked; an invalid local manifest binding exits 2.
+
+The network boundary is deliberately narrow: HTTPS metadata GETs only, no
+ambient proxies, redirects, credentials, endpoint session, or writes. DNS is
+resolved once per request; every answer must be globally routable, and the
+connection is pinned to an accepted address while TLS validation and SNI remain
+bound to the original hostname. Response bodies are size-bounded, validated,
+and represented in output only by byte count and SHA-256. Successful metadata
+responses must also carry a valid HTTP `Date`; declared cache freshness is
+honored up to a 24-hour policy cap, while missing, future-dated, or stale source
+evidence remains unknown. The implementation is based on the
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization),
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html),
+[RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html), and
+[OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html).
+
+## Reusable web release readback
+
+This repository owns the language-neutral `WebReleaseReadbackV1` contract and
+its standard-library reference verifier. A consumer supplies an explicit HTTPS
+origin plus a versioned route-sentinel manifest:
+
+```bash
+python scripts/web_release_readback.py \
+  --manifest path/to/release-routes.json \
+  --target-url https://preview.example.com \
+  --pretty
+```
+
+The command emits one structured receipt to stdout and exits nonzero when any
+status, required or forbidden sentinel, exact body, digest, body bound, timeout,
+or redirect assertion fails. It implements only GET and HEAD, ignores ambient
+proxies, accepts no credentials, and has no deployment, alias, DNS, promotion,
+or rollback capability. The schemas, deterministic artifact manifest, versioning
+policy, and rollback boundary live under
+`contracts/web-release-readback-v1/`.
+
+The owner repository also consumes the contract through
+`deploy/web-release-readback.json`. `deploy/smoke-readonly.sh` emits the shared
+route receipt before running the registry-specific health, API, badge, portable
+receipt-reference, and denied scan-POST assertions. This self-adoption is a
+release readback check only; it neither deploys nor changes an alias.
+
+This generic receipt is additive. Product-specific API, badge, privacy, release
+lineage, and denied-mutation checks remain owned by each consumer until proven
+receipt parity justifies removing only their duplicated HTTP assertion plumbing.
+
+## Evidence lineage decisions
+
+`EvidenceLineageLedgerV1` is a metadata-only, fail-closed contract for MCP
+corpus admit, refresh, publish, and withdraw decisions. It binds exact identity,
+digests, portable receipt references, freshness, rights evidence, public
+projections, supersession, and retention without storing raw logs or secrets.
+The read-only assessor requires an explicit observation time and emits stable
+reason codes; only an explicit `ALLOWED` status can authorize admit or publish.
+
+See [`docs/EVIDENCE-LINEAGE-LEDGER-V1.md`](docs/EVIDENCE-LINEAGE-LEDGER-V1.md)
+for the schema, decision semantics, three-record packaged-catalog pilot, claim
+ceiling, and rollback boundary. This source capability does not itself migrate
+the catalog, publish or withdraw records, run scans, or change deployment state.
+
 ## Manual refresh candidates
 
 Create a review candidate without mutating the canonical registry, baked
@@ -152,6 +255,12 @@ short-lived `approve` receipt before `publish` may stage it in a local output
 directory. `verify` exits successfully only for a current, complete,
 reviewed-input-bound candidate that is eligible for publication. Eligibility
 never grants approval, publication, deployment, or scheduling authority.
+
+Snapshot signing is a separate authority after candidate approval/staging. The
+refresh process never receives a signing or recovery key, and its SHA-256
+manifest is not a publisher identity. Production signing remains disabled until
+an operator chooses the root, custody, thresholds, publication counter, and
+checkpoint owner described in the offline trust contract.
 
 ## Status
 

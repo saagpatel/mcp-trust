@@ -47,7 +47,21 @@ cp deploy/vercel.json site/vercel.json
 vercel deploy site                 # prints a preview URL
 ```
 
-Open the preview URL and confirm, on the real grades:
+Capture the preview origin without a trailing slash, then emit the bounded
+shared route receipt:
+
+```bash
+python3 scripts/web_release_readback.py \
+  --manifest deploy/web-release-readback.json \
+  --target-url "https://preview.example.vercel.app" \
+  --pretty
+```
+
+The receipt covers the static catalog, reference detail page, and reference
+badge. The verifier performs only credential-free GET readback and has no
+deployment or alias authority.
+
+Confirm, on the real grades:
 
 - Catalog (`/`) lists all seeded servers with A–F grades and **no `DEMO DATA` banner**
   (real scans → no demo label).
@@ -56,6 +70,11 @@ Open the preview URL and confirm, on the real grades:
 - `/servers/mcp-reference-time/badge.json` returns a shields.io endpoint payload
   (`"message": "A"`, no `(demo)` suffix).
 - An unknown path (e.g. `/nope`) serves the 404 page.
+
+Do not run `deploy/smoke-readonly.sh` against this static origin: static Vercel
+has no `/healthz`, server-list API, server-detail API, or scan route. That script
+remains the FastAPI/VM smoke and now invokes the same shared receipt before its
+existing health, API, badge, portable `report_ref`, and denied scan-POST checks.
 
 ## 3. Production deploy (operator action — public)
 
@@ -91,7 +110,21 @@ process already running as the same macOS user; such a process can scrub
 environment markers and allocate a pseudo-terminal.
 
 Then point your domain at the Vercel project (Vercel dashboard → Domains) and
-re-run the badge check against the production URL.
+re-run the shared static receipt against the production origin:
+
+```bash
+python3 scripts/web_release_readback.py \
+  --manifest deploy/web-release-readback.json \
+  --target-url "https://mcp-trust.vercel.app" \
+  --pretty
+```
+
+The Vercel authorization proves bounded operator intent for one exact rendered
+site tree. It is not a catalog-publisher signature and must not be used as an
+offline snapshot trust root. Content-authenticated offline snapshots use the
+separate consumer-pinned root, detached statement, and checkpoint contract in
+`docs/OFFLINE-SNAPSHOT-TRUST-V1.md`. No production root or signer is activated
+by this deploy lane.
 
 ## 4. Scheduled freshness
 
@@ -139,3 +172,6 @@ This staging step grants no Vercel or public-deployment authority.
   remote-source re-scans use live network transport and are labeled accordingly.
 - Grades are honest by construction: stub/demo data carries a loud banner and
   `(demo)`-suffixed badges; only real `mcpaudit` scans render bare grades.
+- A successful deploy does not authenticate a copied offline snapshot. Offline
+  consumers must independently pin and verify the snapshot trust inputs; an
+  `UNKNOWN` verification result grants no grade-serving authority.

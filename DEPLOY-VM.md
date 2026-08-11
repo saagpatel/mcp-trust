@@ -91,6 +91,13 @@ sudo chown -R mcp-trust:mcp-trust /data/mcp-trust
 The bundle DB contains only latest scan rows, so historical local rehearsal rows
 and absolute local receipt paths are not copied to the VM.
 
+`MANIFEST.json` and its SHA-256 fields provide transfer-integrity indexing only;
+they do not identify a catalog publisher or establish freshness/rollback
+resistance. Offline snapshot consumers use the separate detached-statement,
+consumer-pinned root, and checkpoint contract in
+`docs/OFFLINE-SNAPSHOT-TRUST-V1.md`. The VM bundle builder, service account, and
+deploy process hold no snapshot-signing or root-recovery authority.
+
 For a fresh VM rehearsal that scans directly on the VM, use the operator shell:
 
 ```bash

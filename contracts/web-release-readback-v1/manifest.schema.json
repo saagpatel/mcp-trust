@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/saagpatel/mcp-trust/contracts/web-release-readback-v1/manifest.schema.json",
+  "title": "WebReleaseSentinelManifestV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "contract_version",
+    "name",
+    "defaults",
+    "denied_methods",
+    "routes"
+  ],
+  "properties": {
+    "schema": { "const": "WebReleaseSentinelManifestV1" },
+    "contract_version": { "const": "1.0.0" },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeout_seconds",
+        "max_body_bytes",
+        "follow_same_origin_redirects"
+      ],
+      "properties": {
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "max_body_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        },
+        "follow_same_origin_redirects": { "type": "boolean" }
+      }
+    },
+    "denied_methods": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "enum": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"]
+      },
+      "allOf": [
+        { "contains": { "const": "POST" } },
+        { "contains": { "const": "PUT" } },
+        { "contains": { "const": "PATCH" } },
+        { "contains": { "const": "DELETE" } },
+        { "contains": { "const": "CONNECT" } },
+        { "contains": { "const": "TRACE" } }
+      ]
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/route" }
+    }
+  },
+  "$defs": {
+    "sentinels": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "method", "route", "expected_status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "method": { "enum": ["GET", "HEAD"] },
+        "route": {
+          "type": "string",
+          "pattern": "^/(?!/)[^\\s#]*$"
+        },
+        "expected_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "max_body_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        },
+        "required_sentinels": { "$ref": "#/$defs/sentinels" },
+        "forbidden_sentinels": { "$ref": "#/$defs/sentinels" },
+        "exact_body_utf8": { "type": "string" },
+        "body_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": ["exact_body_utf8", "body_sha256"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "method": { "const": "HEAD" } },
+            "required": ["method"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["required_sentinels"] },
+                { "required": ["forbidden_sentinels"] },
+                { "required": ["exact_body_utf8"] },
+                { "required": ["body_sha256"] }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

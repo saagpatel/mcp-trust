@@ -1,0 +1,62 @@
+{
+  "schema": "WebReleaseSentinelManifestV1",
+  "contract_version": "1.0.0",
+  "name": "mcp-trust-static-release",
+  "defaults": {
+    "timeout_seconds": 10,
+    "max_body_bytes": 131072,
+    "follow_same_origin_redirects": false
+  },
+  "denied_methods": [
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "CONNECT",
+    "TRACE"
+  ],
+  "routes": [
+    {
+      "id": "catalog",
+      "method": "GET",
+      "route": "/",
+      "expected_status": 200,
+      "required_sentinels": [
+        "MCP Server Danger Catalog",
+        "Check before you connect"
+      ],
+      "forbidden_sentinels": [
+        "DEMO DATA",
+        "/Users/d/"
+      ]
+    },
+    {
+      "id": "reference-detail",
+      "method": "GET",
+      "route": "/ui/servers/mcp-reference-time",
+      "expected_status": 200,
+      "required_sentinels": [
+        "MCP Reference Time",
+        "Automated danger grade:"
+      ],
+      "forbidden_sentinels": [
+        "DEMO DATA",
+        "/Users/d/"
+      ]
+    },
+    {
+      "id": "reference-badge",
+      "method": "GET",
+      "route": "/servers/mcp-reference-time/badge.json",
+      "expected_status": 200,
+      "required_sentinels": [
+        "\"schemaVersion\": 1",
+        "\"label\": \"mcp trust\""
+      ],
+      "forbidden_sentinels": [
+        "(demo)",
+        "/Users/d/"
+      ]
+    }
+  ]
+}

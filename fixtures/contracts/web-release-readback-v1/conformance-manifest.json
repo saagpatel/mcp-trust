@@ -1,0 +1,49 @@
+{
+  "schema": "WebReleaseSentinelManifestV1",
+  "contract_version": "1.0.0",
+  "name": "reference-conformance",
+  "defaults": {
+    "timeout_seconds": 3,
+    "max_body_bytes": 4096,
+    "follow_same_origin_redirects": false
+  },
+  "denied_methods": [
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "CONNECT",
+    "TRACE"
+  ],
+  "routes": [
+    {
+      "id": "exact-text",
+      "method": "GET",
+      "route": "/text",
+      "expected_status": 200,
+      "required_sentinels": ["release-ready", "café"],
+      "forbidden_sentinels": ["private-token"],
+      "exact_body_utf8": "release-ready · café\n"
+    },
+    {
+      "id": "binary-digest",
+      "method": "GET",
+      "route": "/digest",
+      "expected_status": 200,
+      "body_sha256": "757acd90f7aff328ff4a375839be0745d28652c833a17a68e3ba5b5ba575b427"
+    },
+    {
+      "id": "bounded-not-found",
+      "method": "GET",
+      "route": "/missing",
+      "expected_status": 404,
+      "required_sentinels": ["not found"]
+    },
+    {
+      "id": "head-status",
+      "method": "HEAD",
+      "route": "/head",
+      "expected_status": 204
+    }
+  ]
+}

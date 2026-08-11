@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import uuid
@@ -273,6 +274,159 @@ def mcp_serve() -> None:
     from mcp_trust.mcp_server import run  # noqa: PLC0415
 
     run()
+
+
+@app.command(name="auth-posture")
+def auth_posture_command(
+    candidate: Annotated[
+        str,
+        typer.Argument(help="Exact candidate stable ID from the saved Registry manifest."),
+    ],
+    manifest: Annotated[
+        Path,
+        typer.Option(
+            "--manifest",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+            help="Candidate manifest produced by scripts/plan_registry_corpus.py.",
+        ),
+    ],
+    www_authenticate: Annotated[
+        str | None,
+        typer.Option(
+            "--www-authenticate",
+            help="Optional public Bearer challenge copied from the candidate endpoint.",
+        ),
+    ] = None,
+    timeout_seconds: Annotated[
+        float,
+        typer.Option(
+            "--timeout-seconds",
+            min=0.1,
+            max=10.0,
+            help="Per-request metadata timeout (maximum 10 seconds).",
+        ),
+    ] = 5.0,
+    pretty: Annotated[
+        bool,
+        typer.Option("--pretty", help="Indent the JSON result."),
+    ] = False,
+) -> None:
+    """Probe credential-free OAuth discovery metadata for one remote candidate.
+
+    This preflight performs bounded HTTPS GETs only. It never sends credentials,
+    follows redirects, contacts the MCP endpoint itself, changes a trust grade,
+    or authorizes a scan. Exit 0 means metadata is ready for policy review; exit
+    1 means the posture remains unknown; exit 2 means the local binding is invalid.
+    """
+    from mcp_trust.auth_posture import (  # noqa: PLC0415
+        AuthPostureInputError,
+        load_registry_binding,
+        probe_authorization_posture,
+    )
+
+    try:
+        binding = load_registry_binding(manifest, candidate)
+        result = probe_authorization_posture(
+            binding,
+            www_authenticate=www_authenticate,
+            timeout_seconds=timeout_seconds,
+        )
+    except AuthPostureInputError as exc:
+        typer.echo(f"auth-posture: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(json.dumps(result, indent=2 if pretty else None, sort_keys=True))
+    if result["state"] != "metadata-ready":
+        raise typer.Exit(code=1)
+
+
+@app.command(name="verify-snapshot")
+def verify_snapshot_command(
+    snapshot: Annotated[
+        Path,
+        typer.Argument(help="Exact catalog snapshot JSON to verify."),
+    ],
+    statement: Annotated[
+        Path,
+        typer.Option("--statement", help="Detached signed snapshot statement."),
+    ],
+    trust_root: Annotated[
+        Path,
+        typer.Option("--trust-root", help="Consumer-pinned snapshot trust root."),
+    ],
+    trust_root_sha256: Annotated[
+        str,
+        typer.Option(
+            "--trust-root-sha256",
+            help="Out-of-band SHA-256 pin for the exact trust-root bytes.",
+        ),
+    ],
+    checkpoint: Annotated[
+        Path | None,
+        typer.Option(
+            "--checkpoint",
+            help="Previously persisted checkpoint used to reject rollback and forks.",
+        ),
+    ] = None,
+) -> None:
+    """Verify publisher identity, bounded freshness, and monotonic snapshot state.
+
+    This command is offline and read-only. On success, persist the returned
+    ``next_checkpoint`` before treating a newer publication as current.
+    """
+    from mcp_trust.catalog.snapshot_trust import verify_snapshot_paths  # noqa: PLC0415
+
+    result = verify_snapshot_paths(
+        snapshot,
+        statement,
+        trust_root,
+        expected_root_sha256=trust_root_sha256,
+        checkpoint_path=checkpoint,
+    )
+    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+    if result["status"] != "VERIFIED":
+        raise typer.Exit(code=1)
+
+
+@app.command(name="verify-root-update")
+def verify_root_update_command(
+    current_root: Annotated[
+        Path,
+        typer.Argument(help="Currently pinned snapshot trust root."),
+    ],
+    update: Annotated[
+        Path,
+        typer.Option("--update", help="Recovery-signed root update envelope."),
+    ],
+    checkpoint: Annotated[
+        Path,
+        typer.Option("--checkpoint", help="Last accepted snapshot checkpoint."),
+    ],
+    current_root_sha256: Annotated[
+        str,
+        typer.Option(
+            "--current-root-sha256",
+            help="Out-of-band SHA-256 pin for the current trust-root bytes.",
+        ),
+    ],
+) -> None:
+    """Verify a recovery-threshold key rotation without changing local state."""
+    from mcp_trust.catalog.snapshot_trust import (  # noqa: PLC0415
+        verify_root_update_paths,
+    )
+
+    result = verify_root_update_paths(
+        current_root,
+        update,
+        checkpoint,
+        expected_root_sha256=current_root_sha256,
+    )
+    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+    if result["status"] != "VERIFIED":
+        raise typer.Exit(code=1)
 
 
 @app.command(name="build-site")
