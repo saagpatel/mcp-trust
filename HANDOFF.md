@@ -229,7 +229,7 @@ neutralized before repository edits:
 - final state: unloaded and persistently disabled in `gui/501`;
 - live-definition run counter at the evidence cut: zero, with one earlier
   Docker-preflight failure preserved in the log;
-- working directory: `/Users/d/Projects/mcp-trust`;
+- working directory: `~/Projects/mcp-trust`;
 - base URL: `https://mcp-trust.vercel.app`;
 - installed and source plists: refresh/build only, with no auto-deploy flag or
   production credential;
