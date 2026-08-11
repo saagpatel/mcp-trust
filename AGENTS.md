@@ -15,9 +15,11 @@ system testable without launching untrusted code.
 
 ## Current State
 The MVP is built and tested end to end: seed catalog, scan, grade, persist,
-serve JSON and web views, and emit shields.io-compatible badge JSON. The repo is
-currently private/pre-launch. The seed catalog now contains official reference
-MCP servers for launch calibration. Public launch is gated by validating
+serve JSON and web views, and emit shields.io-compatible badge JSON. The
+repository is public. Treat anything committed here, and anything written in an
+issue or pull request, as published the moment it lands. The product itself is
+pre-launch. The seed catalog now contains official reference
+MCP servers for launch calibration. Product launch is gated by validating
 sandboxed real-engine scans, inspecting the grade distribution, deciding whether
 to broaden beyond reference servers, deploying the FastAPI app with persistent
 SQLite storage, and smoke-testing the badge loop against the public base URL.
@@ -69,9 +71,13 @@ module-boundary contract.
 - Low-transparency servers can look risky because annotations are missing; keep
   danger grade and transparency as separate signals instead of collapsing them
   into one overconfident verdict.
-- Public launch is a one-way trust event. Do not make the repository public or
-  send author-badge outreach until the live catalog, sandbox path, deployment,
-  and smoke tests are green.
+- Product launch is a one-way trust event. The repository is already public, so
+  code, issue text, and pull request descriptions are world-readable as soon as
+  they land. Check visibility before writing anything that characterizes an
+  unreported third-party finding; the verdict data is published deliberately,
+  prose that editorializes on it is a separate decision. Do not send
+  author-badge outreach until the live catalog, sandbox path, deployment, and
+  smoke tests are green.
 
 ## Review guidelines
 
