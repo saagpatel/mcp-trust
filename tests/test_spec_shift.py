@@ -174,9 +174,7 @@ def test_catalog_notice_counts_only_rendered_servers() -> None:
 def test_catalog_notice_ignores_unruled_slugs_in_its_denominator() -> None:
     """An un-audited server is not evidence of anything and must not inflate
     the denominator into implying broader coverage than the audit had."""
-    notice = _spec_shift_notice(
-        [{"slug": BREAKING_SLUG}, {"slug": "server-added-after-the-audit"}]
-    )
+    notice = _spec_shift_notice([{"slug": BREAKING_SLUG}, {"slug": "server-added-after-the-audit"}])
     assert "1 of 1 servers below" in notice
 
 
@@ -200,9 +198,13 @@ def test_detail_shows_a_clean_verdict_too(client: TestClient) -> None:
     assert "READY" in body
 
 
-def test_detail_card_states_the_release_candidate_caveat(client: TestClient) -> None:
+def test_detail_card_states_the_point_in_time_caveat(client: TestClient) -> None:
+    """The card must say when the ruling was last re-checked against the published
+    spec. Claiming a ruling is current without dating the check is the failure mode."""
     body = client.get(f"/ui/servers/{BREAKING_SLUG}").text
     assert "release candidate" in body
+    assert "re-checked against the published specification" in body
+    assert spec_shift.summary()["delta_checked_at"] in body
     assert "independent of the danger grade" in body
 
 

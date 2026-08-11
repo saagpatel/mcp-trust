@@ -1,6 +1,6 @@
 {
   "format_version": 2,
-  "spec_version": "2026-07-28-rc",
+  "spec_version": "2026-07-28",
   "rubric_version": "SCOPE-2026-07-17",
   "ruled_at": "2026-07-18",
   "source": "spec-shift-tribunal",
@@ -19,8 +19,8 @@
     "D5": "Extensions readiness"
   },
   "counts": {
-    "READY": 21,
-    "BREAKS": 10
+    "BREAKS": 6,
+    "READY": 25
   },
   "servers": {
     "ai-adeu-adeu-1-7-1": {
@@ -225,7 +225,7 @@
         {
           "dimension": "D1",
           "effort": "trivial",
-          "action": "Pass stateless=True through to the stdio transport at src/basic_memory/cli/commands/mcp.py:118-120, i.e. mcp_server.run(transport=transport, stateless=True). FastMCP already forwards the kwarg to the SDK's ServerSession, and the server keeps its state in SQLite and the filesystem rather than in the protocol session, so nothing depends on the handshake. Separately retire the 'sse' transport option at mcp.py:28,121 per RC-D1-c."
+          "action": "Pass stateless=True through to the stdio transport at src/basic_memory/cli/commands/mcp.py:118-120, i.e. mcp_server.run(transport=transport, stateless=True). The mcp 2.0.0 release that removed the SDK initialization gate does not reach this server: pyproject pins fastmcp==3.3.1, which resolves to fastmcp-slim declaring mcp<2.0, capping the SDK to the 1.x line where the gate survives. Loosening the fastmcp pin is not a verified alternative."
         }
       ],
       "audited_source": {
@@ -519,22 +519,16 @@
       "audited_version": "2025.4.25"
     },
     "mcp-archived-sqlite": {
-      "overall": "BREAKS",
+      "overall": "READY",
       "confidence": "high",
       "dimensions": {
-        "D1": "BREAKS",
+        "D1": "READY",
         "D2": "READY",
         "D3": "N_A",
         "D4": "READY",
         "D5": "NOTE"
       },
-      "remediations": [
-        {
-          "dimension": "D1",
-          "effort": "upstream-blocked",
-          "action": "Pass stateless=True to server.run() at src/mcp_server_sqlite/server.py:373, alongside a floor bump to an SDK release that exposes the parameter. The server holds no per-connection state that depends on the handshake, so the change is behavior-preserving. Effort is upstream-blocked, not trivial: modelcontextprotocol/servers-archived is unmaintained by policy and mcp-server-sqlite has not published since 2025-04-25, so no maintainer exists to land it - a consumer would have to fork or vendor."
-        }
-      ],
+      "remediations": [],
       "audited_source": {
         "kind": "pypi",
         "reference": "mcp-server-sqlite",
@@ -579,22 +573,16 @@
       "audited_version": "2026.7.4"
     },
     "mcp-reference-fetch": {
-      "overall": "BREAKS",
+      "overall": "READY",
       "confidence": "high",
       "dimensions": {
-        "D1": "BREAKS",
+        "D1": "READY",
         "D2": "READY",
         "D3": "N_A",
         "D4": "READY",
         "D5": "NOTE"
       },
-      "remediations": [
-        {
-          "dimension": "D1",
-          "effort": "trivial",
-          "action": "Pass stateless=True to server.run() at src/mcp_server_fetch/server.py:288. The parameter already exists in every SDK release this package resolves to, the server holds no per-connection state that depends on the handshake (the only closure state is the user agent and proxy settings fixed at startup from argv), and the change is correct whether or not a later SDK release flips the default."
-        }
-      ],
+      "remediations": [],
       "audited_source": {
         "kind": "pypi",
         "reference": "mcp-server-fetch",
@@ -633,22 +621,16 @@
       "audited_version": "2026.7.10"
     },
     "mcp-reference-git": {
-      "overall": "BREAKS",
+      "overall": "READY",
       "confidence": "high",
       "dimensions": {
-        "D1": "BREAKS",
+        "D1": "READY",
         "D2": "READY",
         "D3": "N_A",
         "D4": "READY",
         "D5": "NOTE"
       },
-      "remediations": [
-        {
-          "dimension": "D1",
-          "effort": "trivial",
-          "action": "Pass stateless=True to server.run() in src/mcp_server_git/server.py:602. The parameter already exists in the shipped SDK, the server holds no per-connection state that depends on the handshake, and the change is correct whether or not a later SDK release flips the default."
-        }
-      ],
+      "remediations": [],
       "audited_source": {
         "kind": "pypi",
         "reference": "mcp-server-git",
@@ -702,22 +684,16 @@
       "audited_version": "2026.7.4"
     },
     "mcp-reference-time": {
-      "overall": "BREAKS",
+      "overall": "READY",
       "confidence": "high",
       "dimensions": {
-        "D1": "BREAKS",
+        "D1": "READY",
         "D2": "READY",
         "D3": "N_A",
         "D4": "READY",
         "D5": "NOTE"
       },
-      "remediations": [
-        {
-          "dimension": "D1",
-          "effort": "trivial",
-          "action": "Pass stateless=True to server.run() at src/mcp_server_time/server.py:220. The server is genuinely stateless already - both tools are pure functions of their arguments plus the host clock, and the only closure state is the local timezone string resolved once at startup - so the argument records a property the code already has."
-        }
-      ],
+      "remediations": [],
       "audited_source": {
         "kind": "pypi",
         "reference": "mcp-server-time",
@@ -727,5 +703,7 @@
       },
       "audited_version": "2026.7.10"
     }
-  }
+  },
+  "delta_checked_at": "2026-08-02",
+  "delta_note": "Ruled 2026-07-18 against the release candidate, re-checked 2026-08-02 against the published final specification. No pinned spec text moved, so no verdict changed on spec drift. Four pypi D1 verdicts flipped BREAKS -> READY because mcp 2.0.0 (published 2026-07-28) removed the Python SDK's initialization gate."
 }

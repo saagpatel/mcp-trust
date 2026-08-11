@@ -86,6 +86,7 @@ def summary() -> dict[str, Any]:
     return {
         "spec_version": doc["spec_version"],
         "ruled_at": doc["ruled_at"],
+        "delta_checked_at": doc.get("delta_checked_at"),
         "source": doc["source"],
         "total": sum(counts.values()),
         "counts": counts,

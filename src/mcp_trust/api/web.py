@@ -455,9 +455,11 @@ def _spec_shift_card(slug: str, *, masked: bool = False, source: Any = None) -> 
         f"<tbody>{dims}</tbody></table>"
         f"{fixes}"
         '<p style="color:#57606a;font-size:0.8rem;margin:0.75rem 0 0">'
-        "This is a point-in-time ruling against a release candidate, not the "
-        "published specification, and it is independent of the danger grade "
-        "above. Neither figure constrains the other."
+        "This is a point-in-time ruling. It was made against the release "
+        "candidate and re-checked against the published specification on "
+        f"{escape(summary['delta_checked_at'] or 'a later date')}; no pinned "
+        "spec text had moved. It is independent of the danger grade above. "
+        "Neither figure constrains the other."
         "</p></div>"
     )
 
