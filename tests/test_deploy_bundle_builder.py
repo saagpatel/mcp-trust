@@ -111,7 +111,7 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
         conn,
         slug="alpha",
         scan_id="old-scan",
-        report_ref="/Users/d/Projects/mcp-trust/receipts/old-alpha.json",
+        report_ref="~/Projects/mcp-trust/receipts/old-alpha.json",
         scanned_at=now - timedelta(hours=1),
     )
     _insert_scan(
