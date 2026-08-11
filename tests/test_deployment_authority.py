@@ -52,6 +52,35 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+TTY_TIMEOUT_ENV = "MCP_TRUST_TEST_TTY_TIMEOUT"
+TTY_TIMEOUT_DEFAULT = 60.0
+
+
+def _tty_timeout_seconds() -> float:
+    """Wall-clock budget for a deploy script driven through a pty.
+
+    These tests spawn the real script and wait for it to exit. The happy path
+    measures ~14s on an idle machine, so the original hardcoded 10s budget sat
+    *below* the cost of a passing run and failed under suite load rather than on
+    behavior. That matters more here than in a normal flaky test: a timeout
+    aborts before the security assertion is ever reached, so the run proves
+    nothing in either direction while still going red. The budget must be
+    generous enough that only a genuine hang trips it.
+
+    Overridable for slow or heavily loaded machines. A malformed or
+    non-positive override falls back to the default rather than failing the
+    suite on a bad env var.
+    """
+    raw = os.environ.get(TTY_TIMEOUT_ENV)
+    if not raw:
+        return TTY_TIMEOUT_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError:
+        return TTY_TIMEOUT_DEFAULT
+    return value if value > 0 else TTY_TIMEOUT_DEFAULT
+
+
 def _run_with_tty(
     args: list[str],
     *,
@@ -73,12 +102,16 @@ def _run_with_tty(
     os.close(slave)
     os.set_blocking(master, False)
     output = bytearray()
-    deadline = time.monotonic() + 10
+    timeout = _tty_timeout_seconds()
+    deadline = time.monotonic() + timeout
     confirmation_sent = False
     while process.poll() is None:
         if time.monotonic() > deadline:
             process.kill()
-            raise AssertionError("deployment test process did not exit within 10 seconds")
+            raise AssertionError(
+                f"deployment test process did not exit within {timeout:g} seconds "
+                f"(raise {TTY_TIMEOUT_ENV} if this machine is slower)"
+            )
         readable, _, _ = select.select([master], [], [], 0.2)
         if readable:
             try:
@@ -347,9 +380,7 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     for command in ("dirname", "id", "mkdir", "sed", "plutil", "launchctl"):
         _write_executable(
             hostile_bin / command,
-            "#!/bin/sh\n"
-            f'printf "%s\\n" "{command}" >> "$HOSTILE_CALLS"\n'
-            "exit 99\n",
+            f'#!/bin/sh\nprintf "%s\\n" "{command}" >> "$HOSTILE_CALLS"\nexit 99\n',
         )
     _write_executable(
         launchctl,
@@ -378,9 +409,7 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     assert "MCP_TRUST_AUTO_DEPLOY" not in text
     assert "deploy_production" not in text
     assert "refresh_and_publish.sh" in text
-    assert installed_path == (
-        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    )
+    assert installed_path == ("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
     assert str(hostile_bin) not in installed_path
     assert not hostile_calls.exists()
     assert "disable gui/" in actions
@@ -794,3 +823,24 @@ def test_post_confirmation_revalidation_catches_approval_and_node_changes(
     )
     assert result.returncode != 0
     assert not record.exists()
+
+
+def test_tty_timeout_default_exceeds_the_happy_path_cost(monkeypatch):
+    """Regression: the budget was 10s while a passing run measures ~14s, so the
+    suite went red on load without ever reaching a security assertion."""
+    monkeypatch.delenv(TTY_TIMEOUT_ENV, raising=False)
+    assert _tty_timeout_seconds() == TTY_TIMEOUT_DEFAULT
+    assert _tty_timeout_seconds() > 14
+
+
+def test_tty_timeout_honours_an_override(monkeypatch):
+    monkeypatch.setenv(TTY_TIMEOUT_ENV, "180")
+    assert _tty_timeout_seconds() == 180.0
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "abc", "0", "-5"])
+def test_tty_timeout_falls_back_on_an_unusable_override(monkeypatch, bad):
+    """A malformed or non-positive override must not silently turn every
+    deployment test into an immediate failure."""
+    monkeypatch.setenv(TTY_TIMEOUT_ENV, bad)
+    assert _tty_timeout_seconds() == TTY_TIMEOUT_DEFAULT
