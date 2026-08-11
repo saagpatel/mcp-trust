@@ -25,7 +25,7 @@ to broaden beyond reference servers, deploying the FastAPI app with persistent
 SQLite storage, and smoke-testing the badge loop against the public base URL.
 
 ## Stack
-- Python 3.11+
+- Python 3.11, pinned by `.python-version` so `uv venv` and `uv run` match CI
 - FastAPI and Uvicorn for the API/web surface
 - Typer for the CLI
 - Pydantic domain models
@@ -34,7 +34,10 @@ SQLite storage, and smoke-testing the badge loop against the public base URL.
 - Optional `mcp-audits` engine extra for real MCP-server scanning
 
 ## How To Run
-Install and run the deterministic local path:
+Install and run the deterministic local path. `uv venv` reads `.python-version`,
+so the virtualenv is built on 3.11 rather than whatever interpreter happens to be
+first on `PATH`; do not remove that file. Activate before running anything, or use
+`uv run --frozen --extra dev <command>` instead.
 
 ```bash
 uv venv .venv
