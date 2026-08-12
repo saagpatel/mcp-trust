@@ -14,6 +14,7 @@ import typer
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord
+from mcp_trust.portability.cli import app as portability_app
 from mcp_trust.receipts import write_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -23,6 +24,8 @@ app = typer.Typer(
     help="MCP Trust Registry — check MCP server trust grades before connecting.",
     add_completion=False,
 )
+
+app.add_typer(portability_app, name="portability")
 
 # ---------------------------------------------------------------------------
 # Shared option

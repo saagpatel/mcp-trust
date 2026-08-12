@@ -1,0 +1,3 @@
+[mcp_servers.defaultsDemo]
+command = "python"
+args = ["-m", "defaults_demo"]

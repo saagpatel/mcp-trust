@@ -43,6 +43,7 @@ loop working end-to-end.
 | `cli/main.py` | Typer app: `scan`, `check`, `serve`, `seed`. | all of the above |
 | `catalog/seed.py` + `seed_servers.json` | Seed list of ~8–12 well-known *public* MCP servers (name, source spec, homepage). No private servers. | `core/models.py` |
 | `auth_posture.py` | Advisory, credential-free discovery of public protected-resource and authorization-server metadata for one exact Registry-manifest remote. No scan or grade authority. | saved Registry candidate manifest; RFC 9728, RFC 8414, OIDC discovery |
+| `portability/` | Local-only neutral MCP connection intent, pure Codex/Claude/VS Code adapters, semantic loss/widening reports, synthetic fixtures, and CLI. No real host-config discovery or mutation, server launch, network, secret values, trust verdict, or adoption claim. | official host configuration docs and current MCP/Registry metadata versions pinned as of 2026-08-11 |
 
 ## Grading — calibration & roadmap
 The public A–F danger grade is derived only via `core.grading.grade(risk)`. It does NOT
@@ -89,6 +90,9 @@ copy must keep that distinction visible.
   metadata-only HTTPS discovery for one exact remote Registry candidate. Exit 0
   means policy-review metadata is present, never that authorization or scanning
   is approved.
+- `mcp-trust portability validate|render|inspect|round-trip|schema` — operate on
+  explicit files or stdout only. Generated configuration is host-format
+  compatibility evidence, never runtime connection, trust, or adoption proof.
 
 ## Storage
 SQLite (matches the substrate's house style). Two tables: `servers` (slug PK,

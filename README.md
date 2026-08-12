@@ -70,6 +70,25 @@ Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
 - Python >= 3.11
 - [`uv`](https://docs.astral.sh/uv/) (used for dependency management and running the project)
 
+## MCP config portability studio
+
+Render one versioned, secret-placeholder-only MCP connection intent into staged
+Codex, Claude Code, Claude Desktop, or VS Code configuration and receive an
+explicit semantic loss/widening report:
+
+```bash
+uv run --frozen --extra dev mcp-trust portability validate \
+  tests/fixtures/portability/local-stdio.json
+uv run --frozen --extra dev mcp-trust portability round-trip \
+  tests/fixtures/portability/local-stdio.json --host codex
+```
+
+The studio is local-only. It never discovers or edits a real host config,
+launches an MCP server, contacts a URL, or emits modeled secret values. Generated
+configuration proves only documented host-format compatibility, not a runtime
+connection or adoption. See
+[`docs/MCP-CONFIG-PORTABILITY-STUDIO.md`](docs/MCP-CONFIG-PORTABILITY-STUDIO.md).
+
 ## How it works
 
 ```

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "defaultsDemo": {
+      "command": "python",
+      "args": ["-m", "defaults_demo"]
+    }
+  }
+}

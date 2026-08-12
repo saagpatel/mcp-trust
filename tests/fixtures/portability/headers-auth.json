@@ -1,0 +1,51 @@
+{
+  "schema_version": "mcp-config-intent.v1",
+  "mcp_protocol_version": "2026-07-28",
+  "registry_metadata_schema_version": "2025-12-11",
+  "servers": {
+    "headerDemo": {
+      "transport": {
+        "kind": "streamable-http",
+        "url": "https://headers.example.invalid/mcp",
+        "headers": [
+          {
+            "name": "X-Tenant",
+            "value_from": {
+              "kind": "prompt",
+              "key": "TENANT_ID",
+              "secret": false,
+              "required": true
+            }
+          }
+        ]
+      },
+      "environment": [],
+      "auth": {
+        "kind": "bearer",
+        "required": true,
+        "token": {
+          "kind": "environment",
+          "key": "DEMO_ACCESS_TOKEN",
+          "secret": true,
+          "required": true
+        },
+        "scopes": []
+      },
+      "enabled": true,
+      "tools": {"allow": [], "deny": []},
+      "resources": {"allow": [], "deny": []},
+      "startup": {
+        "startup_timeout_seconds": null,
+        "tool_timeout_seconds": null,
+        "required": null
+      },
+      "provenance": {
+        "source_host": "neutral",
+        "source_format": "synthetic-fixture.v1",
+        "source_as_of": "2026-08-11",
+        "documentation_url": null
+      },
+      "unknown_semantics": []
+    }
+  }
+}
