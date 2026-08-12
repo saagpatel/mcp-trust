@@ -13,13 +13,18 @@ from mcp_trust.portability.adapters import (
     CodexAdapter,
     VSCodeAdapter,
 )
-from mcp_trust.portability.errors import PortabilityInputError, UnsupportedHostError
+from mcp_trust.portability.errors import (
+    PortabilityInputError,
+    UnsupportedHostError,
+    validation_input_error,
+)
 from mcp_trust.portability.models import (
     ChangeState,
     InspectResult,
     NeutralConfig,
     PortabilityReport,
     RenderResult,
+    SemanticChange,
 )
 from mcp_trust.portability.report import build_report, change
 
@@ -38,17 +43,21 @@ def supported_hosts() -> tuple[str, ...]:
 def adapter_for(host: str):
     try:
         return _ADAPTERS[host]
-    except KeyError as exc:
-        raise UnsupportedHostError(
-            f"unsupported host {host!r}; choose one of: {', '.join(supported_hosts())}"
-        ) from exc
+    except KeyError:
+        pass
+    raise UnsupportedHostError(
+        f"unsupported host {host!r}; choose one of: {', '.join(supported_hosts())}"
+    )
 
 
 def parse_neutral(document: str) -> NeutralConfig:
     try:
         return NeutralConfig.model_validate_json(document)
-    except (ValidationError, ValueError) as exc:
-        raise PortabilityInputError(f"invalid neutral intent: {exc}") from exc
+    except ValidationError as exc:
+        public_error = validation_input_error(exc, context="invalid neutral intent")
+    except ValueError as exc:
+        public_error = PortabilityInputError(f"invalid neutral intent: {exc}")
+    raise public_error
 
 
 def canonical_neutral(intent: NeutralConfig) -> str:
@@ -66,7 +75,8 @@ def inspect_host(document: str, host: str) -> InspectResult:
     try:
         return adapter_for(host).inspect(document)
     except ValidationError as exc:
-        raise PortabilityInputError(f"invalid {host} host configuration: {exc}") from exc
+        public_error = validation_input_error(exc, context=f"invalid {host} host configuration")
+    raise public_error
 
 
 def _semantic_view(intent: NeutralConfig) -> dict[str, Any]:
@@ -80,13 +90,63 @@ def _semantic_view(intent: NeutralConfig) -> dict[str, Any]:
     return result
 
 
+def _compare_scope_collection(
+    before: list[object],
+    after: list[object],
+    *,
+    server: str,
+    path: str,
+    changes: list[SemanticChange],
+) -> None:
+    before_set = set(before)
+    after_set = set(after)
+    if before_set == after_set:
+        if before != after:
+            changes.append(
+                change(
+                    server,
+                    path,
+                    ChangeState.PRESERVED,
+                    "Semantic scope set preserved; ordering and duplicate entries "
+                    "are non-semantic.",
+                )
+            )
+        return
+
+    leaf = path.rsplit(".", 1)[-1]
+    if leaf == "allow":
+        widened = bool(before_set) and (not after_set or bool(after_set - before_set))
+    elif leaf == "deny":
+        widened = bool(before_set - after_set)
+    else:
+        widened = bool(after_set - before_set)
+    if widened:
+        changes.append(
+            change(
+                server,
+                path,
+                ChangeState.WIDENED,
+                "Semantic scope set changed in a direction that may widen access.",
+            )
+        )
+    else:
+        changes.append(
+            change(
+                server,
+                path,
+                ChangeState.TRANSFORMED,
+                "Semantic scope set narrowed without widening access.",
+            )
+        )
+
+
 def _compare(
     before: object,
     after: object,
     *,
     server: str,
     path: str,
-    changes: list,
+    changes: list[SemanticChange],
 ) -> None:
     if type(before) is not type(after):
         changes.append(
@@ -117,13 +177,22 @@ def _compare(
                 _compare(before[key], after[key], server=server, path=next_path, changes=changes)
         return
     if isinstance(before, list):
-        if before != after:
-            state = (
-                ChangeState.WIDENED if path.endswith(("allow", "deny")) else ChangeState.TRANSFORMED
+        if path.rsplit(".", 1)[-1] in {"allow", "deny", "scopes"}:
+            _compare_scope_collection(
+                before,
+                after,
+                server=server,
+                path=path,
+                changes=changes,
             )
+            return
+        if before != after:
             changes.append(
                 change(
-                    server, path, state, "Ordered semantic collection changed during round-trip."
+                    server,
+                    path,
+                    ChangeState.TRANSFORMED,
+                    "Ordered semantic collection changed during round-trip.",
                 )
             )
         return
@@ -142,7 +211,7 @@ def _compare(
 def round_trip(intent: NeutralConfig, host: str) -> tuple[InspectResult, PortabilityReport]:
     adapter = adapter_for(host)
     rendered = adapter.render(intent)
-    inspected = adapter.inspect(rendered.document)
+    inspected = inspect_host(rendered.document, host)
     changes = [*rendered.report.changes, *inspected.report.changes]
     before = _semantic_view(intent)["servers"]
     after = _semantic_view(inspected.intent)["servers"]

@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from mcp_trust.portability.errors import PortabilityError
+from mcp_trust.portability.errors import PortabilityError, safe_error_text
 from mcp_trust.portability.service import (
     canonical_neutral,
     inspect_host,
@@ -79,8 +79,8 @@ def _json(value: object) -> str:
 
 
 def _fail(exc: Exception) -> None:
-    typer.echo(f"portability: {exc}", err=True)
-    raise typer.Exit(code=2) from exc
+    typer.echo(f"portability: {safe_error_text(exc)}", err=True)
+    raise typer.Exit(code=2) from None
 
 
 @app.command("validate")

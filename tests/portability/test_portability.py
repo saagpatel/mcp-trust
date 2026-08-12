@@ -12,6 +12,8 @@ from mcp_trust.cli.main import app
 from mcp_trust.portability.errors import PortabilityInputError
 from mcp_trust.portability.models import ChangeState
 from mcp_trust.portability.service import (
+    _compare,
+    canonical_neutral,
     inspect_host,
     neutral_schema_json,
     parse_neutral,
@@ -54,6 +56,100 @@ def test_probable_secret_argument_is_rejected_in_neutral_input() -> None:
     raw["servers"]["localDemo"]["transport"]["args"] = ["--api-key", "synthetic-secret"]
     with pytest.raises(PortabilityInputError, match="secret-bearing flags"):
         parse_neutral(json.dumps(raw))
+
+
+@pytest.mark.parametrize(
+    ("url", "secret_fragments", "safe_diagnostic"),
+    [
+        (
+            "https://alice:correct-horse@example.invalid/mcp",
+            ("alice", "correct-horse"),
+            "cannot embed credentials",
+        ),
+        (
+            "https://example.invalid/mcp?token=violet-credential",
+            ("violet-credential",),
+            "cannot carry secret-like query parameters",
+        ),
+        (
+            "https://example.invalid/mcp?safe=1&access_token=orange-credential",
+            ("orange-credential",),
+            "cannot carry secret-like query parameters",
+        ),
+        (
+            "https://example.invalid/mcp?api%5Fkey=indigo-credential",
+            ("indigo-credential",),
+            "cannot carry secret-like query parameters",
+        ),
+        (
+            "https://encoded%40user:encoded%3Apassword@example.invalid/mcp",
+            ("encoded%40user", "encoded%3Apassword"),
+            "cannot embed credentials",
+        ),
+        (
+            "https://example.invalid/mcp?client-secret=silver-credential",
+            ("silver-credential",),
+            "cannot carry secret-like query parameters",
+        ),
+        (
+            "https://example.invalid/mcp?X-Amz-Signature=gold-credential",
+            ("gold-credential",),
+            "cannot carry secret-like query parameters",
+        ),
+    ],
+)
+def test_neutral_validation_errors_never_echo_secret_bearing_urls(
+    url: str, secret_fragments: tuple[str, ...], safe_diagnostic: str
+) -> None:
+    raw = json.loads(read_fixture("remote-http.json"))
+    raw["servers"]["remoteDemo"]["transport"]["url"] = url
+
+    with pytest.raises(PortabilityInputError) as raised:
+        parse_neutral(json.dumps(raw))
+
+    message = str(raised.value)
+    for secret in secret_fragments:
+        assert secret not in message
+    assert safe_diagnostic in message
+    assert "servers.*.transport" in message
+    assert "input_value" not in message
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+
+
+@pytest.mark.parametrize(
+    ("host", "document", "secret_fragments"),
+    [
+        (
+            "codex",
+            '[mcp_servers.demo]\nurl = "https://bob:blue-password@example.invalid/mcp"\n',
+            ("bob", "blue-password"),
+        ),
+        (
+            "claude-code",
+            '{"mcpServers":{"demo":{"type":"http","url":"https://example.invalid/mcp?token=green-credential"}}}',
+            ("green-credential",),
+        ),
+        (
+            "vscode",
+            '{"servers":{"demo":{"type":"http","url":"https://example.invalid/mcp?API_KEY=red-credential"}}}',
+            ("red-credential",),
+        ),
+    ],
+)
+def test_host_inspection_validation_errors_never_echo_secret_bearing_urls(
+    host: str, document: str, secret_fragments: tuple[str, ...]
+) -> None:
+    with pytest.raises(PortabilityInputError) as raised:
+        inspect_host(document, host)
+
+    message = str(raised.value)
+    for secret in secret_fragments:
+        assert secret not in message
+    assert "url" in message
+    assert "input_value" not in message
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
 
 
 @pytest.mark.parametrize("host", supported_hosts())
@@ -99,6 +195,150 @@ def test_codex_preserves_rich_policy_while_other_hosts_report_loss() -> None:
         item.path == "startup.startup_timeout_seconds" and item.state == ChangeState.UNSUPPORTED
         for item in claude.changes
     )
+
+
+@pytest.mark.parametrize("host", ["claude-code", "claude-desktop", "vscode"])
+def test_stdio_bearer_auth_is_explicitly_reported_as_unsupported(host: str) -> None:
+    raw = json.loads(read_fixture("local-stdio.json"))
+    raw["servers"]["localDemo"]["auth"] = {
+        "kind": "bearer",
+        "required": True,
+        "token": {
+            "kind": "environment",
+            "key": "PORTABILITY_BEARER_TOKEN",
+            "secret": True,
+            "required": True,
+        },
+        "scopes": [],
+    }
+
+    result = render_host(parse_neutral(json.dumps(raw)), host)
+
+    assert any(
+        item.path == "auth" and item.state == ChangeState.UNSUPPORTED
+        for item in result.report.changes
+    )
+    assert "PORTABILITY_BEARER_TOKEN" not in result.document
+
+
+@pytest.mark.parametrize("host", ["codex", "claude-code", "vscode"])
+def test_remote_bearer_auth_remains_preserved_when_representable(host: str) -> None:
+    raw = json.loads(read_fixture("remote-http.json"))
+    raw["servers"]["remoteDemo"]["auth"] = {
+        "kind": "bearer",
+        "required": True,
+        "token": {
+            "kind": "environment",
+            "key": "PORTABILITY_BEARER_TOKEN",
+            "secret": True,
+            "required": True,
+        },
+        "scopes": [],
+    }
+
+    result = render_host(parse_neutral(json.dumps(raw)), host)
+
+    assert any(
+        item.path == "auth" and item.state == ChangeState.PRESERVED
+        for item in result.report.changes
+    )
+    assert "PORTABILITY_BEARER_TOKEN" in result.document
+
+
+@pytest.mark.parametrize("field", ["startup_timeout_seconds", "tool_timeout_seconds"])
+@pytest.mark.parametrize("value", [5e-324, 0.0004, 0.000999999])
+def test_sub_millisecond_timeouts_fail_with_a_bounded_validation_result(
+    field: str, value: float
+) -> None:
+    raw = json.loads(read_fixture("local-stdio.json"))
+    raw["servers"]["localDemo"]["startup"][field] = value
+
+    with pytest.raises(PortabilityInputError) as raised:
+        parse_neutral(json.dumps(raw))
+
+    message = str(raised.value)
+    assert field in message
+    assert "0.001" in message
+    assert "input_value" not in message
+
+
+def test_one_millisecond_tool_timeout_round_trips_without_zero() -> None:
+    raw = json.loads(read_fixture("local-stdio.json"))
+    raw["servers"]["localDemo"]["startup"]["tool_timeout_seconds"] = 0.001
+    intent = parse_neutral(json.dumps(raw))
+
+    rendered = render_host(intent, "claude-code")
+    assert json.loads(rendered.document)["mcpServers"]["localDemo"]["timeout"] == 1
+
+    inspected, report = round_trip(intent, "claude-code")
+    assert inspected.intent.servers["localDemo"].startup.tool_timeout_seconds == pytest.approx(
+        0.001
+    )
+    assert report.summary.transformed >= 1
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), 1e308])
+def test_unrepresentable_timeouts_fail_validation_instead_of_crashing_render(value: float) -> None:
+    raw = json.loads(read_fixture("local-stdio.json"))
+    raw["servers"]["localDemo"]["startup"]["tool_timeout_seconds"] = value
+
+    with pytest.raises(PortabilityInputError) as raised:
+        parse_neutral(json.dumps(raw))
+
+    assert "tool_timeout_seconds" in str(raised.value)
+    assert "input_value" not in str(raised.value)
+
+
+def test_scope_collections_canonicalize_reordering_and_duplicates() -> None:
+    first_raw = json.loads(read_fixture("remote-http.json"))
+    first_server = first_raw["servers"]["remoteDemo"]
+    first_server["tools"] = {
+        "allow": ["demo.write", "demo.read", "demo.write"],
+        "deny": ["demo.delete", "demo.delete"],
+    }
+    first_server["auth"]["scopes"] = ["demo.write", "demo.read", "demo.write"]
+
+    second_raw = json.loads(json.dumps(first_raw))
+    second_server = second_raw["servers"]["remoteDemo"]
+    second_server["tools"] = {
+        "allow": ["demo.read", "demo.write"],
+        "deny": ["demo.delete"],
+    }
+    second_server["auth"]["scopes"] = ["demo.read", "demo.write"]
+
+    first = parse_neutral(json.dumps(first_raw))
+    second = parse_neutral(json.dumps(second_raw))
+
+    assert first.servers["remoteDemo"].tools.allow == ["demo.read", "demo.write"]
+    assert first.servers["remoteDemo"].tools.deny == ["demo.delete"]
+    assert first.servers["remoteDemo"].auth.scopes == ["demo.read", "demo.write"]
+    assert canonical_neutral(first) == canonical_neutral(second)
+    assert render_host(first, "codex") == render_host(second, "codex")
+
+
+@pytest.mark.parametrize(
+    ("path", "before", "after", "expected"),
+    [
+        ("tools.allow", ["read", "write", "read"], ["write", "read"], ChangeState.PRESERVED),
+        ("tools.allow", ["read"], ["read", "write"], ChangeState.WIDENED),
+        ("tools.allow", ["read", "write"], ["read"], ChangeState.TRANSFORMED),
+        ("tools.allow", ["read"], [], ChangeState.WIDENED),
+        ("tools.allow", [], ["read"], ChangeState.TRANSFORMED),
+        ("tools.deny", ["write"], [], ChangeState.WIDENED),
+        ("tools.deny", [], ["write"], ChangeState.TRANSFORMED),
+        ("auth.scopes", ["read"], ["read", "write"], ChangeState.WIDENED),
+        ("auth.scopes", ["read", "write"], ["read"], ChangeState.TRANSFORMED),
+    ],
+)
+def test_scope_comparison_distinguishes_equivalence_widening_and_narrowing(
+    path: str, before: list[str], after: list[str], expected: ChangeState
+) -> None:
+    changes = []
+
+    _compare(before, after, server="demo", path=path, changes=changes)
+
+    assert len(changes) == 1
+    assert changes[0].state == expected
 
 
 @pytest.mark.parametrize("host", ["claude-code", "claude-desktop", "vscode"])
@@ -166,6 +406,20 @@ def test_duplicate_host_json_keys_fail_closed() -> None:
     document = '{"servers":{"one":{},"one":{}}}'
     with pytest.raises(PortabilityInputError, match="duplicate JSON key"):
         inspect_host(document, "vscode")
+
+
+def test_malformed_host_json_does_not_retain_secret_bearing_source() -> None:
+    document = (
+        '{"servers":{"demo":{"type":"http",'
+        '"url":"https://example.invalid/mcp?token=malformed-json-credential",}}}'
+    )
+
+    with pytest.raises(PortabilityInputError) as raised:
+        inspect_host(document, "vscode")
+
+    assert "malformed-json-credential" not in str(raised.value)
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
 
 
 @pytest.mark.parametrize(
@@ -299,6 +553,54 @@ def test_cli_machine_readable_commands(command: str) -> None:
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)
+
+
+def test_cli_json_output_is_stable_for_semantically_equivalent_scope_sets(tmp_path: Path) -> None:
+    raw = json.loads(read_fixture("remote-http.json"))
+    raw["servers"]["remoteDemo"]["tools"] = {
+        "allow": ["demo.write", "demo.read", "demo.write"],
+        "deny": [],
+    }
+    input_file = tmp_path / "scope-input.json"
+    input_file.write_text(json.dumps(raw), encoding="utf-8")
+
+    first = runner.invoke(app, ["portability", "round-trip", str(input_file), "--host", "codex"])
+    second = runner.invoke(app, ["portability", "round-trip", str(input_file), "--host", "codex"])
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert first.output == second.output
+    assert json.loads(first.output)["schema_version"] == "mcp-config-portability-report.v1"
+
+
+def test_cli_secret_validation_failures_are_redacted_and_stable(tmp_path: Path) -> None:
+    neutral = json.loads(read_fixture("remote-http.json"))
+    neutral["servers"]["remoteDemo"]["transport"]["url"] = (
+        "https://example.invalid/mcp?token=cli-purple-credential"
+    )
+    neutral_path = tmp_path / "neutral-secret-url.json"
+    neutral_path.write_text(json.dumps(neutral), encoding="utf-8")
+
+    host_path = tmp_path / "host-secret-url.json"
+    host_path.write_text(
+        '{"servers":{"demo":{"type":"http","url":"https://example.invalid/mcp?access_token=cli-yellow-credential"}}}',
+        encoding="utf-8",
+    )
+
+    command_lines = [
+        ["portability", "validate", str(neutral_path)],
+        ["portability", "round-trip", str(neutral_path), "--host", "codex"],
+        ["portability", "inspect", str(host_path), "--host", "vscode"],
+    ]
+    for command_line in command_lines:
+        first = runner.invoke(app, command_line)
+        second = runner.invoke(app, command_line)
+        assert first.exit_code == 2
+        assert second.exit_code == 2
+        assert first.output == second.output
+        assert "cli-purple-credential" not in first.output
+        assert "cli-yellow-credential" not in first.output
+        assert "input_value" not in first.output
 
 
 def test_cli_schema_command() -> None:

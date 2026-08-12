@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import tomllib
 
-from mcp_trust.portability.errors import PortabilityInputError
+from mcp_trust.portability.errors import PortabilityInputError, safe_error_text
 from mcp_trust.portability.models import (
     AuthRequirement,
     ChangeState,
@@ -268,7 +268,11 @@ class CodexAdapter:
         try:
             root = tomllib.loads(document)
         except (tomllib.TOMLDecodeError, UnicodeError) as exc:
-            raise PortabilityInputError(f"invalid Codex TOML: {exc}") from exc
+            public_error = PortabilityInputError(f"invalid Codex TOML: {safe_error_text(exc)}")
+        else:
+            public_error = None
+        if public_error is not None:
+            raise public_error
         raw_servers = root.get("mcp_servers")
         if not isinstance(raw_servers, dict):
             raise PortabilityInputError("Codex input must contain an [mcp_servers] table")

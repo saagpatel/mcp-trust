@@ -41,7 +41,7 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise PortabilityInputError(f"duplicate JSON key: {key}")
+            raise PortabilityInputError("duplicate JSON key")
         result[key] = value
     return result
 
@@ -49,8 +49,16 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
 def _load_json(document: str) -> dict[str, object]:
     try:
         parsed = json.loads(document, object_pairs_hook=_reject_duplicate_pairs)
-    except (json.JSONDecodeError, UnicodeError) as exc:
-        raise PortabilityInputError(f"invalid JSON: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        public_error = PortabilityInputError(
+            f"invalid JSON at line {exc.lineno}, column {exc.colno}"
+        )
+    except UnicodeError:
+        public_error = PortabilityInputError("invalid JSON text encoding")
+    else:
+        public_error = None
+    if public_error is not None:
+        raise public_error
     if not isinstance(parsed, dict):
         raise PortabilityInputError("host configuration must be a JSON object")
     return parsed
@@ -183,6 +191,16 @@ class _JsonHostAdapter:
                 if headers:
                     raw["headers"] = headers
 
+            if server.auth.kind == "bearer" and isinstance(server.transport, StdioTransport):
+                changes.append(
+                    change(
+                        name,
+                        "auth",
+                        ChangeState.UNSUPPORTED,
+                        "Bearer authentication is not a documented stdio server setting for this host; the requirement was not emitted.",
+                    )
+                )
+
             if server.auth.kind == "oauth":
                 if self.host == "claude-code" and isinstance(server.transport, HttpTransport):
                     if server.auth.scopes:
@@ -243,7 +261,7 @@ class _JsonHostAdapter:
                 )
             if server.startup.tool_timeout_seconds is not None:
                 if self.profile.supports_tool_timeout:
-                    raw["timeout"] = int(round(server.startup.tool_timeout_seconds * 1000))
+                    raw["timeout"] = max(1, int(round(server.startup.tool_timeout_seconds * 1000)))
                     changes.append(
                         change(
                             name,

@@ -15,6 +15,9 @@ REPORT_SCHEMA_VERSION = "mcp-config-portability-report.v1"
 RESEARCH_AS_OF = "2026-08-11"
 MCP_PROTOCOL_VERSION = "2026-07-28"
 MCP_REGISTRY_SCHEMA_VERSION = "2025-12-11"
+MIN_TIMEOUT_SECONDS = 0.001
+MAX_TIMEOUT_MILLISECONDS = (1 << 53) - 1
+MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MILLISECONDS / 1000
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -34,9 +37,25 @@ _SENSITIVE_QUERY_NAMES = {
     "api_key",
     "apikey",
     "secret",
+    "client_secret",
     "password",
+    "passwd",
     "auth",
+    "authorization",
+    "code",
+    "credential",
+    "key",
+    "session",
+    "sig",
+    "signature",
 }
+
+
+def _is_sensitive_query_name(name: str) -> bool:
+    normalized = name.lower().replace("-", "_").replace(".", "_")
+    return normalized in _SENSITIVE_QUERY_NAMES or normalized.endswith(
+        ("_credential", "_key", "_password", "_secret", "_signature", "_token")
+    )
 
 
 class StrictModel(BaseModel):
@@ -116,7 +135,7 @@ class HttpTransport(StrictModel):
             raise ValueError("remote MCP URLs must use http or https and include a host")
         if parsed.username or parsed.password:
             raise ValueError("remote MCP URLs cannot embed credentials")
-        if any(name.lower() in _SENSITIVE_QUERY_NAMES for name, _ in parse_qsl(parsed.query)):
+        if any(_is_sensitive_query_name(name) for name, _ in parse_qsl(parsed.query)):
             raise ValueError("remote MCP URLs cannot carry secret-like query parameters")
         return value
 
@@ -132,6 +151,7 @@ class AuthRequirement(StrictModel):
 
     @model_validator(mode="after")
     def validate_auth(self) -> AuthRequirement:
+        self.scopes = sorted(set(self.scopes))
         if self.kind == "bearer" and self.token is None:
             raise ValueError("bearer auth requires a placeholder token source")
         if self.kind != "bearer" and self.token is not None:
@@ -144,15 +164,25 @@ class ScopePolicy(StrictModel):
     deny: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def stable_unique(self) -> ScopePolicy:
-        if len(set(self.allow)) != len(self.allow) or len(set(self.deny)) != len(self.deny):
-            raise ValueError("scope names must be unique")
+    def stable_set(self) -> ScopePolicy:
+        self.allow = sorted(set(self.allow))
+        self.deny = sorted(set(self.deny))
         return self
 
 
 class StartupPolicy(StrictModel):
-    startup_timeout_seconds: float | None = Field(default=None, gt=0)
-    tool_timeout_seconds: float | None = Field(default=None, gt=0)
+    startup_timeout_seconds: float | None = Field(
+        default=None,
+        ge=MIN_TIMEOUT_SECONDS,
+        le=MAX_TIMEOUT_SECONDS,
+        allow_inf_nan=False,
+    )
+    tool_timeout_seconds: float | None = Field(
+        default=None,
+        ge=MIN_TIMEOUT_SECONDS,
+        le=MAX_TIMEOUT_SECONDS,
+        allow_inf_nan=False,
+    )
     required: bool | None = None
 
 

@@ -55,7 +55,14 @@ preview, and is not treated as a host configuration format.
 - The neutral model is a versioned union of documented host capabilities, not
   a claim that the hosts share a schema.
 - Seconds are the neutral timeout unit. Claude Code tool timeouts transform to
-  milliseconds; Codex retains seconds.
+  milliseconds; Codex retains seconds. The neutral schema rejects positive
+  values below one millisecond so an integer-millisecond host cannot silently
+  round them to zero. It also rejects non-finite values and values above the
+  largest exact JSON integer in milliseconds.
+- OAuth, tool, and resource scope collections are semantic sets. Input order
+  and duplicates are normalized deterministically; round-trip widening is
+  decided from actual set changes, including the unrestricted meaning of an
+  empty allowlist.
 - A disabled server is omitted for hosts whose rendered document cannot carry
   enablement. This is reported as `dropped` and avoids silently widening a
   disabled intent into an enabled connection.
@@ -88,6 +95,10 @@ Literal secret fields do not exist. Bearer tokens, headers, and environment
 values are references only. Suspected secret-bearing command arguments are
 rejected in neutral input and redacted during host inspection. URLs with
 embedded credentials or secret-like query parameter names are rejected.
+Validation diagnostics retain safe field locations and constraint messages but
+discard rejected input values. Bearer requirements on stdio transports are
+reported as unsupported rather than silently omitted. Timeout values have a
+one-millisecond minimum.
 
 Export the exact JSON Schema with:
 
