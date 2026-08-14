@@ -581,6 +581,7 @@ def _provenance_card(
     record: ScanRecord | None,
     *,
     masked_scan_succeeded: bool = False,
+    unknown_scan: bool = False,
 ) -> str:
     """Provenance & dispute card: how this entry got listed, exactly what was
     scanned, and the standing dispute path for the graded party."""
@@ -593,7 +594,14 @@ def _provenance_card(
         "<li><strong>Listing basis:</strong> operator-listed from a public catalog. "
         "This entry was not submitted by its vendor.</li>"
     ]
-    if masked_scan_succeeded:
+    if unknown_scan:
+        items.append(
+            f"<li><strong>Scan target:</strong> the configured {escape(str(kind))} "
+            f"target <code>{ref}</code>. The newest stored scan record is unreadable, "
+            "so no grade or scan provenance is served and older evidence is not used "
+            "as a fallback.</li>"
+        )
+    elif masked_scan_succeeded:
         items.append(
             f"<li><strong>Scan target:</strong> the configured {escape(str(kind))} "
             f"target <code>{ref}</code>. A bound, grade-free proof records a "
@@ -875,6 +883,8 @@ def render_detail(
     now: datetime | None = None,
     masked: bool = False,
     masked_scan_succeeded: bool = False,
+    unknown_scan: bool = False,
+    unknown_history: bool = False,
     history: Sequence[ScanRecord] = (),
 ) -> str:
     """Render the detail page for one server.
@@ -920,7 +930,7 @@ def render_detail(
         engine_version = escape(str(record.engine_version))
         findings = list(record.findings)
     else:
-        grade = "unscanned"
+        grade = "unknown" if unknown_scan else "unscanned"
         transparency = ""
         composite_val = None
         scanned_at_raw = ""
@@ -949,12 +959,19 @@ def render_detail(
         if scanned_at_raw
         else "Verified; details withheld"
         if masked_scan_succeeded
+        else "Unreadable — status UNKNOWN"
+        if unknown_scan
         else "Never"
     )
     if stale and not masked:
         scanned_str += " (stale)"
 
-    if masked:
+    if unknown_scan:
+        status_chip = (
+            f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
+            "UNKNOWN — stored evidence unreadable</span>"
+        )
+    elif masked:
         status_chip = (
             f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
             "grade withheld — under governance review</span>"
@@ -1030,7 +1047,16 @@ def render_detail(
 
     hero += "</div>"  # close meta-row
 
-    if masked_scan_succeeded and record is None:
+    if unknown_scan:
+        hero += (
+            '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
+            'border-left:3px solid #8b949e;padding-left:0.75rem">'
+            "<strong>UNKNOWN:</strong> the newest stored scan record could not be "
+            "validated. No grade, findings, or provenance are served, and an older "
+            "grade is not substituted."
+            "</p>"
+        )
+    elif masked_scan_succeeded and record is None:
         hero += (
             '<p style="margin-top:1rem;font-size:0.85rem;color:#57606a;'
             'border-left:3px solid #57606a;padding-left:0.75rem">'
@@ -1094,7 +1120,15 @@ def render_detail(
 
     hero += "</div>"  # close card
 
-    history_section = _history_section(grade_timeline(history), masked=masked, generated_at=now)
+    history_section = (
+        '<div class="card"><h2 style="font-size:1rem;font-weight:600;'
+        'margin-bottom:0.75rem">Scan history</h2>'
+        '<p style="color:#57606a;font-size:0.9rem"><strong>SCAN HISTORY UNKNOWN:</strong> '
+        "one or more stored historical records are unreadable. The latest readable "
+        "scan remains shown, but no grade-change claim is available.</p></div>"
+        if unknown_history
+        else _history_section(grade_timeline(history), masked=masked, generated_at=now)
+    )
 
     # --- Badge embed box ---
     badge_url = f"{base_url}/servers/{server.slug}/badge.json"
@@ -1121,6 +1155,11 @@ def render_detail(
         findings_table = (
             '<p style="color:#57606a;font-size:0.9rem">Finding detail is withheld '
             "while this entry's grade is under governance review.</p>"
+        )
+    elif unknown_scan:
+        findings_table = (
+            '<p style="color:#57606a;font-size:0.9rem">UNKNOWN — stored finding '
+            "evidence is unreadable; no clean finding claim is available.</p>"
         )
     elif findings:
         finding_rows: list[str] = []
@@ -1191,6 +1230,7 @@ def render_detail(
         server,
         record,
         masked_scan_succeeded=masked_scan_succeeded,
+        unknown_scan=unknown_scan,
     )
 
     # --- Back link ---

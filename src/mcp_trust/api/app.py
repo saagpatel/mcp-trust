@@ -21,7 +21,7 @@ from mcp_trust.core.governance import (
     is_stale,
 )
 from mcp_trust.core.models import ScanRecord, Server, TrustGrade
-from mcp_trust.core.provenance import classify, is_real_engine
+from mcp_trust.core.provenance import DEMO_DISCLOSURE, ScanProvenance, classify, is_real_engine
 from mcp_trust.engine.base import ScanEngine, ScanError
 from mcp_trust.receipts import write_scan_receipt
 from mcp_trust.site.badges import badge_payload
@@ -42,6 +42,8 @@ class ServerSummary(BaseModel):
     transparency: str | None
     composite: float | None
     scanned_at: datetime | None
+    provenance: str
+    stale: bool
     masked: bool = False
 
 
@@ -89,6 +91,8 @@ def _public_scan_payload(scan: ScanRecord | None, *, masked: bool) -> dict[str, 
     if scan is None:
         return None
     payload = scan.model_dump(mode="json")
+    payload["provenance"] = str(classify(scan))
+    payload["stale"] = is_stale(scan.scanned_at, datetime.now(tz=UTC))
     payload["masked"] = masked
     if masked:
         payload.update(
@@ -118,6 +122,16 @@ def _public_summary_grade(scan: ScanRecord | None, *, masked: bool) -> str:
     if masked:
         return MASKED_BADGE_MESSAGE
     return str(scan.grade)
+
+
+def _unknown_scan_payload() -> dict[str, Any]:
+    return {
+        "status": "UNKNOWN",
+        "reason_codes": ["SCAN_RECORD_UNREADABLE"],
+        "provenance": str(ScanProvenance.UNKNOWN),
+        "stale": False,
+        "masked": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -200,20 +214,34 @@ def create_app(
         scan_repo = ScanRepository(db)
 
         servers = server_repo.list()
-        latest = scan_repo.latest_all()
+        latest_readback = scan_repo.latest_all_readback()
+        latest = latest_readback.records
 
         result: list[dict[str, Any]] = []
         for srv in servers:
             scan = latest.get(srv.slug)
+            unknown_scan = srv.slug in latest_readback.unreadable_slugs
             masked = srv.slug in _masked and scan is not None
             result.append(
                 {
                     "slug": srv.slug,
                     "name": srv.name,
-                    "grade": _public_summary_grade(scan, masked=masked),
+                    "grade": (
+                        "unknown"
+                        if unknown_scan
+                        else _public_summary_grade(scan, masked=masked)
+                    ),
                     "transparency": None if masked else scan.transparency if scan else None,
                     "composite": None if masked else scan.risk.composite if scan else None,
                     "scanned_at": scan.scanned_at if scan else None,
+                    "provenance": str(
+                        ScanProvenance.UNKNOWN if unknown_scan else classify(scan)
+                    ),
+                    "stale": (
+                        is_stale(scan.scanned_at, datetime.now(tz=UTC))
+                        if scan is not None
+                        else False
+                    ),
                     "masked": masked,
                 }
             )
@@ -229,16 +257,39 @@ def create_app(
         if server is None:
             raise HTTPException(status_code=404, detail=f"Server {slug!r} not found.")
 
-        scan = scan_repo.latest(slug)
+        try:
+            scan = scan_repo.latest(slug)
+        except (TypeError, ValueError):
+            return {
+                "server": _public_server_payload(server, masked=slug in _masked),
+                "latest_scan": _unknown_scan_payload(),
+                "grade_change": None,
+            }
+        try:
+            history = scan_repo.history(slug)
+            grade_change: dict[str, Any] | None = None
+        except (TypeError, ValueError):
+            history = []
+            grade_change = {
+                "status": "UNKNOWN",
+                "reason_codes": ["SCAN_HISTORY_UNREADABLE"],
+            }
         operator_masked = slug in _masked
         scan_masked = operator_masked and scan is not None
-        grade_change = latest_grade_change(scan_repo.history(slug))
+        readable_grade_change = latest_grade_change(history)
         return {
             "server": _public_server_payload(server, masked=operator_masked),
             "latest_scan": _public_scan_payload(scan, masked=scan_masked),
-            "grade_change": None
-            if scan_masked
-            else (grade_change.model_dump(mode="json") if grade_change else None),
+            "grade_change": (
+                None
+                if scan_masked
+                else grade_change
+                or (
+                    readable_grade_change.model_dump(mode="json")
+                    if readable_grade_change
+                    else None
+                )
+            ),
         }
 
     @application.post("/servers/{slug}/scan")
@@ -280,7 +331,9 @@ def create_app(
         if receipt_ref is not None:
             scan = scan.model_copy(update={"report_ref": receipt_ref})
         scan_repo.record(scan)
-        return scan.model_dump(mode="json")
+        public_scan = _public_scan_payload(scan, masked=False)
+        assert public_scan is not None
+        return public_scan
 
     @application.get("/servers/{slug}/badge.json")
     async def badge(slug: str) -> dict[str, Any]:
@@ -292,7 +345,10 @@ def create_app(
         if server is None:
             raise HTTPException(status_code=404, detail=f"Server {slug!r} not found.")
 
-        scan = scan_repo.latest(slug)
+        try:
+            scan = scan_repo.latest(slug)
+        except (TypeError, ValueError):
+            return badge_payload("unknown", ScanProvenance.UNKNOWN)
         # Single payload path with the static badge files (site.badges), so the
         # live embed endpoint can never diverge on provenance, staleness, or
         # operator masking.
@@ -314,23 +370,39 @@ def create_app(
         scan_repo = ScanRepository(db)
 
         servers = server_repo.list()
-        latest = scan_repo.latest_all()
+        latest_readback = scan_repo.latest_all_readback()
+        latest = latest_readback.records
 
         rows = []
+        has_demo = False
         for srv in servers:
             scan = latest.get(srv.slug)
+            unknown_scan = srv.slug in latest_readback.unreadable_slugs
+            has_demo = has_demo or classify(scan) is ScanProvenance.DEMO
             rows.append(
                 {
                     "slug": srv.slug,
                     "name": srv.name,
-                    "grade": str(scan.grade) if scan else str(TrustGrade.UNSCANNED),
+                    "grade": (
+                        "unknown"
+                        if unknown_scan
+                        else str(scan.grade)
+                        if scan
+                        else str(TrustGrade.UNSCANNED)
+                    ),
                     "transparency": str(scan.transparency) if scan else "",
                     "composite": scan.risk.composite if scan else None,
                     "scanned_at": scan.scanned_at.isoformat() if scan else "",
                     "masked": srv.slug in _masked and scan is not None,
                 }
             )
-        return HTMLResponse(content=render_catalog(rows, now=datetime.now(tz=UTC)))
+        return HTMLResponse(
+            content=render_catalog(
+                rows,
+                banner=DEMO_DISCLOSURE if has_demo else None,
+                now=datetime.now(tz=UTC),
+            )
+        )
 
     @application.get("/ui/servers/{slug}", response_class=HTMLResponse)
     async def server_detail_page(slug: str, request: Request) -> HTMLResponse:
@@ -344,15 +416,36 @@ def create_app(
         if server is None:
             return HTMLResponse(content=render_not_found(slug), status_code=404)
 
-        history = scan_repo.history(slug)
+        try:
+            latest_scan = scan_repo.latest(slug)
+            unknown_scan = False
+        except (TypeError, ValueError):
+            history = []
+            latest_scan = None
+            unknown_scan = True
+            unknown_history = False
+        else:
+            try:
+                history = scan_repo.history(slug)
+                unknown_history = False
+            except (TypeError, ValueError):
+                history = []
+                unknown_history = True
         base_url = str(request.base_url).rstrip("/")
         return HTMLResponse(
             content=render_detail(
                 server,
-                scan_repo.latest(slug),
+                latest_scan,
                 base_url=base_url,
+                banner=(
+                    DEMO_DISCLOSURE
+                    if classify(latest_scan) is ScanProvenance.DEMO
+                    else None
+                ),
                 now=datetime.now(tz=UTC),
                 masked=slug in _masked,
+                unknown_scan=unknown_scan,
+                unknown_history=unknown_history,
                 history=history,
             )
         )

@@ -2,15 +2,41 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
+from dataclasses import dataclass
 
 from pydantic import ValidationError
 
 from mcp_trust.core.models import ScanRecord, Server, ServerSource
 
 _log = logging.getLogger(__name__)
+_MAX_STORED_JSON_BYTES = 1_048_576
+_MAX_STORED_FINDINGS = 1_024
+_MAX_STORED_TOOLS = 2_048
+
+
+def _load_stored_json(value: object) -> object:
+    if not isinstance(value, str) or len(value) > _MAX_STORED_JSON_BYTES:
+        raise ValueError("stored JSON exceeds the admission limit")
+    if len(value.encode("utf-8")) > _MAX_STORED_JSON_BYTES:
+        raise ValueError("stored JSON exceeds the admission limit")
+    return json.loads(value)
+
+
+def _row_digest(value: object) -> str:
+    text = value if isinstance(value, str) else type(value).__name__
+    return hashlib.sha256(text[:1_024].encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+@dataclass(frozen=True)
+class LatestScanReadback:
+    """Latest readable scans plus slugs whose newest row failed admission."""
+
+    records: dict[str, ScanRecord]
+    unreadable_slugs: frozenset[str]
 
 
 class ServerRepository:
@@ -64,7 +90,7 @@ class ServerRepository:
     @staticmethod
     def _row_to_server(row: sqlite3.Row) -> Server | None:
         try:
-            source = ServerSource.model_validate(json.loads(row["source_json"]))
+            source = ServerSource.model_validate(_load_stored_json(row["source_json"]))
             return Server(
                 slug=row["slug"],
                 name=row["name"],
@@ -73,10 +99,10 @@ class ServerRepository:
                 homepage=row["homepage"],
                 added_at=row["added_at"],
             )
-        except (json.JSONDecodeError, ValidationError) as exc:
+        except (json.JSONDecodeError, TypeError, UnicodeError, ValueError, ValidationError):
             # Corrupt or schema-drifted/hostile row — drop it and surface the slug
             # rather than letting an opaque error abort the entire read.
-            _log.warning("skipping invalid server row %r: %s", row["slug"], exc)
+            _log.warning("skipping invalid server row [row:%s]", _row_digest(row["slug"]))
             return None
 
 
@@ -149,6 +175,10 @@ class ScanRepository:
 
     def latest_all(self) -> dict[str, ScanRecord]:
         """Return a slug → latest ``ScanRecord`` mapping for all servers."""
+        return self.latest_all_readback().records
+
+    def latest_all_readback(self) -> LatestScanReadback:
+        """Return latest scans without falling back past an unreadable newest row."""
         rows = self._conn.execute(
             """
             SELECT s.*
@@ -162,7 +192,21 @@ class ScanRepository:
             ORDER BY s.id ASC
             """
         ).fetchall()
-        return {row["server_slug"]: self._row_to_scan(row) for row in rows}
+        records: dict[str, ScanRecord] = {}
+        unreadable: set[str] = set()
+        for row in rows:
+            slug = str(row["server_slug"])
+            try:
+                records[slug] = self._row_to_scan(row)
+                unreadable.discard(slug)
+            except (TypeError, ValueError):
+                # Do not include exception text: corrupt JSON can contain
+                # attacker-controlled or secret-bearing values. The newest row
+                # remains authoritative, so never resurrect an older grade.
+                _log.warning("latest scan row is unreadable [row:%s]", _row_digest(slug))
+                records.pop(slug, None)
+                unreadable.add(slug)
+        return LatestScanReadback(records=records, unreadable_slugs=frozenset(unreadable))
 
     @staticmethod
     def _row_to_scan(row: sqlite3.Row) -> ScanRecord:
@@ -177,13 +221,15 @@ class ScanRepository:
         )
 
         try:
-            risk = RiskSummary.model_validate(json.loads(row["risk_json"]))
-            findings_raw = json.loads(row["findings_json"])
+            risk = RiskSummary.model_validate(_load_stored_json(row["risk_json"]))
+            findings_raw = _load_stored_json(row["findings_json"])
+            if not isinstance(findings_raw, list) or len(findings_raw) > _MAX_STORED_FINDINGS:
+                raise ValueError("stored findings exceed the admission limit")
             findings = [Finding.model_validate(f) for f in findings_raw]
-        except (json.JSONDecodeError, ValidationError) as exc:
+        except (json.JSONDecodeError, TypeError, UnicodeError, ValueError, ValidationError) as exc:
             # Corrupt or schema-drifted row — surface the offending id rather
             # than letting an opaque error bubble up as a 500.
-            raise ValueError(f"Corrupt scan record {row['id']!r}: {exc}") from exc
+            raise ValueError(f"Corrupt scan record [row:{_row_digest(row['id'])}]") from exc
         # transparency column is back-compat (older rows default to 'high').
         keys = row.keys()
         transparency = (
@@ -194,9 +240,22 @@ class ScanRepository:
         evidence = None
         if "evidence_json" in keys and row["evidence_json"]:
             try:
-                evidence = ScanEvidence.model_validate(json.loads(row["evidence_json"]))
-            except (json.JSONDecodeError, ValidationError) as exc:
-                raise ValueError(f"Corrupt scan evidence {row['id']!r}: {exc}") from exc
+                evidence_raw = _load_stored_json(row["evidence_json"])
+                if (
+                    isinstance(evidence_raw, dict)
+                    and isinstance(evidence_raw.get("tools"), list)
+                    and len(evidence_raw["tools"]) > _MAX_STORED_TOOLS
+                ):
+                    raise ValueError("stored tools exceed the admission limit")
+                evidence = ScanEvidence.model_validate(evidence_raw)
+            except (
+                json.JSONDecodeError,
+                TypeError,
+                UnicodeError,
+                ValueError,
+                ValidationError,
+            ) as exc:
+                raise ValueError(f"Corrupt scan evidence [row:{_row_digest(row['id'])}]") from exc
         # sandbox_image column is back-compat (older rows predate it → None).
         sandbox_image = row["sandbox_image"] if "sandbox_image" in keys else None
         return ScanRecord(
