@@ -62,19 +62,19 @@ an unannotated server means "cannot verify safe," not "known dangerous." Public
 copy must keep that distinction visible.
 
 ## Data model (already defined in `core/models.py` — do not redefine)
-- `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are NAMES only, never values.
+- `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are unique uppercase environment-variable NAMES only, never values.
 - `Server{ slug, name, description, source, homepage?, added_at }`
 - `RiskSummary{ composite, file_access, network_access, shell_execution, destructive, exfiltration, findings_by_severity }` (all 0–10)
 - `Finding{ rule_id, title, severity, category, detail }`
-- `ScanRecord{ id, server_slug, engine_name, engine_version, grade, risk, findings[], scanned_at, report_ref? }`
+- `ScanRecord{ id, server_slug, engine_name, engine_version, grade, risk, findings[], scanned_at, report_ref? }` — scan IDs are portable ASCII identifiers and `server_slug` uses the catalog-safe slug grammar.
 - `TrustGrade` ∈ {A,B,C,D,F,unscanned}; derived only via `core.grading.grade(risk)`.
 
 ## API surface (MVP)
 - `GET  /` → **web** catalog page (HTML): servers + danger grade + transparency.
 - `GET  /ui/servers/{slug}` → **web** detail page (HTML): grade, transparency (+ caveat on low), findings, README badge-embed snippet. 404 page on unknown slug.
 - `GET  /healthz` → `{"status":"ok"}`
-- `GET  /servers` → `[{slug, name, grade, composite, scanned_at}]` (catalog + latest grade)
-- `GET  /servers/{slug}` → full latest `ScanRecord` + `Server` metadata; 404 if unknown.
+- `GET  /servers` → `[{slug, name, grade, composite, scanned_at, provenance, stale, masked}]` (catalog + latest public claim state)
+- `GET  /servers/{slug}` → full latest public `ScanRecord` with provenance/staleness + `Server` metadata; 404 if the server is unknown. An unreadable newest scan returns a content-free `UNKNOWN` envelope and never falls back to an older grade.
 - `POST /servers/{slug}/scan` → operator scan trigger. Fail-closed by default;
   public deployments set `MCP_TRUST_PUBLIC_READONLY=1`. Local stub API demos may
   opt in with `MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS=1`; never set that in
@@ -97,10 +97,16 @@ copy must keep that distinction visible.
 ## Storage
 SQLite (matches the substrate's house style). Two tables: `servers` (slug PK,
 JSON source) and `scans` (id PK, server_slug FK, JSON risk/findings, grade,
-scanned_at). "Latest scan per server" = most recent `scanned_at`.
+scanned_at). "Latest scan per server" = most recent `scanned_at`, with `id DESC`
+as the deterministic tie-break. Stored JSON fields are admitted with a 1 MiB
+ceiling; oversized or unreadable newest evidence is `UNKNOWN`, not an older-row
+fallback. Unreadable older evidence does not erase a readable latest grade, but
+history and grade-change projections remain explicitly `UNKNOWN`.
 
 When `MCP_TRUST_RECEIPTS_DIR` is configured, each scan also writes a JSON receipt
 artifact and stores its portable artifact filename in `ScanRecord.report_ref`.
+The receipt writer requires the server and scan identities to match before it
+creates a directory or file.
 Receipts are the public proof packet behind a grade: source spec, scan metadata,
 sandbox metadata, risk dimensions, findings, and caveats.
 
