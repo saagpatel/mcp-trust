@@ -9,15 +9,19 @@ optional receipt-backed scan evidence. They do not launch scans or infer grades.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from mcp_trust.core.models import TransparencyLevel, TrustGrade
 from mcp_trust.corpus.registry import CandidateMode, Freshness
+
+_MAX_CORPUS_RECORD_BYTES = 1_048_576
+_RECORD_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class CorpusRecordStatus(StrEnum):
@@ -60,6 +64,18 @@ class ReceiptEvidenceRef(BaseModel):
     schema_hash_algorithm: str = "sha256"
     grade_source: GradeSource = GradeSource.CONTROLLED_LIVE_SCAN
 
+    @field_validator("receipt_ref")
+    @classmethod
+    def _validate_receipt_ref(cls, value: str) -> str:
+        if not value or len(value) > 512:
+            raise ValueError("receipt_ref must be a non-empty portable relative path")
+        if value.startswith("/") or "\\" in value or any(ord(char) < 32 for char in value):
+            raise ValueError("receipt_ref must be a portable relative path")
+        segments = value.split("/")
+        if any(segment in {"", ".", ".."} for segment in segments):
+            raise ValueError("receipt_ref must not contain empty or traversal segments")
+        return value
+
 
 class PublicCorpusRecord(BaseModel):
     """Reviewed public-corpus candidate or record.
@@ -79,6 +95,13 @@ class PublicCorpusRecord(BaseModel):
     source_caveats: list[str] = Field(default_factory=list)
     receipt: ReceiptEvidenceRef | None = None
     publish_caveats: list[str] = Field(default_factory=list)
+
+    @field_validator("record_id")
+    @classmethod
+    def _validate_record_id(cls, value: str) -> str:
+        if len(value) > 128 or not _RECORD_ID_RE.fullmatch(value):
+            raise ValueError("record_id must be a lowercase catalog-safe identifier")
+        return value
 
     @model_validator(mode="after")
     def _validate_public_boundaries(self) -> PublicCorpusRecord:
@@ -106,10 +129,20 @@ class CorpusRecordSet(BaseModel):
     format_version: int = 1
     records: list[PublicCorpusRecord] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_unique_record_ids(self) -> CorpusRecordSet:
+        record_ids = [record.record_id for record in self.records]
+        if len(record_ids) != len(set(record_ids)):
+            raise ValueError("corpus records contain duplicate record_id values")
+        return self
+
 
 def load_corpus_records(path: str | Path) -> CorpusRecordSet:
     """Load and validate a corpus record set from JSON."""
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    corpus_path = Path(path)
+    if corpus_path.stat().st_size > _MAX_CORPUS_RECORD_BYTES:
+        raise ValueError("corpus record file is too large")
+    payload = json.loads(corpus_path.read_text(encoding="utf-8"))
     return CorpusRecordSet.model_validate(payload)
 
 

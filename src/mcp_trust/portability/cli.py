@@ -47,9 +47,12 @@ _REAL_HOST_CONFIG_NAMES = {
     "config.toml",
     "mcp.json",
 }
+_MAX_INPUT_BYTES = 1_048_576
 
 
 def _read(path: Path) -> str:
+    if path.stat().st_size > _MAX_INPUT_BYTES:
+        raise PortabilityError("input file is too large")
     return path.read_text(encoding="utf-8")
 
 

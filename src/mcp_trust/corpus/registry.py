@@ -9,6 +9,9 @@ contacts an MCP server.
 
 from __future__ import annotations
 
+import hashlib
+import re
+import unicodedata
 from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -29,6 +32,8 @@ REGISTRY_SCHEMA_URL = (
 _ACTIVE_STATUSES = {"active", ""}
 _NON_LIVE_STATUSES = {"deprecated", "deleted"}
 _EXACT_VERSION_SEPARATORS = ("==", "@")
+_ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 
 
 class CandidateMode(StrEnum):
@@ -64,6 +69,11 @@ def build_registry_candidate_manifest(
     or a plain list of server objects. The function reads only the provided data.
     """
     generated_at = generated_at or datetime.now(tz=UTC)
+    generated_at = (
+        generated_at.replace(tzinfo=UTC)
+        if generated_at.tzinfo is None
+        else generated_at.astimezone(UTC)
+    )
     servers = _extract_servers(registry_payload)
     candidates = [_candidate_from_server(server, generated_at) for server in servers]
     candidates.sort(key=_candidate_sort_key)
@@ -153,7 +163,9 @@ def _candidate_from_server(server: dict[str, Any], generated_at: datetime) -> di
     is_latest = _bool_or_none(meta.get("isLatest", server.get("isLatest")))
     published_at = _string(meta.get("publishedAt") or server.get("publishedAt"))
     updated_at = _string(meta.get("updatedAt") or server.get("updatedAt"))
-    freshness = _freshness(status, updated_at or published_at, generated_at)
+    freshness_source = updated_at or published_at
+    freshness = _freshness(status, freshness_source, generated_at)
+    timestamp_in_future = _timestamp_is_future(freshness_source, generated_at)
 
     packages = _packages(server)
     remotes = _remotes(server)
@@ -168,6 +180,7 @@ def _candidate_from_server(server: dict[str, Any], generated_at: datetime) -> di
         packages=packages,
         remotes=remotes,
         secret_keys=env["secret_env_key_names"],
+        invalid_env_key_count=env["invalid_env_key_count"],
         package_refs=package_refs,
     )
     has_source = bool(repository.get("url"))
@@ -176,8 +189,10 @@ def _candidate_from_server(server: dict[str, Any], generated_at: datetime) -> di
         and status in _ACTIVE_STATUSES
         and is_latest is not False
         and freshness in {Freshness.FRESH, Freshness.AGING, Freshness.UNKNOWN}
+        and not timestamp_in_future
         and env["required_secret_keys"] == []
         and env["secret_env_key_names"] == []
+        and env["invalid_env_key_count"] == 0
         and _has_exact_package_ref(package_refs)
         and has_source
         and remote_refs == []
@@ -190,6 +205,8 @@ def _candidate_from_server(server: dict[str, Any], generated_at: datetime) -> di
         freshness=freshness,
         required_secret_keys=env["required_secret_keys"],
         secret_env_key_names=env["secret_env_key_names"],
+        invalid_env_key_count=env["invalid_env_key_count"],
+        timestamp_in_future=timestamp_in_future,
         package_refs=package_refs,
         repository=repository,
         remote_refs=remote_refs,
@@ -206,6 +223,7 @@ def _candidate_from_server(server: dict[str, Any], generated_at: datetime) -> di
         "published_at": published_at,
         "updated_at": updated_at,
         "freshness": str(freshness),
+        "timestamp_in_future": timestamp_in_future,
         "recommended_mode": str(mode),
         "eligible_for_first_live_batch": eligible,
         "selected_for_first_batch": False,
@@ -215,6 +233,7 @@ def _candidate_from_server(server: dict[str, Any], generated_at: datetime) -> di
         "env_key_names": env["env_key_names"],
         "secret_env_key_names": env["secret_env_key_names"],
         "required_secret_keys": env["required_secret_keys"],
+        "invalid_env_key_count": env["invalid_env_key_count"],
         "dedupe_keys": dedupe_keys,
         "reasons": reasons,
         "caveats": [
@@ -294,18 +313,23 @@ def _remote_ref(remote: dict[str, Any]) -> dict[str, Any]:
 
 def _environment_summary(
     packages: list[dict[str, Any]], remotes: list[dict[str, Any]]
-) -> dict[str, list[str]]:
+) -> dict[str, Any]:
     keys: set[str] = set()
     secret_keys: set[str] = set()
     required_secret_keys: set[str] = set()
+    invalid_env_key_count = 0
     for holder in [*packages, *remotes]:
         env_entries = [
-            *_env_entries(holder.get("environmentVariables")),
-            *_env_entries(holder.get("headers")),
+            *((entry, False) for entry in _env_entries(holder.get("environmentVariables"))),
+            *((entry, True) for entry in _env_entries(holder.get("headers"))),
         ]
-        for env in env_entries:
+        for env, is_header in env_entries:
             name = _string(env.get("name") or env.get("key"))
             if not name:
+                continue
+            name_pattern = _HEADER_NAME_RE if is_header else _ENV_KEY_RE
+            if len(name) > 128 or name_pattern.fullmatch(name) is None:
+                invalid_env_key_count += 1
                 continue
             keys.add(name)
             required = bool(env.get("isRequired") or env.get("required"))
@@ -318,6 +342,7 @@ def _environment_summary(
         "env_key_names": sorted(keys),
         "secret_env_key_names": sorted(secret_keys),
         "required_secret_keys": sorted(required_secret_keys),
+        "invalid_env_key_count": invalid_env_key_count,
     }
 
 
@@ -351,9 +376,12 @@ def _recommend_mode(
     packages: list[dict[str, Any]],
     remotes: list[dict[str, Any]],
     secret_keys: list[str],
+    invalid_env_key_count: int,
     package_refs: list[dict[str, Any]],
 ) -> CandidateMode:
     if status in _NON_LIVE_STATUSES or is_latest is False:
+        return CandidateMode.PACKAGE_ONLY
+    if invalid_env_key_count:
         return CandidateMode.PACKAGE_ONLY
     if secret_keys:
         return CandidateMode.CREDENTIALED_SANDBOXED if packages else CandidateMode.REMOTE_NETWORKED
@@ -376,6 +404,8 @@ def _freshness(status: str, timestamp: str | None, generated_at: datetime) -> Fr
     parsed = _parse_datetime(timestamp)
     if parsed is None:
         return Freshness.UNKNOWN
+    if parsed > generated_at:
+        return Freshness.UNKNOWN
     age_days = (generated_at - parsed).days
     if age_days <= 30:
         return Freshness.FRESH
@@ -392,6 +422,13 @@ def _parse_datetime(value: str) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _timestamp_is_future(value: str | None, generated_at: datetime) -> bool:
+    if not value:
+        return False
+    parsed = _parse_datetime(value)
+    return parsed is not None and parsed > generated_at
 
 
 def _dedupe_keys(
@@ -427,6 +464,8 @@ def _reasons(
     freshness: Freshness,
     required_secret_keys: list[str],
     secret_env_key_names: list[str],
+    invalid_env_key_count: int,
+    timestamp_in_future: bool,
     package_refs: list[dict[str, Any]],
     repository: dict[str, str | None],
     remote_refs: list[dict[str, Any]],
@@ -438,10 +477,14 @@ def _reasons(
         reasons.append("registry metadata marks this as not latest")
     if freshness in {Freshness.STALE, Freshness.DEPRECATED, Freshness.DELETED}:
         reasons.append(f"freshness is {freshness}")
+    if timestamp_in_future:
+        reasons.append("registry freshness timestamp is in the future")
     if required_secret_keys:
         reasons.append("required secret env key names are present")
     elif secret_env_key_names:
         reasons.append("secret env key names are present")
+    if invalid_env_key_count:
+        reasons.append("invalid environment variable name metadata is present")
     if remote_refs:
         reasons.append("remote endpoint metadata is present")
     if package_refs and not _has_exact_package_ref(package_refs):
@@ -502,16 +545,21 @@ def _is_exact_version(registry_type: str, identifier: str | None, version: str |
 
 def _stable_id(name: str, version: str | None) -> str:
     base = f"{name}-{version}" if version else name
+    normalized = unicodedata.normalize("NFKC", base).lower()
     slug = []
     last_dash = False
-    for char in base.lower():
-        if char.isalnum():
+    for char in normalized:
+        if char.isascii() and char.isalnum():
             slug.append(char)
             last_dash = False
         elif not last_dash:
             slug.append("-")
             last_dash = True
-    return "".join(slug).strip("-") or "registry-candidate"
+    stable = "".join(slug).strip("-") or "registry-candidate"
+    if any(not char.isascii() for char in base):
+        digest = hashlib.sha256(base.encode("utf-8")).hexdigest()[:12]
+        stable = f"{stable}-{digest}"
+    return stable
 
 
 def _normalize_url(value: str) -> str:
