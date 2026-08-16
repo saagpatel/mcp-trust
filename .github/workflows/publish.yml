@@ -8,27 +8,34 @@ on:
 jobs:
   build-and-publish:
     name: Build and publish to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pypi
     permissions:
       contents: read   # checkout needs read on this (private) repo
       id-token: write  # OIDC trusted publishing
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
-          python-version: "3.11"
+          version: "0.12.4"
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install
 
       # Gate the release on the test suite: a broken tag must not publish.
+      - name: Install frozen dependencies
+        run: uv sync --frozen --extra dev
+
       - name: Test gate
-        run: uv run --extra dev pytest -q
+        run: uv run --no-sync pytest -q
 
       - name: Build wheel and sdist
         run: uv build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist/
