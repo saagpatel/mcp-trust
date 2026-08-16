@@ -8,6 +8,10 @@
 # archived official servers added for corpus expansion are pinned to npm
 # versions observed 2026-07-03 (the repos are archived, no new versions ship).
 # Scan-time execution should use MCP_TRUST_SANDBOX_NETWORK=none.
+#
+# The four Python reference tools below are intentionally installed with the
+# same MCP SDK version.  The latest mcp-server-time release still imports
+# ``mcp.shared.exceptions.McpError``, which was removed in MCP SDK 2.x.
 
 FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
 FROM node:22-slim
@@ -35,9 +39,9 @@ RUN npm install --global \
     "@modelcontextprotocol/server-memory@${SERVER_MEMORY_VERSION}" \
     "@modelcontextprotocol/server-sequential-thinking@${SERVER_SEQUENTIAL_THINKING_VERSION}"
 
-RUN uv tool install --python python3 "mcp-server-fetch==${SERVER_FETCH_VERSION}" \
-    && uv tool install --python python3 "mcp-server-git==${SERVER_GIT_VERSION}" \
-    && uv tool install --python python3 "mcp-server-time==${SERVER_TIME_VERSION}"
+RUN uv tool install --python python3 --with "mcp==1.29.0" "mcp-server-fetch==${SERVER_FETCH_VERSION}" \
+    && uv tool install --python python3 --with "mcp==1.29.0" "mcp-server-git==${SERVER_GIT_VERSION}" \
+    && uv tool install --python python3 --with "mcp==1.29.0" "mcp-server-time==${SERVER_TIME_VERSION}"
 
 # --- Archived official reference servers (corpus expansion 2026-06-27) ---
 # Moved to modelcontextprotocol/servers-archived and no longer maintained.
@@ -51,7 +55,7 @@ RUN npm install --global \
     "@modelcontextprotocol/server-github@2025.4.8" \
     "@modelcontextprotocol/server-aws-kb-retrieval@0.6.2"
 
-RUN uv tool install --python python3 "mcp-server-sqlite==2025.4.25"
+RUN uv tool install --python python3 --with "mcp==1.29.0" "mcp-server-sqlite==2025.4.25"
 
 # --- Credentialed-sandboxed archived servers (corpus expansion 2026-06-28) ---
 # Token/API-key gated. Now baked so the credentialed-sandboxed scan mode
