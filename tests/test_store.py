@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import uuid
 from datetime import UTC, datetime
 
@@ -209,6 +211,35 @@ def test_server_get_invalid_row_returns_none(conn, server_repo) -> None:
     assert server_repo.get("../evil") is None
 
 
+def test_server_list_rejects_oversized_source_without_logging_content(
+    conn, server_repo, caplog
+) -> None:
+    secret_marker = "oversized-source-secret"
+    source_json = json.dumps(
+        {
+            "kind": "npm",
+            "reference": "@example/oversized",
+            "padding": secret_marker + ("x" * 1_100_000),
+        }
+    )
+    conn.execute(
+        "INSERT INTO servers (slug, name, description, source_json, homepage, added_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            secret_marker,
+            "Oversized",
+            "",
+            source_json,
+            None,
+            datetime.now(tz=UTC).isoformat(),
+        ),
+    )
+    conn.commit()
+
+    assert server_repo.list() == []
+    assert secret_marker not in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # ScanRepository tests
 # ---------------------------------------------------------------------------
@@ -366,3 +397,66 @@ def test_scan_latest_all(conn, server_repo, scan_repo) -> None:
 
 def test_scan_latest_all_empty(scan_repo) -> None:
     assert scan_repo.latest_all() == {}
+
+
+def test_scan_latest_all_rejects_oversized_stored_json_without_fallback(
+    conn, server_repo, scan_repo
+) -> None:
+    server = _make_server()
+    server_repo.upsert(server)
+    scan = _make_scan()
+    scan_repo.record(scan)
+    risk_payload = scan.risk.model_dump(mode="json")
+    risk_payload["padding"] = "x" * 1_100_000
+    conn.execute(
+        "UPDATE scans SET risk_json = ? WHERE id = ?",
+        (json.dumps(risk_payload), scan.id),
+    )
+    conn.commit()
+
+    readback = scan_repo.latest_all_readback()
+
+    assert readback.records == {}
+    assert readback.unreadable_slugs == frozenset({server.slug})
+
+
+def test_scan_latest_all_does_not_fallback_with_corrupt_highest_id_timestamp_tie(
+    conn, server_repo, scan_repo
+) -> None:
+    server = _make_server()
+    server_repo.upsert(server)
+    scanned_at = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
+    lower = _make_scan().model_copy(update={"id": "tie-a", "scanned_at": scanned_at})
+    higher = _make_scan().model_copy(update={"id": "tie-z", "scanned_at": scanned_at})
+    scan_repo.record(lower)
+    scan_repo.record(higher)
+    conn.execute("UPDATE scans SET risk_json = ? WHERE id = ?", ("{", higher.id))
+    conn.commit()
+
+    readback = scan_repo.latest_all_readback()
+
+    assert readback.records == {}
+    assert readback.unreadable_slugs == frozenset({server.slug})
+
+
+def test_duplicate_scan_id_is_atomic_and_connection_recovers(
+    server_repo,
+    scan_repo,
+) -> None:
+    server_repo.upsert(_make_server())
+    original = _make_scan().model_copy(update={"id": "duplicate-scan"})
+    conflicting = _make_scan().model_copy(
+        update={"id": original.id, "grade": TrustGrade.F}
+    )
+    scan_repo.record(original)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        scan_repo.record(conflicting)
+
+    assert scan_repo.latest(original.server_slug) == original
+    successor = _make_scan().model_copy(update={"id": "recovery-scan"})
+    scan_repo.record(successor)
+    assert {record.id for record in scan_repo.history(original.server_slug)} == {
+        original.id,
+        successor.id,
+    }

@@ -39,6 +39,8 @@ def receipts_dir_from_env() -> Path | None:
 
 def build_scan_receipt(server: Server, scan: ScanRecord) -> dict[str, Any]:
     """Build the public proof packet for one persisted scan."""
+    if server.slug != scan.server_slug:
+        raise ValueError("receipt identity mismatch between server and scan")
     caveats = [
         "Automated scan output is not an endorsement.",
         "Danger grade and transparency are separate signals.",
@@ -106,10 +108,10 @@ def write_scan_receipt(
     if destination_dir is None:
         return None
 
+    payload = build_scan_receipt(server, scan)
     destination_dir.mkdir(parents=True, exist_ok=True)
     receipt_path = destination_dir / f"{scan.server_slug}-{scan.id}.json"
     tmp_path = receipt_path.with_suffix(".json.tmp")
-    payload = build_scan_receipt(server, scan)
     tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp_path.replace(receipt_path)
     return receipt_path.name

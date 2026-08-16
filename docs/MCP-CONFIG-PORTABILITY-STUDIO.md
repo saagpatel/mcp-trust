@@ -98,7 +98,8 @@ embedded credentials or secret-like query parameter names are rejected.
 Validation diagnostics retain safe field locations and constraint messages but
 discard rejected input values. Bearer requirements on stdio transports are
 reported as unsupported rather than silently omitted. Timeout values have a
-one-millisecond minimum.
+one-millisecond minimum. Every explicit input file is limited to 1 MiB before
+parsing; oversized content is rejected without echoing it into diagnostics.
 
 Export the exact JSON Schema with:
 

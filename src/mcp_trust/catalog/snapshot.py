@@ -60,7 +60,12 @@ def build_snapshot_from_connection(
     conn.row_factory = sqlite3.Row
     server_repo = ServerRepository(conn)
     scan_repo = ScanRepository(conn)
-    latest = scan_repo.latest_all()
+    latest_readback = scan_repo.latest_all_readback()
+    if latest_readback.unreadable_slugs:
+        raise ValueError(
+            "unreadable latest scan rows: " + ",".join(sorted(latest_readback.unreadable_slugs))
+        )
+    latest = latest_readback.records
 
     servers: list[dict[str, object]] = []
     newest = ""

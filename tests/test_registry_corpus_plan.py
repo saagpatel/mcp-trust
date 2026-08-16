@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -282,3 +283,57 @@ def test_registry_corpus_script_is_stdout_only(tmp_path: Path, capsys) -> None:
     assert "eligible for first live batch: 1" in out
     assert "mcp-trust scan" not in out
     assert "docker run" not in out
+
+
+def test_registry_stable_ids_are_ascii_and_confusable_names_do_not_collide() -> None:
+    payload = _registry_payload()
+    safe = payload["servers"][0]
+    assert isinstance(safe, dict)
+    confusable = json.loads(json.dumps(safe))
+    confusable["name"] = "ｉｏ.example.safe"
+    payload["servers"] = [safe, confusable]
+
+    manifest = build_registry_candidate_manifest(
+        payload,
+        generated_at=datetime(2026, 6, 28, tzinfo=UTC),
+    )
+    stable_ids = [candidate["stable_id"] for candidate in manifest["candidates"]]
+
+    assert len(set(stable_ids)) == 2
+    assert all(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", item) for item in stable_ids)
+
+
+def test_registry_future_timestamp_is_unknown_not_fresh() -> None:
+    payload = _registry_payload()
+    safe = payload["servers"][0]
+    assert isinstance(safe, dict)
+    metadata = safe["_meta"]["io.modelcontextprotocol.registry/official"]
+    metadata["updatedAt"] = "2099-01-01T00:00:00Z"
+
+    manifest = build_registry_candidate_manifest(
+        {"servers": [safe]},
+        generated_at=datetime(2026, 6, 28, tzinfo=UTC),
+    )
+
+    assert manifest["candidates"][0]["freshness"] == "unknown"
+    assert manifest["candidates"][0]["eligible_for_first_live_batch"] is False
+
+
+def test_registry_invalid_environment_name_blocks_without_echoing_value() -> None:
+    payload = _registry_payload()
+    safe = payload["servers"][0]
+    assert isinstance(safe, dict)
+    safe["packages"][0]["environmentVariables"] = [
+        {"name": "API_TOKEN=synthetic-secret", "isRequired": True, "isSecret": True}
+    ]
+
+    manifest = build_registry_candidate_manifest(
+        {"servers": [safe]},
+        generated_at=datetime(2026, 6, 28, tzinfo=UTC),
+    )
+    rendered = json.dumps(manifest)
+    candidate = manifest["candidates"][0]
+
+    assert candidate["eligible_for_first_live_batch"] is False
+    assert candidate["invalid_env_key_count"] == 1
+    assert "synthetic-secret" not in rendered

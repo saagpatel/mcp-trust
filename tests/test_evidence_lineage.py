@@ -315,3 +315,11 @@ def test_cli_validation_error_is_content_free(tmp_path: Path) -> None:
         "schema": "mcp-trust-evidence-lineage-error.v1",
         "status": "UNKNOWN",
     }
+
+
+def test_evidence_lineage_loader_rejects_oversized_input(tmp_path: Path) -> None:
+    oversized = tmp_path / "oversized-ledger.json"
+    oversized.write_text('{"padding":"' + ("x" * 1_100_000) + '"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="too large"):
+        load_evidence_lineage_ledger(oversized)

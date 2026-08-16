@@ -603,6 +603,20 @@ def test_cli_secret_validation_failures_are_redacted_and_stable(tmp_path: Path) 
         assert "input_value" not in first.output
 
 
+def test_cli_rejects_oversized_portability_input_without_echoing_content(tmp_path: Path) -> None:
+    secret_marker = "oversized-purple-credential"
+    oversized = tmp_path / "oversized.json"
+    oversized.write_text(
+        '{"padding":"' + secret_marker + ("x" * 1_100_000) + '"}', encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["portability", "validate", str(oversized)])
+
+    assert result.exit_code == 2
+    assert "too large" in result.output
+    assert secret_marker not in result.output
+
+
 def test_cli_schema_command() -> None:
     result = runner.invoke(app, ["portability", "schema"])
     assert result.exit_code == 0, result.output

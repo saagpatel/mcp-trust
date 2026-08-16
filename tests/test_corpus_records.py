@@ -12,6 +12,7 @@ from mcp_trust.corpus.records import (
     PackageSource,
     PublicCorpusRecord,
     ReceiptEvidenceRef,
+    load_corpus_records,
     summarize_corpus_records,
 )
 from mcp_trust.corpus.registry import CandidateMode, Freshness
@@ -131,3 +132,47 @@ def test_summary_counts_records_without_inventing_grades() -> None:
     assert summary["statuses"] == {"proposed": 1, "scanned-temp": 1}
     assert summary["published_without_receipts"] == []
     assert "grade" not in json.dumps(record_set.records[0].model_dump(mode="json"))
+
+
+@pytest.mark.parametrize(
+    "record_id",
+    ["../escape", "nested/path", "Unicode-ｅscape", "double--dash", ""],
+)
+def test_corpus_record_ids_must_be_catalog_safe(record_id: str) -> None:
+    with pytest.raises(ValidationError):
+        PublicCorpusRecord(
+            record_id=record_id,
+            registry_name="com.example/server",
+            display_name="Example Server",
+            recommended_mode=CandidateMode.PACKAGE_ONLY,
+        )
+
+
+@pytest.mark.parametrize(
+    "receipt_ref",
+    ["../secret.json", "/absolute.json", "receipts/../../secret.json", "line\nbreak.json"],
+)
+def test_corpus_receipt_refs_are_portable_relative_paths(receipt_ref: str) -> None:
+    payload = _receipt().model_dump(mode="json")
+    payload["receipt_ref"] = receipt_ref
+    with pytest.raises(ValidationError):
+        ReceiptEvidenceRef.model_validate(payload)
+
+
+def test_corpus_record_set_rejects_duplicate_record_identity() -> None:
+    record = PublicCorpusRecord(
+        record_id="duplicate",
+        registry_name="com.example/duplicate",
+        display_name="Duplicate",
+        recommended_mode=CandidateMode.PACKAGE_ONLY,
+    )
+    with pytest.raises(ValidationError, match="duplicate"):
+        CorpusRecordSet(records=[record, record])
+
+
+def test_corpus_record_loader_rejects_oversized_input(tmp_path) -> None:
+    path = tmp_path / "oversized.json"
+    path.write_text('{"padding":"' + ("x" * 1_100_000) + '"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="too large"):
+        load_corpus_records(path)

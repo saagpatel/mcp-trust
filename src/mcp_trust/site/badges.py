@@ -45,6 +45,14 @@ def badge_payload(
     """
     grade_str = str(grade)
 
+    if provenance is ScanProvenance.UNKNOWN:
+        return {
+            "schemaVersion": 1,
+            "label": "mcp trust",
+            "message": "unknown",
+            "color": "lightgrey",
+        }
+
     if masked and masked_scan_succeeded:
         return {
             "schemaVersion": 1,

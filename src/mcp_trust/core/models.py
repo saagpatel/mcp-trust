@@ -23,6 +23,16 @@ from pydantic import BaseModel, Field, field_validator
 # traversal, whitespace, dots, and uppercase at the trust boundary, so a hostile
 # slug from an ingested public server list can never reach a path-join or a URL.
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_SCAN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _validate_slug_value(value: str) -> str:
+    if not _SLUG_RE.fullmatch(value):
+        raise ValueError(
+            f"slug must be strict kebab-case ([a-z0-9] groups joined by '-'); got {value!r}"
+        )
+    return value
 
 
 class SourceKind(StrEnum):
@@ -67,6 +77,15 @@ class ServerSource(BaseModel):
         ),
     )
 
+    @field_validator("env_keys")
+    @classmethod
+    def _validate_env_keys(cls, value: list[str]) -> list[str]:
+        if any(len(key) > 128 or _ENV_KEY_RE.fullmatch(key) is None for key in value):
+            raise ValueError("env_keys must contain only uppercase environment-variable names")
+        if len(value) != len(set(value)):
+            raise ValueError("env_keys must not contain duplicate names")
+        return value
+
 
 class Server(BaseModel):
     """A catalog entry for a public MCP server."""
@@ -81,11 +100,7 @@ class Server(BaseModel):
     @field_validator("slug")
     @classmethod
     def _validate_slug(cls, value: str) -> str:
-        if not _SLUG_RE.match(value):
-            raise ValueError(
-                f"slug must be strict kebab-case ([a-z0-9] groups joined by '-'); got {value!r}"
-            )
-        return value
+        return _validate_slug_value(value)
 
 
 class Severity(StrEnum):
@@ -210,3 +225,15 @@ class ScanRecord(BaseModel):
     report_ref: str | None = Field(
         default=None, description="Portable receipt/report artifact reference, if archived."
     )
+
+    @field_validator("server_slug")
+    @classmethod
+    def _validate_server_slug(cls, value: str) -> str:
+        return _validate_slug_value(value)
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, value: str) -> str:
+        if _SCAN_ID_RE.fullmatch(value) is None:
+            raise ValueError("scan id must be a portable 1-128 character identifier")
+        return value

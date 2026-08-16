@@ -282,14 +282,14 @@ def test_drift_corpus_skips_unreadable_history_and_reports_it(db_path) -> None:
     conn.execute(
         "INSERT INTO scans (id, server_slug, engine_name, engine_version, grade,"
         " transparency, risk_json, findings_json, scanned_at)"
-        " VALUES ('bad1', 'mcp-reference-git', 'stub', '0.1.0', 'B', 'high',"
-        " 'not-json', '[]', '2026-07-01T00:00:00+00:00')"
+        " VALUES ('synthetic-secret-one', 'mcp-reference-git', 'stub', '0.1.0', 'B', 'high',"
+        " '{\"token\":\"synthetic-secret\"', '[]', '2026-07-01T00:00:00+00:00')"
     )
     conn.execute(
         "INSERT INTO scans (id, server_slug, engine_name, engine_version, grade,"
         " transparency, risk_json, findings_json, scanned_at)"
-        " VALUES ('bad2', 'mcp-reference-git', 'stub', '0.1.0', 'B', 'high',"
-        " 'not-json', '[]', '2026-07-02T00:00:00+00:00')"
+        " VALUES ('synthetic-secret-two', 'mcp-reference-git', 'stub', '0.1.0', 'B', 'high',"
+        " '{\"token\":\"synthetic-secret\"', '[]', '2026-07-02T00:00:00+00:00')"
     )
     conn.commit()
     conn.close()
@@ -303,6 +303,8 @@ def test_drift_corpus_skips_unreadable_history_and_reports_it(db_path) -> None:
     assert report["skipped_invalid"] == 1
     (drift_entry,) = report["drifts"]
     assert drift_entry["server_slug"] == "mcp-reference-time"
+    assert "synthetic-secret" not in result.stdout
+    assert "synthetic-secret" not in result.stderr
 
 
 # ---------------------------------------------------------------------------

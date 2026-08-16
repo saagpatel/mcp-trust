@@ -216,7 +216,10 @@ def test_receipt_no_caveat_for_no_envkeys_server(monkeypatch: pytest.MonkeyPatch
         source=ServerSource(kind=SourceKind.NPM, reference="@acme/server"),
         added_at=datetime(2026, 6, 28),
     )
-    receipt = build_scan_receipt(server, _scan())
+    receipt = build_scan_receipt(
+        server,
+        _scan().model_copy(update={"server_slug": server.slug}),
+    )
     assert not any("dummy credentials" in c for c in receipt["caveats"])
 
 

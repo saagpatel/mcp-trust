@@ -52,10 +52,15 @@ def _remote_server(command: str | None = None) -> Server:
     )
 
 
-def _scan(engine_name: str = "mcpaudit", sandbox_image: str | None = None) -> ScanRecord:
+def _scan(
+    engine_name: str = "mcpaudit",
+    sandbox_image: str | None = None,
+    *,
+    server_slug: str = "acme-server",
+) -> ScanRecord:
     return ScanRecord(
         id="deadbeef",
-        server_slug="acme-server",
+        server_slug=server_slug,
         engine_name=engine_name,
         engine_version="2.4.0",
         grade=TrustGrade.F,
@@ -101,7 +106,7 @@ def test_no_image_used_for_remote_url_scan(monkeypatch: pytest.MonkeyPatch) -> N
     # Remote endpoints connect directly over HTTP; the engine does not wrap them
     # in Docker even when the batch env selects the docker sandbox.
     _docker_env(monkeypatch)
-    receipt = build_scan_receipt(_remote_server(), _scan())
+    receipt = build_scan_receipt(_remote_server(), _scan(server_slug="acme-remote"))
     assert "MCP_TRUST_SANDBOX_IMAGE" not in receipt["sandbox"]
 
 
@@ -111,7 +116,10 @@ def test_image_used_for_remote_source_with_explicit_command(
     # A remote-kind source with an explicit command follows the stdio launch path
     # and is wrapped by the sandbox, so image provenance is accurate.
     _docker_env(monkeypatch)
-    receipt = build_scan_receipt(_remote_server(command="mcp-proxy"), _scan(sandbox_image=_PIN))
+    receipt = build_scan_receipt(
+        _remote_server(command="mcp-proxy"),
+        _scan(sandbox_image=_PIN, server_slug="acme-remote"),
+    )
     assert receipt["sandbox"]["MCP_TRUST_SANDBOX_IMAGE"] == _PIN
 
 

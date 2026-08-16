@@ -32,8 +32,11 @@ uvx mcp-trust mcp-serve      # once published to PyPI
 The MCP runtime admits the packaged catalog only after deterministic schema-v2
 validation, including duplicate-key rejection, required field/type checks, unique
 slugs and source coordinates, supported enums, sandbox/scan-mode agreement, and
-timezone-aware scan timestamps. Schema v2 preserves additive unknown fields;
-missing or invalid required fields and unknown schema versions fail closed.
+timezone-aware scan timestamps. Admission also binds grade to danger score,
+transparency to annotation coverage, and critical findings to the grade cap.
+Raw JSON is limited to 1 MiB, with deterministic server, finding, tool, and
+public-string ceilings. Schema v2 preserves additive unknown fields; missing or
+invalid required fields and unknown schema versions fail closed.
 
 If catalog admission fails, `list_servers` and `check_server` serve zero records
 and return `mcp-trust-mcp-error.v1` with status `UNKNOWN`, error code
@@ -135,8 +138,8 @@ The default is no sandbox (safe only for servers you trust).
 | `GET`  | `/` | **web** -- public catalog page (grade + transparency per server) |
 | `GET`  | `/ui/servers/{slug}` | **web** -- server detail page + README badge-embed snippet |
 | `GET`  | `/healthz` | liveness |
-| `GET`  | `/servers` | catalog + latest grade per server (JSON) |
-| `GET`  | `/servers/{slug}` | full latest scan record + metadata (JSON) |
+| `GET`  | `/servers` | catalog + latest grade, provenance, and staleness per server (JSON) |
+| `GET`  | `/servers/{slug}` | full latest scan record + provenance/staleness and metadata (JSON) |
 | `POST` | `/servers/{slug}/scan` | operator scan trigger; public deployments disable this route |
 | `GET`  | `/servers/{slug}/badge.json` | shields.io-compatible README badge |
 
@@ -156,6 +159,14 @@ For local API demos with the deterministic `StubEngine`, set
 Token-gated API scan triggering is still available for private operator surfaces
 by setting `MCP_TRUST_SCAN_TOKEN` and passing it as `Authorization: Bearer
 <token>` or `X-MCP-Trust-Scan-Token`.
+
+If the newest stored scan row is unreadable, API, web, static, badge, and
+snapshot projections fail closed to `UNKNOWN`; they never resurrect an older
+grade. Stored source/risk/finding/evidence JSON has a 1 MiB per-field admission
+ceiling, with bounded finding/tool collections and content-free diagnostics.
+An unreadable older row leaves a readable latest grade intact but makes scan
+history and grade-change claims explicitly `UNKNOWN`. Snapshot construction
+stops until unreadable history is repaired or dispositioned.
 
 Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in

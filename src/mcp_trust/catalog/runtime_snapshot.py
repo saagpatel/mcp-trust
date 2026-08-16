@@ -11,7 +11,7 @@ import math
 import re
 from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, NoReturn
+from typing import Any, NoReturn, TypeGuard
 
 _SCHEMA_VERSION = 2
 _GRADES = frozenset({"A", "B", "C", "D", "F"})
@@ -60,6 +60,11 @@ _SERVER_REQUIRED_FIELDS = frozenset(
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _CREDENTIAL_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_MAX_RAW_BYTES = 1024 * 1024
+_MAX_SERVERS = 256
+_MAX_FINDINGS = 1024
+_MAX_TOOLS = 2048
+_MAX_PUBLIC_STRING = 4096
 
 
 class CatalogSnapshotValidationError(ValueError):
@@ -97,6 +102,12 @@ def parse_catalog_snapshot(raw_text: str) -> dict[str, Any]:
 
     if not isinstance(raw_text, str):
         raise CatalogSnapshotValidationError({"JSON_INVALID"})
+    # Reject before parsing and before encoding an arbitrarily large string.
+    # UTF-8 never uses fewer bytes than Python characters, so the character
+    # check is a safe fast path; the encoding check catches smaller non-ASCII
+    # strings whose byte representation crosses the same wire-size budget.
+    if len(raw_text) > _MAX_RAW_BYTES or len(raw_text.encode("utf-8")) > _MAX_RAW_BYTES:
+        raise CatalogSnapshotValidationError({"JSON_TOO_LARGE"})
     try:
         snapshot = json.loads(
             raw_text,
@@ -162,7 +173,9 @@ def _validation_reasons(snapshot: dict[str, Any]) -> set[str]:
     ):
         reasons.add("GENERATED_FROM_SCAN_AT_INVALID")
 
-    if servers is not None:
+    if servers is not None and len(servers) > _MAX_SERVERS:
+        reasons.add("SERVER_LIMIT_EXCEEDED")
+    elif servers is not None:
         _validate_servers(servers, reasons)
     return reasons
 
@@ -193,6 +206,7 @@ def _validate_servers(servers: list[Any], reasons: set[str]) -> None:
         _validate_grade_fields(server, reasons)
         _validate_dimensions(server.get("dimensions"), reasons)
         _validate_findings(server.get("findings"), reasons)
+        _validate_grade_binding(server, reasons)
         _validate_evidence(server.get("evidence"), reasons)
 
         coordinate, has_credentials = _validate_source(server.get("source"), reasons)
@@ -253,6 +267,14 @@ def _validate_basic_fields(server: dict[str, Any], reasons: set[str]) -> None:
         reasons.add("ENGINE_INVALID")
     if not _nonempty_string(server.get("engine_version")):
         reasons.add("SERVER_FIELD_TYPE_INVALID")
+    public_strings = (
+        server.get("name"),
+        server.get("description"),
+        server.get("homepage"),
+        server.get("engine_version"),
+    )
+    if any(isinstance(value, str) and len(value) > _MAX_PUBLIC_STRING for value in public_strings):
+        reasons.add("SERVER_STRING_LIMIT_EXCEEDED")
 
 
 def _validate_grade_fields(server: dict[str, Any], reasons: set[str]) -> None:
@@ -264,6 +286,68 @@ def _validate_grade_fields(server: dict[str, Any], reasons: set[str]) -> None:
         reasons.add("DANGER_SCORE_INVALID")
     if not _number_in_range(server.get("annotation_coverage"), minimum=0, maximum=1):
         reasons.add("ANNOTATION_COVERAGE_INVALID")
+
+
+def _danger_band(score: float) -> str:
+    if score <= 2.0:
+        return "A"
+    if score <= 3.5:
+        return "B"
+    if score <= 5.0:
+        return "C"
+    if score <= 7.5:
+        return "D"
+    return "F"
+
+
+def _transparency_band(coverage: float) -> str:
+    if coverage >= 0.7:
+        return "high"
+    if coverage >= 0.3:
+        return "medium"
+    return "low"
+
+
+def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
+    """Bind public letters to the rounded values shipped in the snapshot.
+
+    The producer rounds scores and coverage to two decimals. Values exactly at
+    a rubric boundary can therefore represent either adjacent pre-rounding
+    band, so admission allows both sides of a half-cent interval while still
+    rejecting material contradictions.
+    """
+    grade = server.get("grade")
+    danger = server.get("danger_score")
+    findings = server.get("findings")
+    if _supported_string(grade, _GRADES) and _number_in_range(
+        danger, minimum=0, maximum=10
+    ):
+        numeric = float(danger)
+        candidates = {
+            _danger_band(max(0.0, numeric - 0.005)),
+            _danger_band(min(10.0, numeric + 0.005)),
+        }
+        has_critical = isinstance(findings, list) and any(
+            isinstance(finding, dict) and finding.get("severity") == "critical"
+            for finding in findings
+        )
+        if has_critical:
+            candidates = {candidate if candidate in {"D", "F"} else "D" for candidate in candidates}
+        if grade not in candidates:
+            reasons.add("GRADE_DANGER_MISMATCH")
+
+    transparency = server.get("transparency")
+    coverage = server.get("annotation_coverage")
+    if _supported_string(transparency, _TRANSPARENCY_LEVELS) and _number_in_range(
+        coverage, minimum=0, maximum=1
+    ):
+        numeric_coverage = float(coverage)
+        candidates = {
+            _transparency_band(max(0.0, numeric_coverage - 0.005)),
+            _transparency_band(min(1.0, numeric_coverage + 0.005)),
+        }
+        if transparency not in candidates:
+            reasons.add("TRANSPARENCY_COVERAGE_MISMATCH")
 
 
 def _validate_dimensions(value: Any, reasons: set[str]) -> None:
@@ -282,6 +366,9 @@ def _validate_dimensions(value: Any, reasons: set[str]) -> None:
 def _validate_findings(value: Any, reasons: set[str]) -> None:
     if not isinstance(value, list):
         reasons.add("FINDINGS_INVALID")
+        return
+    if len(value) > _MAX_FINDINGS:
+        reasons.add("FINDINGS_LIMIT_EXCEEDED")
         return
     required = frozenset({"rule_id", "title", "severity", "category"})
     for finding in value:
@@ -312,6 +399,9 @@ def _validate_evidence(value: Any, reasons: set[str]) -> None:
     tools = value["tools"]
     if not isinstance(tools, list):
         reasons.add("EVIDENCE_INVALID")
+        return
+    if len(tools) > _MAX_TOOLS:
+        reasons.add("TOOLS_LIMIT_EXCEEDED")
         return
     if _is_integer(value["tool_count"]) and value["tool_count"] != len(tools):
         reasons.add("EVIDENCE_INVALID")
@@ -356,6 +446,8 @@ def _validate_source(
         reasons.add("SOURCE_KIND_UNSUPPORTED")
     if not _nonempty_string(reference):
         reasons.add("SOURCE_REFERENCE_INVALID")
+    elif len(reference) > _MAX_PUBLIC_STRING:
+        reasons.add("SOURCE_REFERENCE_LIMIT_EXCEEDED")
 
     env_keys = value["env_keys"]
     if not isinstance(env_keys, list):
@@ -467,7 +559,9 @@ def _supported_string(value: Any, allowed: frozenset[str]) -> bool:
     return isinstance(value, str) and value in allowed
 
 
-def _number_in_range(value: Any, *, minimum: float, maximum: float | None = None) -> bool:
+def _number_in_range(
+    value: Any, *, minimum: float, maximum: float | None = None
+) -> TypeGuard[int | float]:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return False
     try:

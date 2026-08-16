@@ -28,6 +28,7 @@ from pydantic import (
 
 SCHEMA = "mcp-trust-evidence-lineage-ledger.v1"
 ASSESSMENT_SCHEMA = "mcp-trust-evidence-lineage-assessment.v1"
+_MAX_LEDGER_BYTES = 1_048_576
 
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 StableId = Annotated[
@@ -452,5 +453,8 @@ def assess_lineage(
 
 def load_evidence_lineage_ledger(path: str | Path) -> EvidenceLineageLedger:
     """Load and validate one immutable ledger JSON document."""
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    ledger_path = Path(path)
+    if ledger_path.stat().st_size > _MAX_LEDGER_BYTES:
+        raise ValueError("evidence lineage ledger is too large")
+    payload = json.loads(ledger_path.read_text(encoding="utf-8"))
     return EvidenceLineageLedger.model_validate(payload)

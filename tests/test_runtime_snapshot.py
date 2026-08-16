@@ -215,3 +215,88 @@ def test_multiple_failures_return_only_sorted_non_sensitive_reason_codes() -> No
     )
     assert errors[0].reason_codes == errors[1].reason_codes
     assert "RAW_PRIVATE" not in str(errors[0])
+
+
+@pytest.mark.parametrize(
+    ("grade", "danger_score"),
+    [("A", 10), ("B", 0), ("C", 8), ("F", 2)],
+)
+def test_grade_must_match_normalized_danger_band(grade: str, danger_score: float) -> None:
+    snapshot = _valid_snapshot()
+    snapshot["servers"][0]["grade"] = grade
+    snapshot["servers"][0]["danger_score"] = danger_score
+    snapshot["servers"][0]["findings"] = []
+
+    _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
+
+
+def test_critical_finding_cap_is_part_of_snapshot_grade_binding() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server["grade"] = "A"
+    server["danger_score"] = 0
+    server["findings"] = [
+        {"rule_id": "SYNTHETIC", "title": "Synthetic", "severity": "critical", "category": "test"}
+    ]
+
+    _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
+
+
+@pytest.mark.parametrize(
+    ("transparency", "coverage"),
+    [("high", 0.0), ("medium", 0.1), ("low", 1.0)],
+)
+def test_transparency_must_match_annotation_coverage(
+    transparency: str,
+    coverage: float,
+) -> None:
+    snapshot = _valid_snapshot()
+    snapshot["servers"][0]["transparency"] = transparency
+    snapshot["servers"][0]["annotation_coverage"] = coverage
+
+    _assert_invalid(snapshot, "TRANSPARENCY_COVERAGE_MISMATCH")
+
+
+def test_snapshot_server_collection_has_a_deterministic_ceiling() -> None:
+    snapshot = _valid_snapshot()
+    template = snapshot["servers"][0]
+    snapshot["servers"] = []
+    for index in range(257):
+        record = deepcopy(template)
+        record["slug"] = f"synthetic-{index}"
+        record["source"]["reference"] = f"synthetic-{index}"
+        record["findings"] = []
+        record["evidence"] = None
+        snapshot["servers"].append(record)
+    snapshot["server_count"] = len(snapshot["servers"])
+    raw = json.dumps(snapshot, separators=(",", ":"))
+    assert len(raw.encode()) < 1024 * 1024
+
+    _assert_invalid(snapshot, "SERVER_LIMIT_EXCEEDED")
+
+
+def test_snapshot_nested_collections_have_deterministic_ceilings() -> None:
+    snapshot = _valid_snapshot()
+    finding = {"rule_id": "S", "title": "S", "severity": "low", "category": "S"}
+    snapshot["servers"][0]["findings"] = [finding] * 1025
+    _assert_invalid(snapshot, "FINDINGS_LIMIT_EXCEEDED")
+
+    snapshot = _valid_snapshot()
+    tool = {
+        "name": "synthetic",
+        "has_input_schema": False,
+        "input_schema_sha256": None,
+        "has_annotations": False,
+    }
+    snapshot["servers"][0]["evidence"]["tools"] = [
+        {**tool, "name": f"synthetic-{index}"} for index in range(2049)
+    ]
+    snapshot["servers"][0]["evidence"]["tool_count"] = 2049
+    _assert_invalid(snapshot, "TOOLS_LIMIT_EXCEEDED")
+
+
+def test_snapshot_public_strings_have_a_deterministic_ceiling() -> None:
+    snapshot = _valid_snapshot()
+    snapshot["servers"][0]["name"] = "x" * 4097
+
+    _assert_invalid(snapshot, "SERVER_STRING_LIMIT_EXCEEDED")
