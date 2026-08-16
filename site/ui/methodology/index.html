@@ -1,0 +1,144 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MCP Trust — Methodology</title><style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 Helvetica, Arial, sans-serif;
+    background: #f6f8fa;
+    color: #24292f;
+    line-height: 1.5;
+  }
+  a { color: #0969da; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .site-header {
+    background: #fff;
+    border-bottom: 1px solid #d0d7de;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .site-header .logo { font-size: 1.1rem; font-weight: 700; color: #24292f; }
+  .site-header .tagline {
+    font-size: 0.85rem;
+    color: #57606a;
+    border-left: 1px solid #d0d7de;
+    padding-left: 0.75rem;
+  }
+
+  main { max-width: 1040px; margin: 2rem auto; padding: 0 1.25rem; }
+
+  .page-title { font-size: 1.4rem; font-weight: 600; margin-bottom: 0.25rem; }
+  .page-subtitle { color: #57606a; font-size: 0.9rem; margin-bottom: 1.5rem; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 0.9rem;
+  }
+  thead { background: #f6f8fa; }
+  th {
+    text-align: left;
+    padding: 0.55rem 0.9rem;
+    font-weight: 600;
+    color: #57606a;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid #d0d7de;
+  }
+  td { padding: 0.6rem 0.9rem; border-bottom: 1px solid #eaeef2; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f6f8fa; }
+
+  .pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.03em;
+  }
+  .chip {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #fff;
+  }
+
+  /* Detail page */
+  .card {
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .grade-hero {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .grade-big {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1;
+    color: #fff;
+    width: 5rem;
+    height: 5rem;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .meta-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .meta-item { font-size: 0.875rem; }
+  .meta-label { color: #57606a; font-size: 0.78rem; text-transform: uppercase;
+                letter-spacing: 0.04em; margin-bottom: 0.15rem; font-weight: 600; }
+
+  .badge-box {
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .badge-box h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .badge-box pre {
+    font-size: 0.8rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 4px;
+    padding: 0.6rem 0.75rem;
+    margin-top: 0.4rem;
+  }
+
+  /* Grade-history table. Dates and engine versions are mono so a column of
+     them scans vertically; the muted colours are the AA-compliant grey already
+     used for grades, so quietness never costs legibility. Emphasis is carried
+     by the words in the cause column, never by colour alone. */
+  .hist-num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              font-variant-numeric: tabular-nums; font-size: 0.82rem; color: #57606a; }
+  .hist-quiet { color: #656e7b; }
+  .hist-withheld { color: #57606a; font-style: italic; }
+
+  .not-found-box {
+    text-align: center;
+    padding: 4rem 1rem;
+    color: #57606a;
+  }
+  .not-found-box .code { font-size: 4rem; font-weight: 800; color: #d0d7de; }
+  .not-found-box .msg { font-size: 1.1rem; margin-top: 0.5rem; }
+  .not-found-box .back { margin-top: 1.25rem; display: block; }
+</style></head><body><header class="site-header"><span class="logo">MCP Trust Registry</span><span class="tagline">Check before you connect</span><nav style="margin-left:auto;font-size:0.85rem;display:flex;gap:1rem"><a href="/ui/methodology">Methodology</a><a href="/ui/dispute">Dispute a grade</a></nav></header><main><p><a href="/">← Back to catalog</a></p><h1 class="page-title" style="margin-top:1rem">How grades are computed</h1><p class="page-subtitle">Every grade on this registry is produced by the automated rubric below. It is disclosed in full so a grade can be re-derived and argued with, not taken on faith.</p><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">1. Danger-weighted score</h2><p style="font-size:0.875rem;color:#57606a;margin-bottom:0.75rem">Each risk dimension (0–10) is multiplied by a fixed weight, then summed and clamped to 0–10. Weights emphasize the dimensions that actually separate risk (shell execution above all) and down-weight ones that appear on benign and dangerous servers alike.</p><table><thead><tr><th>Dimension</th><th>Weight</th></tr></thead><tbody><tr><td>File access</td><td style="font-variant-numeric:tabular-nums">×1.2</td></tr><tr><td>Network access</td><td style="font-variant-numeric:tabular-nums">×1.0</td></tr><tr><td>Shell execution</td><td style="font-variant-numeric:tabular-nums">×2.0</td></tr><tr><td>Destructive</td><td style="font-variant-numeric:tabular-nums">×0.3</td></tr><tr><td>Exfiltration</td><td style="font-variant-numeric:tabular-nums">×0.4</td></tr></tbody></table></div><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">2. Score → letter grade</h2><table><thead><tr><th>Grade</th><th>Danger score</th></tr></thead><tbody><tr><td>A</td><td style="font-variant-numeric:tabular-nums">≤ 2.0</td></tr><tr><td>B</td><td style="font-variant-numeric:tabular-nums">&gt; 2.0, ≤ 3.5</td></tr><tr><td>C</td><td style="font-variant-numeric:tabular-nums">&gt; 3.5, ≤ 5.0</td></tr><tr><td>D</td><td style="font-variant-numeric:tabular-nums">&gt; 5.0, ≤ 7.5</td></tr><tr><td>F</td><td style="font-variant-numeric:tabular-nums">&gt; 7.5</td></tr></tbody></table><p style="font-size:0.875rem;color:#57606a;margin-top:0.75rem"><strong>Critical cap:</strong> any single finding of a disqualifying class (e.g. tool-poisoning or rug-pull) caps the grade at D regardless of score.</p></div><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">3. Transparency (a separate axis)</h2><p style="font-size:0.875rem;color:#24292f;line-height:1.7">Transparency is the fraction of a server's tools that declare behavior annotations. It is reported <strong>alongside</strong> the danger grade, never folded into it. High ≥ 70%, medium ≥ 30%, otherwise low. A low-transparency server's danger grade is inferred from spec defaults, so a low grade there means <em>cannot verify safe</em> — not <em>known dangerous</em>.</p></div><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">4. What is scanned</h2><p style="font-size:0.875rem;color:#24292f;line-height:1.7">Published package artifact scans (npm, PyPI, or equivalent) are installed and launched locally by the scanner, and hosted endpoint entries are labeled as hosted endpoint scans. The declared MCP surface (tools, prompts, resources, annotations) is read back. The public report records the sandbox image when available, but does not expose per-run network mode. Scans never use real credentials; where a server requires environment variables, at most inert placeholder values are used.</p></div><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">5. Grade freshness</h2><p style="font-size:0.875rem;color:#24292f;line-height:1.7">A grade older than 90 days is marked <em>stale</em> on its page and badge, greys out, and is treated as historical until re-scanned. Vendors ship fixes; a grade never outlives its evidence silently.</p></div><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">6. How much grades have moved</h2><p style="font-size:0.875rem;color:#24292f;line-height:1.7">Across 31 scans of 31 servers recorded between 2026-08-16 and 2026-08-16, this registry has recorded no grade change. No declared tool surface changed in the 0 scan-to-scan comparisons where evidence was recorded on both sides. A grade movement attributed to a scanner engine change is a re-evaluation of the same recorded surface, not evidence that the server itself changed. Each server's full history, with the cause attributed to every step, is on its own page.</p></div><div class="card"><h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">Scope and disputes</h2><p style="font-size:0.875rem;color:#24292f;line-height:1.7">A grade is this registry's opinion, computed by this methodology against a specific package version on a specific date, both shown on each grade page. It is not an endorsement, certification, or claim of malice. Grades are re-checkable against the same package version; corrections are welcome at <a href="https://github.com/saagpatel/mcp-trust/issues/new?labels=grade-dispute" rel="noopener noreferrer">the issue tracker</a> under the <a href="/ui/dispute">dispute &amp; correction policy</a>, and published grade changes live in the <a href="/ui/corrections">corrections log</a>.</p></div></main></body></html>
