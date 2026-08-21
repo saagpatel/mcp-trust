@@ -1,7 +1,7 @@
 {
   "schema": "ReferenceCorpusEvidenceV1",
   "observed_at": "2026-08-21T12:38:49Z",
-  "claim_ceiling": "Isolated local runtime proof for the seven maintained mcp-reference servers; not production, public-catalog freshness, or endorsement proof.",
+  "claim_ceiling": "Locally recorded isolated-runtime results for seven maintained mcp-reference servers. This tree verifies source commit and source-file bindings, but does not contain the database or receipts needed to independently verify execution, sandbox metadata, or receipt matching; it is not production, public-catalog freshness, or endorsement proof.",
   "source": {
     "git_commit": "faf0565a5a60a21ae276f99cf7cd73d7164c1cbc",
     "docker_image_tag": "mcp-trust-scan:faf0565",

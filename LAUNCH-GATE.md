@@ -32,7 +32,10 @@ Current decision: **NO-GO for public launch**.
   version `2.1.0`, and a JSON receipt with sandbox metadata.
 - The full seven-server reference corpus was refreshed on 2026-08-21 in an
   isolated local workspace using Docker, network `none`, and
-  `mcp-trust-scan:faf0565`; all seven scans and receipts validated.
+  `mcp-trust-scan:faf0565`. The committed verifier binds the source commit and
+  source-file bytes. Because the database and receipts are not committed, their
+  hashes, sandbox metadata, and seven scan/receipt matches are locally recorded
+  claims, not independently reproducible proof from this tree.
 - The latest public scan rows have portable filename-only `report_ref` values
   with matching JSON receipt artifacts.
 - Current grade distribution is A=1, B=3, C=1, D=1, F=1. Transparency

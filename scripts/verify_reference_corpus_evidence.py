@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ _GRADES = ("A", "B", "C", "D", "F")
 _TRANSPARENCY = ("high", "medium", "low")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SCAN_ID = re.compile(r"^[0-9a-f]{32}$")
+_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _STALE_DOC_CLAIMS = (
     "A=1, B=2, C=1, D=1, F=2",
     "| `mcp-reference-everything` | F | low | 8.0 |",
@@ -42,7 +45,35 @@ def load_evidence(path: Path) -> dict[str, Any]:
     return payload
 
 
-def validate_evidence(payload: dict[str, Any]) -> dict[str, dict[str, int]]:
+def _git_blob(root: Path, commit: str, path: str) -> bytes:
+    try:
+        return subprocess.run(
+            ["git", "show", f"{commit}:{path}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        ).stdout
+    except subprocess.CalledProcessError as exc:
+        raise EvidenceError(f"source commit cannot resolve {path}") from exc
+
+
+def validate_source_bindings(root: Path, source: dict[str, Any]) -> None:
+    commit = source.get("git_commit")
+    if not isinstance(commit, str) or not _GIT_COMMIT.fullmatch(commit):
+        raise EvidenceError("source.git_commit must be a full Git commit identity")
+    bindings = {
+        "dockerfile_sha256": "Dockerfile.scan",
+        "seed_catalog_sha256": "src/mcp_trust/catalog/seed_servers.json",
+    }
+    for key, path in bindings.items():
+        actual = hashlib.sha256(_git_blob(root, commit, path)).hexdigest()
+        if source.get(key) != actual:
+            raise EvidenceError(f"source.{key} does not match {path} at source.git_commit")
+
+
+def validate_evidence(
+    payload: dict[str, Any], root: Path | None = None
+) -> dict[str, dict[str, int]]:
     if payload.get("schema") != "ReferenceCorpusEvidenceV1":
         raise EvidenceError("unexpected evidence schema")
 
@@ -62,6 +93,8 @@ def validate_evidence(payload: dict[str, Any]) -> dict[str, dict[str, int]]:
         raise EvidenceError("reference corpus must be Docker sandboxed with network none")
     if execution.get("scan_count") != 7 or execution.get("receipt_count") != 7:
         raise EvidenceError("execution counts must both equal seven")
+    if root is not None:
+        validate_source_bindings(root, source)
 
     for key in (
         "dockerfile_sha256",
@@ -156,7 +189,7 @@ def validate_docs(root: Path, payload: dict[str, Any]) -> None:
 
 def verify(root: Path, evidence_path: Path = _EVIDENCE_PATH) -> dict[str, Any]:
     payload = load_evidence(root / evidence_path)
-    distribution = validate_evidence(payload)
+    distribution = validate_evidence(payload, root)
     validate_docs(root, payload)
     return {
         "schema": payload["schema"],

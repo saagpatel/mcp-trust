@@ -36,6 +36,22 @@ def test_distribution_must_be_derived_from_rows() -> None:
         module.validate_evidence(drifted)
 
 
+def test_source_commit_is_required() -> None:
+    payload = module.load_evidence(ROOT / "docs/reference-corpus-evidence-v1.json")
+    payload["source"].pop("git_commit")
+
+    with pytest.raises(module.EvidenceError, match="git_commit"):
+        module.validate_evidence(payload, ROOT)
+
+
+def test_source_blob_hashes_are_verified() -> None:
+    payload = module.load_evidence(ROOT / "docs/reference-corpus-evidence-v1.json")
+    payload["source"]["dockerfile_sha256"] = "0" * 64
+
+    with pytest.raises(module.EvidenceError, match="does not match Dockerfile.scan"):
+        module.validate_evidence(payload, ROOT)
+
+
 def test_launch_docs_must_match_evidence(tmp_path: Path) -> None:
     payload = module.load_evidence(ROOT / "docs/reference-corpus-evidence-v1.json")
     for name in ("LAUNCH-CATALOG.md", "LAUNCH-GATE.md"):
