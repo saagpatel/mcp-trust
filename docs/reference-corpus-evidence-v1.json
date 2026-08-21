@@ -1,0 +1,109 @@
+{
+  "schema": "ReferenceCorpusEvidenceV1",
+  "observed_at": "2026-08-21T12:38:49Z",
+  "claim_ceiling": "Locally recorded isolated-runtime results for seven maintained mcp-reference servers. This tree verifies source commit and source-file bindings, but does not contain the database or receipts needed to independently verify execution, sandbox metadata, or receipt matching; it is not production, public-catalog freshness, or endorsement proof.",
+  "source": {
+    "git_commit": "faf0565a5a60a21ae276f99cf7cd73d7164c1cbc",
+    "docker_image_tag": "mcp-trust-scan:faf0565",
+    "docker_image_digest": "sha256:de9b8f5b75aa337057d188f6b51bcca829fd3c81b9e1539a5bc3d02742fa6603",
+    "dockerfile_sha256": "ba0bfdf7e8182a2001a7a7a40d6a25e862bcba6abb76751fa45a495e59c3e714",
+    "seed_catalog_sha256": "c835676ba28da853337e193f363779585defd51fa803272a579e654e1c247044",
+    "engine_name": "mcpaudit",
+    "engine_version": "2.7.0"
+  },
+  "execution": {
+    "sandbox": "docker",
+    "network": "none",
+    "scan_count": 7,
+    "receipt_count": 7,
+    "status_sha256": "c902e6743e3a7b1c17610975bf7becae0641ecfbdcaa9daaa8751b909b0c2362",
+    "registry_db_sha256": "3698be16ea62ec8d182e891fcd7e68bd11b1ce1f47c1af62ead77beae9c70d17",
+    "receipt_set_sha256": "1bb5a8771125fc161e8c22037a2214d4d0cbdae0b8aae3bbd47d08a14d076b12"
+  },
+  "distribution": {
+    "grades": {
+      "A": 1,
+      "B": 3,
+      "C": 1,
+      "D": 1,
+      "F": 1
+    },
+    "transparency": {
+      "high": 3,
+      "medium": 0,
+      "low": 4
+    }
+  },
+  "rows": [
+    {
+      "slug": "mcp-reference-everything",
+      "scan_id": "462dd01e7bf04785a1c2232a09ebbc2d",
+      "scanned_at": "2026-08-21T12:33:09.203348Z",
+      "grade": "B",
+      "transparency": "low",
+      "composite": 5.6,
+      "report_ref": "mcp-reference-everything-462dd01e7bf04785a1c2232a09ebbc2d.json",
+      "receipt_sha256": "d489207a20e1d6e9816a17b9890b0f014b440f53f9dea6a2c685127a1cf58ce4"
+    },
+    {
+      "slug": "mcp-reference-fetch",
+      "scan_id": "3baa8d22fed447609189ab79463ebab5",
+      "scanned_at": "2026-08-21T12:33:52.038272Z",
+      "grade": "B",
+      "transparency": "low",
+      "composite": 3.5,
+      "report_ref": "mcp-reference-fetch-3baa8d22fed447609189ab79463ebab5.json",
+      "receipt_sha256": "e596ee6d8947fb740816c8a197c85d9faf398186660d0a59e6a319168e50acd0"
+    },
+    {
+      "slug": "mcp-reference-filesystem",
+      "scan_id": "628ab13708e14e459cf40a8c65f82ade",
+      "scanned_at": "2026-08-21T12:33:57.624511Z",
+      "grade": "D",
+      "transparency": "high",
+      "composite": 7.7,
+      "report_ref": "mcp-reference-filesystem-628ab13708e14e459cf40a8c65f82ade.json",
+      "receipt_sha256": "23dde694ed6a38c1ce4c42bec8462e63837d8157444d63d0f59698e1c9e0076e"
+    },
+    {
+      "slug": "mcp-reference-git",
+      "scan_id": "f3fdef0aa22043f2acf6d38d0aaaeb2c",
+      "scanned_at": "2026-08-21T12:34:04.557970Z",
+      "grade": "B",
+      "transparency": "high",
+      "composite": 3.8,
+      "report_ref": "mcp-reference-git-f3fdef0aa22043f2acf6d38d0aaaeb2c.json",
+      "receipt_sha256": "bdbda9f012f14b9df11a30448f3988758c08c6991db31248b3dd3a72910d999b"
+    },
+    {
+      "slug": "mcp-reference-memory",
+      "scan_id": "658872e31b014b3fa6d83bc183b041fd",
+      "scanned_at": "2026-08-21T12:34:07.736007Z",
+      "grade": "C",
+      "transparency": "low",
+      "composite": 5.3,
+      "report_ref": "mcp-reference-memory-658872e31b014b3fa6d83bc183b041fd.json",
+      "receipt_sha256": "d44b9e0d95f08994f1db2ed762641d6f6db02576f3f641e0317896b78bb59e41"
+    },
+    {
+      "slug": "mcp-reference-sequential-thinking",
+      "scan_id": "5aabf77d1e104ab7834e01144dc74fb8",
+      "scanned_at": "2026-08-21T12:34:15.562170Z",
+      "grade": "F",
+      "transparency": "low",
+      "composite": 8.0,
+      "report_ref": "mcp-reference-sequential-thinking-5aabf77d1e104ab7834e01144dc74fb8.json",
+      "receipt_sha256": "2e081932ff1d0335a189ce1e7e7af7e4fe50269482050a3ba66ac7a9ded98291"
+    },
+    {
+      "slug": "mcp-reference-time",
+      "scan_id": "6338175571fd424aa48a2cae8bbd4811",
+      "scanned_at": "2026-08-21T12:34:19.217599Z",
+      "grade": "A",
+      "transparency": "high",
+      "composite": 1.0,
+      "report_ref": "mcp-reference-time-6338175571fd424aa48a2cae8bbd4811.json",
+      "receipt_sha256": "16a946376e96f245fb8db836e34e190f23f5088d83024a24208bfe4226353120"
+    }
+  ]
+}

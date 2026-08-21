@@ -20,11 +20,19 @@ surface.
   `MCP_TRUST_SANDBOX=docker`, `MCP_TRUST_SANDBOX_NETWORK=none`, and the
   `mcp-trust-scan:reference-2026-06-19` image. It persisted grade `A`,
   transparency `high`, and a JSON receipt in an ephemeral `/tmp` smoke DB.
-- The full seven-server reference corpus has now run against local
-  `./registry.db` with durable receipts under `./receipts/`.
-- Current grade distribution is A=1, B=2, C=1, D=1, F=2. Transparency
-  distribution is high=3, low=4.
-- The project `.venv` has `mcp-audits 2.1.0`; adapter unit tests pass there.
+- The committed manifest records a 2026-08-21 refresh of the full seven-server
+  reference corpus in an isolated local workspace using MCPAudit 2.7.0, Docker,
+  network `none`, and `mcp-trust-scan:faf0565`. The source commit and its
+  Dockerfile and seed-catalog bytes are reproducibly checked, but the database
+  and receipt files are not committed; their hashes, sandbox metadata, and
+  seven scan/receipt matches remain locally recorded claims rather than
+  independently reproducible proof from this tree.
+- Current grade distribution is A=1, B=3, C=1, D=1, F=1. Transparency
+  distribution is high=3, medium=0, low=4.
+- The machine-checkable source for this bounded local claim is
+  `docs/reference-corpus-evidence-v1.json`. It binds the source commit, image
+  digest, database and receipt-set hashes, and each scan/receipt identity; it
+  does not claim production or public-catalog uptake.
 - Docker/Colima were repaired locally by clearing a stale broken Colima disk
   entry and recreating the Colima VM profile. Docker is reachable through the
   `colima` context.
@@ -180,14 +188,18 @@ Recommended answer: approve option 1 now, defer options 2 and 3.
 | `mcp-reference-git` | B | high | 3.8 | Fixture repo only. |
 | `mcp-reference-memory` | C | low | 5.3 | Low transparency caveat applies. |
 | `mcp-reference-filesystem` | D | high | 7.7 | Controlled `/scan` root only. |
-| `mcp-reference-everything` | F | low | 8.0 | Broad reference/test surface. |
-| `mcp-reference-sequential-thinking` | F | low | 8.6 | Calibration warning: low-I/O reasoning server is heavily penalized by low transparency/default-inferred capabilities. |
+| `mcp-reference-everything` | B | low | 5.6 | Broad reference/test surface; the cause of the grade movement is unknown because comparative tool inventories are not committed. |
+| `mcp-reference-sequential-thinking` | F | low | 8.0 | Calibration warning: low-I/O reasoning server is heavily penalized by low transparency/default-inferred capabilities. |
 
 Interpretation: the corpus is useful enough to prove the scan/receipt loop, but
 it is not evidence that the registry should market grades as broad trust
 judgments. Current public wording keeps this as **danger grade + transparency**
 and adds stronger automated-scan / low-transparency caveats. No grading-band
 change has been made.
+
+This table and its distributions are checked against
+`docs/reference-corpus-evidence-v1.json` by
+`scripts/verify_reference_corpus_evidence.py`.
 
 ## Approval Gates Before Broader Seed Mutation
 

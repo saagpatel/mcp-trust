@@ -18,7 +18,8 @@ Current decision: **NO-GO for public launch**.
   triggers before any engine can run.
 - API scans can archive JSON receipts when `MCP_TRUST_RECEIPTS_DIR` is set and
   persist the portable receipt filename in `report_ref`.
-- The repo `.venv` has `mcp-audits 2.1.0`; adapter unit tests pass.
+- The isolated 2026-08-21 reference-corpus runner used MCPAudit 2.7.0; the
+  current evidence is committed at `docs/reference-corpus-evidence-v1.json`.
 
 ## Local Launch Evidence
 
@@ -29,12 +30,16 @@ Current decision: **NO-GO for public launch**.
   ephemeral `/tmp` registry DB and receipt directory.
 - The smoke scan persisted grade `A`, transparency `high`, `mcpaudit` engine
   version `2.1.0`, and a JSON receipt with sandbox metadata.
-- The full seven-server reference corpus ran in the Docker sandbox against
-  local `./registry.db` with receipts under `./receipts/`.
+- The full seven-server reference corpus was refreshed on 2026-08-21 in an
+  isolated local workspace using Docker, network `none`, and
+  `mcp-trust-scan:faf0565`. The committed verifier binds the source commit and
+  source-file bytes. Because the database and receipts are not committed, their
+  hashes, sandbox metadata, and seven scan/receipt matches are locally recorded
+  claims, not independently reproducible proof from this tree.
 - The latest public scan rows have portable filename-only `report_ref` values
   with matching JSON receipt artifacts.
-- Current grade distribution is A=1, B=2, C=1, D=1, F=2. Transparency
-  distribution is high=3, low=4.
+- Current grade distribution is A=1, B=3, C=1, D=1, F=1. Transparency
+  distribution is high=3, medium=0, low=4.
 - The distribution exposes a calibration/wording risk: the low-I/O
   `mcp-reference-sequential-thinking` server grades `F` because low
   transparency/default-inferred capabilities inflate risk.
@@ -107,8 +112,13 @@ Passed against `./registry.db` on localhost with `MCP_TRUST_PUBLIC_READONLY=1`:
 | `mcp-reference-git` | B | high | 3.8 | yes |
 | `mcp-reference-memory` | C | low | 5.3 | yes |
 | `mcp-reference-filesystem` | D | high | 7.7 | yes |
-| `mcp-reference-everything` | F | low | 8.0 | yes |
-| `mcp-reference-sequential-thinking` | F | low | 8.6 | yes |
+| `mcp-reference-everything` | B | low | 5.6 | yes |
+| `mcp-reference-sequential-thinking` | F | low | 8.0 | yes |
+
+The summary and table are checked against
+`docs/reference-corpus-evidence-v1.json` by
+`scripts/verify_reference_corpus_evidence.py`. This is local runtime evidence,
+not proof that the public deployment or badge catalog has adopted the refresh.
 
 ## Next Command Lane
 
