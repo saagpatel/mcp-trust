@@ -1081,6 +1081,11 @@ def build_resume_capsule(
         if execution_blocked
         else "publication-approval-required"
     )
+    capsule_id = (
+        "mcp-trust-grade-refresh-sandbox-recovery-gate"
+        if execution_blocked
+        else "mcp-trust-grade-refresh-publication-gate"
+    )
     waiting_digest = digest_bytes(
         canonical_bytes({"code": waiting_code, "target_digest": target_digest})
     )
@@ -1115,7 +1120,7 @@ def build_resume_capsule(
         "schema": "HumanGateResumeCapsuleV1",
         "as_of": created.isoformat(),
         "capsule": {
-            "capsule_id": "mcp-trust-grade-refresh-publication-gate",
+            "capsule_id": capsule_id,
             "created_at": created.isoformat(),
             "expires_at": (created + timedelta(days=30)).isoformat(),
             "waiting_condition": {"code": waiting_code, "digest": waiting_digest},

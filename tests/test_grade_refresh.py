@@ -384,6 +384,10 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert state["scheduler_state"]["state"] == "DISABLED_UNLOADED"
     assert capsule["schema"] == "HumanGateResumeCapsuleV1"
     assert (
+        capsule["capsule"]["capsule_id"]
+        == "mcp-trust-grade-refresh-sandbox-recovery-gate"
+    )
+    assert (
         capsule["capsule"]["waiting_condition"]["code"]
         == "sandbox-image-recovery-approval-required"
     )
