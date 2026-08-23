@@ -39,6 +39,7 @@ def test_inventory_classifies_every_catalog_entry() -> None:
         "credential_dependent": 7,
         "backing_service_dependent": 10,
         "unsafe_to_execute_unsandboxed": 31,
+        "missing_image_build_source": 16,
     }
     assert all(row["live_credentials_allowed"] is False for row in inventory["entries"])
     assert all(row["broad_egress_allowed"] is False for row in inventory["entries"])
@@ -150,9 +151,12 @@ def test_preflight_binds_images_by_content_id(
         runner=runner,
     )
 
-    assert receipt["status"] == "READY"
-    assert receipt["safe_to_execute_catalog"] is True
-    assert not receipt["reasons"]
+    assert receipt["status"] == "BLOCKED"
+    assert receipt["safe_to_execute_catalog"] is False
+    assert sum(
+        reason.startswith("image_build_source_missing:")
+        for reason in receipt["reasons"]
+    ) == 3
     assert all(
         row["image_id"] == image_id and row["sandbox_controls"]["all_required_controls"]
         for row in receipt["sandbox"]["image_bindings"]
@@ -237,7 +241,10 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     preflight = {
         "safe_to_execute_catalog": False,
-        "reasons": ["catalog_image_missing:x"],
+        "reasons": [
+            "catalog_image_missing:x",
+            "image_build_source_missing:x",
+        ],
         "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
         "catalog": {"denominator": 31, "counts": {"scannable": 31}},
         "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": False},
@@ -250,12 +257,13 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert state["publication_state"] == "WAITING_FOR_EXPLICIT_APPROVAL"
     assert state["severity_findings"] == {
         "Critical": 1,
-        "High": 1,
+        "High": 2,
         "Medium": 2,
         "Low": 0,
     }
     assert [finding["severity"] for finding in state["findings"]] == [
         "Critical",
+        "High",
         "High",
         "Medium",
         "Medium",

@@ -13,9 +13,9 @@ uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
 
 Stop unless the receipt says `status: READY` and
 `safe_to_execute_catalog: true`. Missing image tags, missing immutable IDs,
-remote Docker authority, missing engine runtime, or incomplete sandbox controls
-are terminal preflight blockers. Do not pull, rebuild, retag, or substitute an
-image without explicit approval.
+missing deterministic build source, remote Docker authority, missing engine
+runtime, or incomplete sandbox controls are terminal preflight blockers. Do
+not pull, rebuild, retag, or substitute an image without explicit approval.
 
 ## 2. Deterministic fixtures
 

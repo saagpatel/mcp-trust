@@ -142,6 +142,7 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
         "schema",
         "catalog_denominator",
         "default_sandbox_image",
+        "image_build_sources",
         "scannable",
         "blocked",
         "intentionally_masked",
@@ -168,6 +169,28 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
     catalog = frozenset(str(slug) for slug in slugs)
     if policy.get("catalog_denominator") != len(catalog):
         raise GradeRefreshError("refresh policy catalog denominator mismatch")
+    image_refs = {
+        source.get("sandbox_image") or policy.get("default_sandbox_image")
+        for row in seed
+        if isinstance((source := row.get("source")), dict)
+        and source.get("command") is not None
+    }
+    image_build_sources = policy.get("image_build_sources")
+    if (
+        not isinstance(image_build_sources, dict)
+        or set(image_build_sources) != image_refs
+        or not all(
+            source is None
+            or (
+                isinstance(source, str)
+                and source
+                and not Path(source).is_absolute()
+                and ".." not in Path(source).parts
+            )
+            for source in image_build_sources.values()
+        )
+    ):
+        raise GradeRefreshError("refresh policy image build sources are invalid")
     fields = {
         "scannable": _slug_set(policy, "scannable"),
         "blocked": _slug_set(policy, "blocked"),
@@ -219,6 +242,9 @@ def catalog_inventory(
                 "source_kind": source.get("kind"),
                 "source_reference": source.get("reference"),
                 "sandbox_image": image if local_process else None,
+                "image_build_source": (
+                    policy.raw["image_build_sources"].get(image) if local_process else None
+                ),
                 "scannable": slug in policy.scannable,
                 "intentionally_masked": slug in policy.masked,
                 "unsupported_upstream": slug in policy.unsupported,
@@ -246,6 +272,11 @@ def catalog_inventory(
             "backing_service_dependent": sum(row["backing_service_dependent"] for row in rows),
             "unsafe_to_execute_unsandboxed": sum(
                 row["unsafe_to_execute_unsandboxed"] for row in rows
+            ),
+            "missing_image_build_source": sum(
+                row["unsafe_to_execute_unsandboxed"]
+                and row["image_build_source"] is None
+                for row in rows
             ),
         },
         "entries": rows,
@@ -438,6 +469,36 @@ def build_preflight_receipt(
             if isinstance(row.get("sandbox_image"), str)
         }
     )
+    image_build_sources: dict[str, dict[str, Any]] = {}
+    inventory_by_image = {
+        row["sandbox_image"]: row.get("image_build_source")
+        for row in inventory["entries"]
+        if isinstance(row.get("sandbox_image"), str)
+    }
+    for reference in image_refs:
+        build_source = inventory_by_image.get(reference)
+        if not isinstance(build_source, str):
+            image_build_sources[reference] = {
+                "path": None,
+                "sha256": "UNKNOWN",
+                "state": "UNKNOWN",
+            }
+            reasons.append(f"image_build_source_missing:{reference}")
+            continue
+        build_path = repo_root / build_source
+        if not build_path.is_file():
+            image_build_sources[reference] = {
+                "path": build_source,
+                "sha256": "UNKNOWN",
+                "state": "UNKNOWN",
+            }
+            reasons.append(f"image_build_source_unavailable:{reference}")
+            continue
+        image_build_sources[reference] = {
+            "path": build_source,
+            "sha256": digest_file(build_path),
+            "state": "BOUND",
+        }
     for reference in image_refs:
         binding: dict[str, Any] = {
             "reference": reference,
@@ -512,6 +573,7 @@ def build_preflight_receipt(
             "inventory_digest": digest_bytes(canonical_bytes(inventory)),
             "denominator": inventory["catalog_denominator"],
             "counts": inventory["counts"],
+            "image_build_sources": image_build_sources,
         },
         "sandbox": {
             "docker_host_kind": "local-unix" if host is not None else "UNKNOWN",
@@ -688,6 +750,17 @@ def build_state_card(
                     "scope": "catalog",
                 }
             )
+        if any(
+            str(reason).startswith("image_build_source_")
+            for reason in preflight.get("reasons", [])
+        ):
+            findings.append(
+                {
+                    "severity": "High",
+                    "code": "deterministic_image_reproduction_unknown",
+                    "scope": "catalog-images",
+                }
+            )
         if repeatability.get("status") != "PASS":
             findings.append(
                 {
@@ -765,8 +838,9 @@ def build_state_card(
         "publication_state": "WAITING_FOR_EXPLICIT_APPROVAL",
         "production_freshness": "UNKNOWN",
         "next_action": (
-            "Restore or rebuild the four reviewed catalog image tags with verified digests, "
-            "then rerun preflight; do not run catalog servers before READY."
+            "Recover or approve deterministic build sources for all four image cohorts, "
+            "restore their verified immutable images, then rerun preflight; do not run "
+            "catalog servers before READY."
             if not preflight.get("safe_to_execute_catalog")
             else "Create one local review candidate, rerun deterministic verification, and triage."
         ),
