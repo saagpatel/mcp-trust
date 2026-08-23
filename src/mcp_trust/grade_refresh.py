@@ -32,7 +32,8 @@ PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV1"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
-POLICY_SCHEMA = "McpTrustRefreshPolicyV1"
+POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
+IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV1"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
 _PREFLIGHT_KEYS = frozenset(
@@ -78,6 +79,22 @@ _TRIAGE_KEYS = frozenset(
         "counts",
         "candidate_claimed_state",
         "candidate_verification",
+        "receipt_digest",
+    }
+)
+_IMAGE_BUILD_QUALIFICATION_KEYS = frozenset(
+    {
+        "schema",
+        "observed_at",
+        "image_reference",
+        "build_source_sha256",
+        "base_images",
+        "dependency_locks",
+        "build_network_policy",
+        "tool_versions",
+        "first_build_image_id",
+        "second_build_image_id",
+        "repeatable",
         "receipt_digest",
     }
 )
@@ -142,6 +159,37 @@ def _slug_set(payload: dict[str, Any], field: str) -> frozenset[str]:
     return frozenset(value)
 
 
+def _safe_relative_path(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and not Path(value).is_absolute()
+        and ".." not in Path(value).parts
+    )
+
+
+def _valid_image_build_descriptor(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "path",
+        "provenance_status",
+        "reproducibility_status",
+        "qualification_receipt",
+    }:
+        return False
+    if not _safe_relative_path(value.get("path")):
+        return False
+    if value.get("provenance_status") not in {
+        "SOURCE_CONTROLLED",
+        "RECOVERED_HISTORICAL_ARTIFACT",
+    }:
+        return False
+    reproducibility = value.get("reproducibility_status")
+    receipt = value.get("qualification_receipt")
+    if reproducibility == "UNKNOWN":
+        return receipt is None
+    return reproducibility == "VERIFIED" and _safe_relative_path(receipt)
+
+
 def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> RefreshPolicy:
     policy = load_json(policy_path)
     seed = load_json(seed_path)
@@ -189,16 +237,7 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
     if (
         not isinstance(image_build_sources, dict)
         or set(image_build_sources) != image_refs
-        or not all(
-            source is None
-            or (
-                isinstance(source, str)
-                and source
-                and not Path(source).is_absolute()
-                and ".." not in Path(source).parts
-            )
-            for source in image_build_sources.values()
-        )
+        or not all(_valid_image_build_descriptor(source) for source in image_build_sources.values())
     ):
         raise GradeRefreshError("refresh policy image build sources are invalid")
     fields = {
@@ -246,6 +285,7 @@ def catalog_inventory(
         slug = raw["slug"]
         local_process = source.get("command") is not None
         image = source.get("sandbox_image") or policy.raw["default_sandbox_image"]
+        build_descriptor = policy.raw["image_build_sources"].get(image, {})
         rows.append(
             {
                 "slug": slug,
@@ -253,7 +293,16 @@ def catalog_inventory(
                 "source_reference": source.get("reference"),
                 "sandbox_image": image if local_process else None,
                 "image_build_source": (
-                    policy.raw["image_build_sources"].get(image) if local_process else None
+                    build_descriptor.get("path") if local_process else None
+                ),
+                "image_build_provenance_status": (
+                    build_descriptor.get("provenance_status") if local_process else None
+                ),
+                "image_reproducibility_status": (
+                    build_descriptor.get("reproducibility_status") if local_process else None
+                ),
+                "image_qualification_receipt": (
+                    build_descriptor.get("qualification_receipt") if local_process else None
                 ),
                 "scannable": slug in policy.scannable,
                 "intentionally_masked": slug in policy.masked,
@@ -286,6 +335,11 @@ def catalog_inventory(
             "missing_image_build_source": sum(
                 row["unsafe_to_execute_unsandboxed"]
                 and row["image_build_source"] is None
+                for row in rows
+            ),
+            "unqualified_image_build_source": sum(
+                row["unsafe_to_execute_unsandboxed"]
+                and row["image_reproducibility_status"] != "VERIFIED"
                 for row in rows
             ),
         },
@@ -448,6 +502,120 @@ def scheduler_readback(
     }
 
 
+def _image_build_qualification(
+    *,
+    repo_root: Path,
+    reference: str,
+    build_source: str,
+    build_source_sha256: str,
+    receipt_path: str,
+) -> dict[str, Any] | None:
+    """Validate a deterministic two-build receipt against tracked source bytes."""
+    path = repo_root / receipt_path
+    if not path.is_file():
+        return None
+    try:
+        payload = load_json(path)
+    except GradeRefreshError:
+        return None
+    if not isinstance(payload, dict) or set(payload) != _IMAGE_BUILD_QUALIFICATION_KEYS:
+        return None
+    claimed = payload.get("receipt_digest")
+    unsigned = dict(payload)
+    unsigned.pop("receipt_digest", None)
+    try:
+        observed_at = datetime.fromisoformat(str(payload.get("observed_at")))
+    except ValueError:
+        return None
+    if (
+        payload.get("schema") != IMAGE_BUILD_QUALIFICATION_SCHEMA
+        or not isinstance(claimed, str)
+        or _SHA256.fullmatch(claimed) is None
+        or claimed != digest_bytes(canonical_bytes(unsigned))
+        or payload.get("image_reference") != reference
+        or payload.get("build_source_sha256") != build_source_sha256
+        or payload.get("repeatable") is not True
+        or observed_at.tzinfo is None
+    ):
+        return None
+    first = payload.get("first_build_image_id")
+    second = payload.get("second_build_image_id")
+    if (
+        not isinstance(first, str)
+        or _SHA256.fullmatch(first) is None
+        or first != second
+    ):
+        return None
+    base_images = payload.get("base_images")
+    network_policy = payload.get("build_network_policy")
+    tools = payload.get("tool_versions")
+    locks = payload.get("dependency_locks")
+    if (
+        not isinstance(base_images, list)
+        or not base_images
+        or not all(
+            isinstance(item, str)
+            and re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", item) is not None
+            for item in base_images
+        )
+        or not isinstance(network_policy, list)
+        or not network_policy
+        or not all(isinstance(item, str) and item and item != "*" for item in network_policy)
+        or not isinstance(tools, dict)
+        or not tools
+        or not all(
+            isinstance(key, str) and isinstance(value, str) and value
+            for key, value in tools.items()
+        )
+        or not isinstance(locks, dict)
+        or not locks
+    ):
+        return None
+    build_bytes = (repo_root / build_source).read_bytes()
+    for base in base_images:
+        if base.encode() not in build_bytes:
+            return None
+    required_lock_kinds = {
+        kind
+        for marker, kind in (
+            (b"apt-get", "os"),
+            (b"npm ", "npm"),
+            (b"uv tool", "python"),
+            (b"pip ", "python"),
+        )
+        if marker in build_bytes
+    }
+    if (
+        not set(locks) <= {"os", "npm", "python", "other"}
+        or not required_lock_kinds <= set(locks)
+    ):
+        return None
+    normalized_locks: dict[str, str] = {}
+    for _kind, lock in locks.items():
+        if not isinstance(lock, dict) or set(lock) != {"path", "sha256"}:
+            return None
+        relative = lock.get("path")
+        expected_digest = lock.get("sha256")
+        if (
+            not _safe_relative_path(relative)
+            or not isinstance(expected_digest, str)
+            or _SHA256.fullmatch(expected_digest) is None
+            or relative.encode() not in build_bytes
+            or not (repo_root / relative).is_file()
+            or digest_file(repo_root / relative) != expected_digest
+        ):
+            return None
+        normalized_locks[str(relative)] = expected_digest
+    return {
+        "path": receipt_path,
+        "sha256": digest_file(path),
+        "receipt_digest": claimed,
+        "qualified_image_id": first,
+        "dependency_locks": dict(sorted(normalized_locks.items())),
+        "state": "VERIFIED",
+    }
+
+
 def build_preflight_receipt(
     *,
     repo_root: Path,
@@ -510,12 +678,18 @@ def build_preflight_receipt(
     )
     image_build_sources: dict[str, dict[str, Any]] = {}
     inventory_by_image = {
-        row["sandbox_image"]: row.get("image_build_source")
+        row["sandbox_image"]: {
+            "path": row.get("image_build_source"),
+            "provenance_status": row.get("image_build_provenance_status"),
+            "reproducibility_status": row.get("image_reproducibility_status"),
+            "qualification_receipt": row.get("image_qualification_receipt"),
+        }
         for row in inventory["entries"]
         if isinstance(row.get("sandbox_image"), str)
     }
     for reference in image_refs:
-        build_source = inventory_by_image.get(reference)
+        descriptor = inventory_by_image.get(reference, {})
+        build_source = descriptor.get("path")
         if not isinstance(build_source, str):
             image_build_sources[reference] = {
                 "path": None,
@@ -533,11 +707,50 @@ def build_preflight_receipt(
             }
             reasons.append(f"image_build_source_unavailable:{reference}")
             continue
-        image_build_sources[reference] = {
+        build_source_sha256 = digest_file(build_path)
+        binding: dict[str, Any] = {
             "path": build_source,
-            "sha256": digest_file(build_path),
-            "state": "BOUND",
+            "sha256": build_source_sha256,
+            "provenance_status": descriptor.get("provenance_status", "UNKNOWN"),
+            "reproducibility_status": descriptor.get(
+                "reproducibility_status", "UNKNOWN"
+            ),
+            "qualification": None,
+            "state": "UNQUALIFIED",
         }
+        receipt_path = descriptor.get("qualification_receipt")
+        if descriptor.get("reproducibility_status") != "VERIFIED":
+            reasons.append(f"image_build_reproducibility_unknown:{reference}")
+        elif not isinstance(receipt_path, str):
+            binding["state"] = "UNKNOWN"
+            reasons.append(f"image_build_qualification_missing:{reference}")
+        else:
+            qualification = _image_build_qualification(
+                repo_root=repo_root,
+                reference=reference,
+                build_source=build_source,
+                build_source_sha256=build_source_sha256,
+                receipt_path=receipt_path,
+            )
+            if qualification is None:
+                binding["state"] = "UNKNOWN"
+                reasons.append(f"image_build_qualification_invalid:{reference}")
+            elif (
+                source.get("file_digests", {}).get(receipt_path)
+                != qualification["sha256"]
+                or any(
+                    source.get("file_digests", {}).get(lock_path) != lock_digest
+                    for lock_path, lock_digest in qualification[
+                        "dependency_locks"
+                    ].items()
+                )
+            ):
+                binding["state"] = "UNKNOWN"
+                reasons.append(f"image_build_qualification_unbound:{reference}")
+            else:
+                binding["state"] = "BOUND"
+                binding["qualification"] = qualification
+        image_build_sources[reference] = binding
     for reference in image_refs:
         binding: dict[str, Any] = {
             "reference": reference,
@@ -581,6 +794,13 @@ def build_preflight_receipt(
                     )
                     if not controls["all_required_controls"]:
                         reasons.append(f"sandbox_controls_incomplete:{reference}")
+                    build_binding = image_build_sources.get(reference, {})
+                    qualification = build_binding.get("qualification")
+                    if (
+                        isinstance(qualification, dict)
+                        and qualification.get("qualified_image_id") != image_id
+                    ):
+                        reasons.append(f"catalog_image_qualification_mismatch:{reference}")
                 except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
                     binding["state"] = "UNKNOWN"
                     reasons.append(f"catalog_image_provenance_unknown:{reference}")
@@ -965,7 +1185,13 @@ def build_state_card(
                 }
             )
         if any(
-            str(reason).startswith("image_build_source_")
+            str(reason).startswith(
+                (
+                    "image_build_source_",
+                    "image_build_reproducibility_",
+                    "image_build_qualification_",
+                )
+            )
             for reason in preflight.get("reasons", [])
         ):
             findings.append(
@@ -1056,9 +1282,9 @@ def build_state_card(
         "publication_state": "WAITING_FOR_EXPLICIT_APPROVAL",
         "production_freshness": "UNKNOWN",
         "next_action": (
-            "Recover or approve deterministic build sources for all four image cohorts, "
-            "restore their verified immutable images, then rerun preflight; do not run "
-            "catalog servers before READY."
+            "Approve deterministic reconstruction of all four image cohorts from the "
+            "tracked recipes, including immutable base digests, complete dependency locks, "
+            "two-build qualification receipts, and exact image IDs; then rerun preflight."
             if not preflight.get("safe_to_execute_catalog")
             else "Create one local review candidate, rerun deterministic verification, and triage."
         ),
@@ -1077,12 +1303,12 @@ def build_resume_capsule(
     authority_digest = digest_bytes(authority_boundary.encode())
     execution_blocked = state_card.get("safe_to_execute_catalog") is not True
     waiting_code = (
-        "sandbox-image-recovery-approval-required"
+        "deterministic-image-build-approval-required"
         if execution_blocked
         else "publication-approval-required"
     )
     capsule_id = (
-        "mcp-trust-grade-refresh-sandbox-recovery-gate"
+        "mcp-trust-grade-refresh-deterministic-build-gate"
         if execution_blocked
         else "mcp-trust-grade-refresh-publication-gate"
     )
@@ -1097,9 +1323,10 @@ def build_resume_capsule(
     }
     requested = {"kind": "codex-task-status", "target": target}
     resume_claim_ceiling = (
-        "Resume local build-source and sandbox-image recovery only after explicit "
-        "chat approval; catalog execution still requires a fresh READY preflight, and "
-        "publication, deployment, and scheduling remain separately gated."
+        "Resume deterministic sandbox-image reconstruction only after explicit chat "
+        "approval; use narrow build-time registry egress, create complete locks and "
+        "two-build receipts, and require a fresh READY preflight before catalog execution. "
+        "Publication, deployment, and scheduling remain separately gated."
         if execution_blocked
         else (
             "Resume local review-only qualification after explicit chat approval; "
@@ -1107,12 +1334,12 @@ def build_resume_capsule(
         )
     )
     resume_states = (
-        ["sandbox-image-recovery-authorized"]
+        ["deterministic-image-build-authorized"]
         if execution_blocked
         else ["publication-authorized"]
     )
     terminal_states = (
-        ["sandbox-image-recovery-declined", "program-withdrawn"]
+        ["deterministic-image-build-declined", "program-withdrawn"]
         if execution_blocked
         else ["publication-declined", "program-withdrawn"]
     )

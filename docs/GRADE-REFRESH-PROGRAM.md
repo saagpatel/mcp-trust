@@ -16,8 +16,9 @@ claim that a server is benign or malicious.
   remains UNKNOWN until a separately authorized deployment and live readback.
 - Real catalog execution is blocked: the four reviewed catalog image tags are
   not present locally. No substitute tag or newer third-party package may be
-  used. Exact unblock: restore or rebuild the four reviewed images, bind each
-  immutable image ID/repository digest, then obtain a `READY` preflight receipt.
+  used. Exact unblock: deterministically reconstruct the four reviewed images,
+  bind each immutable image ID/repository digest, produce valid two-build
+  qualification receipts, then obtain a `READY` preflight receipt.
 
 ### High
 
@@ -27,10 +28,22 @@ claim that a server is benign or malicious.
 - Historical refresh evidence used mutable image tags. The new preflight binds
   tags to immutable local image IDs before execution, but a real candidate has
   not yet consumed that evidence.
-- Deterministic build source is present only for the 15-entry reference image.
-  The live-batch, batch-3, and batch-4 build definitions were not committed;
-  16 entries therefore have UNKNOWN image reproduction provenance even if an
-  old local tag or layer is recovered.
+- The three ignored historical cohort recipes were recovered byte-for-byte and
+  moved into tracked source. Their original SHA-256 values are
+  `a6e71b03a909647ed059229c1e7cc8d2f9ecb1fb7b71937a1f32ea31bc29238b`
+  (live batch),
+  `79c39f13a7982712e2b5029aa5005019ee0eda6a4555321d5be1168652644fca`
+  (batch 3), and
+  `8e9c820beba2599a2c9f029ec26d208e4262cf11126bfc40070a2a3b009ab5e0`
+  (batch 4). Filenames, timestamps, receipts, and catalog commits corroborate
+  their intended cohorts, but do not bind them to the original image bytes.
+  They are reconstruction inputs, not recovered image provenance.
+- All four recipes—including `Dockerfile.scan`—use mutable base tags and
+  incomplete transitive dependency resolution. Reproduction remains `UNKNOWN`
+  for all 31 entries. Policy V2 now fails closed until each recipe uses immutable
+  base digests and complete dependency locks, and a source-bound qualification
+  receipt proves two identical image IDs. A tag plus a Dockerfile hash is not
+  sufficient.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
   remain UNKNOWN until all 31 entries are safely rescanned.
@@ -49,9 +62,10 @@ claim that a server is benign or malicious.
   uses 24 hours for candidate/review evidence and requires public output to show
   point-in-time scan age. A future policy change requires review.
 - Several seed references are unversioned even though their executable packages
-  are baked at versions declared in image build files. Image ID plus catalog
-  and source digests are therefore required together; a seed digest alone is
-  insufficient provenance.
+  are baked at versions declared in image build files. Image ID, build
+  qualification receipt, dependency-lock digests, catalog digest, and source
+  digest are therefore required together; a seed digest alone is insufficient
+  provenance.
 - Prior scan receipts do not contain the new policy digest. Initial comparisons
   must report `baseline_policy_digest_unknown` and require operator review.
 
@@ -96,14 +110,16 @@ credentials; the only admitted mode is non-functional dummy values inside a
 network-off sandbox. Ten depend on external or local backing services; a tool
 surface observed without that service does not prove functional behavior.
 Eight are upstream-archived/unsupported and eight are intentionally masked.
+Build-source paths now exist for every entry, but all 31 remain build-
+unqualified until deterministic reconstruction evidence is admitted.
 
 ## Threat model and controls
 
 | Threat | Required control | Failure state |
 |---|---|---|
 | Untrusted process execution | Docker by immutable image ID; never host passthrough | `BLOCKED` |
-| Image provenance or tag retargeting | Tag, image ID, repository digests, platform, Dockerfile/source digests | `UNKNOWN` or `BLOCKED` |
-| Dependency drift | Frozen lock and tool versions in receipt; no dynamic package execution | `BLOCKED` |
+| Image provenance or tag retargeting | Tag, image ID, repository digests, platform, Dockerfile/source digests, two-build qualification receipt | `UNKNOWN` or `BLOCKED` |
+| Dependency drift | Immutable base digests, complete OS/npm/Python dependency locks, and tool versions in receipt; no dynamic package execution | `BLOCKED` |
 | Egress and callbacks | `--network none`; remote transports are a separate approval lane | `BLOCKED` |
 | Secret theft | no live secrets; dummy values only with network off; values never recorded | `BLOCKED` |
 | Filesystem escape | read-only root, bounded tmpfs, no host mounts, non-root user | `BLOCKED` |
