@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -558,9 +559,7 @@ def _image_build_qualification(
             and re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", item) is not None
             for item in base_images
         )
-        or not isinstance(network_policy, list)
-        or not network_policy
-        or not all(isinstance(item, str) and item and item != "*" for item in network_policy)
+        or network_policy != ["none"]
         or not isinstance(tools, dict)
         or not tools
         or not all(
@@ -571,25 +570,104 @@ def _image_build_qualification(
         or not locks
     ):
         return None
-    build_bytes = (repo_root / build_source).read_bytes()
-    for base in base_images:
-        if base.encode() not in build_bytes:
-            return None
+    build_text = (repo_root / build_source).read_text(encoding="utf-8")
+    instructions: list[str] = []
+    continuation = ""
+    for raw_line in build_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            continuation += line[:-1].rstrip() + " "
+            continue
+        instructions.append((continuation + line).strip())
+        continuation = ""
+    if continuation:
+        return None
+    external_bases: list[str] = []
+    stage_aliases: set[str] = set()
+    for instruction in instructions:
+        match = re.match(
+            r"^FROM(?:\s+--platform=\S+)?\s+(\S+)(?:\s+AS\s+(\S+))?$",
+            instruction,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            continue
+        base, alias = match.groups()
+        if base not in stage_aliases:
+            external_bases.append(base)
+        if alias:
+            stage_aliases.add(alias)
+    if sorted(external_bases) != sorted(base_images):
+        return None
+    normalized = re.sub(r"[\[\],\"']+", " ", "\n".join(instructions).lower())
+    normalized = re.sub(r"\s+", " ", normalized)
+    if any(
+        pattern in normalized
+        for pattern in (
+            "apt-get ",
+            "apk add",
+            "dnf install",
+            "yum install",
+            "npm install",
+            "uv tool install",
+            "npx ",
+            "uvx ",
+            "curl ",
+            "wget ",
+        )
+    ):
+        return None
+    if "npm ci" in normalized and "npm" not in locks:
+        return None
+    if "npm ci" in normalized and "--offline" not in normalized:
+        return None
+    if ("pip install" in normalized or "uv pip install" in normalized) and (
+        "--require-hashes" not in normalized
+        or "--no-index" not in normalized
+        or "python" not in locks
+    ):
+        return None
     required_lock_kinds = {
         kind
         for marker, kind in (
-            (b"apt-get", "os"),
-            (b"npm ", "npm"),
-            (b"uv tool", "python"),
-            (b"pip ", "python"),
+            ("npm ", "npm"),
+            ("uv pip", "python"),
+            ("pip ", "python"),
         )
-        if marker in build_bytes
+        if marker in normalized
     }
-    if (
-        not set(locks) <= {"os", "npm", "python", "other"}
-        or not required_lock_kinds <= set(locks)
-    ):
+    if set(locks) != required_lock_kinds or not required_lock_kinds:
         return None
+
+    def copy_sources(instruction: str) -> list[str]:
+        if not instruction.upper().startswith("COPY "):
+            return []
+        body = instruction[5:].strip()
+        while body.startswith("--"):
+            try:
+                _flag, body = body.split(maxsplit=1)
+            except ValueError:
+                return []
+        if body.startswith("["):
+            try:
+                values = json.loads(body)
+            except json.JSONDecodeError:
+                return []
+            return values[:-1] if isinstance(values, list) and len(values) >= 2 else []
+        try:
+            values = shlex.split(body)
+        except ValueError:
+            return []
+        return values[:-1] if len(values) >= 2 else []
+
+    copied_sources = {
+        source.removeprefix("./")
+        for instruction in instructions
+        for source in copy_sources(instruction)
+        if isinstance(source, str)
+    }
     normalized_locks: dict[str, str] = {}
     for _kind, lock in locks.items():
         if not isinstance(lock, dict) or set(lock) != {"path", "sha256"}:
@@ -600,7 +678,7 @@ def _image_build_qualification(
             not _safe_relative_path(relative)
             or not isinstance(expected_digest, str)
             or _SHA256.fullmatch(expected_digest) is None
-            or relative.encode() not in build_bytes
+            or str(relative).removeprefix("./") not in copied_sources
             or not (repo_root / relative).is_file()
             or digest_file(repo_root / relative) != expected_digest
         ):
@@ -1284,7 +1362,8 @@ def build_state_card(
         "next_action": (
             "Approve deterministic reconstruction of all four image cohorts from the "
             "tracked recipes, including immutable base digests, complete dependency locks, "
-            "two-build qualification receipts, and exact image IDs; then rerun preflight."
+            "narrow dependency-preparation egress, network-none repeat builds, qualification "
+            "receipts, and exact image IDs; then rerun preflight."
             if not preflight.get("safe_to_execute_catalog")
             else "Create one local review candidate, rerun deterministic verification, and triage."
         ),
@@ -1324,8 +1403,9 @@ def build_resume_capsule(
     requested = {"kind": "codex-task-status", "target": target}
     resume_claim_ceiling = (
         "Resume deterministic sandbox-image reconstruction only after explicit chat "
-        "approval; use narrow build-time registry egress, create complete locks and "
-        "two-build receipts, and require a fresh READY preflight before catalog execution. "
+        "approval; use narrow registry egress only to prepare complete locked inputs, then "
+        "perform two network-none builds and require a fresh READY preflight before catalog "
+        "execution. "
         "Publication, deployment, and scheduling remain separately gated."
         if execution_blocked
         else (
