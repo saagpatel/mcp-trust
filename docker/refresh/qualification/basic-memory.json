@@ -48,7 +48,7 @@
       "."
     ]
   ],
-  "build_input_digest": "sha256:1da37b08c3413265eb34eba11e8b2ec88bc0d07f022330602591c08931aa9ecd",
+  "build_input_digest": "sha256:6df05b38f5e4596d1e2210f3ac6214ea434121c16db5407609f3134a2f4489c1",
   "build_network_policy": [
     "none"
   ],
@@ -62,7 +62,7 @@
     "rewrite_timestamps": true,
     "sbom": false
   },
-  "build_source_sha256": "sha256:555edf15b3a282a891e1ca225c578cadbfd0345210dc622bcd01714fb7332ad7",
+  "build_source_sha256": "sha256:c30e42fec27c98a7ff5edd3158df0a2b7c77064325179db83d0890d06c3a26c5",
   "dependency_artifacts": {
     "python": {
       "path": "docker/refresh/artifact-manifests/basic-memory/python.json",
@@ -82,7 +82,7 @@
     }
   },
   "exit_classification": "QUALIFIED_REPEATABLE",
-  "first_build_image_id": "sha256:226e6a821f838f9364baf62a4927b2f7c8b553983a094173f3a8cfadcef12ced",
+  "first_build_image_id": "sha256:88e2d9237e041c11e80d2594a2bc24bd1abe6086e5a4363c28e905445227ebe3",
   "image_reference": "mcp-trust-basic-memory:20260823",
   "load_commands": [
     [
@@ -98,15 +98,15 @@
       "tmp/qualification/basic-memory-second.oci.tar"
     ]
   ],
-  "observed_at": "2026-08-23T17:27:14.769230+00:00",
+  "observed_at": "2026-08-23T17:32:45.394016+00:00",
   "platform": "linux/arm64",
   "qualification_max_age_seconds": 86400,
-  "receipt_digest": "sha256:c62b5c307a53ff8b0e7bcea3f91523dc2067c42dc5f6fb5d2e3fb4929b3c237e",
+  "receipt_digest": "sha256:9fac97661f6e1cb7385fdb4e787f8851f69e5b0b9e173780b2782308ea53408b",
   "repeatable": true,
   "schema": "McpTrustImageBuildQualificationV2",
-  "second_build_image_id": "sha256:226e6a821f838f9364baf62a4927b2f7c8b553983a094173f3a8cfadcef12ced",
+  "second_build_image_id": "sha256:88e2d9237e041c11e80d2594a2bc24bd1abe6086e5a4363c28e905445227ebe3",
   "tool_versions": {
-    "buildkit_colima": "Name:          colima\nDriver:        docker\nLast Activity: 2026-08-23 17:26:26 +0000 UTC\n\nNodes:\nName:             colima\nEndpoint:         colima\nStatus:           running\nBuildKit version: v0.30.0\nPlatforms:        linux/arm64, linux/amd64, linux/amd64/v2, linux/386\nLabels:\n org.mobyproject.buildkit.worker.apparmor.profile:     docker-default\n org.mobyproject.buildkit.worker.containerd.namespace: moby\n org.mobyproject.buildkit.worker.containerd.uuid:      7026174e-cc38-4e00-9379-d3905eabeb74\n org.mobyproject.buildkit.worker.executor:             containerd\n org.mobyproject.buildkit.worker.hostname:             colima\n org.mobyproject.buildkit.worker.moby.host-gateway-ip: 192.168.5.2\n org.mobyproject.buildkit.worker.network:              host\n org.mobyproject.buildkit.worker.selinux.enabled:      false\n org.mobyproject.buildkit.worker.snapshotter:          overlayfs\nGC Policy rule#0:\n All:            false\n Filters:        type==source.local,type==exec.cachemount,type==source.git.checkout\n Keep Duration:  48h0m0s\n Max Used Space: 1.287GiB\nGC Policy rule#1:\n All:            false\n Keep Duration:  1440h0m0s\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB\nGC Policy rule#2:\n All:            false\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB\nGC Policy rule#3:\n All:            true\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB",
+    "buildkit_colima": "Name:          colima\nDriver:        docker\nLast Activity: 2026-08-23 17:31:36 +0000 UTC\n\nNodes:\nName:             colima\nEndpoint:         colima\nStatus:           running\nBuildKit version: v0.30.0\nPlatforms:        linux/arm64, linux/amd64, linux/amd64/v2, linux/386\nLabels:\n org.mobyproject.buildkit.worker.apparmor.profile:     docker-default\n org.mobyproject.buildkit.worker.containerd.namespace: moby\n org.mobyproject.buildkit.worker.containerd.uuid:      7026174e-cc38-4e00-9379-d3905eabeb74\n org.mobyproject.buildkit.worker.executor:             containerd\n org.mobyproject.buildkit.worker.hostname:             colima\n org.mobyproject.buildkit.worker.moby.host-gateway-ip: 192.168.5.2\n org.mobyproject.buildkit.worker.network:              host\n org.mobyproject.buildkit.worker.selinux.enabled:      false\n org.mobyproject.buildkit.worker.snapshotter:          overlayfs\nGC Policy rule#0:\n All:            false\n Filters:        type==source.local,type==exec.cachemount,type==source.git.checkout\n Keep Duration:  48h0m0s\n Max Used Space: 1.287GiB\nGC Policy rule#1:\n All:            false\n Keep Duration:  1440h0m0s\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB\nGC Policy rule#2:\n All:            false\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB\nGC Policy rule#3:\n All:            true\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB",
     "docker_buildx": "github.com/docker/buildx v0.36.1 Homebrew",
     "docker_client": "29.7.2",
     "docker_server": "29.5.2"
