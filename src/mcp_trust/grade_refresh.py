@@ -1402,11 +1402,10 @@ def build_resume_capsule(
     }
     requested = {"kind": "codex-task-status", "target": target}
     resume_claim_ceiling = (
-        "Resume deterministic sandbox-image reconstruction only after explicit chat "
-        "approval; use narrow registry egress only to prepare complete locked inputs, then "
-        "perform two network-none builds and require a fresh READY preflight before catalog "
-        "execution. "
-        "Publication, deployment, and scheduling remain separately gated."
+        "Resume deterministic image reconstruction only after explicit approval. Use "
+        "approved registry egress only to prepare locked inputs, then run two network-none "
+        "builds and a fresh READY preflight. Publication, deployment, and scheduling remain "
+        "separately gated."
         if execution_blocked
         else (
             "Resume local review-only qualification after explicit chat approval; "
