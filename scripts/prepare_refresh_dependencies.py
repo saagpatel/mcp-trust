@@ -437,22 +437,29 @@ def _validate_inputs(payload: object) -> dict[str, Any]:
     if not isinstance(cohorts, dict) or not cohorts:
         raise PreparationError("dependency cohorts are missing")
     for name, cohort in cohorts.items():
+        expected = {
+            "image_reference",
+            "dockerfile",
+            "node_base",
+            "python_base",
+            "python_version",
+            "npm",
+            "python",
+        }
+        if isinstance(cohort, dict) and "source_build_preparer" in cohort:
+            expected.add("source_build_preparer")
         if (
             not isinstance(name, str)
             or not isinstance(cohort, dict)
-            or set(cohort)
-            != {
-                "image_reference",
-                "dockerfile",
-                "node_base",
-                "python_base",
-                "python_version",
-                "npm",
-                "python",
-            }
+            or set(cohort) != expected
             or not isinstance(cohort["npm"], dict)
-            or not cohort["npm"]
             or not isinstance(cohort["python"], list)
+            or not (cohort["npm"] or cohort["python"])
+            or (
+                "source_build_preparer" in cohort
+                and cohort["source_build_preparer"]
+                != "scripts/prepare_basic_memory_dependencies.py"
+            )
         ):
             raise PreparationError("dependency cohort is invalid")
     return payload
@@ -478,10 +485,16 @@ def _verify_materialized_bundle(
 def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[str, Any]:
     """Recreate ignored bundles from committed locks without resolving versions."""
     payload = _validate_inputs(json.loads(inputs_path.read_text(encoding="utf-8")))
-    selected = cohorts or sorted(payload["cohorts"])
+    selected = cohorts or sorted(
+        name
+        for name, config in payload["cohorts"].items()
+        if "source_build_preparer" not in config
+    )
     unknown = sorted(set(selected) - set(payload["cohorts"]))
     if unknown:
         raise PreparationError("unknown dependency cohort requested")
+    if any("source_build_preparer" in payload["cohorts"][name] for name in selected):
+        raise PreparationError("source-build cohort requires its dedicated preparer")
     collisions = [ARTIFACT_ROOT / name for name in selected if (ARTIFACT_ROOT / name).exists()]
     if collisions:
         raise PreparationError("dependency artifacts already exist; preserve and review them")
@@ -583,10 +596,16 @@ def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[
 
 def prepare(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[str, Any]:
     payload = _validate_inputs(json.loads(inputs_path.read_text(encoding="utf-8")))
-    selected = cohorts or sorted(payload["cohorts"])
+    selected = cohorts or sorted(
+        name
+        for name, config in payload["cohorts"].items()
+        if "source_build_preparer" not in config
+    )
     unknown = sorted(set(selected) - set(payload["cohorts"]))
     if unknown:
         raise PreparationError("unknown dependency cohort requested")
+    if any("source_build_preparer" in payload["cohorts"][name] for name in selected):
+        raise PreparationError("source-build cohort requires its dedicated preparer")
     collisions = [
         path
         for name in selected

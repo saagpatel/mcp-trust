@@ -7,11 +7,14 @@ recreate the ignored offline bundles from the committed locks:
 
 ```bash
 uv run --frozen python scripts/prepare_refresh_dependencies.py --materialize
+uv run --frozen python scripts/prepare_basic_memory_dependencies.py materialize
 ```
 
-This command executes registry clients only, disables package lifecycle code,
-and refuses any bundle whose digest differs from its tracked descriptor. Then
-run the exact network-none, no-cache double builds:
+The standard preparer executes registry clients only and disables package
+lifecycle code. The dedicated `basic-memory` preparer rebuilds its two exact
+source-only dependencies twice in network-none sandboxes, then downloads only
+hash-locked binary wheels. Both refuse a bundle whose digest differs from its
+tracked descriptor. Then run the exact network-none, no-cache double builds:
 
 ```bash
 uv run --frozen python scripts/qualify_refresh_images.py

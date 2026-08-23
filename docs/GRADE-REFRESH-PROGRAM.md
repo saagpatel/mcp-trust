@@ -14,11 +14,12 @@ claim that a server is benign or malicious.
   set. Public-readonly startup now requires `MCP_TRUST_MASKED_GRADES`, and VM
   bundles remove masked scan rows and bind the masking file. Runtime adoption
   remains UNKNOWN until a separately authorized deployment and live readback.
-- Four executable catalog images now have digest-pinned bases, complete npm or
+- Five executable catalog images now have digest-pinned bases, complete npm or
   Python locks, reproducible offline bundles, and source-bound two-build
-  qualification receipts. `basic-memory` remains `UNKNOWN` and blocked: its
-  pinned `pybars3` dependency is source-only and package build-code execution
-  has not been sandbox-qualified. No substitute package or image is admitted.
+  qualification receipts. `basic-memory` additionally binds its source-only
+  `pybars3`/`PyMeta3` inputs and build tools by digest; package build code ran
+  twice only in separate network-none, read-only-root, capability-dropped,
+  resource-limited containers and produced byte-identical wheels.
 
 ### High
 
@@ -39,7 +40,7 @@ claim that a server is benign or malicious.
   (batch 4). Filenames, timestamps, receipts, and catalog commits corroborate
   their intended cohorts, but do not bind them to the original image bytes.
   They are reconstruction inputs, not recovered image provenance.
-- The four admitted recipes now use immutable base digests and complete
+- The five admitted recipes now use immutable base digests and complete
   transitive npm/Python locks. Registry preparation disables package lifecycle
   code; lock-only rematerialization reproduced every normalized offline bundle
   byte-for-byte. Network-none, no-cache BuildKit runs with timestamp rewriting
@@ -47,9 +48,7 @@ claim that a server is benign or malicious.
   hours; an expired receipt returns the cohort to `UNKNOWN`.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
-  remain UNKNOWN until the 30 qualified entries are safely rescanned;
-  `basic-memory` must remain separately UNKNOWN until its sandbox image is
-  qualified.
+  remain UNKNOWN until all 31 qualified entries are safely rescanned.
 - The legacy VM bundle gate is weaker than full refresh-candidate verification.
   Masking is now fail-closed, but future VM publication must additionally
   require current candidate, provenance, freshness, and receipt verification.
@@ -113,8 +112,8 @@ credentials; the only admitted mode is non-functional dummy values inside a
 network-off sandbox. Ten depend on external or local backing services; a tool
 surface observed without that service does not prove functional behavior.
 Eight are upstream-archived/unsupported and eight are intentionally masked.
-Build-source paths exist for every entry. Thirty entries map to four qualified
-images; `basic-memory` is the single blocked and build-unqualified entry.
+Build-source paths exist for every entry. All 31 entries map to five qualified
+images; the current policy has no blocked entry.
 Candidate execution derives its scan set from this exact source-bound policy:
 blocked rows never enter Docker preflight or scanner invocation and cannot
 retain a fresh-looking grade.
@@ -131,7 +130,7 @@ either partial candidate remains a Critical publication block.
 |---|---|---|
 | Untrusted process execution | Docker by immutable image ID; never host passthrough | `BLOCKED` |
 | Image provenance or tag retargeting | Tag, image ID, repository digests, platform, Dockerfile/source digests, two-build qualification receipt | `UNKNOWN` or `BLOCKED` |
-| Dependency drift | Immutable base digests, complete OS/npm/Python dependency locks, and tool versions in receipt; no dynamic package execution | `BLOCKED` |
+| Dependency drift | Immutable base digests, complete npm/Python dependency locks, tool versions, and source-build receipts where wheel-only resolution is impossible | `BLOCKED` |
 | Egress and callbacks | `--network none`; remote transports are a separate approval lane | `BLOCKED` |
 | Secret theft | no live secrets; dummy values only with network off; values never recorded | `BLOCKED` |
 | Filesystem escape | read-only root, bounded tmpfs, no host mounts, non-root user | `BLOCKED` |
@@ -143,8 +142,11 @@ either partial candidate remains a Critical publication block.
 
 Deterministic reconstruction has two distinct network lanes. Dependency
 preparation may use only the explicitly approved registry clients/endpoints,
-must disable package lifecycle code, normalize fetch-time-only npm cache
-metadata, and produce content-addressed, source-bound locks or vendored inputs.
+must disable package lifecycle code except for an explicit source-build lane,
+normalize fetch-time-only npm cache metadata, and produce content-addressed,
+source-bound locks or vendored inputs. Source-build package code must run only
+with network `none`, no secrets, a read-only root, bounded task-owned writes,
+and explicit CPU, memory, PID, and time controls; repeat outputs must match.
 Lock-only rematerialization must reproduce the tracked bundle digests. The two
 qualification builds themselves run with build network `none`; their
 Dockerfiles must use immutable `FROM ...@sha256:` references, must not invoke

@@ -1,0 +1,36 @@
+{
+  "schema": "McpTrustPythonSourceBuildInputsV1",
+  "platform": "linux/arm64",
+  "python_base": "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134",
+  "source_date_epoch": 1710000000,
+  "inputs": [
+    {
+      "filename": "PyMeta3-0.5.1.tar.gz",
+      "role": "untrusted-source",
+      "sha256": "18bda326d9a9bbf587bfc0ee0bc96864964d78b067288bcf55d4d98681d05bcb",
+      "url": "https://files.pythonhosted.org/packages/ce/af/409edba35fc597f1e386e3860303791ab5a28d6cc9a8aecbc567051b19a9/PyMeta3-0.5.1.tar.gz"
+    },
+    {
+      "filename": "pybars3-0.9.7.tar.gz",
+      "role": "untrusted-source",
+      "sha256": "6ac847e905e53b9c5b936af112c910475e27bf767f79f4528c16f9af1ec0e252",
+      "url": "https://files.pythonhosted.org/packages/ec/1a/2fb847db017f9f89ab8519d96e35fb3dacb6170a0643fddba3b366af0af1/pybars3-0.9.7.tar.gz"
+    },
+    {
+      "filename": "setuptools-80.9.0-py3-none-any.whl",
+      "role": "build-tool",
+      "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922",
+      "url": "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl"
+    },
+    {
+      "filename": "wheel-0.45.1-py3-none-any.whl",
+      "role": "build-tool",
+      "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248",
+      "url": "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl"
+    }
+  ],
+  "expected_wheels": {
+    "pybars3-0.9.7-py3-none-any.whl": "f3a3818445ad335ea5a1917d5548f161f72124ffd187deb0099c32f381f0409e",
+    "pymeta3-0.5.1-py3-none-any.whl": "553165394066e19f9b136c4446d822dafc54669d8e6dd0a2548b5f325eeb7fff"
+  }
+}

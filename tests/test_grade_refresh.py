@@ -34,15 +34,15 @@ def test_inventory_classifies_every_catalog_entry() -> None:
     assert inventory["catalog_denominator"] == 31
     assert len(inventory["entries"]) == 31
     assert inventory["counts"] == {
-        "scannable": 30,
-        "blocked": 1,
+        "scannable": 31,
+        "blocked": 0,
         "intentionally_masked": 8,
         "unsupported_upstream": 8,
         "credential_dependent": 7,
         "backing_service_dependent": 10,
         "unsafe_to_execute_unsandboxed": 31,
         "missing_image_build_source": 0,
-        "unqualified_image_build_source": 1,
+        "unqualified_image_build_source": 0,
     }
     assert all(row["live_credentials_allowed"] is False for row in inventory["entries"])
     assert all(row["broad_egress_allowed"] is False for row in inventory["entries"])
@@ -128,9 +128,9 @@ def test_preflight_reports_every_missing_catalog_image(
 
     assert receipt["status"] == "BLOCKED"
     assert receipt["safe_to_execute_catalog"] is False
-    assert len(receipt["sandbox"]["image_bindings"]) == 4
+    assert len(receipt["sandbox"]["image_bindings"]) == 5
     assert all(row["state"] == "MISSING" for row in receipt["sandbox"]["image_bindings"])
-    assert sum(reason.startswith("catalog_image_missing:") for reason in receipt["reasons"]) == 4
+    assert sum(reason.startswith("catalog_image_missing:") for reason in receipt["reasons"]) == 5
     assert receipt["authority"]["publication"] is False
 
 
@@ -185,7 +185,7 @@ def test_preflight_binds_images_by_content_id(
     assert sum(
         reason.startswith("image_build_qualification_invalid:")
         for reason in receipt["reasons"]
-    ) == 4
+    ) == 5
     assert all(
         row["image_id"] == image_id and row["sandbox_controls"]["all_required_controls"]
         for row in receipt["sandbox"]["image_bindings"]
@@ -394,6 +394,83 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         receipt_path="qualification.json",
         now=NOW,
     )
+
+
+def _source_build_receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+    input_path = tmp_path / "source-input.json"
+    builder_path = tmp_path / "builder.py"
+    receipt_path = tmp_path / "source-receipt.json"
+    base = "python@sha256:" + "a" * 64
+    wheels = {"legacy-1.0-py3-none-any.whl": "b" * 64}
+    inputs = [{"filename": "legacy.tar.gz", "sha256": "c" * 64}]
+    input_payload = {
+        "schema": "McpTrustPythonSourceBuildInputsV1",
+        "python_base": base,
+        "platform": "linux/arm64",
+        "source_date_epoch": 1710000000,
+        "inputs": inputs,
+        "expected_wheels": wheels,
+    }
+    input_path.write_text(json.dumps(input_payload), encoding="utf-8")
+    builder_path.write_text("raise SystemExit('fixture only')\n", encoding="utf-8")
+    payload: dict[str, object] = {
+        "schema": "McpTrustPythonSourceBuildReceiptV1",
+        "observed_at": NOW.isoformat(),
+        "input_descriptor": {
+            "path": input_path.name,
+            "sha256": grade_refresh.digest_file(input_path),
+        },
+        "builder": {
+            "path": builder_path.name,
+            "sha256": grade_refresh.digest_file(builder_path),
+        },
+        "python_base": base,
+        "platform": "linux/arm64",
+        "source_date_epoch": 1710000000,
+        "network_policy": "none-during-all-package-code-execution",
+        "sandbox_controls": {
+            "read_only_root": True,
+            "cap_drop": ["ALL"],
+            "no_new_privileges": True,
+            "memory": "512m",
+            "pids": 64,
+            "cpus": 1,
+            "writable_mounts": ["task-owned-/work", "ephemeral-/tmp"],
+            "secrets": "none",
+        },
+        "input_artifacts": inputs,
+        "first_build_wheels": wheels,
+        "second_build_wheels": wheels,
+        "repeatable": True,
+        "package_code_executed": True,
+        "exit_classification": "QUALIFIED_REPEATABLE_NETWORK_NONE",
+        "tool_versions": {"python": "Python 3.12.14"},
+    }
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+    return receipt_path, payload
+
+
+def test_source_build_receipt_requires_network_none_and_repeatable_outputs(
+    tmp_path: Path,
+) -> None:
+    receipt, payload = _source_build_receipt_fixture(tmp_path)
+    value = {
+        "path": receipt.name,
+        "sha256": grade_refresh.digest_file(receipt),
+    }
+    assert grade_refresh._python_source_build_receipt(
+        repo_root=tmp_path, value=value
+    ) is not None
+
+    payload["network_policy"] = "bridge"
+    _rewrite_receipt(receipt, payload)
+    value["sha256"] = grade_refresh.digest_file(receipt)
+    assert grade_refresh._python_source_build_receipt(
+        repo_root=tmp_path, value=value
+    ) is None
 
 
 def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Path) -> None:

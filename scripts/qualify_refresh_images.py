@@ -260,7 +260,7 @@ def main() -> int:
     parser.add_argument(
         "--cohort",
         action="append",
-        choices=("reference", "live-batch", "batch3", "batch4"),
+        choices=("reference", "live-batch", "batch3", "batch4", "basic-memory"),
         help="qualify only the named cohort; may be repeated",
     )
     args = parser.parse_args()
@@ -275,7 +275,13 @@ def main() -> int:
     buildx = shutil.which("docker-buildx")
     if buildx is None:
         raise QualificationError("docker-buildx executable is unavailable")
-    names = args.cohort or ["reference", "live-batch", "batch3", "batch4"]
+    names = args.cohort or [
+        "reference",
+        "live-batch",
+        "batch3",
+        "batch4",
+        "basic-memory",
+    ]
     for name in names:
         config = cohorts.get(name)
         if not isinstance(config, dict):

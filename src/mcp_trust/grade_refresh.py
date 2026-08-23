@@ -673,6 +673,119 @@ def _valid_python_inputs(manifest_path: Path, lock_path: Path) -> bool:
     return bool(locked) and all(locked.get(name) == version for name, version in direct.items())
 
 
+def _python_source_build_receipt(
+    *, repo_root: Path, value: object
+) -> dict[str, str] | None:
+    receipt_ref = _exact_dependency_descriptor(repo_root=repo_root, value=value)
+    if receipt_ref is None:
+        return None
+    receipt_path, receipt_sha256 = receipt_ref
+    try:
+        payload = load_json(repo_root / receipt_path)
+    except GradeRefreshError:
+        return None
+    expected_keys = {
+        "schema",
+        "observed_at",
+        "input_descriptor",
+        "builder",
+        "python_base",
+        "platform",
+        "source_date_epoch",
+        "network_policy",
+        "sandbox_controls",
+        "input_artifacts",
+        "first_build_wheels",
+        "second_build_wheels",
+        "repeatable",
+        "package_code_executed",
+        "exit_classification",
+        "tool_versions",
+        "receipt_digest",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
+        return None
+    claimed = payload.get("receipt_digest")
+    unsigned = dict(payload)
+    unsigned.pop("receipt_digest", None)
+    if (
+        payload.get("schema") != "McpTrustPythonSourceBuildReceiptV1"
+        or not isinstance(claimed, str)
+        or _SHA256.fullmatch(claimed) is None
+        or claimed != digest_bytes(canonical_bytes(unsigned))
+        or re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", str(payload.get("python_base")))
+        is None
+        or payload.get("platform") not in {"linux/arm64", "linux/amd64"}
+        or type(payload.get("source_date_epoch")) is not int
+        or payload.get("network_policy") != "none-during-all-package-code-execution"
+        or payload.get("repeatable") is not True
+        or payload.get("package_code_executed") is not True
+        or payload.get("exit_classification")
+        != "QUALIFIED_REPEATABLE_NETWORK_NONE"
+    ):
+        return None
+    try:
+        observed_at = datetime.fromisoformat(str(payload.get("observed_at")))
+    except ValueError:
+        return None
+    if observed_at.tzinfo is None:
+        return None
+    input_ref = _exact_dependency_descriptor(
+        repo_root=repo_root, value=payload.get("input_descriptor")
+    )
+    builder_ref = _exact_dependency_descriptor(
+        repo_root=repo_root, value=payload.get("builder")
+    )
+    if input_ref is None or builder_ref is None:
+        return None
+    try:
+        inputs = load_json(repo_root / input_ref[0])
+    except GradeRefreshError:
+        return None
+    if (
+        not isinstance(inputs, dict)
+        or inputs.get("schema") != "McpTrustPythonSourceBuildInputsV1"
+        or inputs.get("python_base") != payload.get("python_base")
+        or inputs.get("platform") != payload.get("platform")
+        or inputs.get("source_date_epoch") != payload.get("source_date_epoch")
+        or inputs.get("inputs") != payload.get("input_artifacts")
+        or inputs.get("expected_wheels") != payload.get("first_build_wheels")
+        or payload.get("first_build_wheels") != payload.get("second_build_wheels")
+    ):
+        return None
+    controls = payload.get("sandbox_controls")
+    expected_controls = {
+        "read_only_root": True,
+        "cap_drop": ["ALL"],
+        "no_new_privileges": True,
+        "memory": "512m",
+        "pids": 64,
+        "cpus": 1,
+        "writable_mounts": ["task-owned-/work", "ephemeral-/tmp"],
+        "secrets": "none",
+    }
+    tools = payload.get("tool_versions")
+    if (
+        controls != expected_controls
+        or not isinstance(tools, dict)
+        or not tools
+        or not all(
+            isinstance(key, str) and isinstance(item, str) and item
+            for key, item in tools.items()
+        )
+    ):
+        return None
+    return {
+        "path": receipt_path,
+        "sha256": receipt_sha256,
+        "receipt_digest": claimed,
+        "input_descriptor_path": input_ref[0],
+        "input_descriptor_sha256": input_ref[1],
+        "builder_path": builder_ref[0],
+        "builder_sha256": builder_ref[1],
+    }
+
+
 def _dependency_artifact(
     *, repo_root: Path, kind: str, lock_sha256: str, value: object
 ) -> dict[str, Any] | None:
@@ -699,6 +812,13 @@ def _dependency_artifact(
         "preparation_network_policy",
         "package_code_executed",
     }
+    source_build_ref = (
+        descriptor.get("source_build_receipt")
+        if isinstance(descriptor, dict)
+        else None
+    )
+    if source_build_ref is not None:
+        expected_keys.add("source_build_receipt")
     endpoints = {
         "npm": ["https://registry.npmjs.org"],
         "python": ["https://files.pythonhosted.org", "https://pypi.org/simple"],
@@ -711,8 +831,10 @@ def _dependency_artifact(
         or descriptor.get("registry_endpoints") != endpoints.get(kind)
         or descriptor.get("lock_sha256") != lock_sha256
         or descriptor.get("preparation_network_policy")
-        != "registry-client-allowlist-no-package-code"
-        or descriptor.get("package_code_executed") is not False
+        not in {
+            "registry-client-allowlist-no-package-code",
+            "registry-client-allowlist-build-code-network-none",
+        }
         or not isinstance(descriptor.get("tool_versions"), dict)
         or not descriptor["tool_versions"]
         or not all(
@@ -723,6 +845,25 @@ def _dependency_artifact(
         or not isinstance(descriptor.get("bundle_sha256"), str)
         or _SHA256.fullmatch(descriptor["bundle_sha256"]) is None
     ):
+        return None
+    source_build: dict[str, str] | None = None
+    package_code_executed = descriptor.get("package_code_executed")
+    if package_code_executed is False:
+        if source_build_ref is not None or descriptor.get("preparation_network_policy") != (
+            "registry-client-allowlist-no-package-code"
+        ):
+            return None
+    elif package_code_executed is True:
+        if kind != "python" or descriptor.get("preparation_network_policy") != (
+            "registry-client-allowlist-build-code-network-none"
+        ):
+            return None
+        source_build = _python_source_build_receipt(
+            repo_root=repo_root, value=source_build_ref
+        )
+        if source_build is None:
+            return None
+    else:
         return None
     try:
         prepared_at = datetime.fromisoformat(str(descriptor.get("prepared_at")))
@@ -742,13 +883,16 @@ def _dependency_artifact(
         return None
     if any(descriptor.get(key) != value for key, value in metadata.items()):
         return None
-    return {
+    normalized = {
         "descriptor_path": descriptor_path,
         "descriptor_sha256": descriptor_sha256,
         "bundle_path": str(descriptor["bundle_path"]),
         "bundle_sha256": str(descriptor["bundle_sha256"]),
         **metadata,
     }
+    if source_build is not None:
+        normalized["source_build_receipt"] = source_build
+    return normalized
 
 
 def _image_build_qualification(
@@ -1093,6 +1237,20 @@ def _image_build_qualification(
         **{
             value["descriptor_path"]: value["descriptor_sha256"]
             for value in normalized_artifacts.values()
+        },
+        **{
+            tracked_path: tracked_sha256
+            for value in normalized_artifacts.values()
+            for source_build in [value.get("source_build_receipt")]
+            if isinstance(source_build, dict)
+            for tracked_path, tracked_sha256 in (
+                (source_build["path"], source_build["sha256"]),
+                (
+                    source_build["input_descriptor_path"],
+                    source_build["input_descriptor_sha256"],
+                ),
+                (source_build["builder_path"], source_build["builder_sha256"]),
+            )
         },
     }
     return {
