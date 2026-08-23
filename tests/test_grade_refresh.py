@@ -629,6 +629,136 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
     assert triage["candidate_verification"]["publication_ready"] is True
 
 
+def test_triage_requires_review_for_inconsistent_controlled_repeats(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    preflight = {
+        "schema": "McpTrustGradeRefreshPreflightV1",
+        "observed_at": NOW.isoformat(),
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "exit_classification": "ready",
+        "source_binding": {
+            "revision": "a" * 40,
+            "source_tree_digest": "sha256:" + "1" * 64,
+            "worktree_state": "clean",
+        },
+        "catalog": {
+            "policy_digest": "sha256:" + "2" * 64,
+            "seed_digest": grade_refresh.digest_file(SEED),
+            "masking_digest": grade_refresh.digest_file(MASKED),
+            "denominator": 31,
+        },
+        "sandbox": {},
+        "tool_versions": {},
+        "scheduler": {"state": "NOT_READ", "mutation_performed": False},
+        "reasons": [],
+        "authority": {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        },
+    }
+    preflight["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(preflight)
+    )
+    repeatability = {
+        "schema": "McpTrustFixtureRepeatabilityV1",
+        "observed_at": NOW.isoformat(),
+        "status": "PASS",
+        "fixture_kind": "deterministic-stub-no-process-no-network",
+        "catalog_denominator": 31,
+        "first_digest": "sha256:" + "3" * 64,
+        "second_digest": "sha256:" + "3" * 64,
+        "repeatable": True,
+        "claim_ceiling": "Fixture determinism only",
+    }
+    repeatability["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(repeatability)
+    )
+    manifest = {
+        "candidate_state": "partial",
+        "catalog": {"server_count": 31},
+        "masking": {"slugs": []},
+        "sandbox": {"profiles": []},
+        "qualification": {
+            "preflight_receipt_digest": preflight["receipt_digest"],
+            "source_revision": preflight["source_binding"]["revision"],
+            "source_tree_digest": preflight["source_binding"]["source_tree_digest"],
+            "policy_digest": preflight["catalog"]["policy_digest"],
+        },
+    }
+    blocked_result = {
+        "server_slug": "blocked",
+        "state": "blocked-policy",
+        "fresh_grade": None,
+        "execution_disposition": "do-not-execute",
+        "reason": "sandbox_image_qualification_unknown",
+    }
+    for candidate, reason in (
+        (first, "sandbox_image_qualification_unknown"),
+        (second, "different_repeat_reason"),
+    ):
+        (candidate / "MANIFEST.json").write_text(
+            json.dumps(manifest),
+            encoding="utf-8",
+        )
+        (candidate / "scan_results.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            **blocked_result,
+                            "reason": reason,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    triage = triage_candidate(
+        candidate=first,
+        repeat_candidate=second,
+        preflight=preflight,
+        repeatability=repeatability,
+        seed_path=SEED,
+        masked_path=MASKED,
+        candidate_verifier=lambda *_args, **_kwargs: {
+            "structural_valid": True,
+            "publication_ready": False,
+            "state": "partial",
+            "errors": [],
+        },
+    )
+
+    assert any(
+        finding == {
+            "severity": "High",
+            "code": "controlled_repeat_inconsistent",
+            "slug": "blocked",
+        }
+        for finding in triage["findings"]
+    )
+    assert triage["repeat_candidate_manifest_digest"] == grade_refresh.digest_file(
+        second / "MANIFEST.json"
+    )
+    assert triage["publication_allowed"] is False
+    state = build_state_card(
+        preflight=preflight,
+        repeatability=repeatability,
+        triage=triage,
+    )
+    assert "grade-diff-review-triage-run" in state["completed_controls"]
+    assert "triage_receipt_invalid_or_unbound" not in state["outstanding_gates"]
+    assert "candidate_review_required" in state["outstanding_gates"]
+
+
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     preflight = {
         "safe_to_execute_catalog": False,
@@ -698,6 +828,7 @@ def test_state_card_rejects_self_digested_but_unbound_triage() -> None:
     triage = {
         "schema": "McpTrustGradeDiffTriageV1",
         "candidate_manifest_digest": "sha256:" + "4" * 64,
+        "repeat_candidate_manifest_digest": None,
         "preflight_receipt_digest": "sha256:" + "9" * 64,
         "repeatability_receipt_digest": repeatability["receipt_digest"],
         "review_required": False,

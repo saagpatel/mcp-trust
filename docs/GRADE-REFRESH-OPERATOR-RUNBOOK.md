@@ -90,12 +90,14 @@ approve, publish, deploy, or schedule it.
 ```bash
 uv run --frozen --extra dev python scripts/grade_refresh.py triage \
   --candidate ./dist/refresh-candidates/<candidate> \
+  --repeat-candidate ./dist/refresh-candidates/<repeat-candidate> \
   --preflight ./dist/grade-refresh/preflight.json \
   --repeatability ./dist/grade-refresh/fixture-repeatability.json \
   --out ./dist/grade-refresh/triage.json
 
 uv run --frozen --extra dev python scripts/grade_refresh.py package \
   --candidate ./dist/refresh-candidates/<candidate> \
+  --repeat-candidate ./dist/refresh-candidates/<repeat-candidate> \
   --preflight ./dist/grade-refresh/preflight.json \
   --repeatability ./dist/grade-refresh/fixture-repeatability.json \
   --triage ./dist/grade-refresh/triage.json \
@@ -103,8 +105,10 @@ uv run --frozen --extra dev python scripts/grade_refresh.py package \
   --out-dir ./dist/grade-refresh/operator-package
 ```
 
-Review Critical, High, Medium, then Low. Every upgrade, large change, new mask,
-repeat inconsistency, provenance gap, or policy change requires disposition.
+Review Critical, High, Medium, then Low. The triage normalizes the two
+independently verified controlled candidates while excluding receipt IDs and
+timestamps; every grade/evidence inconsistency, upgrade, large change, new
+mask, provenance gap, or policy change requires disposition.
 
 ## 6. Publication gate
 

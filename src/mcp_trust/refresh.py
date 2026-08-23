@@ -706,6 +706,20 @@ def _write_private_bytes(path: Path, content: bytes) -> None:
         os.close(descriptor)
 
 
+def _fsync_directory(path: Path) -> None:
+    """Commit directory metadata before immutable readback."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _sqlite_online_copy(source: Path, destination: Path) -> None:
     if not source.is_file():
         raise RefreshCandidateError(f"registry database is missing: {source}")
@@ -1983,9 +1997,16 @@ def create_refresh_candidate(
             manifest_digest + "\n",
         )
         _make_files_read_only(temporary)
+        _fsync_directory(receipts_dir)
+        _fsync_directory(masked_proofs_dir)
+        _fsync_directory(temporary)
         os.replace(temporary, final)
         published = True
         _make_read_only(final)
+        _fsync_directory(final / "receipts")
+        _fsync_directory(final / "masked-proofs")
+        _fsync_directory(final)
+        _fsync_directory(output_parent)
     finally:
         if not published:
             shutil.rmtree(temporary, ignore_errors=True)
