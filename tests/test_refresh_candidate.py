@@ -106,6 +106,73 @@ def _stub_scanner(server: Server) -> EngineResult:
     )
 
 
+def _qualification_receipt(
+    seed_path: Path,
+    masked_path: Path,
+    *,
+    profiles: list[dict[str, object]],
+) -> dict[str, object]:
+    image_bindings = [
+        {
+            "reference": profile["image"],
+            "state": "BOUND",
+            "image_id": profile["image_digest"],
+            "repo_digests": [],
+            "platform": "linux/arm64",
+            "sandbox_controls": {"all_required_controls": True},
+        }
+        for profile in profiles
+    ]
+    build_sources = {
+        str(profile["image"]): {
+            "path": "Dockerfile.scan",
+            "sha256": "sha256:" + ("b" * 64),
+            "state": "BOUND",
+        }
+        for profile in profiles
+    }
+    payload: dict[str, object] = {
+        "schema": "McpTrustGradeRefreshPreflightV1",
+        "observed_at": FIXED_NOW.isoformat(),
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "exit_classification": "ready",
+        "source_binding": {
+            "revision": "a" * 40,
+            "worktree_state": "clean",
+            "source_tree_digest": "sha256:" + ("c" * 64),
+        },
+        "catalog": {
+            "seed_digest": "sha256:" + hashlib.sha256(seed_path.read_bytes()).hexdigest(),
+            "masking_digest": "sha256:"
+            + hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            "policy_digest": "sha256:" + ("d" * 64),
+            "image_build_sources": build_sources,
+        },
+        "sandbox": {"image_bindings": image_bindings},
+        "tool_versions": {
+            "python": "3.11.15",
+            "python_executable": "/fixture/python",
+            "mcp_audits": "2.7.0",
+            "mcp_trust": "0.1.1",
+            "docker_client": "29.7.2",
+            "docker_server": "29.5.2",
+        },
+        "scheduler": {"state": "NOT_READ", "mutation_performed": False},
+        "reasons": [],
+        "authority": {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        },
+    }
+    payload["receipt_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(payload)
+    ).hexdigest()
+    return payload
+
+
 def _candidate(
     tmp_path: Path,
     *,
@@ -191,6 +258,11 @@ def _complete_remote_candidate(
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="not-needed:image",
+        qualification_receipt=_qualification_receipt(
+            seed_path,
+            masked_path,
+            profiles=[],
+        ),
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -505,8 +577,12 @@ def test_create_cli_returns_failure_for_partial_candidate(
             "errors": [],
         },
     )
+    qualification = tmp_path / "qualification.json"
+    qualification.write_text("{}", encoding="utf-8")
 
-    result = refresh_cli.main(["create"])
+    result = refresh_cli.main(
+        ["create", "--qualification-receipt", str(qualification)]
+    )
     output = json.loads(capsys.readouterr().out)
 
     assert result == 1
@@ -1017,6 +1093,16 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="required:image",
+        qualification_receipt=_qualification_receipt(
+            seed_path,
+            masked_path,
+            profiles=[
+                refresh_module._sandbox_profile(
+                    "required:image",
+                    image_digest=IMAGE_DIGEST,
+                )
+            ],
+        ),
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -1974,6 +2060,11 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="not-needed:image",
+        qualification_receipt=_qualification_receipt(
+            seed_path,
+            masked_path,
+            profiles=[],
+        ),
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -2275,6 +2366,16 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="required:image",
+        qualification_receipt=_qualification_receipt(
+            seed_path,
+            masked_path,
+            profiles=[
+                refresh_module._sandbox_profile(
+                    "required:image",
+                    image_digest=IMAGE_DIGEST,
+                )
+            ],
+        ),
         now=FIXED_NOW,
         candidate_name="candidate",
     )

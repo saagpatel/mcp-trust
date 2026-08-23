@@ -1,9 +1,9 @@
-"""Build a sanitized VM deploy bundle from a launch-ready DB.
+"""Build a sanitized VM deploy bundle from a verified refresh candidate.
 
-The working registry DB may contain older scan rows from local rehearsals. This
-script validates the latest launch state, copies only the latest scan rows into a
-deploy DB, copies only referenced receipt artifacts, writes a manifest, and
-packs the result as a tarball ready to upload to `/data/mcp-trust/` on the VM.
+The review-only candidate may contain historical rows. This script first runs
+the independent candidate verifier, then copies only latest unmasked scan rows
+and referenced receipts into a manifest-bound transfer artifact. Creating a
+bundle does not authorize upload or deployment.
 """
 
 from __future__ import annotations
@@ -11,25 +11,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import sqlite3
 import subprocess
 import tarfile
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from validate_launch_state import _latest_scan_rows, validate_launch_state
 
-
-def _default_db_path() -> Path:
-    return Path(os.environ.get("MCP_TRUST_DB", "registry.db"))
-
-
-def _default_receipts_dir() -> Path:
-    return Path(os.environ.get("MCP_TRUST_RECEIPTS_DIR", "receipts"))
+from mcp_trust.refresh import verify_refresh_candidate
 
 
 def _default_seed_path() -> Path:
@@ -93,6 +87,8 @@ def _write_manifest(
     rows: list[sqlite3.Row],
     source_db: Path,
     source_receipts_dir: Path,
+    candidate_path: Path,
+    candidate_manifest_sha256: str,
     masked_path: Path,
     masked_slugs: set[str],
 ) -> dict[str, Any]:
@@ -122,8 +118,10 @@ def _write_manifest(
             "status_short": _git_value(["status", "--short"]),
         },
         "source": {
-            "db": str(source_db),
-            "receipts_dir": str(source_receipts_dir),
+            "candidate": str(candidate_path),
+            "candidate_manifest_sha256": candidate_manifest_sha256,
+            "db": str(source_db.relative_to(candidate_path)),
+            "receipts_dir": str(source_receipts_dir.relative_to(candidate_path)),
         },
         "masking": {
             "path": "masked-grades.json",
@@ -147,14 +145,33 @@ def _write_manifest(
 
 def build_deploy_bundle(
     *,
-    db_path: Path,
-    receipts_dir: Path,
+    candidate_path: Path,
     seed_path: Path,
     masked_path: Path,
     out_dir: Path,
     bundle_name: str | None = None,
+    candidate_verifier: Callable[..., dict[str, object]] = verify_refresh_candidate,
 ) -> Path:
-    """Build and return the deploy bundle tarball path."""
+    """Build and return a bundle bound to one independently verified candidate."""
+
+    verification = candidate_verifier(
+        candidate_path,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+    if verification.get("publication_ready") is not True:
+        errors = verification.get("errors")
+        detail = ",".join(str(item) for item in errors) if isinstance(errors, list) else ""
+        raise ValueError(
+            "refresh candidate is not complete, current, and publication-ready"
+            + (f": {detail}" if detail else "")
+        )
+    candidate_manifest_sha256 = verification.get("manifest_sha256")
+    if not isinstance(candidate_manifest_sha256, str) or len(candidate_manifest_sha256) != 64:
+        raise ValueError("refresh candidate verification omitted its manifest digest")
+
+    db_path = candidate_path / "registry.db"
+    receipts_dir = candidate_path / "receipts"
 
     errors, _summary = validate_launch_state(
         db_path=db_path,
@@ -207,6 +224,8 @@ def build_deploy_bundle(
             rows=rows,
             source_db=db_path,
             source_receipts_dir=receipts_dir,
+            candidate_path=candidate_path,
+            candidate_manifest_sha256=candidate_manifest_sha256,
             masked_path=root / "masked-grades.json",
             masked_slugs=masked_slugs,
         )
@@ -219,8 +238,12 @@ def build_deploy_bundle(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", type=Path, default=_default_db_path())
-    parser.add_argument("--receipts-dir", type=Path, default=_default_receipts_dir())
+    parser.add_argument(
+        "--candidate",
+        type=Path,
+        required=True,
+        help="Complete review-only refresh candidate to verify and package.",
+    )
     parser.add_argument("--seed", type=Path, default=_default_seed_path())
     parser.add_argument("--masked-grades", type=Path, default=_default_masked_path())
     parser.add_argument("--out-dir", type=Path, default=Path("dist"))
@@ -231,8 +254,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     bundle_path = build_deploy_bundle(
-        db_path=args.db,
-        receipts_dir=args.receipts_dir,
+        candidate_path=args.candidate,
         seed_path=args.seed,
         masked_path=args.masked_grades,
         out_dir=args.out_dir,

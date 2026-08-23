@@ -59,12 +59,13 @@ the seed catalog, running real scans, or changing grading bands.
 
    ```bash
    python scripts/build_deploy_bundle.py \
-     --db ./registry.db \
-     --receipts-dir ./receipts
+     --candidate ./dist/refresh-candidate-<timestamp>
    ```
 
-   The bundle contains a pruned `registry.db` with only latest scan rows, only
-   referenced receipt files, and a `MANIFEST.json` with hashes.
+   The builder independently verifies the review-only refresh candidate and
+   refuses incomplete, stale, or unbound input. The bundle contains a pruned
+   `registry.db`, referenced receipts, and a `MANIFEST.json` bound to the
+   candidate manifest digest. Bundle creation does not authorize deployment.
 
 5. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`

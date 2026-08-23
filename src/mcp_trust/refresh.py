@@ -80,6 +80,7 @@ _MANIFEST_KEYS = frozenset(
         "catalog",
         "masking",
         "sandbox",
+        "qualification",
         "scan_counts",
         "engine_versions",
         "artifacts",
@@ -1035,6 +1036,120 @@ def preflight_real_refresh(
     return evidence
 
 
+def _qualification_metadata(
+    receipt: dict[str, Any],
+    *,
+    seed_sha256: str,
+    masked_sha256: str,
+    sandbox_evidence: dict[str, object],
+    now: datetime,
+) -> dict[str, str]:
+    required_keys = {
+        "schema",
+        "observed_at",
+        "status",
+        "safe_to_execute_catalog",
+        "exit_classification",
+        "source_binding",
+        "catalog",
+        "sandbox",
+        "tool_versions",
+        "scheduler",
+        "reasons",
+        "authority",
+        "receipt_digest",
+    }
+    if set(receipt) != required_keys or receipt.get("schema") != "McpTrustGradeRefreshPreflightV1":
+        raise RefreshCandidateError("qualification receipt schema is invalid")
+    claimed_digest = receipt.get("receipt_digest")
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest", None)
+    actual_digest = "sha256:" + _sha256_bytes(_json_bytes(unsigned))
+    if claimed_digest != actual_digest:
+        raise RefreshCandidateError("qualification receipt digest is invalid")
+    try:
+        observed_at = _parse_utc_datetime(receipt["observed_at"])
+    except (KeyError, OverflowError, TypeError, ValueError) as exc:
+        raise RefreshCandidateError("qualification timestamp is invalid") from exc
+    age_seconds = (now.astimezone(UTC) - observed_at).total_seconds()
+    if age_seconds < 0 or age_seconds >= DEFAULT_MAX_AGE_HOURS * 3600:
+        raise RefreshCandidateError("qualification receipt is stale or future-dated")
+    source = receipt.get("source_binding")
+    catalog = receipt.get("catalog")
+    sandbox = receipt.get("sandbox")
+    tools = receipt.get("tool_versions")
+    authority = receipt.get("authority")
+    if (
+        receipt.get("status") != "READY"
+        or receipt.get("safe_to_execute_catalog") is not True
+        or receipt.get("exit_classification") != "ready"
+        or receipt.get("reasons") != []
+        or not isinstance(source, dict)
+        or not isinstance(source.get("revision"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", source["revision"]) is None
+        or source.get("worktree_state") != "clean"
+        or not isinstance(source.get("source_tree_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", source["source_tree_digest"]) is None
+        or not isinstance(catalog, dict)
+        or catalog.get("seed_digest") != "sha256:" + seed_sha256
+        or catalog.get("masking_digest") != "sha256:" + masked_sha256
+        or not isinstance(catalog.get("policy_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", catalog["policy_digest"]) is None
+        or not isinstance(tools, dict)
+        or any(
+            not isinstance(tools.get(key), str) or tools[key] in {"", "UNKNOWN"}
+            for key in (
+                "python",
+                "python_executable",
+                "mcp_audits",
+                "mcp_trust",
+                "docker_client",
+                "docker_server",
+            )
+        )
+        or authority
+        != {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        }
+    ):
+        raise RefreshCandidateError("qualification receipt is not execution-ready")
+    build_sources = catalog.get("image_build_sources")
+    if not isinstance(build_sources, dict) or any(
+        not isinstance(binding, dict)
+        or binding.get("state") != "BOUND"
+        or not isinstance(binding.get("path"), str)
+        or not isinstance(binding.get("sha256"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", binding["sha256"]) is None
+        for binding in build_sources.values()
+    ):
+        raise RefreshCandidateError("qualification image build provenance is incomplete")
+    sandbox_rows = sandbox.get("image_bindings", []) if isinstance(sandbox, dict) else []
+    receipt_bindings = {
+        row.get("reference"): row.get("image_id")
+        for row in sandbox_rows
+        if isinstance(row, dict) and row.get("state") == "BOUND"
+    }
+    profile_bindings = {
+        row.get("image"): row.get("image_digest")
+        for row in sandbox_evidence.get("profiles", [])
+        if isinstance(row, dict)
+    }
+    if receipt_bindings != profile_bindings:
+        raise RefreshCandidateError("qualification image bindings differ from execution preflight")
+    return {
+        "mode": "grade-refresh-preflight",
+        "receipt": "qualification_receipt.json",
+        "receipt_sha256": _sha256_bytes(_json_bytes(receipt)),
+        "preflight_receipt_digest": actual_digest,
+        "policy_digest": catalog["policy_digest"],
+        "source_revision": source["revision"],
+        "source_tree_digest": source["source_tree_digest"],
+    }
+
+
 @contextmanager
 def _scan_environment(
     default_image: str,
@@ -1358,6 +1473,7 @@ def create_refresh_candidate(
     receipt_writer: Callable[[Server, ScanRecord, Path], str | None] | None = None,
     now: datetime | None = None,
     candidate_name: str | None = None,
+    qualification_receipt: dict[str, Any] | None = None,
 ) -> Path:
     """Create one immutable candidate; never mutate canonical/public outputs."""
     fixed_now = now or datetime.now(tz=UTC)
@@ -1403,11 +1519,16 @@ def create_refresh_candidate(
     sandbox_evidence: dict[str, object]
     docker_host: str | None = None
     execution_image_bindings: dict[str, str] = {}
+    qualification_manifest: dict[str, object]
     if fixture_mode:
         sandbox_evidence = {
             "mode": "deterministic-fixture",
             "default_image": default_image,
             "profiles": [_sandbox_profile(default_image)],
+        }
+        qualification_manifest = {
+            "mode": "deterministic-fixture",
+            "receipt": None,
         }
     else:
         sandbox_evidence = preflight_real_refresh(servers, default_image=default_image)
@@ -1426,6 +1547,15 @@ def create_refresh_candidate(
                 raise RefreshCandidateError(
                     "preflight returned an invalid Docker execution authority"
                 ) from exc
+        if not isinstance(qualification_receipt, dict):
+            raise RefreshCandidateError("real refresh requires a qualification receipt")
+        qualification_manifest = _qualification_metadata(
+            qualification_receipt,
+            seed_sha256=reviewed.seed_sha256,
+            masked_sha256=reviewed.masked_sha256,
+            sandbox_evidence=sandbox_evidence,
+            now=fixed_now,
+        )
         scanner_engine = MCPAuditEngine(timeout=90.0)
 
         def scan_server(server: Server) -> EngineResult:
@@ -1460,6 +1590,9 @@ def create_refresh_candidate(
         receipts_dir.mkdir(mode=0o700)
         masked_proofs_dir = temporary / "masked-proofs"
         masked_proofs_dir.mkdir(mode=0o700)
+        if not fixture_mode:
+            assert qualification_receipt is not None
+            _write_private(temporary / "qualification_receipt.json", qualification_receipt)
         candidate_db = temporary / "registry.db"
         _sqlite_online_copy(source_db, candidate_db)
         conn = connect(str(candidate_db))
@@ -1703,6 +1836,7 @@ def create_refresh_candidate(
                 "slugs": sorted(masked_slugs),
             },
             "sandbox": sandbox_evidence,
+            "qualification": qualification_manifest,
             "scan_counts": {
                 "total": len(results),
                 "fresh": sum(result["state"] == "fresh" for result in results),
@@ -2088,6 +2222,49 @@ def verify_refresh_candidate(
         )
     if not sandbox_manifest_valid:
         errors.append("sandbox_manifest_invalid")
+    qualification_manifest = manifest.get("qualification")
+    if candidate_state == "fixture":
+        qualification_valid = qualification_manifest == {
+            "mode": "deterministic-fixture",
+            "receipt": None,
+        }
+    else:
+        qualification_valid = False
+        if (
+            isinstance(qualification_manifest, dict)
+            and set(qualification_manifest)
+            == {
+                "mode",
+                "receipt",
+                "receipt_sha256",
+                "preflight_receipt_digest",
+                "policy_digest",
+                "source_revision",
+                "source_tree_digest",
+            }
+            and qualification_manifest.get("mode") == "grade-refresh-preflight"
+            and qualification_manifest.get("receipt") == "qualification_receipt.json"
+            and isinstance(sandbox_manifest, dict)
+            and isinstance(manifest_catalog.get("seed_sha256"), str)
+            and isinstance(manifest_masking.get("sha256"), str)
+        ):
+            try:
+                qualification_receipt = _captured_json(
+                    captured,
+                    "qualification_receipt.json",
+                )
+                expected_qualification = _qualification_metadata(
+                    qualification_receipt,
+                    seed_sha256=manifest_catalog["seed_sha256"],
+                    masked_sha256=manifest_masking["sha256"],
+                    sandbox_evidence=sandbox_manifest,
+                    now=created_at or fixed_now,
+                )
+                qualification_valid = qualification_manifest == expected_qualification
+            except (RefreshCandidateError, TypeError, ValueError):
+                qualification_valid = False
+    if not qualification_valid:
+        errors.append("qualification_receipt_invalid")
     successful_results = [
         result
         for result in results
@@ -2128,6 +2305,8 @@ def verify_refresh_candidate(
         "scan_results.json",
         "static_snapshot.json",
     }
+    if candidate_state != "fixture":
+        expected_artifacts.add("qualification_receipt.json")
     expected_artifacts.update(
         f"receipts/{receipt_ref}"
         for result in results

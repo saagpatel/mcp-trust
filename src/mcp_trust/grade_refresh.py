@@ -35,44 +35,6 @@ STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV1"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
-_SOURCE_BINDING_FILES = (
-    "DEPLOY-VM.md",
-    "Dockerfile.scan",
-    "README.md",
-    "deploy/launchd/com.d.mcp-trust-refresh.plist",
-    "deploy/mcp-trust.env.example",
-    "deploy/mcp-trust.service",
-    "docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md",
-    "docs/GRADE-REFRESH-PROGRAM.md",
-    "masked-grades.json",
-    "pyproject.toml",
-    "scripts/build_deploy_bundle.py",
-    "scripts/grade_refresh.py",
-    "scripts/refresh_candidate.py",
-    "scripts/refresh_and_publish.sh",
-    "scripts/validate_launch_state.py",
-    "uv.lock",
-    "src/mcp_trust/api/app.py",
-    "src/mcp_trust/catalog/refresh_policy.json",
-    "src/mcp_trust/catalog/seed_servers.json",
-    "src/mcp_trust/core/governance.py",
-    "src/mcp_trust/core/grading.py",
-    "src/mcp_trust/core/provenance.py",
-    "src/mcp_trust/engine/mcpaudit.py",
-    "src/mcp_trust/engine/sandbox.py",
-    "src/mcp_trust/grade_refresh.py",
-    "src/mcp_trust/receipts.py",
-    "src/mcp_trust/refresh.py",
-    "tests/test_api.py",
-    "tests/test_deploy_bundle_builder.py",
-    "tests/test_grade_refresh.py",
-    "tests/test_launch_state_validator.py",
-    "tests/test_receipt_provenance.py",
-    "tests/test_refresh_candidate.py",
-    "tests/test_sandbox.py",
-)
-
-
 class GradeRefreshError(RuntimeError):
     """The review-only qualification contract is invalid or incomplete."""
 
@@ -163,6 +125,8 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
         raise GradeRefreshError("catalog seed must be a JSON object list")
     if not isinstance(masked, list) or not all(isinstance(item, str) for item in masked):
         raise GradeRefreshError("masked grade input must be a string list")
+    if len(masked) != len(set(masked)):
+        raise GradeRefreshError("masked grade input contains duplicates")
     slugs = [row.get("slug") for row in seed]
     if not all(isinstance(slug, str) and slug for slug in slugs) or len(slugs) != len(set(slugs)):
         raise GradeRefreshError("catalog slugs are invalid or duplicated")
@@ -284,11 +248,6 @@ def catalog_inventory(
 
 
 def source_binding(repo_root: Path) -> dict[str, Any]:
-    file_digests = {
-        relative: digest_file(repo_root / relative) for relative in _SOURCE_BINDING_FILES
-    }
-    binding_digest = digest_bytes(canonical_bytes(file_digests))
-
     def git(*args: str) -> str | None:
         completed = subprocess.run(
             ["git", "-C", str(repo_root), *args],
@@ -298,6 +257,31 @@ def source_binding(repo_root: Path) -> dict[str, Any]:
         )
         return completed.stdout.strip() if completed.returncode == 0 else None
 
+    tracked = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "-z"],
+        capture_output=True,
+        check=False,
+    )
+    if tracked.returncode != 0:
+        raise GradeRefreshError("tracked source inventory is unavailable")
+    relative_paths = [
+        item.decode("utf-8") for item in tracked.stdout.split(b"\0") if item
+    ]
+    if not relative_paths:
+        raise GradeRefreshError("tracked source inventory is empty")
+    file_digests: dict[str, str] = {}
+    for relative in relative_paths:
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise GradeRefreshError("tracked source inventory contains an unsafe path")
+        path = repo_root / relative_path
+        if path.is_symlink():
+            file_digests[relative] = digest_bytes(
+                ("symlink:" + os.readlink(path)).encode("utf-8")
+            )
+        else:
+            file_digests[relative] = digest_file(path)
+    binding_digest = digest_bytes(canonical_bytes(file_digests))
     revision = git("rev-parse", "HEAD")
     status = git("status", "--porcelain=v1", "--untracked-files=all")
     return {
@@ -392,7 +376,9 @@ def scheduler_readback(
         if _run(runner, ["launchctl", "print", target]).returncode == 0
     ]
     definitions_match: bool | str = (
-        installed_digest == source_digest if installed_digest is not None else "UNKNOWN"
+        installed_digest == source_digest
+        if installed_digest is not None
+        else "NOT_APPLICABLE"
     )
     if disabled_state is True and not loaded_domains:
         state = "DISABLED_UNLOADED"
@@ -405,6 +391,9 @@ def scheduler_readback(
         "state": state,
         "persistently_disabled": disabled_state,
         "loaded_domains": loaded_domains,
+        "installed_definition_state": (
+            "PRESENT" if installed_digest is not None else "ABSENT"
+        ),
         "installed_plist": str(installed_plist) if installed_digest is not None else None,
         "installed_plist_sha256": installed_digest,
         "repository_plist_sha256": source_digest,
@@ -429,6 +418,10 @@ def build_preflight_receipt(
     )
     source = source_binding(repo_root)
     reasons: list[str] = []
+    if source.get("revision") == "UNKNOWN":
+        reasons.append("source_revision_unknown")
+    if source.get("worktree_state") != "clean":
+        reasons.append("source_worktree_not_clean")
     docker = shutil.which("docker")
     host: str | None = None
     docker_versions: dict[str, Any] = {"client": "UNKNOWN", "server": "UNKNOWN"}
@@ -556,6 +549,8 @@ def build_preflight_receipt(
     }
     if tool_versions["mcp_audits"] == "UNKNOWN":
         reasons.append("mcp_audits_runtime_unavailable")
+    if tool_versions["mcp_trust"] == "UNKNOWN":
+        reasons.append("mcp_trust_runtime_unavailable")
     execution_ready = not reasons and all(
         binding["state"] == "BOUND" for binding in image_bindings
     )
@@ -655,8 +650,25 @@ def build_fixture_repeatability_receipt(
     return payload
 
 
+def _receipt_integrity_valid(payload: dict[str, Any], *, schema: str) -> bool:
+    if payload.get("schema") != schema:
+        return False
+    claimed = payload.get("receipt_digest")
+    if not isinstance(claimed, str) or _SHA256.fullmatch(claimed) is None:
+        return False
+    unsigned = dict(payload)
+    unsigned.pop("receipt_digest", None)
+    return claimed == digest_bytes(canonical_bytes(unsigned))
+
+
 def triage_candidate(
-    *, candidate: Path, preflight: dict[str, Any], repeatability: dict[str, Any]
+    *,
+    candidate: Path,
+    preflight: dict[str, Any],
+    repeatability: dict[str, Any],
+    seed_path: Path,
+    masked_path: Path,
+    candidate_verifier: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     results_payload = load_json(candidate / "scan_results.json")
     manifest = load_json(candidate / "MANIFEST.json")
@@ -668,12 +680,39 @@ def triage_candidate(
     def add(severity: str, code: str, slug: str = "catalog") -> None:
         findings.append({"severity": severity, "code": code, "slug": slug})
 
+    if candidate_verifier is None:
+        from mcp_trust.refresh import verify_refresh_candidate  # noqa: PLC0415
+
+        candidate_verifier = verify_refresh_candidate
+    verification = candidate_verifier(
+        candidate,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+    if (
+        verification.get("structural_valid") is not True
+        or verification.get("publication_ready") is not True
+    ):
+        add("Critical", "candidate_verification_failed")
+    if not _receipt_integrity_valid(preflight, schema=PREFLIGHT_SCHEMA):
+        add("Critical", "preflight_receipt_integrity_invalid")
+    if not _receipt_integrity_valid(repeatability, schema=REPEATABILITY_SCHEMA):
+        add("Critical", "repeatability_receipt_integrity_invalid")
     if preflight.get("status") != "READY":
         add("Critical", "preflight_not_ready")
     if repeatability.get("status") != "PASS":
         add("High", "repeatability_not_proven")
     if preflight.get("source_binding", {}).get("worktree_state") != "clean":
         add("High", "source_revision_not_cleanly_bound")
+    catalog_binding = preflight.get("catalog", {})
+    if (
+        not isinstance(catalog_binding, dict)
+        or catalog_binding.get("seed_digest") != digest_file(seed_path)
+        or catalog_binding.get("masking_digest") != digest_file(masked_path)
+    ):
+        add("Critical", "reviewed_catalog_binding_mismatch")
+    if repeatability.get("catalog_denominator") != catalog_binding.get("denominator"):
+        add("High", "repeatability_denominator_mismatch")
     for result in results:
         if not isinstance(result, dict):
             add("Critical", "invalid_result_shape")
@@ -688,6 +727,24 @@ def triage_candidate(
         drift = result.get("drift")
         if not isinstance(drift, dict):
             add("Medium", "baseline_or_drift_unknown", slug)
+            continue
+        if (
+            set(drift)
+            != {
+                "cause",
+                "surface_comparison",
+                "summary",
+                "previous_grade",
+                "current_grade",
+            }
+            or drift.get("previous_grade") not in _GRADE_INDEX
+            or drift.get("current_grade") not in _GRADE_INDEX
+            or drift.get("surface_comparison") not in {"changed", "unchanged", "unknown"}
+            or drift.get("cause")
+            not in {"surface-changed", "engine-changed", "score-moved", "undetermined", "no-change"}
+            or not isinstance(drift.get("summary"), str)
+        ):
+            add("High", "drift_provenance_invalid", slug)
             continue
         previous = drift.get("previous_grade")
         current = drift.get("current_grade")
@@ -720,6 +777,12 @@ def triage_candidate(
             for severity in ("Critical", "High", "Medium", "Low")
         },
         "candidate_claimed_state": manifest.get("candidate_state"),
+        "candidate_verification": {
+            "structural_valid": verification.get("structural_valid", False),
+            "publication_ready": verification.get("publication_ready", False),
+            "state": verification.get("state", "UNKNOWN"),
+            "errors": verification.get("errors", ["UNKNOWN"]),
+        },
     }
     payload["receipt_digest"] = digest_bytes(canonical_bytes(payload))
     return payload
@@ -813,6 +876,19 @@ def build_state_card(
         severity: sum(item.get("severity") == severity for item in findings)
         for severity in ("Critical", "High", "Medium", "Low")
     }
+    completed_controls = [
+        "catalog-inventory",
+        "source-and-policy-digests",
+        "image-provenance-preflight-run",
+        "sandbox-policy-defined",
+        "review-only-authority",
+    ]
+    if repeatability.get("status") == "PASS":
+        completed_controls.append("deterministic-fixture-repeatability")
+    if triage is not None:
+        completed_controls.append("grade-diff-review-triage-run")
+    if scheduler.get("state") != "NOT_READ":
+        completed_controls.append("scheduler-readback-no-mutation")
     return {
         "schema": STATE_CARD_SCHEMA,
         "source_revision": source.get("revision", "UNKNOWN"),
@@ -824,16 +900,7 @@ def build_state_card(
         "fixture_repeatability": repeatability.get("status", "UNKNOWN"),
         "severity_findings": severity_findings,
         "findings": findings,
-        "completed_controls": [
-            "catalog-inventory",
-            "source-and-policy-digests",
-            "image-provenance-preflight",
-            "network-filesystem-resource-secret-policy",
-            "deterministic-fixture-repeatability",
-            "grade-diff-review-triage",
-            "review-only-authority",
-            "scheduler-readback-no-mutation",
-        ],
+        "completed_controls": completed_controls,
         "outstanding_gates": sorted(set(blockers)),
         "publication_state": "WAITING_FOR_EXPLICIT_APPROVAL",
         "production_freshness": "UNKNOWN",

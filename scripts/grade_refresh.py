@@ -82,6 +82,7 @@ def _parser() -> argparse.ArgumentParser:
     triage = subcommands.add_parser(
         "triage", help="Create severity-first review triage for one immutable candidate."
     )
+    _common_inputs(triage)
     triage.add_argument("--candidate", type=Path, required=True)
     triage.add_argument("--preflight", type=Path, required=True)
     triage.add_argument("--repeatability", type=Path, required=True)
@@ -204,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
                 candidate=args.candidate,
                 preflight=load_json(args.preflight),
                 repeatability=load_json(args.repeatability),
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
             )
             _emit(payload, args.out)
             return 0
