@@ -1,0 +1,5 @@
+mcp==1.29.0
+mcp-server-fetch==2026.6.4
+mcp-server-git==2026.6.16
+mcp-server-sqlite==2025.4.25
+mcp-server-time==2026.6.4

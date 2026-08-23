@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
+import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,15 +34,15 @@ def test_inventory_classifies_every_catalog_entry() -> None:
     assert inventory["catalog_denominator"] == 31
     assert len(inventory["entries"]) == 31
     assert inventory["counts"] == {
-        "scannable": 31,
-        "blocked": 0,
+        "scannable": 30,
+        "blocked": 1,
         "intentionally_masked": 8,
         "unsupported_upstream": 8,
         "credential_dependent": 7,
         "backing_service_dependent": 10,
         "unsafe_to_execute_unsandboxed": 31,
         "missing_image_build_source": 0,
-        "unqualified_image_build_source": 31,
+        "unqualified_image_build_source": 1,
     }
     assert all(row["live_credentials_allowed"] is False for row in inventory["entries"])
     assert all(row["broad_egress_allowed"] is False for row in inventory["entries"])
@@ -176,8 +178,12 @@ def test_preflight_binds_images_by_content_id(
 
     assert receipt["status"] == "BLOCKED"
     assert receipt["safe_to_execute_catalog"] is False
-    assert sum(
+    assert not any(
         reason.startswith("image_build_reproducibility_unknown:")
+        for reason in receipt["reasons"]
+    )
+    assert sum(
+        reason.startswith("image_build_qualification_invalid:")
         for reason in receipt["reasons"]
     ) == 4
     assert all(
@@ -186,153 +192,275 @@ def test_preflight_binds_images_by_content_id(
     )
 
 
-def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Path) -> None:
-    dockerfile = tmp_path / "Dockerfile"
-    lock = tmp_path / "package-lock.json"
-    receipt_path = tmp_path / "qualification.json"
+def _qualification_fixture(
+    tmp_path: Path,
+    *,
+    docker_text: str | None = None,
+    lock_payload: dict[str, object] | None = None,
+) -> tuple[Path, dict[str, object], str]:
     base = "node@sha256:" + "b" * 64
-    dockerfile.write_text(
-        f"FROM {base}\nCOPY package-lock.json /build/package-lock.json\n"
-        "RUN npm ci --offline\n",
+    dockerfile = tmp_path / "Dockerfile"
+    manifest = tmp_path / "package.json"
+    lock = tmp_path / "package-lock.json"
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    bundle = artifacts / "npm.tar"
+    descriptor = artifacts / "npm.json"
+    receipt = tmp_path / "qualification.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "name": "qualification-fixture",
+                "version": "1.0.0",
+                "private": True,
+                "dependencies": {"example": "1.0.0"},
+            }
+        ),
         encoding="utf-8",
     )
-    lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+    valid_lock: dict[str, object] = {
+        "name": "qualification-fixture",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "requires": True,
+        "packages": {
+            "": {
+                "name": "qualification-fixture",
+                "version": "1.0.0",
+                "dependencies": {"example": "1.0.0"},
+            },
+            "node_modules/example": {
+                "version": "1.0.0",
+                "resolved": "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
+                "integrity": "sha512-" + "A" * 86 + "==",
+            },
+        },
+    }
+    lock.write_text(json.dumps(lock_payload or valid_lock), encoding="utf-8")
+    with tarfile.open(bundle, "w") as archive:
+        content = b"offline artifact"
+        info = tarfile.TarInfo("cache/example.tgz")
+        info.size = len(content)
+        info.mtime = 0
+        archive.addfile(info, io.BytesIO(content))
+    metadata = grade_refresh.dependency_bundle_metadata(bundle)
+    descriptor_payload = {
+        "schema": "McpTrustDependencyArtifactBundleV1",
+        "kind": "npm",
+        "registry_endpoints": ["https://registry.npmjs.org"],
+        "lock_sha256": grade_refresh.digest_file(lock),
+        "bundle_path": "artifacts/npm.tar",
+        "bundle_sha256": grade_refresh.digest_file(bundle),
+        "prepared_at": NOW.isoformat(),
+        "tool_versions": {"node": "22.0.0", "npm": "10.0.0"},
+        "preparation_network_policy": "registry-client-allowlist-no-package-code",
+        "package_code_executed": False,
+        **metadata,
+    }
+    descriptor.write_text(json.dumps(descriptor_payload), encoding="utf-8")
+    dockerfile.write_text(
+        docker_text
+        or (
+            f"FROM {base}\n"
+            "COPY package.json /build/package.json\n"
+            "COPY package-lock.json /build/package-lock.json\n"
+            "COPY artifacts/npm.tar /offline/npm.tar\n"
+            "RUN mkdir -p /offline/npm && tar -xf /offline/npm.tar -C /offline/npm "
+            "&& npm ci --offline --cache /offline/npm\n"
+        ),
+        encoding="utf-8",
+    )
+    manifest_ref = {
+        "path": "package.json",
+        "sha256": grade_refresh.digest_file(manifest),
+    }
+    lock_ref = {
+        "path": "package-lock.json",
+        "sha256": grade_refresh.digest_file(lock),
+    }
+    artifact_ref = {
+        "path": "artifacts/npm.json",
+        "sha256": grade_refresh.digest_file(descriptor),
+    }
+    normalized_artifact = grade_refresh._dependency_artifact(
+        repo_root=tmp_path,
+        kind="npm",
+        lock_sha256=lock_ref["sha256"],
+        value=artifact_ref,
+    )
+    assert normalized_artifact is not None
+    build_source_sha256 = grade_refresh.digest_file(dockerfile)
+    build_options = {
+        "builder": "buildx",
+        "cache": "disabled",
+        "load": False,
+        "output": "oci",
+        "pull": False,
+        "provenance": False,
+        "rewrite_timestamps": True,
+        "sbom": False,
+    }
+    build_input = {
+        "build_source_sha256": build_source_sha256,
+        "base_images": [base],
+        "platform": "linux/arm64",
+        "dependency_manifests": {"npm": manifest_ref},
+        "dependency_locks": {"package-lock.json": lock_ref["sha256"]},
+        "dependency_artifacts": {"npm": normalized_artifact},
+        "build_options": build_options,
+    }
     image_id = "sha256:" + "c" * 64
-    payload = {
+    command = [
+        "docker-buildx",
+        "build",
+        "--network",
+        "none",
+        "--pull=false",
+        "--no-cache",
+        "--platform",
+        "linux/arm64",
+        "--provenance=false",
+        "--sbom=false",
+        "-f",
+        "Dockerfile",
+    ]
+    payload: dict[str, object] = {
         "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
         "observed_at": NOW.isoformat(),
+        "exit_classification": "QUALIFIED_REPEATABLE",
+        "qualification_max_age_seconds": 86_400,
         "image_reference": "mcp-trust:test",
-        "build_source_sha256": grade_refresh.digest_file(dockerfile),
+        "platform": "linux/arm64",
+        "build_source_sha256": build_source_sha256,
+        "build_input_digest": grade_refresh.digest_bytes(
+            grade_refresh.canonical_bytes(build_input)
+        ),
         "base_images": [base],
-        "dependency_locks": {
-            "npm": {
-                "path": "package-lock.json",
-                "sha256": grade_refresh.digest_file(lock),
-            }
-        },
+        "dependency_manifests": {"npm": manifest_ref},
+        "dependency_locks": {"npm": lock_ref},
+        "dependency_artifacts": {"npm": artifact_ref},
         "build_network_policy": ["none"],
+        "build_options": build_options,
+        "build_commands": [],
+        "load_commands": [],
         "tool_versions": {"docker": "29.5.2"},
         "first_build_image_id": image_id,
         "second_build_image_id": image_id,
         "repeatable": True,
     }
+    output_paths = ["tmp/qualification/test-first.tar", "tmp/qualification/test-second.tar"]
+    payload["build_commands"] = [
+        [
+            *command,
+            f"--output=type=oci,dest={output_paths[0]},rewrite-timestamp=true",
+            "-t",
+            "mcp-trust-qualification:test-first",
+            ".",
+        ],
+        [
+            *command,
+            f"--output=type=oci,dest={output_paths[1]},rewrite-timestamp=true",
+            "-t",
+            "mcp-trust:test",
+            ".",
+        ],
+    ]
+    payload["load_commands"] = [
+        ["docker", "load", "-i", output_paths[0]],
+        ["docker", "load", "-i", output_paths[1]],
+    ]
     payload["receipt_digest"] = grade_refresh.digest_bytes(
         grade_refresh.canonical_bytes(payload)
     )
-    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+    return receipt, payload, image_id
 
-    assert grade_refresh._image_build_qualification(
-        repo_root=tmp_path,
-        reference="mcp-trust:test",
-        build_source="Dockerfile",
-        build_source_sha256=grade_refresh.digest_file(dockerfile),
-        receipt_path="qualification.json",
-    )["qualified_image_id"] == image_id
 
-    payload["second_build_image_id"] = "sha256:" + "d" * 64
+def _rewrite_receipt(path: Path, payload: dict[str, object]) -> None:
     unsigned = dict(payload)
-    unsigned.pop("receipt_digest")
+    unsigned.pop("receipt_digest", None)
     payload["receipt_digest"] = grade_refresh.digest_bytes(
         grade_refresh.canonical_bytes(unsigned)
     )
-    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
-    assert grade_refresh._image_build_qualification(
+
+def _qualification(tmp_path: Path) -> dict[str, object] | None:
+    return grade_refresh._image_build_qualification(
         repo_root=tmp_path,
         reference="mcp-trust:test",
         build_source="Dockerfile",
-        build_source_sha256=grade_refresh.digest_file(dockerfile),
+        build_source_sha256=grade_refresh.digest_file(tmp_path / "Dockerfile"),
         receipt_path="qualification.json",
-    ) is None
+        now=NOW,
+    )
+
+
+def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Path) -> None:
+    receipt, payload, image_id = _qualification_fixture(tmp_path)
+    assert _qualification(tmp_path)["qualified_image_id"] == image_id
+
+    payload["second_build_image_id"] = "sha256:" + "d" * 64
+    _rewrite_receipt(receipt, payload)
+    assert _qualification(tmp_path) is None
+
+
+def test_image_build_qualification_rejects_empty_lock(tmp_path: Path) -> None:
+    _qualification_fixture(tmp_path, lock_payload={"lockfileVersion": 3})
+    assert _qualification(tmp_path) is None
 
 
 def test_image_build_qualification_rejects_digest_only_in_comment(tmp_path: Path) -> None:
-    dockerfile = tmp_path / "Dockerfile"
-    lock = tmp_path / "package-lock.json"
-    receipt_path = tmp_path / "qualification.json"
     base = "node@sha256:" + "b" * 64
-    dockerfile.write_text(
-        f"# intended base: {base}\nFROM node:24-slim\n"
-        "COPY package-lock.json /build/package-lock.json\n",
-        encoding="utf-8",
+    _qualification_fixture(
+        tmp_path,
+        docker_text=f"# intended base: {base}\nFROM node:24-slim\n",
     )
-    lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
-    image_id = "sha256:" + "c" * 64
-    payload = {
-        "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
-        "observed_at": NOW.isoformat(),
-        "image_reference": "mcp-trust:test",
-        "build_source_sha256": grade_refresh.digest_file(dockerfile),
-        "base_images": [base],
-        "dependency_locks": {
-            "npm": {
-                "path": "package-lock.json",
-                "sha256": grade_refresh.digest_file(lock),
-            }
-        },
-        "build_network_policy": ["none"],
-        "tool_versions": {"docker": "29.5.2"},
-        "first_build_image_id": image_id,
-        "second_build_image_id": image_id,
-        "repeatable": True,
-    }
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
-    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
-
-    assert grade_refresh._image_build_qualification(
-        repo_root=tmp_path,
-        reference="mcp-trust:test",
-        build_source="Dockerfile",
-        build_source_sha256=grade_refresh.digest_file(dockerfile),
-        receipt_path="qualification.json",
-    ) is None
+    assert _qualification(tmp_path) is None
 
 
 def test_image_build_qualification_rejects_split_dynamic_install(tmp_path: Path) -> None:
-    dockerfile = tmp_path / "Dockerfile"
-    lock = tmp_path / "package-lock.json"
-    receipt_path = tmp_path / "qualification.json"
     base = "node@sha256:" + "b" * 64
-    dockerfile.write_text(
-        f"FROM {base}\nCOPY package-lock.json /build/package-lock.json\n"
-        "RUN npm \\\n"
-        "    install some-package@1.0.0\n",
-        encoding="utf-8",
+    _qualification_fixture(
+        tmp_path,
+        docker_text=(
+            f"FROM {base}\n"
+            "COPY package.json /build/package.json\n"
+            "COPY package-lock.json /build/package-lock.json\n"
+            "COPY artifacts/npm.tar /offline/npm.tar\n"
+            "RUN npm \\\n"
+            "    install some-package@1.0.0\n"
+        ),
     )
-    lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
-    image_id = "sha256:" + "c" * 64
-    payload = {
-        "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
-        "observed_at": NOW.isoformat(),
-        "image_reference": "mcp-trust:test",
-        "build_source_sha256": grade_refresh.digest_file(dockerfile),
-        "base_images": [base],
-        "dependency_locks": {
-            "npm": {
-                "path": "package-lock.json",
-                "sha256": grade_refresh.digest_file(lock),
-            }
-        },
-        "build_network_policy": ["none"],
-        "tool_versions": {"docker": "29.5.2"},
-        "first_build_image_id": image_id,
-        "second_build_image_id": image_id,
-        "repeatable": True,
-    }
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
-    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert _qualification(tmp_path) is None
 
-    assert grade_refresh._image_build_qualification(
-        repo_root=tmp_path,
-        reference="mcp-trust:test",
-        build_source="Dockerfile",
-        build_source_sha256=grade_refresh.digest_file(dockerfile),
-        receipt_path="qualification.json",
-    ) is None
+
+def test_image_build_qualification_rejects_missing_artifact_bundle(tmp_path: Path) -> None:
+    _qualification_fixture(tmp_path)
+    (tmp_path / "artifacts/npm.tar").unlink()
+    assert _qualification(tmp_path) is None
+
+
+def test_image_build_qualification_rejects_stale_receipt(tmp_path: Path) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    payload["observed_at"] = datetime(2026, 8, 21, tzinfo=UTC).isoformat()
+    _rewrite_receipt(receipt, payload)
+    assert _qualification(tmp_path) is None
+
+
+def test_image_build_qualification_rejects_shell_indirection(tmp_path: Path) -> None:
+    base = "node@sha256:" + "b" * 64
+    _qualification_fixture(
+        tmp_path,
+        docker_text=(
+            f"FROM {base}\n"
+            "COPY package.json /build/package.json\n"
+            "COPY package-lock.json /build/package-lock.json\n"
+            "COPY artifacts/npm.tar /offline/npm.tar\n"
+            "RUN sh -c 'npm ci --offline --cache /offline/npm'\n"
+        ),
+    )
+    assert _qualification(tmp_path) is None
 
 
 def test_scheduler_readback_reports_disabled_unloaded_definition_drift(

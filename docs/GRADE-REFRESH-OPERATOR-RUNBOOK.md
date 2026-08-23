@@ -1,5 +1,26 @@
 # Grade-refresh operator runbook
 
+## 0. Dependency materialization and image qualification
+
+On a clean isolated worktree, and only with explicit registry/build approval,
+recreate the ignored offline bundles from the committed locks:
+
+```bash
+uv run --frozen python scripts/prepare_refresh_dependencies.py --materialize
+```
+
+This command executes registry clients only, disables package lifecycle code,
+and refuses any bundle whose digest differs from its tracked descriptor. Then
+run the exact network-none, no-cache double builds:
+
+```bash
+uv run --frozen python scripts/qualify_refresh_images.py
+```
+
+Every cohort must produce two identical image IDs and a receipt that passes
+readback. Existing or expired qualification receipts are not overwritten;
+requalification is a reviewed source revision, not an in-place refresh.
+
 ## 1. Inventory and preflight (no server execution)
 
 ```bash
@@ -16,6 +37,8 @@ Stop unless the receipt says `status: READY` and
 missing deterministic build source, remote Docker authority, missing engine
 runtime, or incomplete sandbox controls are terminal preflight blockers. Do
 not pull, rebuild, retag, or substitute an image without explicit approval.
+Blocked catalog rows remain excluded; do not widen execution to make the
+preflight green.
 
 ## 2. Deterministic fixtures
 

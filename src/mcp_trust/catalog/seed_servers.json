@@ -445,7 +445,7 @@
         "mcp"
       ],
       "env_keys": [],
-      "sandbox_image": "mcp-trust-batch4:20260703"
+      "sandbox_image": "mcp-trust-basic-memory:20260823"
     },
     "homepage": "https://github.com/basicmachines-co/basic-memory"
   }

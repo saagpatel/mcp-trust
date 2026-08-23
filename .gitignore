@@ -31,3 +31,7 @@ target/
 # agent worktree dir
 .claude/
 .vercel
+
+# Local content-addressed dependency bundles for network-none image builds.
+# Tracked descriptors under docker/refresh/artifact-manifests bind these bytes.
+docker/refresh/.artifacts/

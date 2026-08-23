@@ -1,0 +1,1 @@
+{"dependencies":{"@adeu/mcp-server":"1.7.1","@kage-core/kage-graph-mcp":"2.3.0","@pulsemcp/image-diff-mcp-server":"0.1.3","@swins/intent-engineering-mcp":"0.2.0","mythsensus-mcp":"0.2.1","raven-mcp":"1.3.3","sovereign-ai-act-mcp":"1.2.0"},"name":"mcp-trust-refresh-live-batch","private":true,"version":"1.0.0"}
