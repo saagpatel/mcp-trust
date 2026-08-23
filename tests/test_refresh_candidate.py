@@ -42,6 +42,7 @@ from scripts import refresh_candidate as refresh_cli
 
 FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[1]
+IMAGE_DIGEST = "sha256:" + ("a" * 64)
 
 
 def _server(slug: str) -> Server:
@@ -178,6 +179,7 @@ def _complete_remote_candidate(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "not_required",
+            "default_image": default_image,
             "profiles": [],
             "remote_transport_count": len(servers),
         },
@@ -996,8 +998,15 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "available",
-            "profiles": [refresh_module._sandbox_profile(default_image)],
+            "default_image": default_image,
+            "profiles": [
+                refresh_module._sandbox_profile(
+                    default_image,
+                    image_digest=IMAGE_DIGEST,
+                )
+            ],
             "remote_transport_count": 0,
+            "_execution_image_bindings": {default_image: IMAGE_DIGEST},
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", FailingMCPAuditEngine)
@@ -1761,7 +1770,12 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
     monkeypatch.setattr("mcp_trust.refresh.importlib.util.find_spec", lambda _name: None)
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, "", "")
+        stdout = (
+            json.dumps([{"Id": IMAGE_DIGEST}])
+            if command[-3:-1] == ["image", "inspect"]
+            else ""
+        )
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
     with pytest.raises(RefreshCandidateError, match="MCPAudit engine"):
         preflight_real_refresh(
@@ -1785,7 +1799,12 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         commands.append(command)
-        return subprocess.CompletedProcess(command, 0, "", "")
+        stdout = (
+            json.dumps([{"Id": IMAGE_DIGEST}])
+            if command[-3:-1] == ["image", "inspect"]
+            else ""
+        )
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
     evidence = preflight_real_refresh(
         [_server("alpha")],
@@ -1798,6 +1817,9 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
         ["docker", "--host", host, "image", "inspect", "required:image"],
     ]
     assert evidence["_execution_docker_host"] == host
+    assert evidence["_execution_image_bindings"] == {
+        "required:image": IMAGE_DIGEST,
+    }
 
 
 def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
@@ -1814,7 +1836,12 @@ def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         commands.append(command)
-        stdout = json.dumps(host) if command[1:3] == ["context", "inspect"] else ""
+        if command[1:3] == ["context", "inspect"]:
+            stdout = json.dumps(host)
+        elif command[-3:-1] == ["image", "inspect"]:
+            stdout = json.dumps([{"Id": IMAGE_DIGEST}])
+        else:
+            stdout = ""
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
     evidence = preflight_real_refresh(
@@ -1835,6 +1862,9 @@ def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
         ["docker", "--host", host, "image", "inspect", "required:image"],
     ]
     assert evidence["_execution_docker_host"] == host
+    assert evidence["_execution_image_bindings"] == {
+        "required:image": IMAGE_DIGEST,
+    }
 
 
 def test_real_preflight_rejects_remote_docker_daemon_authority(
@@ -1878,6 +1908,7 @@ def test_remote_only_preflight_does_not_require_docker(
 
     assert evidence == {
         "docker_daemon": "not_required",
+        "default_image": "not-needed:image",
         "profiles": [],
         "remote_transport_count": 1,
     }
@@ -1930,6 +1961,7 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "not_required",
+            "default_image": default_image,
             "profiles": [],
             "remote_transport_count": len(servers),
         },
@@ -2206,7 +2238,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
                         "engine_name": "mcpaudit",
                         "engine_version": "2.4.0",
                         "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
-                        "sandbox_image": "required:image",
+                        "sandbox_image": IMAGE_DIGEST,
                     }
                 )
             )
@@ -2215,10 +2247,12 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "available",
+            "default_image": default_image,
             "profiles": [
                 {
                     "kind": "docker",
                     "image": default_image,
+                    "image_digest": IMAGE_DIGEST,
                     "network": "none",
                     "read_only_root": True,
                     "capabilities": "dropped-all",
@@ -2231,6 +2265,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
                 }
             ],
             "remote_transport_count": 0,
+            "_execution_image_bindings": {default_image: IMAGE_DIGEST},
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", LocalMCPAuditEngine)

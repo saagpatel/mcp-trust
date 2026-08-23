@@ -64,6 +64,7 @@ Required public env:
 MCP_TRUST_DB=/data/mcp-trust/registry.db
 MCP_TRUST_ENGINE=mcpaudit
 MCP_TRUST_PUBLIC_READONLY=1
+MCP_TRUST_MASKED_GRADES=/data/mcp-trust/masked-grades.json
 ```
 
 Do not set `MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS` on the VM.
@@ -84,6 +85,7 @@ it, and copy its contents into `/data/mcp-trust/`:
 ```bash
 tar -xzf mcp-trust-deploy-bundle-*.tar.gz
 sudo install -m 0644 mcp-trust-deploy-bundle-*/registry.db /data/mcp-trust/registry.db
+sudo install -m 0644 mcp-trust-deploy-bundle-*/masked-grades.json /data/mcp-trust/masked-grades.json
 sudo rsync -a --delete mcp-trust-deploy-bundle-*/receipts/ /data/mcp-trust/receipts/
 sudo chown -R mcp-trust:mcp-trust /data/mcp-trust
 ```

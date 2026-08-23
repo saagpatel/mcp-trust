@@ -102,8 +102,10 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
     db_path = tmp_path / "registry.db"
     receipts_dir = tmp_path / "receipts"
     seed_path = tmp_path / "seed.json"
+    masked_path = tmp_path / "masked.json"
     out_dir = tmp_path / "dist"
     _write_seed(seed_path, ["alpha"])
+    masked_path.write_text("[]\n", encoding="utf-8")
 
     conn = _init_db(db_path)
     now = datetime.now(tz=UTC)
@@ -127,6 +129,7 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
         db_path=db_path,
         receipts_dir=receipts_dir,
         seed_path=seed_path,
+        masked_path=masked_path,
         out_dir=out_dir,
         bundle_name="bundle",
     )
@@ -141,8 +144,55 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
     assert manifest["bundle"]["scan_rows"] == 1
     assert manifest["bundle"]["receipts"][0]["receipt"] == "new-alpha.json"
     assert (bundle_root / "receipts/new-alpha.json").exists()
+    assert json.loads((bundle_root / "masked-grades.json").read_text()) == []
 
     bundle_conn = sqlite3.connect(bundle_root / "registry.db")
     bundle_conn.row_factory = sqlite3.Row
     rows = bundle_conn.execute("select id, report_ref from scans").fetchall()
     assert [(row["id"], row["report_ref"]) for row in rows] == [("new-scan", "new-alpha.json")]
+
+
+def test_build_deploy_bundle_removes_masked_scan_rows_and_receipts(tmp_path) -> None:
+    _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
+    builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
+    db_path = tmp_path / "registry.db"
+    receipts_dir = tmp_path / "receipts"
+    seed_path = tmp_path / "seed.json"
+    masked_path = tmp_path / "masked.json"
+    out_dir = tmp_path / "dist"
+    _write_seed(seed_path, ["alpha", "masked"])
+    masked_path.write_text(json.dumps(["masked"]), encoding="utf-8")
+    conn = _init_db(db_path)
+    now = datetime.now(tz=UTC)
+    for slug in ("alpha", "masked"):
+        _insert_scan(
+            conn,
+            slug=slug,
+            scan_id=f"{slug}-scan",
+            report_ref=f"{slug}.json",
+            scanned_at=now,
+        )
+        _write_receipt(
+            receipts_dir,
+            filename=f"{slug}.json",
+            slug=slug,
+            scan_id=f"{slug}-scan",
+        )
+
+    bundle_path = builder.build_deploy_bundle(
+        db_path=db_path,
+        receipts_dir=receipts_dir,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        out_dir=out_dir,
+        bundle_name="bundle-masked",
+    )
+    extract_dir = tmp_path / "extract"
+    with tarfile.open(bundle_path, "r:gz") as tar:
+        tar.extractall(extract_dir, filter="data")
+    root = extract_dir / "bundle-masked"
+    bundle_conn = sqlite3.connect(root / "registry.db")
+    assert bundle_conn.execute("select server_slug from scans").fetchall() == [("alpha",)]
+    assert (root / "receipts/alpha.json").is_file()
+    assert not (root / "receipts/masked.json").exists()
+    assert json.loads((root / "masked-grades.json").read_text()) == ["masked"]
