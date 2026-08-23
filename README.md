@@ -328,10 +328,12 @@ lane was disabled and its deploy authority removed (see
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
-[`deploy/launchd/`](deploy/launchd/) is persistently disabled; current host
-readback also shows it unloaded with no installed plist. Its compatibility
-entrypoint can create a local review candidate only, after no-execution
-preflight; it cannot publish or deploy. The live FastAPI service + VM path remains
+[`deploy/launchd/`](deploy/launchd/) is persistently disabled and current host
+readback shows it unloaded. A dormant installed plist remains and differs from
+the repository template; treat it as configuration drift and do not load or
+enable it. The compatibility entrypoint can create a local review candidate
+only, after no-execution preflight; it cannot publish or deploy. The live FastAPI
+service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
 for launch history. The deployed catalog reports scan timestamps as its
