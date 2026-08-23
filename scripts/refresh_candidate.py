@@ -59,6 +59,12 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="READY review-only preflight receipt bound into the candidate.",
     )
+    create.add_argument(
+        "--policy",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/refresh_policy.json"),
+        help="Reviewed execution policy whose scannable rows may run.",
+    )
 
     verify = subcommands.add_parser("verify", help="Verify a candidate without mutation.")
     verify.add_argument("candidate", type=Path)
@@ -118,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
                 default_image=args.sandbox_image,
                 candidate_name=args.name,
                 repo_root=args.repo_root,
+                policy_path=args.policy,
                 qualification_receipt=json.loads(
                     args.qualification_receipt.read_text(encoding="utf-8")
                 ),

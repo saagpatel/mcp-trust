@@ -148,6 +148,18 @@ _SUCCESS_RESULT_KEYS = frozenset(
         "drift",
     }
 )
+_BLOCKED_RESULT_KEYS = frozenset(
+    {
+        "server_slug",
+        "state",
+        "fresh_grade",
+        "execution_disposition",
+        "reason",
+        "previous_grade",
+        "previous_scanned_at",
+        "previous_scan_age_days",
+    }
+)
 _SANDBOX_PROFILE_KEYS = frozenset(
     {
         "kind",
@@ -1498,6 +1510,7 @@ def create_refresh_candidate(
     candidate_name: str | None = None,
     qualification_receipt: dict[str, Any] | None = None,
     repo_root: Path | None = None,
+    policy_path: Path | None = None,
     _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
 ) -> Path:
     """Create one immutable candidate; never mutate canonical/public outputs."""
@@ -1546,6 +1559,8 @@ def create_refresh_candidate(
     execution_image_bindings: dict[str, str] = {}
     qualification_manifest: dict[str, object]
     qualified_source_binding: dict[str, Any] | None = None
+    execution_servers = servers
+    blocked_slugs: frozenset[str] = frozenset()
     if fixture_mode:
         sandbox_evidence = {
             "mode": "deterministic-fixture",
@@ -1557,7 +1572,51 @@ def create_refresh_candidate(
             "receipt": None,
         }
     else:
-        sandbox_evidence = preflight_real_refresh(servers, default_image=default_image)
+        if repo_root is None:
+            raise RefreshCandidateError("real refresh requires the qualified repository root")
+        effective_policy_path = policy_path or seed_path.with_name("refresh_policy.json")
+        try:
+            from mcp_trust.grade_refresh import (  # noqa: PLC0415
+                GradeRefreshError,
+                digest_file,
+                load_policy,
+            )
+
+            execution_policy = load_policy(
+                effective_policy_path,
+                seed_path,
+                masked_path,
+            )
+            policy_digest = digest_file(effective_policy_path)
+        except (GradeRefreshError, OSError) as exc:
+            raise RefreshCandidateError("refresh execution policy is invalid") from exc
+        receipt_catalog = (
+            qualification_receipt.get("catalog")
+            if isinstance(qualification_receipt, dict)
+            else None
+        )
+        policy_counts = (
+            receipt_catalog.get("counts") if isinstance(receipt_catalog, dict) else None
+        )
+        if (
+            not isinstance(receipt_catalog, dict)
+            or receipt_catalog.get("policy_digest") != policy_digest
+            or receipt_catalog.get("denominator") != len(servers)
+            or not isinstance(policy_counts, dict)
+            or policy_counts.get("scannable") != len(execution_policy.scannable)
+            or policy_counts.get("blocked") != len(execution_policy.blocked)
+        ):
+            raise RefreshCandidateError(
+                "qualification receipt does not bind the execution policy"
+            )
+        blocked_slugs = execution_policy.blocked
+        execution_servers = [
+            server for server in servers if server.slug in execution_policy.scannable
+        ]
+        sandbox_evidence = preflight_real_refresh(
+            execution_servers,
+            default_image=default_image,
+        )
         execution_host = sandbox_evidence.pop("_execution_docker_host", None)
         raw_bindings = sandbox_evidence.pop("_execution_image_bindings", {})
         if not isinstance(raw_bindings, dict) or not all(
@@ -1575,8 +1634,6 @@ def create_refresh_candidate(
                 ) from exc
         if not isinstance(qualification_receipt, dict):
             raise RefreshCandidateError("real refresh requires a qualification receipt")
-        if repo_root is None:
-            raise RefreshCandidateError("real refresh requires the qualified repository root")
         if _source_binding_provider is None:
             from mcp_trust.grade_refresh import source_binding  # noqa: PLC0415
 
@@ -1656,13 +1713,33 @@ def create_refresh_candidate(
         conn.execute("VACUUM")
 
         results: list[dict[str, object]] = []
-        excluded: set[str] = set()
+        excluded: set[str] = set(blocked_slugs)
         verified_snapshot_scan_modes: dict[str, str] = {}
         writer = receipt_writer or _write_receipt
         execution_default_image = execution_image_bindings.get(default_image, default_image)
         with _scan_environment(execution_default_image, docker_host):
             for server in servers:
                 previous = scan_repo.latest(server.slug)
+                if server.slug in blocked_slugs:
+                    results.append(
+                        {
+                            "server_slug": server.slug,
+                            "state": "blocked-policy",
+                            "fresh_grade": None,
+                            "execution_disposition": "do-not-execute",
+                            "reason": "sandbox_image_qualification_unknown",
+                            "previous_grade": str(previous.grade) if previous else None,
+                            "previous_scanned_at": (
+                                previous.scanned_at.isoformat() if previous else None
+                            ),
+                            "previous_scan_age_days": (
+                                _scan_age_days(previous.scanned_at, fixed_now)
+                                if previous
+                                else None
+                            ),
+                        }
+                    )
+                    continue
                 try:
                     engine_result = scanner(server)
                     if not fixture_mode and engine_result.engine_name != "mcpaudit":
@@ -1862,8 +1939,10 @@ def create_refresh_candidate(
                 "deterministic-fixture"
                 if fixture_mode
                 else _real_scan_mode(
-                    local_count=sum(_requires_local_sandbox(server) for server in servers),
-                    total_count=len(servers),
+                    local_count=sum(
+                        _requires_local_sandbox(server) for server in execution_servers
+                    ),
+                    total_count=len(execution_servers),
                 )
             ),
             "catalog": {
@@ -2369,6 +2448,18 @@ def verify_refresh_candidate(
     except RefreshCandidateError:
         errors.append("candidate_database_unreadable")
     for result in results:
+        if isinstance(result, dict) and result.get("state") == "blocked-policy":
+            if (
+                set(result) != _BLOCKED_RESULT_KEYS
+                or result.get("fresh_grade") is not None
+                or result.get("execution_disposition") != "do-not-execute"
+                or result.get("reason") != "sandbox_image_qualification_unknown"
+            ):
+                errors.append(
+                    f"blocked_scan_schema_invalid:"
+                    f"{_safe_error_label(result.get('server_slug'))}"
+                )
+            continue
         if not isinstance(result, dict) or result.get("state") not in (
             "fresh",
             "masked",
