@@ -2029,6 +2029,7 @@ def build_state_card(
         completed_controls.append("deterministic-fixture-repeatability")
     if triage_valid:
         completed_controls.append("grade-diff-review-triage-run")
+        completed_controls.append("controlled-sandbox-candidate-repeat")
     if scheduler.get("state") != "NOT_READ":
         completed_controls.append("scheduler-readback-no-mutation")
     return {
@@ -2047,14 +2048,19 @@ def build_state_card(
         "publication_state": "WAITING_FOR_EXPLICIT_APPROVAL",
         "production_freshness": "UNKNOWN",
         "next_action": (
-            "Approve deterministic reconstruction of all four image cohorts from the "
+            "Approve deterministic reconstruction of all five image cohorts from the "
             "tracked recipes, including immutable base digests, complete dependency locks, "
             "narrow dependency-preparation egress, network-none repeat builds, qualification "
             "receipts, and exact image IDs; then rerun preflight."
             if not preflight.get("safe_to_execute_catalog")
             else (
-                "Resolve the severity-ordered candidate findings and qualify every blocked "
-                "row before requesting a separate publication decision."
+                (
+                    "Resolve the severity-ordered candidate findings and qualify every "
+                    "blocked row before requesting a separate publication decision."
+                    if catalog.get("counts", {}).get("blocked", 0)
+                    else "Resolve and record dispositions for the severity-ordered candidate "
+                    "findings before requesting a separate publication decision."
+                )
                 if triage_valid
                 else "Create one local review candidate, rerun deterministic verification, "
                 "and triage."
