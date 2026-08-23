@@ -547,6 +547,7 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"
     assert capsule["capsule"]["authority"]["boundary"].startswith("Read this Codex task")
+    assert len(capsule["capsule"]["claim_ceiling"]) <= 300
 
 
 def test_state_card_rejects_self_digested_but_unbound_triage() -> None:
