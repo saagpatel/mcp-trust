@@ -1075,7 +1075,12 @@ def build_resume_capsule(
         "third-party execution, credentials, or outreach."
     )
     authority_digest = digest_bytes(authority_boundary.encode())
-    waiting_code = "publication-approval-required"
+    execution_blocked = state_card.get("safe_to_execute_catalog") is not True
+    waiting_code = (
+        "sandbox-image-recovery-approval-required"
+        if execution_blocked
+        else "publication-approval-required"
+    )
     waiting_digest = digest_bytes(
         canonical_bytes({"code": waiting_code, "target_digest": target_digest})
     )
@@ -1086,6 +1091,26 @@ def build_resume_capsule(
         "digest": target_digest,
     }
     requested = {"kind": "codex-task-status", "target": target}
+    resume_claim_ceiling = (
+        "Resume local build-source and sandbox-image recovery only after explicit "
+        "chat approval; catalog execution still requires a fresh READY preflight, and "
+        "publication, deployment, and scheduling remain separately gated."
+        if execution_blocked
+        else (
+            "Resume local review-only qualification after explicit chat approval; "
+            "publication and deployment remain separately gated."
+        )
+    )
+    resume_states = (
+        ["sandbox-image-recovery-authorized"]
+        if execution_blocked
+        else ["publication-authorized"]
+    )
+    terminal_states = (
+        ["sandbox-image-recovery-declined", "program-withdrawn"]
+        if execution_blocked
+        else ["publication-declined", "program-withdrawn"]
+    )
     return {
         "schema": "HumanGateResumeCapsuleV1",
         "as_of": created.isoformat(),
@@ -1099,12 +1124,9 @@ def build_resume_capsule(
             "read_registry": "human-gate-read-kinds-v1",
             "authorized_next_read": requested,
             "freshness_seconds": 600,
-            "claim_ceiling": (
-                "Resume local review-only qualification after explicit chat approval; "
-                "publication and deployment remain separately gated."
-            ),
-            "resume_states": ["publication-authorized"],
-            "terminal_states": ["publication-declined", "program-withdrawn"],
+            "claim_ceiling": resume_claim_ceiling,
+            "resume_states": resume_states,
+            "terminal_states": terminal_states,
             "invalidation_states": ["source-revision-changed", "authority-changed"],
         },
         "observation": {

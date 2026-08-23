@@ -383,6 +383,13 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     ]
     assert state["scheduler_state"]["state"] == "DISABLED_UNLOADED"
     assert capsule["schema"] == "HumanGateResumeCapsuleV1"
+    assert (
+        capsule["capsule"]["waiting_condition"]["code"]
+        == "sandbox-image-recovery-approval-required"
+    )
+    assert capsule["capsule"]["resume_states"] == [
+        "sandbox-image-recovery-authorized"
+    ]
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"
     assert capsule["capsule"]["authority"]["boundary"].startswith("Read this Codex task")
