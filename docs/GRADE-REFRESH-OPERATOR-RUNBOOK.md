@@ -43,14 +43,17 @@ as fresh.
 ```bash
 uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db ./registry.db \
-  --out-dir ./dist/refresh-candidates
+  --out-dir ./dist/refresh-candidates \
+  --qualification-receipt ./dist/grade-refresh/preflight.json
 
 uv run --frozen --extra engine python scripts/refresh_candidate.py verify \
   ./dist/refresh-candidates/<candidate>
 ```
 
-The candidate is local and immutable. Creation or verification does not approve,
-publish, deploy, or schedule it.
+The candidate is local and immutable. Its manifest binds the exact READY
+preflight receipt, source and policy digests, tool versions, image build
+provenance, and execution-time image IDs. Creation or verification does not
+approve, publish, deploy, or schedule it.
 
 ## 5. Triage and operator package
 

@@ -287,11 +287,13 @@ snapshot, static site, schedule, or deployment:
 ```bash
 uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db ./registry.db \
-  --out-dir ./dist/refresh-candidates
+  --out-dir ./dist/refresh-candidates \
+  --qualification-receipt ./dist/grade-refresh/preflight.json
 ```
 
-The command refuses local-process scans unless Docker and every catalog-pinned
-image are already available locally. Those sources run through the existing
+The command refuses local-process scans unless the bound preflight receipt is
+current and READY, and Docker and every catalog-pinned image are available
+locally at the recorded immutable IDs. Those sources run through the existing
 network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
 endpoints are probed over their live network transport without a local process
 sandbox and are labeled accordingly. The immutable bundle contains receipts,
