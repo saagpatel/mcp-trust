@@ -91,9 +91,11 @@ def _parser() -> argparse.ArgumentParser:
     package = subcommands.add_parser(
         "package", help="Write a local operator review package; never publish it."
     )
+    _common_inputs(package)
     package.add_argument("--preflight", type=Path, required=True)
     package.add_argument("--repeatability", type=Path, required=True)
     package.add_argument("--triage", type=Path)
+    package.add_argument("--candidate", type=Path)
     package.add_argument("--task-id", required=True)
     package.add_argument("--out-dir", type=Path, required=True)
     return parser
@@ -213,7 +215,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "package":
             preflight = load_json(args.preflight)
             repeatability = load_json(args.repeatability)
-            triage = load_json(args.triage) if args.triage is not None else None
+            triage = None
+            if args.triage is not None:
+                if args.candidate is None:
+                    raise GradeRefreshError(
+                        "package requires --candidate to independently verify triage"
+                    )
+                supplied_triage = load_json(args.triage)
+                triage = triage_candidate(
+                    candidate=args.candidate,
+                    preflight=preflight,
+                    repeatability=repeatability,
+                    seed_path=args.seed,
+                    masked_path=args.masked_grades,
+                )
+                if supplied_triage != triage:
+                    raise GradeRefreshError(
+                        "triage receipt differs from independently recomputed evidence"
+                    )
             state = build_state_card(
                 preflight=preflight,
                 repeatability=repeatability,

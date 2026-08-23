@@ -245,9 +245,6 @@ def test_scheduler_readback_treats_missing_installed_definition_as_absent(
 def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
-    (candidate / "MANIFEST.json").write_text(
-        json.dumps({"candidate_state": "complete"}), encoding="utf-8"
-    )
     (candidate / "scan_results.json").write_text(
         json.dumps(
             {
@@ -271,13 +268,30 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
     )
     preflight = {
         "schema": "McpTrustGradeRefreshPreflightV1",
+        "observed_at": NOW.isoformat(),
         "status": "READY",
-        "source_binding": {"worktree_state": "clean"},
+        "safe_to_execute_catalog": True,
+        "exit_classification": "ready",
+        "source_binding": {
+            "revision": "a" * 40,
+            "source_tree_digest": "sha256:" + "1" * 64,
+            "worktree_state": "clean",
+        },
         "catalog": {
             "policy_digest": "sha256:" + "2" * 64,
             "seed_digest": grade_refresh.digest_file(SEED),
             "masking_digest": grade_refresh.digest_file(MASKED),
             "denominator": 31,
+        },
+        "sandbox": {},
+        "tool_versions": {},
+        "scheduler": {"state": "NOT_READ", "mutation_performed": False},
+        "reasons": [],
+        "authority": {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
         },
     }
     preflight["receipt_digest"] = grade_refresh.digest_bytes(
@@ -285,11 +299,33 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
     )
     repeatability = {
         "schema": "McpTrustFixtureRepeatabilityV1",
+        "observed_at": NOW.isoformat(),
         "status": "PASS",
+        "fixture_kind": "deterministic-stub-no-process-no-network",
         "catalog_denominator": 31,
+        "first_digest": "sha256:" + "3" * 64,
+        "second_digest": "sha256:" + "3" * 64,
+        "repeatable": True,
+        "claim_ceiling": "Fixture determinism only",
     }
     repeatability["receipt_digest"] = grade_refresh.digest_bytes(
         grade_refresh.canonical_bytes(repeatability)
+    )
+    (candidate / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "candidate_state": "complete",
+                "qualification": {
+                    "preflight_receipt_digest": preflight["receipt_digest"],
+                    "source_revision": preflight["source_binding"]["revision"],
+                    "source_tree_digest": preflight["source_binding"][
+                        "source_tree_digest"
+                    ],
+                    "policy_digest": preflight["catalog"]["policy_digest"],
+                },
+            }
+        ),
+        encoding="utf-8",
     )
 
     triage = triage_candidate(
@@ -350,3 +386,52 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"
     assert capsule["capsule"]["authority"]["boundary"].startswith("Read this Codex task")
+
+
+def test_state_card_rejects_self_digested_but_unbound_triage() -> None:
+    preflight = {
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "reasons": [],
+        "receipt_digest": "sha256:" + "1" * 64,
+        "source_binding": {
+            "revision": "a" * 40,
+            "source_tree_digest": "sha256:" + "2" * 64,
+        },
+        "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "NOT_READ"},
+    }
+    repeatability = {
+        "status": "PASS",
+        "receipt_digest": "sha256:" + "3" * 64,
+    }
+    triage = {
+        "schema": "McpTrustGradeDiffTriageV1",
+        "candidate_manifest_digest": "sha256:" + "4" * 64,
+        "preflight_receipt_digest": "sha256:" + "9" * 64,
+        "repeatability_receipt_digest": repeatability["receipt_digest"],
+        "review_required": False,
+        "publication_allowed": False,
+        "findings": [],
+        "counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0},
+        "candidate_claimed_state": "complete",
+        "candidate_verification": {
+            "structural_valid": True,
+            "publication_ready": True,
+            "state": "complete",
+            "errors": [],
+        },
+    }
+    triage["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(triage)
+    )
+
+    state = build_state_card(
+        preflight=preflight,
+        repeatability=repeatability,
+        triage=triage,
+    )
+
+    assert "triage_receipt_invalid_or_unbound" in state["outstanding_gates"]
+    assert "grade-diff-review-triage-run" not in state["completed_controls"]
+    assert state["findings"][0]["code"] == "triage_receipt_invalid_or_unbound"

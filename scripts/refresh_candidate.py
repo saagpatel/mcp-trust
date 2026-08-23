@@ -48,6 +48,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--name")
     create.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path.cwd(),
+        help="Git worktree whose exact clean source binding qualified execution.",
+    )
+    create.add_argument(
         "--qualification-receipt",
         type=Path,
         required=True,
@@ -111,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_parent=args.out_dir,
                 default_image=args.sandbox_image,
                 candidate_name=args.name,
+                repo_root=args.repo_root,
                 qualification_receipt=json.loads(
                     args.qualification_receipt.read_text(encoding="utf-8")
                 ),
