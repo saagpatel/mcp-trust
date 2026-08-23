@@ -36,6 +36,10 @@ claim that a server is benign or malicious.
 
 ### Medium
 
+- The host LaunchAgent is persistently disabled and unloaded, but a dormant
+  installed plist remains and differs from the repository template. It was not
+  changed. Scheduler definition drift requires review before any future load;
+  scheduler enablement remains outside this program's authority.
 - Freshness has three existing meanings: 24-hour candidate eligibility,
   90-day public grade staleness, and 30/180-day corpus aging bands. This program
   uses 24 hours for candidate/review evidence and requires public output to show

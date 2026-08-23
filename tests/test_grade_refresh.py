@@ -15,6 +15,7 @@ from mcp_trust.grade_refresh import (
     build_resume_capsule,
     build_state_card,
     catalog_inventory,
+    scheduler_readback,
     triage_candidate,
 )
 
@@ -158,6 +159,35 @@ def test_preflight_binds_images_by_content_id(
     )
 
 
+def test_scheduler_readback_reports_disabled_unloaded_definition_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_plist = tmp_path / "repo/deploy/launchd/com.d.mcp-trust-refresh.plist"
+    repository_plist.parent.mkdir(parents=True)
+    repository_plist.write_text("repository", encoding="utf-8")
+    installed_plist = tmp_path / "Library/LaunchAgents/com.d.mcp-trust-refresh.plist"
+    installed_plist.parent.mkdir(parents=True)
+    installed_plist.write_text("installed-drift", encoding="utf-8")
+    monkeypatch.setattr(grade_refresh.Path, "home", classmethod(lambda _cls: tmp_path))
+
+    def runner(args, **_kwargs):
+        if args[1] == "print-disabled":
+            return _completed(
+                args,
+                stdout='disabled services = { "com.d.mcp-trust-refresh" => disabled }',
+            )
+        return _completed(args, returncode=1)
+
+    receipt = scheduler_readback(repo_root=tmp_path / "repo", runner=runner)
+
+    assert receipt["state"] == "DISABLED_UNLOADED"
+    assert receipt["persistently_disabled"] is True
+    assert receipt["loaded_domains"] == []
+    assert receipt["definitions_match"] is False
+    assert receipt["mutation_performed"] is False
+
+
 def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
@@ -210,6 +240,7 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
         "reasons": ["catalog_image_missing:x"],
         "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
         "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": False},
     }
     repeatability = {"status": "PASS"}
     state = build_state_card(preflight=preflight, repeatability=repeatability, triage=None)
@@ -220,14 +251,16 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert state["severity_findings"] == {
         "Critical": 1,
         "High": 1,
-        "Medium": 1,
+        "Medium": 2,
         "Low": 0,
     }
     assert [finding["severity"] for finding in state["findings"]] == [
         "Critical",
         "High",
         "Medium",
+        "Medium",
     ]
+    assert state["scheduler_state"]["state"] == "DISABLED_UNLOADED"
     assert capsule["schema"] == "HumanGateResumeCapsuleV1"
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"

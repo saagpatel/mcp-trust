@@ -186,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
                 masked_path=args.masked_grades,
                 policy_path=args.policy,
                 now=now,
+                include_scheduler_readback=True,
             )
             _emit(payload, args.out)
             return 0 if payload["status"] == "READY" else 2

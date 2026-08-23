@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import os
 import platform
 import re
 import shutil
@@ -328,6 +329,59 @@ def _sandbox_controls(image: str, host: str) -> dict[str, Any]:
     return {"controls": required, "all_required_controls": all(required.values())}
 
 
+def scheduler_readback(
+    *,
+    repo_root: Path,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    """Read the dormant LaunchAgent state without loading or changing it."""
+    label = "com.d.mcp-trust-refresh"
+    uid = os.getuid()
+    repository_plist = repo_root / "deploy/launchd/com.d.mcp-trust-refresh.plist"
+    installed_plist = Path.home() / "Library/LaunchAgents" / f"{label}.plist"
+    source_digest = digest_file(repository_plist)
+    installed_digest = digest_file(installed_plist) if installed_plist.is_file() else None
+    disabled = _run(runner, ["launchctl", "print-disabled", f"gui/{uid}"])
+    if disabled.returncode != 0:
+        disabled_state: bool | str = "UNKNOWN"
+    elif f'"{label}" => disabled' in disabled.stdout:
+        disabled_state = True
+    elif f'"{label}" => enabled' in disabled.stdout:
+        disabled_state = False
+    else:
+        disabled_state = "UNKNOWN"
+    domains = {
+        "gui": f"gui/{uid}/{label}",
+        "user": f"user/{uid}/{label}",
+        "system": f"system/{label}",
+    }
+    loaded_domains = [
+        name
+        for name, target in domains.items()
+        if _run(runner, ["launchctl", "print", target]).returncode == 0
+    ]
+    definitions_match: bool | str = (
+        installed_digest == source_digest if installed_digest is not None else "UNKNOWN"
+    )
+    if disabled_state is True and not loaded_domains:
+        state = "DISABLED_UNLOADED"
+    elif disabled_state == "UNKNOWN":
+        state = "UNKNOWN"
+    else:
+        state = "REVIEW_REQUIRED"
+    return {
+        "label": label,
+        "state": state,
+        "persistently_disabled": disabled_state,
+        "loaded_domains": loaded_domains,
+        "installed_plist": str(installed_plist) if installed_digest is not None else None,
+        "installed_plist_sha256": installed_digest,
+        "repository_plist_sha256": source_digest,
+        "definitions_match": definitions_match,
+        "mutation_performed": False,
+    }
+
+
 def build_preflight_receipt(
     *,
     repo_root: Path,
@@ -336,6 +390,7 @@ def build_preflight_receipt(
     policy_path: Path,
     now: datetime | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    include_scheduler_readback: bool = False,
 ) -> dict[str, Any]:
     observed_at = (now or datetime.now(tz=UTC)).astimezone(UTC)
     inventory = catalog_inventory(
@@ -467,6 +522,11 @@ def build_preflight_receipt(
             "secret_policy": "no-live-secrets-dummy-network-off-only",
         },
         "tool_versions": tool_versions,
+        "scheduler": (
+            scheduler_readback(repo_root=repo_root)
+            if include_scheduler_readback
+            else {"state": "NOT_READ", "mutation_performed": False}
+        ),
         "reasons": sorted(set(reasons)),
         "authority": {
             "candidate_build": execution_ready,
@@ -615,9 +675,9 @@ def build_state_card(
         blockers.append("candidate_review_required")
     source = preflight.get("source_binding", {})
     catalog = preflight.get("catalog", {})
+    scheduler = preflight.get("scheduler", {})
     if triage is not None:
-        findings = triage.get("findings", [])
-        severity_findings = triage.get("counts", {})
+        findings = list(triage.get("findings", []))
     else:
         findings = []
         if preflight.get("status") != "READY":
@@ -650,16 +710,43 @@ def build_state_card(
                 "scope": "catalog",
             }
         )
-        severity_findings = {
-            severity: sum(item["severity"] == severity for item in findings)
-            for severity in ("Critical", "High", "Medium", "Low")
-        }
+    if scheduler.get("definitions_match") is False:
+        blockers.append("dormant_scheduler_definition_drift")
+        findings.append(
+            {
+                "severity": "Medium",
+                "code": "dormant_scheduler_definition_drift",
+                "scope": "host-launchagent",
+            }
+        )
+    elif scheduler.get("state") not in {"DISABLED_UNLOADED", "NOT_READ"}:
+        blockers.append("scheduler_state_unknown_or_review_required")
+        findings.append(
+            {
+                "severity": "High",
+                "code": "scheduler_state_unknown_or_review_required",
+                "scope": "host-launchagent",
+            }
+        )
+    order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+    findings.sort(
+        key=lambda item: (
+            order.get(str(item.get("severity")), 4),
+            str(item.get("scope", item.get("slug", "catalog"))),
+            str(item.get("code", "unknown")),
+        )
+    )
+    severity_findings = {
+        severity: sum(item.get("severity") == severity for item in findings)
+        for severity in ("Critical", "High", "Medium", "Low")
+    }
     return {
         "schema": STATE_CARD_SCHEMA,
         "source_revision": source.get("revision", "UNKNOWN"),
         "source_tree_digest": source.get("source_tree_digest", "UNKNOWN"),
         "catalog_denominator": catalog.get("denominator", 0),
         "catalog_counts": catalog.get("counts", {}),
+        "scheduler_state": scheduler,
         "safe_to_execute_catalog": preflight.get("safe_to_execute_catalog", False),
         "fixture_repeatability": repeatability.get("status", "UNKNOWN"),
         "severity_findings": severity_findings,
@@ -672,6 +759,7 @@ def build_state_card(
             "deterministic-fixture-repeatability",
             "grade-diff-review-triage",
             "review-only-authority",
+            "scheduler-readback-no-mutation",
         ],
         "outstanding_gates": sorted(set(blockers)),
         "publication_state": "WAITING_FOR_EXPLICIT_APPROVAL",
