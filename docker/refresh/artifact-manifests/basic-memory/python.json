@@ -1,0 +1,25 @@
+{
+  "bundle_path": "docker/refresh/.artifacts/basic-memory/python-wheels.tar",
+  "bundle_sha256": "sha256:75abe4705d635558dd37855f254cd36190063141e940b17037ea9a0fc201180a",
+  "bundle_size": 143400960,
+  "content_digest": "sha256:84524faf25d1f340eb1b25eff0ca3f91420dea1811969f7913c7e7285aaab0d8",
+  "file_count": 167,
+  "kind": "python",
+  "lock_sha256": "sha256:67fa8d9549bdd972f26086c4fa6b9e2168d2d2f9c586494310493794be1582c4",
+  "package_code_executed": true,
+  "preparation_network_policy": "registry-client-allowlist-build-code-network-none",
+  "prepared_at": "2026-08-23T17:21:31.084218+00:00",
+  "registry_endpoints": [
+    "https://files.pythonhosted.org",
+    "https://pypi.org/simple"
+  ],
+  "schema": "McpTrustDependencyArtifactBundleV1",
+  "source_build_receipt": {
+    "path": "docker/refresh/source-builds/basic-memory.json",
+    "sha256": "sha256:d1977a1b289986088b8bccec01f5312972fe4e75f295834be9db0e6314369dba"
+  },
+  "tool_versions": {
+    "pip": "pip 25.0.1",
+    "python": "Python 3.12.14"
+  }
+}

@@ -88,6 +88,18 @@
         "chrome-devtools-mcp": "1.5.0"
       },
       "python": []
+    },
+    "basic-memory": {
+      "image_reference": "mcp-trust-basic-memory:20260823",
+      "dockerfile": "docker/refresh/Dockerfile.basic-memory-20260823",
+      "node_base": "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134",
+      "python_base": "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134",
+      "python_version": "3.12",
+      "npm": {},
+      "python": [
+        "basic-memory==0.22.1"
+      ],
+      "source_build_preparer": "scripts/prepare_basic_memory_dependencies.py"
     }
   }
 }

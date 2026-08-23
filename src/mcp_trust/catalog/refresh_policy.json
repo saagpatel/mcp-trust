@@ -30,8 +30,8 @@
     "mcp-trust-basic-memory:20260823": {
       "path": "docker/refresh/Dockerfile.basic-memory-20260823",
       "provenance_status": "SOURCE_CONTROLLED",
-      "reproducibility_status": "UNKNOWN",
-      "qualification_receipt": null
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/basic-memory.json"
     }
   },
   "scannable": [
@@ -50,6 +50,7 @@
     "io-github-nickjlamb-redacta-mcp-1-2-1",
     "io-github-nvidia-elements-2-1-4",
     "io-github-ui5-webcomponents-react-mcp-server-2-23-2",
+    "io-github-basicmachines-co-basic-memory-0-22-1",
     "mcp-archived-aws-kb-retrieval",
     "mcp-archived-brave-search",
     "mcp-archived-everart",
@@ -66,9 +67,7 @@
     "mcp-reference-sequential-thinking",
     "mcp-reference-time"
   ],
-  "blocked": [
-    "io-github-basicmachines-co-basic-memory-0-22-1"
-  ],
+  "blocked": [],
   "intentionally_masked": [
     "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
     "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
