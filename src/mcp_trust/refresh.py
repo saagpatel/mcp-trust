@@ -1118,6 +1118,11 @@ def _qualification_metadata(
     ):
         raise RefreshCandidateError("qualification receipt is not execution-ready")
     build_sources = catalog.get("image_build_sources")
+    expected_build_source_images = {
+        profile.get("image")
+        for profile in sandbox_evidence.get("profiles", [])
+        if isinstance(profile, dict) and isinstance(profile.get("image"), str)
+    }
     if not isinstance(build_sources, dict) or any(
         not isinstance(binding, dict)
         or binding.get("state") != "BOUND"
@@ -1125,7 +1130,7 @@ def _qualification_metadata(
         or not isinstance(binding.get("sha256"), str)
         or re.fullmatch(r"sha256:[0-9a-f]{64}", binding["sha256"]) is None
         for binding in build_sources.values()
-    ):
+    ) or set(build_sources) != expected_build_source_images:
         raise RefreshCandidateError("qualification image build provenance is incomplete")
     source_files = source.get("file_digests")
     if (

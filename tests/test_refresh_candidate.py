@@ -223,6 +223,38 @@ def test_qualification_rejects_build_digest_not_bound_to_source_tree(
         )
 
 
+def test_qualification_requires_exact_build_source_image_coverage(
+    tmp_path: Path,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    profile = refresh_module._sandbox_profile(
+        "required:image",
+        image_digest=IMAGE_DIGEST,
+    )
+    receipt = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[profile],
+    )
+    catalog = receipt["catalog"]
+    assert isinstance(catalog, dict)
+    catalog["image_build_sources"] = {}
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest")
+    receipt["receipt_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(unsigned)
+    ).hexdigest()
+
+    with pytest.raises(RefreshCandidateError, match="provenance is incomplete"):
+        refresh_module._qualification_metadata(
+            receipt,
+            seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
+            masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            sandbox_evidence={"profiles": [profile]},
+            now=FIXED_NOW,
+        )
+
+
 def _candidate(
     tmp_path: Path,
     *,
