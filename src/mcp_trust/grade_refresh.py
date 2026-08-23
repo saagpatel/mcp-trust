@@ -73,6 +73,7 @@ _TRIAGE_KEYS = frozenset(
     {
         "schema",
         "candidate_manifest_digest",
+        "repeat_candidate_manifest_digest",
         "preflight_receipt_digest",
         "repeatability_receipt_digest",
         "review_required",
@@ -1420,6 +1421,81 @@ def _receipt_integrity_valid(
     return claimed == digest_bytes(canonical_bytes(unsigned))
 
 
+def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
+    payload = load_json(candidate / "scan_results.json")
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, list):
+        raise GradeRefreshError("controlled candidate scan results are invalid")
+    projected: dict[str, dict[str, Any]] = {}
+    for result in results:
+        if not isinstance(result, dict) or not isinstance(result.get("server_slug"), str):
+            raise GradeRefreshError("controlled candidate result shape is invalid")
+        slug = result["server_slug"]
+        if slug in projected:
+            raise GradeRefreshError("controlled candidate contains duplicate results")
+        state = result.get("state")
+        row: dict[str, Any] = {"server_slug": slug, "state": state}
+        if state == "fresh":
+            receipt_ref = result.get("receipt")
+            if (
+                not isinstance(receipt_ref, str)
+                or not receipt_ref
+                or Path(receipt_ref).name != receipt_ref
+            ):
+                raise GradeRefreshError("controlled candidate receipt reference is invalid")
+            receipt = load_json(candidate / "receipts" / receipt_ref)
+            scan = receipt.get("scan") if isinstance(receipt, dict) else None
+            if not isinstance(scan, dict):
+                raise GradeRefreshError("controlled candidate receipt is invalid")
+            row.update(
+                {
+                    "fresh_grade": result.get("fresh_grade"),
+                    "transparency": result.get("transparency"),
+                    "engine_name": result.get("engine_name"),
+                    "engine_version": result.get("engine_version"),
+                    "risk": scan.get("risk"),
+                    "findings": scan.get("findings"),
+                    "evidence": receipt.get("evidence"),
+                    "danger_score": receipt.get("danger_score"),
+                    "sandbox": receipt.get("sandbox"),
+                    "caveats": receipt.get("caveats"),
+                }
+            )
+        elif state == "masked":
+            proof_ref = result.get("scan_proof")
+            if (
+                not isinstance(proof_ref, str)
+                or not proof_ref
+                or Path(proof_ref).name != proof_ref
+            ):
+                raise GradeRefreshError("controlled masked proof reference is invalid")
+            proof = load_json(candidate / "masked-proofs" / proof_ref)
+            row.update(
+                {
+                    "engine_name": result.get("engine_name"),
+                    "engine_version": result.get("engine_version"),
+                    "proof_outcome": (
+                        proof.get("outcome") if isinstance(proof, dict) else None
+                    ),
+                    "evidence_present": (
+                        proof.get("evidence_present") if isinstance(proof, dict) else None
+                    ),
+                    "sandbox": proof.get("sandbox") if isinstance(proof, dict) else None,
+                }
+            )
+        else:
+            row.update(
+                {
+                    "fresh_grade": result.get("fresh_grade"),
+                    "execution_disposition": result.get("execution_disposition"),
+                    "reason": result.get("reason"),
+                    "error_type": result.get("error_type"),
+                }
+            )
+        projected[slug] = row
+    return projected
+
+
 def triage_candidate(
     *,
     candidate: Path,
@@ -1427,6 +1503,7 @@ def triage_candidate(
     repeatability: dict[str, Any],
     seed_path: Path,
     masked_path: Path,
+    repeat_candidate: Path | None = None,
     candidate_verifier: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     results_payload = load_json(candidate / "scan_results.json")
@@ -1448,11 +1525,10 @@ def triage_candidate(
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
     )
-    if (
-        verification.get("structural_valid") is not True
-        or verification.get("publication_ready") is not True
-    ):
+    if verification.get("structural_valid") is not True:
         add("Critical", "candidate_verification_failed")
+    elif verification.get("publication_ready") is not True:
+        add("Critical", "candidate_not_publication_ready")
     preflight_valid = _receipt_integrity_valid(
         preflight,
         schema=PREFLIGHT_SCHEMA,
@@ -1508,6 +1584,36 @@ def triage_candidate(
         or qualification.get("policy_digest") != catalog_binding.get("policy_digest")
     ):
         add("Critical", "candidate_qualification_binding_mismatch")
+    repeat_candidate_manifest_digest: str | None = None
+    if repeat_candidate is not None:
+        repeat_verification = candidate_verifier(
+            repeat_candidate,
+            expected_seed_path=seed_path,
+            expected_masked_path=masked_path,
+        )
+        if repeat_verification.get("structural_valid") is not True:
+            add("Critical", "repeat_candidate_verification_failed")
+        try:
+            repeat_manifest = load_json(repeat_candidate / "MANIFEST.json")
+            repeat_candidate_manifest_digest = digest_file(
+                repeat_candidate / "MANIFEST.json"
+            )
+            if not isinstance(repeat_manifest, dict) or any(
+                repeat_manifest.get(key) != manifest.get(key)
+                for key in ("catalog", "masking", "qualification", "sandbox")
+            ):
+                add("High", "controlled_repeat_binding_mismatch")
+            first_projection = _controlled_result_projection(candidate)
+            second_projection = _controlled_result_projection(repeat_candidate)
+            inconsistent_slugs = sorted(
+                slug
+                for slug in set(first_projection) | set(second_projection)
+                if first_projection.get(slug) != second_projection.get(slug)
+            )
+            for slug in inconsistent_slugs:
+                add("High", "controlled_repeat_inconsistent", slug)
+        except GradeRefreshError:
+            add("Critical", "controlled_repeat_evidence_invalid")
     for result in results:
         if not isinstance(result, dict):
             add("Critical", "invalid_result_shape")
@@ -1562,6 +1668,7 @@ def triage_candidate(
     payload: dict[str, Any] = {
         "schema": TRIAGE_SCHEMA,
         "candidate_manifest_digest": digest_file(candidate / "MANIFEST.json"),
+        "repeat_candidate_manifest_digest": repeat_candidate_manifest_digest,
         "preflight_receipt_digest": preflight.get("receipt_digest", "UNKNOWN"),
         "repeatability_receipt_digest": repeatability.get("receipt_digest", "UNKNOWN"),
         "review_required": bool(findings),
@@ -1600,6 +1707,14 @@ def _triage_integrity_valid(
         )
         and isinstance(triage.get("candidate_manifest_digest"), str)
         and _SHA256.fullmatch(triage["candidate_manifest_digest"]) is not None
+        and (
+            triage.get("repeat_candidate_manifest_digest") is None
+            or (
+                isinstance(triage.get("repeat_candidate_manifest_digest"), str)
+                and _SHA256.fullmatch(triage["repeat_candidate_manifest_digest"])
+                is not None
+            )
+        )
         and triage.get("preflight_receipt_digest") == preflight_digest
         and triage.get("repeatability_receipt_digest") == repeatability_digest
         and type(triage.get("review_required")) is bool
@@ -1620,13 +1735,14 @@ def _triage_integrity_valid(
             == sum(finding["severity"] == severity for finding in findings)
             for severity in counts
         )
-        and triage.get("candidate_claimed_state") == "complete"
+        and triage.get("candidate_claimed_state") in {"complete", "partial"}
         and isinstance(verification, dict)
         and set(verification)
         == {"structural_valid", "publication_ready", "state", "errors"}
         and verification.get("structural_valid") is True
-        and verification.get("publication_ready") is True
-        and verification.get("state") == "complete"
+        and verification.get("publication_ready")
+        is (triage.get("candidate_claimed_state") == "complete")
+        and verification.get("state") == triage.get("candidate_claimed_state")
         and verification.get("errors") == []
     )
 
@@ -1778,7 +1894,13 @@ def build_state_card(
             "narrow dependency-preparation egress, network-none repeat builds, qualification "
             "receipts, and exact image IDs; then rerun preflight."
             if not preflight.get("safe_to_execute_catalog")
-            else "Create one local review candidate, rerun deterministic verification, and triage."
+            else (
+                "Resolve the severity-ordered candidate findings and qualify every blocked "
+                "row before requesting a separate publication decision."
+                if triage_valid
+                else "Create one local review candidate, rerun deterministic verification, "
+                "and triage."
+            )
         ),
     }
 

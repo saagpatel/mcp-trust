@@ -84,6 +84,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _common_inputs(triage)
     triage.add_argument("--candidate", type=Path, required=True)
+    triage.add_argument("--repeat-candidate", type=Path)
     triage.add_argument("--preflight", type=Path, required=True)
     triage.add_argument("--repeatability", type=Path, required=True)
     triage.add_argument("--out", type=Path)
@@ -96,6 +97,7 @@ def _parser() -> argparse.ArgumentParser:
     package.add_argument("--repeatability", type=Path, required=True)
     package.add_argument("--triage", type=Path)
     package.add_argument("--candidate", type=Path)
+    package.add_argument("--repeat-candidate", type=Path)
     package.add_argument("--task-id", required=True)
     package.add_argument("--out-dir", type=Path, required=True)
     return parser
@@ -209,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
                 repeatability=load_json(args.repeatability),
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
+                repeat_candidate=args.repeat_candidate,
             )
             _emit(payload, args.out)
             return 0
@@ -228,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
                     repeatability=repeatability,
                     seed_path=args.seed,
                     masked_path=args.masked_grades,
+                    repeat_candidate=args.repeat_candidate,
                 )
                 if supplied_triage != triage:
                     raise GradeRefreshError(

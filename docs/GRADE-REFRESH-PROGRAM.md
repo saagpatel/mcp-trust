@@ -119,6 +119,12 @@ Candidate execution derives its scan set from this exact source-bound policy:
 blocked rows never enter Docker preflight or scanner invocation and cannot
 retain a fresh-looking grade.
 
+Two controlled candidates may be supplied to triage. Their review projection
+compares grade, transparency, normalized risk/findings/evidence, sandbox
+receipt data, masked proof state, and blocked/failure classification while
+excluding run IDs and timestamps. Any inconsistent slug is a High finding;
+either partial candidate remains a Critical publication block.
+
 ## Threat model and controls
 
 | Threat | Required control | Failure state |
