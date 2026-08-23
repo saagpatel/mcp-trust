@@ -1,12 +1,32 @@
 {
-  "schema": "McpTrustRefreshPolicyV1",
+  "schema": "McpTrustRefreshPolicyV2",
   "catalog_denominator": 31,
   "default_sandbox_image": "mcp-trust-scan:corpus-2026-07-03",
   "image_build_sources": {
-    "mcp-trust-scan:corpus-2026-07-03": "Dockerfile.scan",
-    "mcp-trust-live-batch:20260628": null,
-    "mcp-trust-batch3:20260703": null,
-    "mcp-trust-batch4:20260703": null
+    "mcp-trust-scan:corpus-2026-07-03": {
+      "path": "Dockerfile.scan",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "UNKNOWN",
+      "qualification_receipt": null
+    },
+    "mcp-trust-live-batch:20260628": {
+      "path": "docker/refresh/Dockerfile.live-batch-20260628",
+      "provenance_status": "RECOVERED_HISTORICAL_ARTIFACT",
+      "reproducibility_status": "UNKNOWN",
+      "qualification_receipt": null
+    },
+    "mcp-trust-batch3:20260703": {
+      "path": "docker/refresh/Dockerfile.batch3-20260703",
+      "provenance_status": "RECOVERED_HISTORICAL_ARTIFACT",
+      "reproducibility_status": "UNKNOWN",
+      "qualification_receipt": null
+    },
+    "mcp-trust-batch4:20260703": {
+      "path": "docker/refresh/Dockerfile.batch4-20260703",
+      "provenance_status": "RECOVERED_HISTORICAL_ARTIFACT",
+      "reproducibility_status": "UNKNOWN",
+      "qualification_receipt": null
+    }
   },
   "scannable": [
     "ai-adeu-adeu-1-7-1",

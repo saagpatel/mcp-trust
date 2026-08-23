@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
+# node:24 — @agentmetal/mcp declares engines node>=24 and ships a raw .ts bin
+# that depends on node 24 native type stripping.
+FROM node:24-slim
+
+ENV UV_TOOL_DIR=/opt/uv-tools
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global \
+    "@microsoft/powerbi-modeling-mcp@0.5.0-beta.11" \
+    "@gitkraken/gk@3.1.68" \
+    "@black-duck/mcp-server@1.1.7" \
+    "@agentmetal/mcp@0.3.0" \
+    "redacta-mcp@1.2.1"
+
+RUN uv tool install --python python3 "mcp-safeguard==0.3.2"
+
+# The scan sandbox mounts its only writable tmpfs at /scan and runs with a
+# read-only root fs. Point HOME there so servers that write config on startup
+# (gk, black-duck) can launch. PowerBI's .NET runtime needs ICU or the
+# invariant-globalization flag; the slim base has no libicu.
+ENV HOME=/scan
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+
+WORKDIR /scan

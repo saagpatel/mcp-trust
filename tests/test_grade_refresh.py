@@ -39,7 +39,8 @@ def test_inventory_classifies_every_catalog_entry() -> None:
         "credential_dependent": 7,
         "backing_service_dependent": 10,
         "unsafe_to_execute_unsandboxed": 31,
-        "missing_image_build_source": 16,
+        "missing_image_build_source": 0,
+        "unqualified_image_build_source": 31,
     }
     assert all(row["live_credentials_allowed"] is False for row in inventory["entries"])
     assert all(row["broad_egress_allowed"] is False for row in inventory["entries"])
@@ -176,13 +177,72 @@ def test_preflight_binds_images_by_content_id(
     assert receipt["status"] == "BLOCKED"
     assert receipt["safe_to_execute_catalog"] is False
     assert sum(
-        reason.startswith("image_build_source_missing:")
+        reason.startswith("image_build_reproducibility_unknown:")
         for reason in receipt["reasons"]
-    ) == 3
+    ) == 4
     assert all(
         row["image_id"] == image_id and row["sandbox_controls"]["all_required_controls"]
         for row in receipt["sandbox"]["image_bindings"]
     )
+
+
+def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    lock = tmp_path / "package-lock.json"
+    receipt_path = tmp_path / "qualification.json"
+    base = "node@sha256:" + "b" * 64
+    dockerfile.write_text(
+        f"FROM {base}\nCOPY package-lock.json /build/package-lock.json\n",
+        encoding="utf-8",
+    )
+    lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+    image_id = "sha256:" + "c" * 64
+    payload = {
+        "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
+        "observed_at": NOW.isoformat(),
+        "image_reference": "mcp-trust:test",
+        "build_source_sha256": grade_refresh.digest_file(dockerfile),
+        "base_images": [base],
+        "dependency_locks": {
+            "npm": {
+                "path": "package-lock.json",
+                "sha256": grade_refresh.digest_file(lock),
+            }
+        },
+        "build_network_policy": ["registry.npmjs.org"],
+        "tool_versions": {"docker": "29.5.2"},
+        "first_build_image_id": image_id,
+        "second_build_image_id": image_id,
+        "repeatable": True,
+    }
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert grade_refresh._image_build_qualification(
+        repo_root=tmp_path,
+        reference="mcp-trust:test",
+        build_source="Dockerfile",
+        build_source_sha256=grade_refresh.digest_file(dockerfile),
+        receipt_path="qualification.json",
+    )["qualified_image_id"] == image_id
+
+    payload["second_build_image_id"] = "sha256:" + "d" * 64
+    unsigned = dict(payload)
+    unsigned.pop("receipt_digest")
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(unsigned)
+    )
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert grade_refresh._image_build_qualification(
+        repo_root=tmp_path,
+        reference="mcp-trust:test",
+        build_source="Dockerfile",
+        build_source_sha256=grade_refresh.digest_file(dockerfile),
+        receipt_path="qualification.json",
+    ) is None
 
 
 def test_scheduler_readback_reports_disabled_unloaded_definition_drift(
@@ -356,7 +416,7 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
         "safe_to_execute_catalog": False,
         "reasons": [
             "catalog_image_missing:x",
-            "image_build_source_missing:x",
+            "image_build_reproducibility_unknown:x",
         ],
         "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
         "catalog": {"denominator": 31, "counts": {"scannable": 31}},
@@ -385,14 +445,14 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert capsule["schema"] == "HumanGateResumeCapsuleV1"
     assert (
         capsule["capsule"]["capsule_id"]
-        == "mcp-trust-grade-refresh-sandbox-recovery-gate"
+        == "mcp-trust-grade-refresh-deterministic-build-gate"
     )
     assert (
         capsule["capsule"]["waiting_condition"]["code"]
-        == "sandbox-image-recovery-approval-required"
+        == "deterministic-image-build-approval-required"
     )
     assert capsule["capsule"]["resume_states"] == [
-        "sandbox-image-recovery-authorized"
+        "deterministic-image-build-authorized"
     ]
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"

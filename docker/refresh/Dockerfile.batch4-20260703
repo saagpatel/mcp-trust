@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
+FROM node:24-slim
+
+ENV UV_TOOL_DIR=/opt/uv-tools
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global \
+    "@playwright/mcp@0.0.77" \
+    "chrome-devtools-mcp@1.5.0" \
+    "kubernetes-mcp-server@0.0.63" \
+    "@discourse/mcp@0.2.9" \
+    "@ui5/webcomponents-react-mcp@2.23.2" \
+    "@nvidia-elements/cli@2.1.4"
+
+RUN uv tool install --python python3 "basic-memory==0.22.1" \
+    && uv tool install --python python3 "haiku-rag==0.63.2"
+
+# The scan sandbox mounts its only writable tmpfs at /scan and runs with a
+# read-only root fs. Point HOME there so servers that write config on startup
+# can launch. Invariant globalization covers any .NET-backed bins on the slim
+# base (no libicu).
+ENV HOME=/scan
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+
+WORKDIR /scan
