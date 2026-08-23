@@ -36,6 +36,10 @@ def _default_seed_path() -> Path:
     return Path("src/mcp_trust/catalog/seed_servers.json")
 
 
+def _default_masked_path() -> Path:
+    return Path("masked-grades.json")
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
@@ -51,7 +55,9 @@ def _git_value(args: list[str]) -> str | None:
     return result.stdout.strip()
 
 
-def _copy_sanitized_db(source_db: Path, destination_db: Path) -> list[sqlite3.Row]:
+def _copy_sanitized_db(
+    source_db: Path, destination_db: Path, *, masked_slugs: set[str]
+) -> list[sqlite3.Row]:
     shutil.copy2(source_db, destination_db)
     conn = sqlite3.connect(destination_db)
     conn.row_factory = sqlite3.Row
@@ -62,6 +68,12 @@ def _copy_sanitized_db(source_db: Path, destination_db: Path) -> list[sqlite3.Ro
 
     placeholders = ",".join("?" for _ in latest_ids)
     conn.execute(f"DELETE FROM scans WHERE id NOT IN ({placeholders})", tuple(latest_ids))
+    if masked_slugs:
+        masked_placeholders = ",".join("?" for _ in masked_slugs)
+        conn.execute(
+            f"DELETE FROM scans WHERE server_slug IN ({masked_placeholders})",  # noqa: S608
+            tuple(sorted(masked_slugs)),
+        )
     conn.commit()
     conn.execute("VACUUM")
     conn.close()
@@ -81,6 +93,8 @@ def _write_manifest(
     rows: list[sqlite3.Row],
     source_db: Path,
     source_receipts_dir: Path,
+    masked_path: Path,
+    masked_slugs: set[str],
 ) -> dict[str, Any]:
     receipts: list[dict[str, Any]] = []
     for row in rows:
@@ -111,6 +125,11 @@ def _write_manifest(
             "db": str(source_db),
             "receipts_dir": str(source_receipts_dir),
         },
+        "masking": {
+            "path": "masked-grades.json",
+            "sha256": _sha256(masked_path),
+            "masked_servers": len(masked_slugs),
+        },
         "bundle": {
             "db": "registry.db",
             "db_sha256": _sha256(db_path),
@@ -131,6 +150,7 @@ def build_deploy_bundle(
     db_path: Path,
     receipts_dir: Path,
     seed_path: Path,
+    masked_path: Path,
     out_dir: Path,
     bundle_name: str | None = None,
 ) -> Path:
@@ -140,9 +160,19 @@ def build_deploy_bundle(
         db_path=db_path,
         receipts_dir=receipts_dir,
         seed_path=seed_path,
+        masked_path=None,
     )
     if errors:
         raise ValueError("launch state is not deployable:\n- " + "\n- ".join(errors))
+
+    loaded_masked = json.loads(masked_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(loaded_masked, list)
+        or not all(isinstance(slug, str) and slug for slug in loaded_masked)
+        or len(loaded_masked) != len(set(loaded_masked))
+    ):
+        raise ValueError("masked-grades input must be a unique string list")
+    masked_slugs = set(loaded_masked)
 
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
     name = bundle_name or f"mcp-trust-deploy-bundle-{timestamp}"
@@ -155,7 +185,7 @@ def build_deploy_bundle(
         bundle_receipts_dir.mkdir(parents=True)
         bundle_db = root / "registry.db"
 
-        rows = _copy_sanitized_db(db_path, bundle_db)
+        rows = _copy_sanitized_db(db_path, bundle_db, masked_slugs=masked_slugs)
         for row in rows:
             receipt_ref = row["report_ref"]
             shutil.copy2(receipts_dir / receipt_ref, bundle_receipts_dir / receipt_ref)
@@ -164,10 +194,12 @@ def build_deploy_bundle(
             db_path=bundle_db,
             receipts_dir=bundle_receipts_dir,
             seed_path=seed_path,
+            masked_path=masked_path,
         )
         if errors:
             raise ValueError("sanitized bundle failed validation:\n- " + "\n- ".join(errors))
 
+        shutil.copy2(masked_path, root / "masked-grades.json")
         _write_manifest(
             manifest_path=root / "MANIFEST.json",
             db_path=bundle_db,
@@ -175,6 +207,8 @@ def build_deploy_bundle(
             rows=rows,
             source_db=db_path,
             source_receipts_dir=receipts_dir,
+            masked_path=root / "masked-grades.json",
+            masked_slugs=masked_slugs,
         )
 
         with tarfile.open(bundle_path, "w:gz") as tar:
@@ -188,6 +222,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--db", type=Path, default=_default_db_path())
     parser.add_argument("--receipts-dir", type=Path, default=_default_receipts_dir())
     parser.add_argument("--seed", type=Path, default=_default_seed_path())
+    parser.add_argument("--masked-grades", type=Path, default=_default_masked_path())
     parser.add_argument("--out-dir", type=Path, default=Path("dist"))
     parser.add_argument("--name", help="Bundle directory/tarball basename.")
     return parser
@@ -199,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         db_path=args.db,
         receipts_dir=args.receipts_dir,
         seed_path=args.seed,
+        masked_path=args.masked_grades,
         out_dir=args.out_dir,
         bundle_name=args.name,
     )

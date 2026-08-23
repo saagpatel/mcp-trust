@@ -262,6 +262,25 @@ the catalog, publish or withdraw records, run scans, or change deployment state.
 
 ## Manual refresh candidates
 
+First emit the no-execution inventory, exact source/tool/image preflight, and
+deterministic repeated fixture receipt:
+
+```bash
+uv run --frozen --extra engine python scripts/grade_refresh.py inventory \
+  --out ./dist/grade-refresh/inventory.json
+uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
+  --repo-root "$PWD" --out ./dist/grade-refresh/preflight.json
+uv run --frozen --extra dev python scripts/grade_refresh.py fixture-repeat \
+  --out ./dist/grade-refresh/fixture-repeatability.json
+```
+
+Do not execute a catalog server unless preflight returns `READY`. The receipt
+binds the 31-entry classification, source and policy digests, tool versions,
+local Docker authority, immutable image IDs, and explicit network, filesystem,
+resource, and secret controls. See
+[`docs/GRADE-REFRESH-PROGRAM.md`](docs/GRADE-REFRESH-PROGRAM.md) and the
+[`operator runbook`](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md).
+
 Create a review candidate without mutating the canonical registry, baked
 snapshot, static site, schedule, or deployment:
 
@@ -309,9 +328,10 @@ lane was disabled and its deploy authority removed (see
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
-[`deploy/launchd/`](deploy/launchd/) remains installed but disabled. Its
-compatibility entrypoint can create a local review candidate only; it cannot
-publish or deploy. The live FastAPI service + VM path remains
+[`deploy/launchd/`](deploy/launchd/) is persistently disabled; current host
+readback also shows it unloaded with no installed plist. Its compatibility
+entrypoint can create a local review candidate only, after no-execution
+preflight; it cannot publish or deploy. The live FastAPI service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
 for launch history. The deployed catalog reports scan timestamps as its

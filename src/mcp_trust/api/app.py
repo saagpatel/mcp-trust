@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import sqlite3
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -139,6 +141,29 @@ def _unknown_scan_payload() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _runtime_masked_slugs() -> set[str]:
+    """Load the mandatory public-runtime masking input fail-closed."""
+    configured = os.environ.get("MCP_TRUST_MASKED_GRADES")
+    public_readonly = os.environ.get(_PUBLIC_READONLY_ENV, "0").strip().lower() in _TRUE_ENV_VALUES
+    if configured is None:
+        if public_readonly:
+            raise RuntimeError(
+                "MCP_TRUST_MASKED_GRADES is required when MCP_TRUST_PUBLIC_READONLY=1"
+            )
+        return set()
+    try:
+        loaded = json.loads(Path(configured).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("runtime masked-grades input is unreadable") from exc
+    if (
+        not isinstance(loaded, list)
+        or not all(isinstance(slug, str) and slug for slug in loaded)
+        or len(loaded) != len(set(loaded))
+    ):
+        raise RuntimeError("runtime masked-grades input must be a unique string list")
+    return set(loaded)
+
+
 def create_app(
     conn: sqlite3.Connection | None = None,
     engine: ScanEngine | None = None,
@@ -162,7 +187,9 @@ def create_app(
         Slugs whose published grade is operator-withheld pending governance
         review (pages and badges render "withheld / under review").
     """
-    _masked: set[str] = masked_slugs or set()
+    _masked: set[str] = (
+        set(masked_slugs) if masked_slugs is not None else _runtime_masked_slugs()
+    )
     # Resolve dependencies lazily so module-level ``app`` doesn't open a DB
     # at import time in test environments.
     _conn: sqlite3.Connection | None = conn

@@ -151,6 +151,7 @@ _SANDBOX_PROFILE_KEYS = frozenset(
     {
         "kind",
         "image",
+        "image_digest",
         "network",
         "read_only_root",
         "capabilities",
@@ -875,9 +876,11 @@ def _server_identity(server: Server) -> dict[str, Any]:
 def _sandbox_profile(
     image: str,
     *,
+    image_digest: str = "UNKNOWN",
     docker_host: str | None = None,
 ) -> dict[str, object]:
-    sandbox = DockerSandbox(image=image, network="none", host=docker_host)
+    execution_image = image_digest if image_digest != "UNKNOWN" else image
+    sandbox = DockerSandbox(image=execution_image, network="none", host=docker_host)
     command, args = sandbox.wrap("server-command", ["--probe"])
     joined = [command, *args]
     for required in _SANDBOX_FLAGS:
@@ -888,6 +891,7 @@ def _sandbox_profile(
     return {
         "kind": "docker",
         "image": image,
+        "image_digest": image_digest,
         "network": "none",
         "read_only_root": True,
         "capabilities": "dropped-all",
@@ -969,6 +973,7 @@ def preflight_real_refresh(
         | ({default_image} if local_servers else set())
     )
     profiles: list[dict[str, object]] = []
+    image_bindings: dict[str, str] = {}
     if local_servers:
         if shutil.which("docker") is None:
             raise RefreshCandidateError("required Docker executable is unavailable")
@@ -991,12 +996,34 @@ def preflight_real_refresh(
             )
             if inspected.returncode != 0:
                 raise RefreshCandidateError(f"required local sandbox image is unavailable: {image}")
-            profiles.append(_sandbox_profile(image, docker_host=docker_host))
+            try:
+                inspected_payload = json.loads(inspected.stdout)
+                image_digest = inspected_payload[0]["Id"]
+            except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                raise RefreshCandidateError(
+                    f"required local sandbox image provenance is unreadable: {image}"
+                ) from exc
+            if (
+                not isinstance(image_digest, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest) is None
+            ):
+                raise RefreshCandidateError(
+                    f"required local sandbox image digest is invalid: {image}"
+                )
+            image_bindings[image] = image_digest
+            profiles.append(
+                _sandbox_profile(
+                    image,
+                    image_digest=image_digest,
+                    docker_host=docker_host,
+                )
+            )
     if importlib.util.find_spec("mcp_audit") is None:
         raise RefreshCandidateError("required MCPAudit engine package is unavailable")
     evidence: dict[str, object] = {
         "docker_daemon": "available" if local_servers else "not_required",
         "profiles": profiles,
+        "default_image": default_image,
         "remote_transport_count": len(servers) - len(local_servers),
     }
     if local_servers:
@@ -1004,6 +1031,7 @@ def preflight_real_refresh(
         # written, then supplied to every DockerSandbox through a dedicated
         # mcp-trust variable. This is authority, not a public trust claim.
         evidence["_execution_docker_host"] = docker_host
+        evidence["_execution_image_bindings"] = image_bindings
     return evidence
 
 
@@ -1374,14 +1402,23 @@ def create_refresh_candidate(
 
     sandbox_evidence: dict[str, object]
     docker_host: str | None = None
+    execution_image_bindings: dict[str, str] = {}
     if fixture_mode:
         sandbox_evidence = {
             "mode": "deterministic-fixture",
+            "default_image": default_image,
             "profiles": [_sandbox_profile(default_image)],
         }
     else:
         sandbox_evidence = preflight_real_refresh(servers, default_image=default_image)
         execution_host = sandbox_evidence.pop("_execution_docker_host", None)
+        raw_bindings = sandbox_evidence.pop("_execution_image_bindings", {})
+        if not isinstance(raw_bindings, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in raw_bindings.items()
+        ):
+            raise RefreshCandidateError("preflight returned invalid image execution bindings")
+        execution_image_bindings = dict(raw_bindings)
         if execution_host is not None:
             try:
                 docker_host = normalize_local_docker_host(str(execution_host))
@@ -1395,7 +1432,16 @@ def create_refresh_candidate(
             if not _requires_local_sandbox(server):
                 with _remote_transport_environment():
                     return scanner_engine.scan(server.source)
-            return scanner_engine.scan(server.source)
+            requested_image = server.source.sandbox_image or default_image
+            execution_image = execution_image_bindings.get(requested_image)
+            if execution_image is None:
+                raise RefreshCandidateError(
+                    f"preflight image binding unavailable for {requested_image}"
+                )
+            execution_source = server.source.model_copy(
+                update={"sandbox_image": execution_image}
+            )
+            return scanner_engine.scan(execution_source)
 
         scanner = scan_server
 
@@ -1446,7 +1492,8 @@ def create_refresh_candidate(
         excluded: set[str] = set()
         verified_snapshot_scan_modes: dict[str, str] = {}
         writer = receipt_writer or _write_receipt
-        with _scan_environment(default_image, docker_host):
+        execution_default_image = execution_image_bindings.get(default_image, default_image)
+        with _scan_environment(execution_default_image, docker_host):
             for server in servers:
                 previous = scan_repo.latest(server.slug)
                 try:
@@ -1467,8 +1514,9 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
+                    requested_image = server.source.sandbox_image or default_image
                     expected_image = (
-                        server.source.sandbox_image or default_image
+                        execution_image_bindings.get(requested_image, requested_image)
                         if _requires_local_sandbox(server)
                         else None
                     )
@@ -1978,11 +2026,12 @@ def verify_refresh_candidate(
         sandbox_manifest.get("profiles") if isinstance(sandbox_manifest, dict) else None
     )
     sandbox_profile_rows = sandbox_profiles if isinstance(sandbox_profiles, list) else []
-    reviewed_profile_images = {
-        profile.get("image")
+    reviewed_profile_bindings = {
+        profile.get("image"): profile.get("image_digest")
         for profile in sandbox_profile_rows
         if isinstance(profile, dict)
         and isinstance(profile.get("image"), str)
+        and isinstance(profile.get("image_digest"), str)
         and profile.get("kind") == "docker"
         and profile.get("network") == "none"
         and profile.get("read_only_root") is True
@@ -2001,13 +2050,14 @@ def verify_refresh_candidate(
             isinstance(profile, dict) and set(profile) == _SANDBOX_PROFILE_KEYS
             for profile in sandbox_profile_rows
         )
-        and len(reviewed_profile_images) == len(sandbox_profile_rows)
+        and len(reviewed_profile_bindings) == len(sandbox_profile_rows)
     )
     if candidate_state == "fixture":
         sandbox_manifest_valid = bool(
             isinstance(sandbox_manifest, dict)
-            and set(sandbox_manifest) == {"mode", "profiles"}
+            and set(sandbox_manifest) == {"mode", "default_image", "profiles"}
             and sandbox_manifest.get("mode") == "deterministic-fixture"
+            and isinstance(sandbox_manifest.get("default_image"), str)
             and len(sandbox_profile_rows) == 1
             and profiles_valid
         )
@@ -2015,7 +2065,8 @@ def verify_refresh_candidate(
         sandbox_manifest_valid = bool(
             isinstance(sandbox_manifest, dict)
             and set(sandbox_manifest)
-            == {"docker_daemon", "profiles", "remote_transport_count"}
+            == {"default_image", "docker_daemon", "profiles", "remote_transport_count"}
+            and isinstance(sandbox_manifest.get("default_image"), str)
             and sandbox_manifest.get("docker_daemon")
             in ("available", "not_required")
             and type(sandbox_manifest.get("remote_transport_count")) is int
@@ -2029,6 +2080,11 @@ def verify_refresh_candidate(
                 else "available"
             )
             and profiles_valid
+            and all(
+                isinstance(digest, str)
+                and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is not None
+                for digest in reviewed_profile_bindings.values()
+            )
         )
     if not sandbox_manifest_valid:
         errors.append("sandbox_manifest_invalid")
@@ -2209,10 +2265,15 @@ def verify_refresh_candidate(
                     if reviewed_server is not None
                     else None
                 )
+                requested_image = reviewed_image or (
+                    sandbox_manifest.get("default_image")
+                    if isinstance(sandbox_manifest, dict)
+                    else None
+                )
+                expected_image_digest = reviewed_profile_bindings.get(requested_image)
                 local_image_valid = bool(
                     isinstance(proof_image, str)
-                    and proof_image in reviewed_profile_images
-                    and (reviewed_image is None or proof_image == reviewed_image)
+                    and proof_image == expected_image_digest
                 )
                 sandbox_valid = bool(
                     catalog_bound
@@ -2232,8 +2293,8 @@ def verify_refresh_candidate(
                 )
                 if result.get("engine_name") != "mcpaudit" or not sandbox_valid:
                     errors.append(f"masked_scan_provenance_invalid:{proof_ref}")
-                elif not remote_without_command and isinstance(proof_image, str):
-                    verified_local_profile_images.add(proof_image)
+                elif not remote_without_command and isinstance(requested_image, str):
+                    verified_local_profile_images.add(requested_image)
             continue
         if (
             result.get("grade_visibility") != "reviewable"
@@ -2316,10 +2377,15 @@ def verify_refresh_candidate(
             reviewed_image = (
                 reviewed_server.source.sandbox_image if reviewed_server is not None else None
             )
+            requested_image = reviewed_image or (
+                sandbox_manifest.get("default_image")
+                if isinstance(sandbox_manifest, dict)
+                else None
+            )
+            expected_image_digest = reviewed_profile_bindings.get(requested_image)
             local_image_valid = bool(
                 isinstance(receipt_image, str)
-                and receipt_image in reviewed_profile_images
-                and (reviewed_image is None or receipt_image == reviewed_image)
+                and receipt_image == expected_image_digest
             )
             sandbox_valid = bool(
                 catalog_bound
@@ -2344,8 +2410,8 @@ def verify_refresh_candidate(
                 or not sandbox_valid
             ):
                 errors.append(f"publishable_scan_provenance_invalid:{receipt_ref}")
-            elif not remote_without_command and isinstance(receipt_image, str):
-                verified_local_profile_images.add(receipt_image)
+            elif not remote_without_command and isinstance(requested_image, str):
+                verified_local_profile_images.add(requested_image)
     excluded = {
         result.get("server_slug")
         for result in results
@@ -2464,7 +2530,7 @@ def verify_refresh_candidate(
             )
         ):
             errors.append("complete_candidate_semantics_invalid")
-        if verified_local_profile_images != reviewed_profile_images:
+        if verified_local_profile_images != set(reviewed_profile_bindings):
             errors.append("sandbox_profile_coverage_mismatch")
     else:
         if manifest.get("publication_allowed") is not False:

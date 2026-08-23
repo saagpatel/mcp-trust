@@ -22,6 +22,18 @@ cd "${REPO_ROOT}"
 DB="${MCP_TRUST_DB:-./registry.db}"
 IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:corpus-2026-07-03}"
 CANDIDATES="${MCP_TRUST_CANDIDATES_DIR:-./dist/refresh-candidates}"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+PREFLIGHT="${CANDIDATES}/preflight-${RUN_ID}.json"
+
+# Stop before any catalog process is launched unless the exact source,
+# toolchain, local Docker authority, sandbox controls, and all four catalog
+# image bytes are bound. The receipt remains local and review-only.
+uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
+  --repo-root "${REPO_ROOT}" \
+  --seed "./src/mcp_trust/catalog/seed_servers.json" \
+  --masked-grades "./masked-grades.json" \
+  --policy "./src/mcp_trust/catalog/refresh_policy.json" \
+  --out "${PREFLIGHT}"
 
 exec uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db "${DB}" \
