@@ -17,15 +17,15 @@ RUN python -m venv /opt/venv \
 
 FROM python-base AS runtime
 ENV BASIC_MEMORY_AUTO_UPDATE=false \
-    BASIC_MEMORY_CONFIG_DIR=/work/config \
+    BASIC_MEMORY_CONFIG_DIR=/scan/config \
     BASIC_MEMORY_EXPLICIT_ROUTING=true \
     BASIC_MEMORY_FORCE_LOCAL=true \
-    BASIC_MEMORY_HOME=/work/memory \
+    BASIC_MEMORY_HOME=/scan/memory \
     BASIC_MEMORY_LOGFIRE_ENABLED=false \
     BASIC_MEMORY_LOGFIRE_SEND_TO_LOGFIRE=false \
-    HOME=/work \
+    HOME=/scan \
     PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \
     SOURCE_DATE_EPOCH=1710000000
 COPY --from=python-dependencies /opt/venv /opt/venv
-WORKDIR /work
+WORKDIR /scan
