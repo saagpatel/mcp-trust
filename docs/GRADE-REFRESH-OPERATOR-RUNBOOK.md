@@ -67,11 +67,18 @@ as fresh.
 uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db ./registry.db \
   --out-dir ./dist/refresh-candidates \
+  --policy ./src/mcp_trust/catalog/refresh_policy.json \
   --qualification-receipt ./dist/grade-refresh/preflight.json
 
 uv run --frozen --extra engine python scripts/refresh_candidate.py verify \
   ./dist/refresh-candidates/<candidate>
 ```
+
+Candidate creation loads the source-bound policy before Docker preflight. Only
+`scannable` rows enter preflight or the scanner. A `blocked` row is emitted as
+`blocked-policy`, exposes no fresh grade, preserves any prior timestamp only as
+historical context, and keeps the candidate partial/non-publishable. A nonzero
+verify exit is therefore the expected honest result while any row is blocked.
 
 The candidate is local and immutable. Its manifest binds the exact READY
 preflight receipt, source and policy digests, tool versions, image build

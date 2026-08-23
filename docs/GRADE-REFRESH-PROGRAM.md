@@ -47,7 +47,9 @@ claim that a server is benign or malicious.
   hours; an expired receipt returns the cohort to `UNKNOWN`.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
-  remain UNKNOWN until all 31 entries are safely rescanned.
+  remain UNKNOWN until the 30 qualified entries are safely rescanned;
+  `basic-memory` must remain separately UNKNOWN until its sandbox image is
+  qualified.
 - The legacy VM bundle gate is weaker than full refresh-candidate verification.
   Masking is now fail-closed, but future VM publication must additionally
   require current candidate, provenance, freshness, and receipt verification.
@@ -113,6 +115,9 @@ surface observed without that service does not prove functional behavior.
 Eight are upstream-archived/unsupported and eight are intentionally masked.
 Build-source paths exist for every entry. Thirty entries map to four qualified
 images; `basic-memory` is the single blocked and build-unqualified entry.
+Candidate execution derives its scan set from this exact source-bound policy:
+blocked rows never enter Docker preflight or scanner invocation and cannot
+retain a fresh-looking grade.
 
 ## Threat model and controls
 
