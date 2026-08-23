@@ -820,6 +820,8 @@ def render_catalog(
             transparency = str(row.get("transparency", ""))
             composite = row.get("composite")
             masked = bool(row.get("masked", False))
+            if masked:
+                transparency = ""
             scanned_at_raw = str(row.get("scanned_at", "") or "")
             scanned_at = escape(scanned_at_raw)
 
@@ -941,6 +943,8 @@ def render_detail(
     stale = record is not None and now is not None and is_stale(record.scanned_at, now)
     operator_masked = masked
     masked = operator_masked and (record is not None or masked_scan_succeeded)
+    if operator_masked:
+        transparency = ""
     description_text = (
         MASKED_SERVER_DESCRIPTION if operator_masked else str(server.description or "")
     )

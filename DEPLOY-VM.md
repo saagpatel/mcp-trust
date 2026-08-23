@@ -75,9 +75,12 @@ Build a sanitized transfer bundle from the workstation after scans pass:
 
 ```bash
 python scripts/build_deploy_bundle.py \
-  --db ./registry.db \
-  --receipts-dir ./receipts
+  --candidate ./dist/refresh-candidate-<timestamp>
 ```
+
+The command verifies the candidate and records its manifest digest. It creates
+an offline transfer artifact only; upload and deployment remain separate,
+explicitly authorized steps.
 
 Upload the resulting `dist/mcp-trust-deploy-bundle-*.tar.gz` to the VM, extract
 it, and copy its contents into `/data/mcp-trust/`:

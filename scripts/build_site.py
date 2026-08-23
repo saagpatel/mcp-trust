@@ -98,16 +98,18 @@ def _load_corrections(path: str) -> list[dict]:
 
 
 def _load_masked_slugs(path: str) -> set[str]:
-    """Load the operator's masked-grades slug list. Missing file = no masking;
-    a malformed file fails the build loudly — a mask the operator ordered must
-    never silently not-apply."""
+    """Load masking fail-closed; missing, malformed, or duplicate input fails."""
     try:
         raw = Path(path).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return set()
+    except FileNotFoundError as exc:
+        raise ValueError("masked-grades input is missing") from exc
     loaded = json.loads(raw)
-    if not isinstance(loaded, list) or not all(isinstance(slug, str) for slug in loaded):
-        raise ValueError("masked-grades list must be a JSON list of slug strings")
+    if (
+        not isinstance(loaded, list)
+        or not all(isinstance(slug, str) and slug for slug in loaded)
+        or len(loaded) != len(set(loaded))
+    ):
+        raise ValueError("masked-grades list must be a unique JSON list of slug strings")
     return set(loaded)
 
 

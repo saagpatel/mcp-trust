@@ -356,3 +356,33 @@ def test_public_readonly_runtime_loads_masking_input(
     assert response.status_code == 200
     assert response.json()["server"]["description"]
     assert response.json()["latest_scan"] is None
+
+
+def test_runtime_masking_rejects_unknown_catalog_slug(
+    seeded_conn, monkeypatch, tmp_path
+) -> None:
+    masked = tmp_path / "masked.json"
+    masked.write_text(json.dumps(["not-in-catalog"]), encoding="utf-8")
+    monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+
+    with pytest.raises(RuntimeError, match="unknown catalog slug"):
+        create_app(conn=seeded_conn, engine=StubEngine())
+
+
+def test_scan_response_respects_operator_mask(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+    application = create_app(
+        conn=seeded_conn,
+        engine=StubEngine(),
+        masked_slugs={"mcp-reference-time"},
+    )
+    response = TestClient(application).post("/servers/mcp-reference-time/scan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["masked"] is True
+    assert payload["grade"] == "under review"
+    assert payload["transparency"] is None
+    assert payload["risk"] is None
+    assert payload["findings"] is None

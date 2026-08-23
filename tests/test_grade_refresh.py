@@ -53,6 +53,28 @@ def test_policy_masking_must_match_operator_masking(tmp_path: Path) -> None:
         catalog_inventory(seed_path=SEED, masked_path=masked, policy_path=POLICY)
 
 
+def test_policy_rejects_duplicate_masking_input(tmp_path: Path) -> None:
+    masked = tmp_path / "masked.json"
+    first = json.loads(MASKED.read_text(encoding="utf-8"))[0]
+    masked.write_text(json.dumps([first, first]), encoding="utf-8")
+
+    with pytest.raises(GradeRefreshError, match="contains duplicates"):
+        catalog_inventory(seed_path=SEED, masked_path=masked, policy_path=POLICY)
+
+
+def test_source_binding_covers_the_full_tracked_tree() -> None:
+    binding = grade_refresh.source_binding(ROOT)
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files"],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+
+    assert set(binding["file_digests"]) == set(tracked)
+    assert ".github/workflows/ci.yml" in binding["file_digests"]
+
+
 def test_fixture_corpus_repeats_exactly() -> None:
     receipt = build_fixture_repeatability_receipt(
         seed_path=SEED,
@@ -192,6 +214,34 @@ def test_scheduler_readback_reports_disabled_unloaded_definition_drift(
     assert receipt["mutation_performed"] is False
 
 
+def test_scheduler_readback_treats_missing_installed_definition_as_absent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repository_plist = tmp_path / "repo/deploy/launchd/com.d.mcp-trust-refresh.plist"
+    repository_plist.parent.mkdir(parents=True)
+    repository_plist.write_text("source", encoding="utf-8")
+    home = tmp_path / "empty-home"
+    home.mkdir()
+    monkeypatch.setattr(grade_refresh.Path, "home", lambda: home)
+
+    def runner(command: list[str], **_kwargs):
+        if command[1] == "print-disabled":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                'disabled services = { "com.d.mcp-trust-refresh" => disabled }',
+                "",
+            )
+        return subprocess.CompletedProcess(command, 1, "", "not loaded")
+
+    receipt = scheduler_readback(repo_root=tmp_path / "repo", runner=runner)
+
+    assert receipt["state"] == "DISABLED_UNLOADED"
+    assert receipt["installed_definition_state"] == "ABSENT"
+    assert receipt["definitions_match"] == "NOT_APPLICABLE"
+    assert receipt["installed_plist"] is None
+
+
 def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
@@ -210,6 +260,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
                             "current_grade": "B",
                             "surface_comparison": "unknown",
                             "cause": "undetermined",
+                            "summary": "fixture comparison lacks comparable evidence",
                         },
                     },
                     {"server_slug": "masked", "state": "masked", "drift": None},
@@ -219,15 +270,40 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
         encoding="utf-8",
     )
     preflight = {
+        "schema": "McpTrustGradeRefreshPreflightV1",
         "status": "READY",
-        "receipt_digest": "sha256:" + "1" * 64,
         "source_binding": {"worktree_state": "clean"},
-        "catalog": {"policy_digest": "sha256:" + "2" * 64},
+        "catalog": {
+            "policy_digest": "sha256:" + "2" * 64,
+            "seed_digest": grade_refresh.digest_file(SEED),
+            "masking_digest": grade_refresh.digest_file(MASKED),
+            "denominator": 31,
+        },
     }
-    repeatability = {"status": "PASS", "receipt_digest": "sha256:" + "3" * 64}
+    preflight["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(preflight)
+    )
+    repeatability = {
+        "schema": "McpTrustFixtureRepeatabilityV1",
+        "status": "PASS",
+        "catalog_denominator": 31,
+    }
+    repeatability["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(repeatability)
+    )
 
     triage = triage_candidate(
-        candidate=candidate, preflight=preflight, repeatability=repeatability
+        candidate=candidate,
+        preflight=preflight,
+        repeatability=repeatability,
+        seed_path=SEED,
+        masked_path=MASKED,
+        candidate_verifier=lambda *_args, **_kwargs: {
+            "structural_valid": True,
+            "publication_ready": True,
+            "state": "complete",
+            "errors": [],
+        },
     )
 
     codes = {finding["code"] for finding in triage["findings"]}
@@ -236,6 +312,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
     assert {"suspicious_upgrade", "large_grade_change", "missing_comparable_provenance"} <= codes
     assert "masked_result_requires_review" in codes
     assert "baseline_policy_digest_unknown" in codes
+    assert triage["candidate_verification"]["publication_ready"] is True
 
 
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:

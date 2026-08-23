@@ -164,6 +164,15 @@ def _runtime_masked_slugs() -> set[str]:
     return set(loaded)
 
 
+def _validate_masked_slugs(conn: sqlite3.Connection, masked_slugs: set[str]) -> None:
+    catalog_slugs = {server.slug for server in ServerRepository(conn).list()}
+    unknown = sorted(masked_slugs - catalog_slugs)
+    if unknown:
+        raise RuntimeError(
+            "runtime masked-grades contains unknown catalog slug(s): " + ",".join(unknown)
+        )
+
+
 def create_app(
     conn: sqlite3.Connection | None = None,
     engine: ScanEngine | None = None,
@@ -201,6 +210,7 @@ def create_app(
             db_path = os.environ.get("MCP_TRUST_DB", "./mcp-trust.db")
             _conn = connect(db_path)
             init_schema(_conn)
+            _validate_masked_slugs(_conn, _masked)
         return _conn
 
     def _get_engine() -> ScanEngine:
@@ -221,6 +231,7 @@ def create_app(
     # otherwise it's done lazily in _get_conn.
     if conn is not None:
         init_schema(conn)
+        _validate_masked_slugs(conn, _masked)
 
     # -----------------------------------------------------------------------
     # Routes
@@ -358,7 +369,7 @@ def create_app(
         if receipt_ref is not None:
             scan = scan.model_copy(update={"report_ref": receipt_ref})
         scan_repo.record(scan)
-        public_scan = _public_scan_payload(scan, masked=False)
+        public_scan = _public_scan_payload(scan, masked=slug in _masked)
         assert public_scan is not None
         return public_scan
 
@@ -405,6 +416,7 @@ def create_app(
         for srv in servers:
             scan = latest.get(srv.slug)
             unknown_scan = srv.slug in latest_readback.unreadable_slugs
+            masked = srv.slug in _masked and scan is not None
             has_demo = has_demo or classify(scan) is ScanProvenance.DEMO
             rows.append(
                 {
@@ -417,10 +429,10 @@ def create_app(
                         if scan
                         else str(TrustGrade.UNSCANNED)
                     ),
-                    "transparency": str(scan.transparency) if scan else "",
-                    "composite": scan.risk.composite if scan else None,
+                    "transparency": "" if masked else str(scan.transparency) if scan else "",
+                    "composite": None if masked else scan.risk.composite if scan else None,
                     "scanned_at": scan.scanned_at.isoformat() if scan else "",
-                    "masked": srv.slug in _masked and scan is not None,
+                    "masked": masked,
                 }
             )
         return HTMLResponse(

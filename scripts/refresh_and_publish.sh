@@ -40,4 +40,5 @@ exec uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --seed "./src/mcp_trust/catalog/seed_servers.json" \
   --masked-grades "./masked-grades.json" \
   --out-dir "${CANDIDATES}" \
-  --sandbox-image "${IMAGE}"
+  --sandbox-image "${IMAGE}" \
+  --qualification-receipt "${PREFLIGHT}"

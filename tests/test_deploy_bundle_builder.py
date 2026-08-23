@@ -8,6 +8,8 @@ import tarfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
@@ -96,11 +98,40 @@ def _write_receipt(receipts_dir: Path, *, filename: str, slug: str, scan_id: str
     )
 
 
+def _admitted_candidate_verifier(*_args, **_kwargs) -> dict[str, object]:
+    return {
+        "publication_ready": True,
+        "manifest_sha256": "a" * 64,
+        "errors": [],
+    }
+
+
+def test_build_deploy_bundle_rejects_unverified_candidate(tmp_path) -> None:
+    _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
+    builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    seed_path = tmp_path / "seed.json"
+    masked_path = tmp_path / "masked.json"
+    _write_seed(seed_path, ["alpha"])
+    masked_path.write_text("[]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not complete, current, and publication-ready"):
+        builder.build_deploy_bundle(
+            candidate_path=candidate,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            out_dir=tmp_path / "dist",
+        )
+
+
 def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
     _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
     builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
-    db_path = tmp_path / "registry.db"
-    receipts_dir = tmp_path / "receipts"
+    candidate_path = tmp_path / "candidate"
+    candidate_path.mkdir()
+    db_path = candidate_path / "registry.db"
+    receipts_dir = candidate_path / "receipts"
     seed_path = tmp_path / "seed.json"
     masked_path = tmp_path / "masked.json"
     out_dir = tmp_path / "dist"
@@ -126,12 +157,12 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
     _write_receipt(receipts_dir, filename="new-alpha.json", slug="alpha", scan_id="new-scan")
 
     bundle_path = builder.build_deploy_bundle(
-        db_path=db_path,
-        receipts_dir=receipts_dir,
+        candidate_path=candidate_path,
         seed_path=seed_path,
         masked_path=masked_path,
         out_dir=out_dir,
         bundle_name="bundle",
+        candidate_verifier=_admitted_candidate_verifier,
     )
 
     assert bundle_path.exists()
@@ -142,6 +173,9 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
     bundle_root = extract_dir / "bundle"
     manifest = json.loads((bundle_root / "MANIFEST.json").read_text())
     assert manifest["bundle"]["scan_rows"] == 1
+    assert manifest["source"]["candidate_manifest_sha256"] == "a" * 64
+    assert manifest["source"]["db"] == "registry.db"
+    assert manifest["source"]["receipts_dir"] == "receipts"
     assert manifest["bundle"]["receipts"][0]["receipt"] == "new-alpha.json"
     assert (bundle_root / "receipts/new-alpha.json").exists()
     assert json.loads((bundle_root / "masked-grades.json").read_text()) == []
@@ -155,8 +189,10 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
 def test_build_deploy_bundle_removes_masked_scan_rows_and_receipts(tmp_path) -> None:
     _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
     builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
-    db_path = tmp_path / "registry.db"
-    receipts_dir = tmp_path / "receipts"
+    candidate_path = tmp_path / "candidate"
+    candidate_path.mkdir()
+    db_path = candidate_path / "registry.db"
+    receipts_dir = candidate_path / "receipts"
     seed_path = tmp_path / "seed.json"
     masked_path = tmp_path / "masked.json"
     out_dir = tmp_path / "dist"
@@ -180,12 +216,12 @@ def test_build_deploy_bundle_removes_masked_scan_rows_and_receipts(tmp_path) -> 
         )
 
     bundle_path = builder.build_deploy_bundle(
-        db_path=db_path,
-        receipts_dir=receipts_dir,
+        candidate_path=candidate_path,
         seed_path=seed_path,
         masked_path=masked_path,
         out_dir=out_dir,
         bundle_name="bundle-masked",
+        candidate_verifier=_admitted_candidate_verifier,
     )
     extract_dir = tmp_path / "extract"
     with tarfile.open(bundle_path, "r:gz") as tar:
