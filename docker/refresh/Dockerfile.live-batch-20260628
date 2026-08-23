@@ -1,26 +1,39 @@
-# syntax=docker/dockerfile:1
+ARG SOURCE_DATE_EPOCH=1710000000
 
-FROM ghcr.io/astral-sh/uv:0.8.15 AS uv
-FROM node:22-slim
+FROM node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS node-base
 
-ENV UV_TOOL_DIR=/opt/uv-tools
-ENV UV_TOOL_BIN_DIR=/usr/local/bin
+FROM node-base AS npm-dependencies
+ENV NODE_ENV=production
+WORKDIR /opt/npm
+COPY docker/refresh/locks/live-batch/package.json /opt/npm/package.json
+COPY docker/refresh/locks/live-batch/package-lock.json /opt/npm/package-lock.json
+COPY docker/refresh/.artifacts/live-batch/npm-cache.tar /offline/npm-cache.tar
+RUN mkdir -p /offline/npm-cache/_cacache \
+    && tar -xf /offline/npm-cache.tar -C /offline/npm-cache/_cacache \
+    && npm ci --offline --ignore-scripts --omit=dev --cache /offline/npm-cache
 
-COPY --from=uv /uv /uvx /usr/local/bin/
+FROM python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91 AS python-base
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates python3 \
-    && rm -rf /var/lib/apt/lists/*
+FROM python-base AS python-dependencies
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    SOURCE_DATE_EPOCH=1710000000
+COPY docker/refresh/locks/live-batch/requirements.in /offline/requirements.in
+COPY docker/refresh/locks/live-batch/requirements.lock /offline/requirements.lock
+COPY docker/refresh/.artifacts/live-batch/python-wheels.tar /offline/python-wheels.tar
+RUN python -m venv /opt/venv \
+    && mkdir -p /offline/wheels \
+    && tar -xf /offline/python-wheels.tar -C /offline/wheels \
+    && /opt/venv/bin/pip install --no-index --require-hashes --no-deps --no-compile \
+       --find-links /offline/wheels -r /offline/requirements.lock
 
-RUN npm install --global \
-    "@adeu/mcp-server@1.7.1" \
-    "raven-mcp@1.3.3" \
-    "@kage-core/kage-graph-mcp@2.3.0" \
-    "mythsensus-mcp@0.2.1" \
-    "@pulsemcp/image-diff-mcp-server@0.1.3" \
-    "@swins/intent-engineering-mcp@0.2.0" \
-    "sovereign-ai-act-mcp@1.2.0"
-
-RUN uv tool install --python python3 "kogcat-mcp==0.46.2"
-
+FROM python-base AS runtime
+ENV HOME=/scan \
+    NODE_ENV=production \
+    PATH=/opt/venv/bin:/opt/npm/node_modules/.bin:/usr/local/bin:/usr/bin:/bin \
+    PYTHONDONTWRITEBYTECODE=1 \
+    SOURCE_DATE_EPOCH=1710000000
+COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
+COPY --from=npm-dependencies /opt/npm/node_modules /opt/npm/node_modules
+COPY --from=python-dependencies /opt/venv /opt/venv
 WORKDIR /scan

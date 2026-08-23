@@ -18,6 +18,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -34,7 +35,7 @@ REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
-IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV1"
+IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
 _PREFLIGHT_KEYS = frozenset(
@@ -87,11 +88,20 @@ _IMAGE_BUILD_QUALIFICATION_KEYS = frozenset(
     {
         "schema",
         "observed_at",
+        "exit_classification",
+        "qualification_max_age_seconds",
         "image_reference",
+        "platform",
         "build_source_sha256",
+        "build_input_digest",
         "base_images",
+        "dependency_manifests",
         "dependency_locks",
+        "dependency_artifacts",
         "build_network_policy",
+        "build_options",
+        "build_commands",
+        "load_commands",
         "tool_versions",
         "first_build_image_id",
         "second_build_image_id",
@@ -503,6 +513,243 @@ def scheduler_readback(
     }
 
 
+def dependency_bundle_metadata(path: Path) -> dict[str, Any]:
+    """Return a path-safe content digest for one offline dependency tar bundle."""
+    try:
+        bundle_size = path.stat().st_size
+        if bundle_size <= 0:
+            raise GradeRefreshError("dependency artifact bundle is empty")
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        with tarfile.open(path, mode="r:*") as archive:
+            for member in archive.getmembers():
+                relative = Path(member.name)
+                if (
+                    relative.is_absolute()
+                    or not member.name
+                    or ".." in relative.parts
+                    or member.name in seen
+                    or not (member.isfile() or member.isdir())
+                ):
+                    raise GradeRefreshError("dependency artifact bundle is unsafe")
+                seen.add(member.name)
+                if member.isdir():
+                    continue
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise GradeRefreshError("dependency artifact member is unreadable")
+                content = stream.read()
+                if len(content) != member.size:
+                    raise GradeRefreshError("dependency artifact member size mismatch")
+                rows.append(
+                    {
+                        "path": member.name,
+                        "size": member.size,
+                        "sha256": digest_bytes(content),
+                    }
+                )
+    except (OSError, tarfile.TarError) as exc:
+        raise GradeRefreshError("dependency artifact bundle is unreadable") from exc
+    if not rows:
+        raise GradeRefreshError("dependency artifact bundle has no files")
+    rows.sort(key=lambda row: row["path"])
+    return {
+        "bundle_size": bundle_size,
+        "file_count": len(rows),
+        "content_digest": digest_bytes(canonical_bytes(rows)),
+    }
+
+
+def _exact_dependency_descriptor(
+    *, repo_root: Path, value: object, expected_path_key: str = "path"
+) -> tuple[str, str] | None:
+    if not isinstance(value, dict) or set(value) != {expected_path_key, "sha256"}:
+        return None
+    relative = value.get(expected_path_key)
+    expected = value.get("sha256")
+    if (
+        not _safe_relative_path(relative)
+        or not isinstance(expected, str)
+        or _SHA256.fullmatch(expected) is None
+        or not (repo_root / str(relative)).is_file()
+        or digest_file(repo_root / str(relative)) != expected
+    ):
+        return None
+    return str(relative), expected
+
+
+def _valid_npm_inputs(manifest_path: Path, lock_path: Path) -> bool:
+    try:
+        manifest = load_json(manifest_path)
+        lock = load_json(lock_path)
+    except GradeRefreshError:
+        return False
+    dependencies = manifest.get("dependencies") if isinstance(manifest, dict) else None
+    packages = lock.get("packages") if isinstance(lock, dict) else None
+    if (
+        not isinstance(dependencies, dict)
+        or not dependencies
+        or not all(
+            isinstance(name, str)
+            and name
+            and isinstance(version, str)
+            and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version)
+            for name, version in dependencies.items()
+        )
+        or lock.get("lockfileVersion") != 3
+        or not isinstance(packages, dict)
+        or len(packages) < 2
+        or not isinstance(packages.get(""), dict)
+        or packages[""].get("dependencies") != dependencies
+    ):
+        return False
+    package_names: set[str] = set()
+    for path, package in packages.items():
+        if path == "":
+            continue
+        if (
+            not isinstance(path, str)
+            or "node_modules/" not in path
+            or not isinstance(package, dict)
+            or not isinstance(package.get("version"), str)
+            or not package["version"]
+            or not isinstance(package.get("resolved"), str)
+            or not package["resolved"].startswith("https://registry.npmjs.org/")
+            or not isinstance(package.get("integrity"), str)
+            or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"])
+            is None
+            or package.get("link") is True
+        ):
+            return False
+        package_names.add(path.rsplit("node_modules/", 1)[-1])
+    return set(dependencies) <= package_names
+
+
+def _requirement_groups(text: str) -> list[str]:
+    groups: list[str] = []
+    current = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        current += (" " if current else "") + line.removesuffix("\\").strip()
+        if not line.endswith("\\"):
+            groups.append(current)
+            current = ""
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _normalized_project_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def _valid_python_inputs(manifest_path: Path, lock_path: Path) -> bool:
+    try:
+        manifest_groups = _requirement_groups(manifest_path.read_text(encoding="utf-8"))
+        lock_groups = _requirement_groups(lock_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError):
+        return False
+    requirement = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;]+)")
+    direct: dict[str, str] = {}
+    for group in manifest_groups:
+        match = requirement.match(group)
+        if match is None or "--hash=" in group:
+            return False
+        name, version = match.groups()
+        direct[_normalized_project_name(name)] = version
+    if not direct or len(direct) != len(manifest_groups):
+        return False
+    locked: dict[str, str] = {}
+    for group in lock_groups:
+        match = requirement.match(group)
+        hashes = re.findall(r"--hash=sha256:[0-9a-f]{64}", group)
+        if match is None or not hashes:
+            return False
+        name, version = match.groups()
+        locked[_normalized_project_name(name)] = version
+    return bool(locked) and all(locked.get(name) == version for name, version in direct.items())
+
+
+def _dependency_artifact(
+    *, repo_root: Path, kind: str, lock_sha256: str, value: object
+) -> dict[str, Any] | None:
+    descriptor_ref = _exact_dependency_descriptor(repo_root=repo_root, value=value)
+    if descriptor_ref is None:
+        return None
+    descriptor_path, descriptor_sha256 = descriptor_ref
+    try:
+        descriptor = load_json(repo_root / descriptor_path)
+    except GradeRefreshError:
+        return None
+    expected_keys = {
+        "schema",
+        "kind",
+        "registry_endpoints",
+        "lock_sha256",
+        "bundle_path",
+        "bundle_sha256",
+        "bundle_size",
+        "file_count",
+        "content_digest",
+        "prepared_at",
+        "tool_versions",
+        "preparation_network_policy",
+        "package_code_executed",
+    }
+    endpoints = {
+        "npm": ["https://registry.npmjs.org"],
+        "python": ["https://files.pythonhosted.org", "https://pypi.org/simple"],
+    }
+    if (
+        not isinstance(descriptor, dict)
+        or set(descriptor) != expected_keys
+        or descriptor.get("schema") != "McpTrustDependencyArtifactBundleV1"
+        or descriptor.get("kind") != kind
+        or descriptor.get("registry_endpoints") != endpoints.get(kind)
+        or descriptor.get("lock_sha256") != lock_sha256
+        or descriptor.get("preparation_network_policy")
+        != "registry-client-allowlist-no-package-code"
+        or descriptor.get("package_code_executed") is not False
+        or not isinstance(descriptor.get("tool_versions"), dict)
+        or not descriptor["tool_versions"]
+        or not all(
+            isinstance(key, str) and isinstance(value, str) and value
+            for key, value in descriptor["tool_versions"].items()
+        )
+        or not _safe_relative_path(descriptor.get("bundle_path"))
+        or not isinstance(descriptor.get("bundle_sha256"), str)
+        or _SHA256.fullmatch(descriptor["bundle_sha256"]) is None
+    ):
+        return None
+    try:
+        prepared_at = datetime.fromisoformat(str(descriptor.get("prepared_at")))
+    except ValueError:
+        return None
+    if prepared_at.tzinfo is None:
+        return None
+    bundle_path = repo_root / str(descriptor["bundle_path"])
+    if (
+        not bundle_path.is_file()
+        or digest_file(bundle_path) != descriptor["bundle_sha256"]
+    ):
+        return None
+    try:
+        metadata = dependency_bundle_metadata(bundle_path)
+    except GradeRefreshError:
+        return None
+    if any(descriptor.get(key) != value for key, value in metadata.items()):
+        return None
+    return {
+        "descriptor_path": descriptor_path,
+        "descriptor_sha256": descriptor_sha256,
+        "bundle_path": str(descriptor["bundle_path"]),
+        "bundle_sha256": str(descriptor["bundle_sha256"]),
+        **metadata,
+    }
+
+
 def _image_build_qualification(
     *,
     repo_root: Path,
@@ -510,6 +757,7 @@ def _image_build_qualification(
     build_source: str,
     build_source_sha256: str,
     receipt_path: str,
+    now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Validate a deterministic two-build receipt against tracked source bytes."""
     path = repo_root / receipt_path
@@ -528,6 +776,8 @@ def _image_build_qualification(
         observed_at = datetime.fromisoformat(str(payload.get("observed_at")))
     except ValueError:
         return None
+    current = (now or datetime.now(tz=UTC)).astimezone(UTC)
+    max_age = payload.get("qualification_max_age_seconds")
     if (
         payload.get("schema") != IMAGE_BUILD_QUALIFICATION_SCHEMA
         or not isinstance(claimed, str)
@@ -537,6 +787,10 @@ def _image_build_qualification(
         or payload.get("build_source_sha256") != build_source_sha256
         or payload.get("repeatable") is not True
         or observed_at.tzinfo is None
+        or type(max_age) is not int
+        or max_age != 86_400
+        or observed_at.astimezone(UTC) > current + timedelta(minutes=5)
+        or current - observed_at.astimezone(UTC) > timedelta(seconds=max_age)
     ):
         return None
     first = payload.get("first_build_image_id")
@@ -549,8 +803,14 @@ def _image_build_qualification(
         return None
     base_images = payload.get("base_images")
     network_policy = payload.get("build_network_policy")
+    platform_name = payload.get("platform")
     tools = payload.get("tool_versions")
+    manifests = payload.get("dependency_manifests")
     locks = payload.get("dependency_locks")
+    artifacts = payload.get("dependency_artifacts")
+    build_options = payload.get("build_options")
+    build_commands = payload.get("build_commands")
+    load_commands = payload.get("load_commands")
     if (
         not isinstance(base_images, list)
         or not base_images
@@ -560,14 +820,34 @@ def _image_build_qualification(
             for item in base_images
         )
         or network_policy != ["none"]
+        or not isinstance(platform_name, str)
+        or re.fullmatch(r"linux/(?:arm64|amd64)", platform_name) is None
         or not isinstance(tools, dict)
         or not tools
         or not all(
             isinstance(key, str) and isinstance(value, str) and value
             for key, value in tools.items()
         )
+        or not isinstance(manifests, dict)
         or not isinstance(locks, dict)
         or not locks
+        or not isinstance(artifacts, dict)
+        or build_options
+        != {
+            "builder": "buildx",
+            "cache": "disabled",
+            "load": False,
+            "output": "oci",
+            "pull": False,
+            "provenance": False,
+            "rewrite_timestamps": True,
+            "sbom": False,
+        }
+        or not isinstance(build_commands, list)
+        or len(build_commands) != 2
+        or not isinstance(load_commands, list)
+        or len(load_commands) != 2
+        or payload.get("exit_classification") != "QUALIFIED_REPEATABLE"
     ):
         return None
     build_text = (repo_root / build_source).read_text(encoding="utf-8")
@@ -601,6 +881,8 @@ def _image_build_qualification(
             stage_aliases.add(alias)
     if sorted(external_bases) != sorted(base_images):
         return None
+    if any(instruction.upper().startswith("ADD ") for instruction in instructions):
+        return None
     normalized = re.sub(r"[\[\],\"']+", " ", "\n".join(instructions).lower())
     normalized = re.sub(r"\s+", " ", normalized)
     if any(
@@ -616,6 +898,16 @@ def _image_build_qualification(
             "uvx ",
             "curl ",
             "wget ",
+            "npm exec",
+            "corepack ",
+            "pip3 ",
+            " eval ",
+            " sh -c ",
+            " bash -c ",
+            "python -c ",
+            "node -e ",
+            "$(",
+            "`",
         )
     ):
         return None
@@ -641,55 +933,176 @@ def _image_build_qualification(
     if set(locks) != required_lock_kinds or not required_lock_kinds:
         return None
 
-    def copy_sources(instruction: str) -> list[str]:
+    def copy_sources(instruction: str) -> tuple[bool, list[str]]:
         if not instruction.upper().startswith("COPY "):
-            return []
+            return False, []
         body = instruction[5:].strip()
+        from_stage = False
         while body.startswith("--"):
             try:
-                _flag, body = body.split(maxsplit=1)
+                flag, body = body.split(maxsplit=1)
             except ValueError:
-                return []
+                return False, []
+            from_stage = from_stage or flag.startswith("--from=")
         if body.startswith("["):
             try:
                 values = json.loads(body)
             except json.JSONDecodeError:
-                return []
-            return values[:-1] if isinstance(values, list) and len(values) >= 2 else []
+                return False, []
+            sources = values[:-1] if isinstance(values, list) and len(values) >= 2 else []
+            return from_stage, sources
         try:
             values = shlex.split(body)
         except ValueError:
-            return []
-        return values[:-1] if len(values) >= 2 else []
+            return False, []
+        return from_stage, values[:-1] if len(values) >= 2 else []
 
     copied_sources = {
         source.removeprefix("./")
         for instruction in instructions
-        for source in copy_sources(instruction)
+        for from_stage, sources in [copy_sources(instruction)]
+        if not from_stage
+        for source in sources
         if isinstance(source, str)
     }
+    required_kinds = required_lock_kinds
+    if (
+        set(manifests) != required_kinds
+        or set(locks) != required_kinds
+        or set(artifacts) != required_kinds
+    ):
+        return None
+    normalized_manifests: dict[str, dict[str, str]] = {}
     normalized_locks: dict[str, str] = {}
-    for _kind, lock in locks.items():
-        if not isinstance(lock, dict) or set(lock) != {"path", "sha256"}:
+    normalized_artifacts: dict[str, dict[str, Any]] = {}
+    expected_copied_sources: set[str] = set()
+    for kind in sorted(required_kinds):
+        manifest_ref = _exact_dependency_descriptor(repo_root=repo_root, value=manifests[kind])
+        lock_ref = _exact_dependency_descriptor(repo_root=repo_root, value=locks[kind])
+        if manifest_ref is None or lock_ref is None:
             return None
-        relative = lock.get("path")
-        expected_digest = lock.get("sha256")
-        if (
-            not _safe_relative_path(relative)
-            or not isinstance(expected_digest, str)
-            or _SHA256.fullmatch(expected_digest) is None
-            or str(relative).removeprefix("./") not in copied_sources
-            or not (repo_root / relative).is_file()
-            or digest_file(repo_root / relative) != expected_digest
+        manifest_path, manifest_sha256 = manifest_ref
+        lock_path, lock_sha256 = lock_ref
+        if kind == "npm" and not _valid_npm_inputs(
+            repo_root / manifest_path, repo_root / lock_path
         ):
             return None
-        normalized_locks[str(relative)] = expected_digest
+        if kind == "python" and not _valid_python_inputs(
+            repo_root / manifest_path, repo_root / lock_path
+        ):
+            return None
+        artifact = _dependency_artifact(
+            repo_root=repo_root,
+            kind=kind,
+            lock_sha256=lock_sha256,
+            value=artifacts[kind],
+        )
+        if artifact is None:
+            return None
+        normalized_manifests[kind] = {
+            "path": manifest_path,
+            "sha256": manifest_sha256,
+        }
+        normalized_locks[lock_path] = lock_sha256
+        normalized_artifacts[kind] = artifact
+        expected_copied_sources.update(
+            {manifest_path, lock_path, str(artifact["bundle_path"])}
+        )
+    if copied_sources != expected_copied_sources:
+        return None
+    build_input = {
+        "build_source_sha256": build_source_sha256,
+        "base_images": sorted(base_images),
+        "platform": platform_name,
+        "dependency_manifests": normalized_manifests,
+        "dependency_locks": dict(sorted(normalized_locks.items())),
+        "dependency_artifacts": normalized_artifacts,
+        "build_options": build_options,
+    }
+    expected_input_digest = digest_bytes(canonical_bytes(build_input))
+    if payload.get("build_input_digest") != expected_input_digest:
+        return None
+
+    def valid_build_command(value: object, *, final: bool) -> str | None:
+        if (
+            not isinstance(value, list)
+            or not all(isinstance(token, str) and token for token in value)
+            or value[-1] != "."
+            or any(token.startswith(("--secret", "--ssh", "--allow")) for token in value)
+        ):
+            return None
+
+        executable = Path(value[0]).name
+        if not (
+            (executable == "docker-buildx" and value[1:2] == ["build"])
+            or value[:3] == ["docker", "buildx", "build"]
+        ):
+            return None
+
+        def pair(flag: str, expected: str) -> bool:
+            return any(
+                value[index : index + 2] == [flag, expected]
+                for index in range(len(value) - 1)
+            )
+
+        try:
+            tag = value[value.index("-t") + 1]
+        except (ValueError, IndexError):
+            return None
+        outputs = [
+            token
+            for token in value
+            if token.startswith("--output=type=oci,dest=")
+            and token.endswith(",rewrite-timestamp=true")
+        ]
+        output_path = (
+            outputs[0]
+            .removeprefix("--output=type=oci,dest=")
+            .removesuffix(",rewrite-timestamp=true")
+            if len(outputs) == 1
+            else ""
+        )
+        valid = (
+            pair("--network", "none")
+            and pair("--platform", platform_name)
+            and pair("-f", build_source)
+            and "--pull=false" in value
+            and "--no-cache" in value
+            and "--provenance=false" in value
+            and "--sbom=false" in value
+            and "--load" not in value
+            and _safe_relative_path(output_path)
+            and Path(output_path).parts[:2] == ("tmp", "qualification")
+            and (tag == reference if final else tag.startswith("mcp-trust-qualification:"))
+        )
+        return output_path if valid else None
+
+    output_paths = [
+        valid_build_command(build_commands[0], final=False),
+        valid_build_command(build_commands[1], final=True),
+    ]
+    if None in output_paths or any(
+        command != ["docker", "load", "-i", output_path]
+        for command, output_path in zip(load_commands, output_paths, strict=True)
+    ):
+        return None
+    tracked_inputs = {
+        **{value["path"]: value["sha256"] for value in normalized_manifests.values()},
+        **normalized_locks,
+        **{
+            value["descriptor_path"]: value["descriptor_sha256"]
+            for value in normalized_artifacts.values()
+        },
+    }
     return {
         "path": receipt_path,
         "sha256": digest_file(path),
         "receipt_digest": claimed,
         "qualified_image_id": first,
+        "build_input_digest": expected_input_digest,
         "dependency_locks": dict(sorted(normalized_locks.items())),
+        "dependency_artifacts": normalized_artifacts,
+        "tracked_inputs": dict(sorted(tracked_inputs.items())),
         "state": "VERIFIED",
     }
 
@@ -751,7 +1164,8 @@ def build_preflight_receipt(
         {
             row["sandbox_image"]
             for row in inventory["entries"]
-            if isinstance(row.get("sandbox_image"), str)
+            if row.get("scannable") is True
+            and isinstance(row.get("sandbox_image"), str)
         }
     )
     image_build_sources: dict[str, dict[str, Any]] = {}
@@ -809,6 +1223,7 @@ def build_preflight_receipt(
                 build_source=build_source,
                 build_source_sha256=build_source_sha256,
                 receipt_path=receipt_path,
+                now=observed_at,
             )
             if qualification is None:
                 binding["state"] = "UNKNOWN"
@@ -817,10 +1232,8 @@ def build_preflight_receipt(
                 source.get("file_digests", {}).get(receipt_path)
                 != qualification["sha256"]
                 or any(
-                    source.get("file_digests", {}).get(lock_path) != lock_digest
-                    for lock_path, lock_digest in qualification[
-                        "dependency_locks"
-                    ].items()
+                    source.get("file_digests", {}).get(input_path) != input_digest
+                    for input_path, input_digest in qualification["tracked_inputs"].items()
                 )
             ):
                 binding["state"] = "UNKNOWN"

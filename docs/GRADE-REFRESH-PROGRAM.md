@@ -14,11 +14,11 @@ claim that a server is benign or malicious.
   set. Public-readonly startup now requires `MCP_TRUST_MASKED_GRADES`, and VM
   bundles remove masked scan rows and bind the masking file. Runtime adoption
   remains UNKNOWN until a separately authorized deployment and live readback.
-- Real catalog execution is blocked: the four reviewed catalog image tags are
-  not present locally. No substitute tag or newer third-party package may be
-  used. Exact unblock: deterministically reconstruct the four reviewed images,
-  bind each immutable image ID/repository digest, produce valid two-build
-  qualification receipts, then obtain a `READY` preflight receipt.
+- Four executable catalog images now have digest-pinned bases, complete npm or
+  Python locks, reproducible offline bundles, and source-bound two-build
+  qualification receipts. `basic-memory` remains `UNKNOWN` and blocked: its
+  pinned `pybars3` dependency is source-only and package build-code execution
+  has not been sandbox-qualified. No substitute package or image is admitted.
 
 ### High
 
@@ -26,8 +26,9 @@ claim that a server is benign or malicious.
   public route. The live page can be read, but exact source/deploy binding is
   UNKNOWN until a future release identity is published and read back.
 - Historical refresh evidence used mutable image tags. The new preflight binds
-  tags to immutable local image IDs before execution, but a real candidate has
-  not yet consumed that evidence.
+  tags to immutable local image IDs before execution; a real candidate must
+  still consume a fresh `READY` receipt before this control is proven end to
+  end.
 - The three ignored historical cohort recipes were recovered byte-for-byte and
   moved into tracked source. Their original SHA-256 values are
   `a6e71b03a909647ed059229c1e7cc8d2f9ecb1fb7b71937a1f32ea31bc29238b`
@@ -38,12 +39,12 @@ claim that a server is benign or malicious.
   (batch 4). Filenames, timestamps, receipts, and catalog commits corroborate
   their intended cohorts, but do not bind them to the original image bytes.
   They are reconstruction inputs, not recovered image provenance.
-- All four recipes—including `Dockerfile.scan`—use mutable base tags and
-  incomplete transitive dependency resolution. Reproduction remains `UNKNOWN`
-  for all 31 entries. Policy V2 now fails closed until each recipe uses immutable
-  base digests and complete dependency locks, and a source-bound qualification
-  receipt proves two identical image IDs. A tag plus a Dockerfile hash is not
-  sufficient.
+- The four admitted recipes now use immutable base digests and complete
+  transitive npm/Python locks. Registry preparation disables package lifecycle
+  code; lock-only rematerialization reproduced every normalized offline bundle
+  byte-for-byte. Network-none, no-cache BuildKit runs with timestamp rewriting
+  then produced identical OCI image IDs twice. The receipts expire after 24
+  hours; an expired receipt returns the cohort to `UNKNOWN`.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
   remain UNKNOWN until all 31 entries are safely rescanned.
@@ -110,8 +111,8 @@ credentials; the only admitted mode is non-functional dummy values inside a
 network-off sandbox. Ten depend on external or local backing services; a tool
 surface observed without that service does not prove functional behavior.
 Eight are upstream-archived/unsupported and eight are intentionally masked.
-Build-source paths now exist for every entry, but all 31 remain build-
-unqualified until deterministic reconstruction evidence is admitted.
+Build-source paths exist for every entry. Thirty entries map to four qualified
+images; `basic-memory` is the single blocked and build-unqualified entry.
 
 ## Threat model and controls
 
@@ -130,8 +131,10 @@ unqualified until deterministic reconstruction evidence is admitted.
 | Publication mistake | candidate/publication/deployment/scheduler authority all separate | `WAITING` |
 
 Deterministic reconstruction has two distinct network lanes. Dependency
-preparation may use only the explicitly approved registry endpoints and must
-produce content-addressed, source-bound locks or vendored inputs. The two
+preparation may use only the explicitly approved registry clients/endpoints,
+must disable package lifecycle code, normalize fetch-time-only npm cache
+metadata, and produce content-addressed, source-bound locks or vendored inputs.
+Lock-only rematerialization must reproduce the tracked bundle digests. The two
 qualification builds themselves run with build network `none`; their
 Dockerfiles must use immutable `FROM ...@sha256:` references, must not invoke
 OS package managers, dynamic package installs, `npx`, `uvx`, `curl`, or `wget`,

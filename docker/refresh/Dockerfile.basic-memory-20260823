@@ -1,0 +1,7 @@
+# Quarantined reconstruction input for io-github-basicmachines-co-basic-memory-0-22-1.
+# basic-memory 0.22.1 requires Python 3.12 and transitively requires the
+# sdist-only pybars3 0.9.7. It must remain BLOCKED/UNKNOWN until that source
+# build is separately reviewed and can run network-none from a bound bundle.
+FROM python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134
+
+WORKDIR /scan

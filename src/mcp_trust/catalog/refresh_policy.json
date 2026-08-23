@@ -6,24 +6,30 @@
     "mcp-trust-scan:corpus-2026-07-03": {
       "path": "Dockerfile.scan",
       "provenance_status": "SOURCE_CONTROLLED",
-      "reproducibility_status": "UNKNOWN",
-      "qualification_receipt": null
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/reference.json"
     },
     "mcp-trust-live-batch:20260628": {
       "path": "docker/refresh/Dockerfile.live-batch-20260628",
-      "provenance_status": "RECOVERED_HISTORICAL_ARTIFACT",
-      "reproducibility_status": "UNKNOWN",
-      "qualification_receipt": null
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/live-batch.json"
     },
     "mcp-trust-batch3:20260703": {
       "path": "docker/refresh/Dockerfile.batch3-20260703",
-      "provenance_status": "RECOVERED_HISTORICAL_ARTIFACT",
-      "reproducibility_status": "UNKNOWN",
-      "qualification_receipt": null
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/batch3.json"
     },
     "mcp-trust-batch4:20260703": {
       "path": "docker/refresh/Dockerfile.batch4-20260703",
-      "provenance_status": "RECOVERED_HISTORICAL_ARTIFACT",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/batch4.json"
+    },
+    "mcp-trust-basic-memory:20260823": {
+      "path": "docker/refresh/Dockerfile.basic-memory-20260823",
+      "provenance_status": "SOURCE_CONTROLLED",
       "reproducibility_status": "UNKNOWN",
       "qualification_receipt": null
     }
@@ -38,7 +44,6 @@
     "com-pulsemcp-image-diff-0-1-3",
     "com-seanwinslow-intent-engineering-0-2-0",
     "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
-    "io-github-basicmachines-co-basic-memory-0-22-1",
     "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
     "io-github-discourse-mcp-0-2-9",
     "io-github-microsoft-playwright-mcp-0-0-77",
@@ -61,7 +66,9 @@
     "mcp-reference-sequential-thinking",
     "mcp-reference-time"
   ],
-  "blocked": [],
+  "blocked": [
+    "io-github-basicmachines-co-basic-memory-0-22-1"
+  ],
   "intentionally_masked": [
     "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
     "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
