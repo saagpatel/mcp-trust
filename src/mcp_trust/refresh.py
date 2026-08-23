@@ -1043,6 +1043,7 @@ def _qualification_metadata(
     masked_sha256: str,
     sandbox_evidence: dict[str, object],
     now: datetime,
+    current_source_binding: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     required_keys = {
         "schema",
@@ -1126,6 +1127,23 @@ def _qualification_metadata(
         for binding in build_sources.values()
     ):
         raise RefreshCandidateError("qualification image build provenance is incomplete")
+    source_files = source.get("file_digests")
+    if (
+        not isinstance(source_files, dict)
+        or source_files.get("src/mcp_trust/catalog/refresh_policy.json")
+        != catalog.get("policy_digest")
+        or any(
+            source_files.get(binding["path"]) != binding["sha256"]
+            for binding in build_sources.values()
+        )
+    ):
+        raise RefreshCandidateError(
+            "qualification policy or image build provenance is not source-bound"
+        )
+    if current_source_binding is not None and source != current_source_binding:
+        raise RefreshCandidateError(
+            "qualification source binding differs from the execution source"
+        )
     sandbox_rows = sandbox.get("image_bindings", []) if isinstance(sandbox, dict) else []
     receipt_bindings = {
         row.get("reference"): row.get("image_id")
@@ -1474,6 +1492,8 @@ def create_refresh_candidate(
     now: datetime | None = None,
     candidate_name: str | None = None,
     qualification_receipt: dict[str, Any] | None = None,
+    repo_root: Path | None = None,
+    _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
 ) -> Path:
     """Create one immutable candidate; never mutate canonical/public outputs."""
     fixed_now = now or datetime.now(tz=UTC)
@@ -1520,6 +1540,7 @@ def create_refresh_candidate(
     docker_host: str | None = None
     execution_image_bindings: dict[str, str] = {}
     qualification_manifest: dict[str, object]
+    qualified_source_binding: dict[str, Any] | None = None
     if fixture_mode:
         sandbox_evidence = {
             "mode": "deterministic-fixture",
@@ -1549,12 +1570,20 @@ def create_refresh_candidate(
                 ) from exc
         if not isinstance(qualification_receipt, dict):
             raise RefreshCandidateError("real refresh requires a qualification receipt")
+        if repo_root is None:
+            raise RefreshCandidateError("real refresh requires the qualified repository root")
+        if _source_binding_provider is None:
+            from mcp_trust.grade_refresh import source_binding  # noqa: PLC0415
+
+            _source_binding_provider = source_binding
+        qualified_source_binding = _source_binding_provider(repo_root)
         qualification_manifest = _qualification_metadata(
             qualification_receipt,
             seed_sha256=reviewed.seed_sha256,
             masked_sha256=reviewed.masked_sha256,
             sandbox_evidence=sandbox_evidence,
             now=fixed_now,
+            current_source_binding=qualified_source_binding,
         )
         scanner_engine = MCPAuditEngine(timeout=90.0)
 
@@ -1811,6 +1840,11 @@ def create_refresh_candidate(
         )
         _write_private(temporary / "static_snapshot.json", snapshot)
 
+        if not fixture_mode:
+            assert repo_root is not None
+            assert _source_binding_provider is not None
+            if _source_binding_provider(repo_root) != qualified_source_binding:
+                raise RefreshCandidateError("execution source changed during refresh")
         complete = all(result["state"] in {"fresh", "masked"} for result in results)
         candidate_state = "fixture" if fixture_mode else "complete" if complete else "partial"
         manifest = {

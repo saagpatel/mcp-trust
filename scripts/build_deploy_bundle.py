@@ -177,7 +177,7 @@ def build_deploy_bundle(
         db_path=db_path,
         receipts_dir=receipts_dir,
         seed_path=seed_path,
-        masked_path=None,
+        masked_path=masked_path,
     )
     if errors:
         raise ValueError("launch state is not deployable:\n- " + "\n- ".join(errors))

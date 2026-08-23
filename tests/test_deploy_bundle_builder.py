@@ -186,7 +186,7 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
     assert [(row["id"], row["report_ref"]) for row in rows] == [("new-scan", "new-alpha.json")]
 
 
-def test_build_deploy_bundle_removes_masked_scan_rows_and_receipts(tmp_path) -> None:
+def test_build_deploy_bundle_accepts_candidate_with_masked_rows_absent(tmp_path) -> None:
     _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
     builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
     candidate_path = tmp_path / "candidate"
@@ -200,20 +200,19 @@ def test_build_deploy_bundle_removes_masked_scan_rows_and_receipts(tmp_path) -> 
     masked_path.write_text(json.dumps(["masked"]), encoding="utf-8")
     conn = _init_db(db_path)
     now = datetime.now(tz=UTC)
-    for slug in ("alpha", "masked"):
-        _insert_scan(
-            conn,
-            slug=slug,
-            scan_id=f"{slug}-scan",
-            report_ref=f"{slug}.json",
-            scanned_at=now,
-        )
-        _write_receipt(
-            receipts_dir,
-            filename=f"{slug}.json",
-            slug=slug,
-            scan_id=f"{slug}-scan",
-        )
+    _insert_scan(
+        conn,
+        slug="alpha",
+        scan_id="alpha-scan",
+        report_ref="alpha.json",
+        scanned_at=now,
+    )
+    _write_receipt(
+        receipts_dir,
+        filename="alpha.json",
+        slug="alpha",
+        scan_id="alpha-scan",
+    )
 
     bundle_path = builder.build_deploy_bundle(
         candidate_path=candidate_path,
@@ -232,3 +231,41 @@ def test_build_deploy_bundle_removes_masked_scan_rows_and_receipts(tmp_path) -> 
     assert (root / "receipts/alpha.json").is_file()
     assert not (root / "receipts/masked.json").exists()
     assert json.loads((root / "masked-grades.json").read_text()) == ["masked"]
+
+
+def test_build_deploy_bundle_rejects_candidate_that_contains_masked_scan(
+    tmp_path,
+) -> None:
+    _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
+    builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    db_path = candidate / "registry.db"
+    receipts_dir = candidate / "receipts"
+    seed_path = tmp_path / "seed.json"
+    masked_path = tmp_path / "masked.json"
+    _write_seed(seed_path, ["alpha"])
+    masked_path.write_text(json.dumps(["alpha"]), encoding="utf-8")
+    conn = _init_db(db_path)
+    _insert_scan(
+        conn,
+        slug="alpha",
+        scan_id="masked-scan",
+        report_ref="masked.json",
+        scanned_at=datetime.now(tz=UTC),
+    )
+    _write_receipt(
+        receipts_dir,
+        filename="masked.json",
+        slug="alpha",
+        scan_id="masked-scan",
+    )
+
+    with pytest.raises(ValueError, match="masked latest scans exposed"):
+        builder.build_deploy_bundle(
+            candidate_path=candidate,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            out_dir=tmp_path / "dist",
+            candidate_verifier=_admitted_candidate_verifier,
+        )

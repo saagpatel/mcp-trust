@@ -35,6 +35,52 @@ STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV1"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
+_PREFLIGHT_KEYS = frozenset(
+    {
+        "schema",
+        "observed_at",
+        "status",
+        "safe_to_execute_catalog",
+        "exit_classification",
+        "source_binding",
+        "catalog",
+        "sandbox",
+        "tool_versions",
+        "scheduler",
+        "reasons",
+        "authority",
+        "receipt_digest",
+    }
+)
+_REPEATABILITY_KEYS = frozenset(
+    {
+        "schema",
+        "observed_at",
+        "status",
+        "fixture_kind",
+        "catalog_denominator",
+        "first_digest",
+        "second_digest",
+        "repeatable",
+        "claim_ceiling",
+        "receipt_digest",
+    }
+)
+_TRIAGE_KEYS = frozenset(
+    {
+        "schema",
+        "candidate_manifest_digest",
+        "preflight_receipt_digest",
+        "repeatability_receipt_digest",
+        "review_required",
+        "publication_allowed",
+        "findings",
+        "counts",
+        "candidate_claimed_state",
+        "candidate_verification",
+        "receipt_digest",
+    }
+)
 class GradeRefreshError(RuntimeError):
     """The review-only qualification contract is invalid or incomplete."""
 
@@ -650,8 +696,10 @@ def build_fixture_repeatability_receipt(
     return payload
 
 
-def _receipt_integrity_valid(payload: dict[str, Any], *, schema: str) -> bool:
-    if payload.get("schema") != schema:
+def _receipt_integrity_valid(
+    payload: dict[str, Any], *, schema: str, expected_keys: frozenset[str]
+) -> bool:
+    if set(payload) != expected_keys or payload.get("schema") != schema:
         return False
     claimed = payload.get("receipt_digest")
     if not isinstance(claimed, str) or _SHA256.fullmatch(claimed) is None:
@@ -694,25 +742,61 @@ def triage_candidate(
         or verification.get("publication_ready") is not True
     ):
         add("Critical", "candidate_verification_failed")
-    if not _receipt_integrity_valid(preflight, schema=PREFLIGHT_SCHEMA):
+    preflight_valid = _receipt_integrity_valid(
+        preflight,
+        schema=PREFLIGHT_SCHEMA,
+        expected_keys=_PREFLIGHT_KEYS,
+    )
+    repeatability_valid = _receipt_integrity_valid(
+        repeatability,
+        schema=REPEATABILITY_SCHEMA,
+        expected_keys=_REPEATABILITY_KEYS,
+    )
+    if not preflight_valid:
         add("Critical", "preflight_receipt_integrity_invalid")
-    if not _receipt_integrity_valid(repeatability, schema=REPEATABILITY_SCHEMA):
+    if not repeatability_valid:
         add("Critical", "repeatability_receipt_integrity_invalid")
-    if preflight.get("status") != "READY":
+    if (
+        preflight.get("status") != "READY"
+        or preflight.get("safe_to_execute_catalog") is not True
+        or preflight.get("exit_classification") != "ready"
+        or preflight.get("reasons") != []
+    ):
         add("Critical", "preflight_not_ready")
-    if repeatability.get("status") != "PASS":
+    if (
+        repeatability.get("status") != "PASS"
+        or repeatability.get("repeatable") is not True
+        or repeatability.get("first_digest") != repeatability.get("second_digest")
+    ):
         add("High", "repeatability_not_proven")
-    if preflight.get("source_binding", {}).get("worktree_state") != "clean":
+    source_binding = preflight.get("source_binding")
+    if not isinstance(source_binding, dict):
+        source_binding = {}
+    if source_binding.get("worktree_state") != "clean":
         add("High", "source_revision_not_cleanly_bound")
     catalog_binding = preflight.get("catalog", {})
-    if (
-        not isinstance(catalog_binding, dict)
-        or catalog_binding.get("seed_digest") != digest_file(seed_path)
+    if not isinstance(catalog_binding, dict):
+        add("Critical", "reviewed_catalog_binding_mismatch")
+        catalog_binding = {}
+    elif (
+        catalog_binding.get("seed_digest") != digest_file(seed_path)
         or catalog_binding.get("masking_digest") != digest_file(masked_path)
     ):
         add("Critical", "reviewed_catalog_binding_mismatch")
     if repeatability.get("catalog_denominator") != catalog_binding.get("denominator"):
         add("High", "repeatability_denominator_mismatch")
+    qualification = manifest.get("qualification")
+    if (
+        not isinstance(qualification, dict)
+        or qualification.get("preflight_receipt_digest")
+        != preflight.get("receipt_digest")
+        or not isinstance(source_binding, dict)
+        or qualification.get("source_revision") != source_binding.get("revision")
+        or qualification.get("source_tree_digest")
+        != source_binding.get("source_tree_digest")
+        or qualification.get("policy_digest") != catalog_binding.get("policy_digest")
+    ):
+        add("Critical", "candidate_qualification_binding_mismatch")
     for result in results:
         if not isinstance(result, dict):
             add("Critical", "invalid_result_shape")
@@ -788,23 +872,90 @@ def triage_candidate(
     return payload
 
 
+def _triage_integrity_valid(
+    triage: dict[str, Any],
+    *,
+    preflight_digest: object,
+    repeatability_digest: object,
+) -> bool:
+    findings = triage.get("findings")
+    counts = triage.get("counts")
+    verification = triage.get("candidate_verification")
+    return bool(
+        _receipt_integrity_valid(
+            triage,
+            schema=TRIAGE_SCHEMA,
+            expected_keys=_TRIAGE_KEYS,
+        )
+        and isinstance(triage.get("candidate_manifest_digest"), str)
+        and _SHA256.fullmatch(triage["candidate_manifest_digest"]) is not None
+        and triage.get("preflight_receipt_digest") == preflight_digest
+        and triage.get("repeatability_receipt_digest") == repeatability_digest
+        and type(triage.get("review_required")) is bool
+        and triage.get("publication_allowed") is False
+        and isinstance(findings, list)
+        and all(
+            isinstance(finding, dict)
+            and finding.get("severity") in {"Critical", "High", "Medium", "Low"}
+            and isinstance(finding.get("code"), str)
+            and isinstance(finding.get("slug"), str)
+            for finding in findings
+        )
+        and isinstance(counts, dict)
+        and set(counts) == {"Critical", "High", "Medium", "Low"}
+        and all(
+            type(counts[severity]) is int
+            and counts[severity]
+            == sum(finding["severity"] == severity for finding in findings)
+            for severity in counts
+        )
+        and triage.get("candidate_claimed_state") == "complete"
+        and isinstance(verification, dict)
+        and set(verification)
+        == {"structural_valid", "publication_ready", "state", "errors"}
+        and verification.get("structural_valid") is True
+        and verification.get("publication_ready") is True
+        and verification.get("state") == "complete"
+        and verification.get("errors") == []
+    )
+
+
 def build_state_card(
     *, preflight: dict[str, Any], repeatability: dict[str, Any], triage: dict[str, Any] | None
 ) -> dict[str, Any]:
     blockers = list(preflight.get("reasons", []))
     if repeatability.get("status") != "PASS":
         blockers.append("fixture_repeatability_failed")
+    triage_valid = bool(
+        triage is not None
+        and _triage_integrity_valid(
+            triage,
+            preflight_digest=preflight.get("receipt_digest"),
+            repeatability_digest=repeatability.get("receipt_digest"),
+        )
+    )
     if triage is None:
         blockers.append("candidate_not_built_or_triaged")
+    elif not triage_valid:
+        blockers.append("triage_receipt_invalid_or_unbound")
     elif triage.get("review_required"):
         blockers.append("candidate_review_required")
     source = preflight.get("source_binding", {})
     catalog = preflight.get("catalog", {})
     scheduler = preflight.get("scheduler", {})
-    if triage is not None:
+    if triage_valid:
+        assert triage is not None
         findings = list(triage.get("findings", []))
     else:
         findings = []
+        if triage is not None:
+            findings.append(
+                {
+                    "severity": "Critical",
+                    "code": "triage_receipt_invalid_or_unbound",
+                    "scope": "candidate",
+                }
+            )
         if preflight.get("status") != "READY":
             findings.append(
                 {
@@ -885,7 +1036,7 @@ def build_state_card(
     ]
     if repeatability.get("status") == "PASS":
         completed_controls.append("deterministic-fixture-repeatability")
-    if triage is not None:
+    if triage_valid:
         completed_controls.append("grade-diff-review-triage-run")
     if scheduler.get("state") != "NOT_READ":
         completed_controls.append("scheduler-readback-no-mutation")

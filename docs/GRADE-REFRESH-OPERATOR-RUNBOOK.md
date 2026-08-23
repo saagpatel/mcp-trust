@@ -65,6 +65,7 @@ uv run --frozen --extra dev python scripts/grade_refresh.py triage \
   --out ./dist/grade-refresh/triage.json
 
 uv run --frozen --extra dev python scripts/grade_refresh.py package \
+  --candidate ./dist/refresh-candidates/<candidate> \
   --preflight ./dist/grade-refresh/preflight.json \
   --repeatability ./dist/grade-refresh/fixture-repeatability.json \
   --triage ./dist/grade-refresh/triage.json \
