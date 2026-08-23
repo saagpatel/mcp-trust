@@ -2,6 +2,12 @@
   "schema": "McpTrustRefreshPolicyV1",
   "catalog_denominator": 31,
   "default_sandbox_image": "mcp-trust-scan:corpus-2026-07-03",
+  "image_build_sources": {
+    "mcp-trust-scan:corpus-2026-07-03": "Dockerfile.scan",
+    "mcp-trust-live-batch:20260628": null,
+    "mcp-trust-batch3:20260703": null,
+    "mcp-trust-batch4:20260703": null
+  },
   "scannable": [
     "ai-adeu-adeu-1-7-1",
     "ai-ravenmcp-raven-mcp-1-3-3",

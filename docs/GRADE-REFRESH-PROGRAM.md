@@ -27,6 +27,10 @@ claim that a server is benign or malicious.
 - Historical refresh evidence used mutable image tags. The new preflight binds
   tags to immutable local image IDs before execution, but a real candidate has
   not yet consumed that evidence.
+- Deterministic build source is present only for the 15-entry reference image.
+  The live-batch, batch-3, and batch-4 build definitions were not committed;
+  16 entries therefore have UNKNOWN image reproduction provenance even if an
+  old local tag or layer is recovered.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
   remain UNKNOWN until all 31 entries are safely rescanned.
