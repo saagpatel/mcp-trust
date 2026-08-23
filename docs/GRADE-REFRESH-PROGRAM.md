@@ -129,6 +129,16 @@ unqualified until deterministic reconstruction evidence is admitted.
 | Compromised upstream | reviewed image/source bytes; no live substitution | `BLOCKED` |
 | Publication mistake | candidate/publication/deployment/scheduler authority all separate | `WAITING` |
 
+Deterministic reconstruction has two distinct network lanes. Dependency
+preparation may use only the explicitly approved registry endpoints and must
+produce content-addressed, source-bound locks or vendored inputs. The two
+qualification builds themselves run with build network `none`; their
+Dockerfiles must use immutable `FROM ...@sha256:` references, must not invoke
+OS package managers, dynamic package installs, `npx`, `uvx`, `curl`, or `wget`,
+and must consume the committed manager-specific locks. The preflight rejects a
+digest mentioned only in a comment, an untracked lock or receipt, unequal build
+image IDs, or a target tag whose live image ID differs from the qualification.
+
 Docker is the current baseline, not proof against a kernel/runtime compromise.
 If the threat model requires stronger isolation, use a verified microVM/gVisor
 boundary and requalify the same controls before execution.

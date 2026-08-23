@@ -192,7 +192,8 @@ def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Pa
     receipt_path = tmp_path / "qualification.json"
     base = "node@sha256:" + "b" * 64
     dockerfile.write_text(
-        f"FROM {base}\nCOPY package-lock.json /build/package-lock.json\n",
+        f"FROM {base}\nCOPY package-lock.json /build/package-lock.json\n"
+        "RUN npm ci --offline\n",
         encoding="utf-8",
     )
     lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
@@ -209,7 +210,7 @@ def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Pa
                 "sha256": grade_refresh.digest_file(lock),
             }
         },
-        "build_network_policy": ["registry.npmjs.org"],
+        "build_network_policy": ["none"],
         "tool_versions": {"docker": "29.5.2"},
         "first_build_image_id": image_id,
         "second_build_image_id": image_id,
@@ -233,6 +234,95 @@ def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Pa
     unsigned.pop("receipt_digest")
     payload["receipt_digest"] = grade_refresh.digest_bytes(
         grade_refresh.canonical_bytes(unsigned)
+    )
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert grade_refresh._image_build_qualification(
+        repo_root=tmp_path,
+        reference="mcp-trust:test",
+        build_source="Dockerfile",
+        build_source_sha256=grade_refresh.digest_file(dockerfile),
+        receipt_path="qualification.json",
+    ) is None
+
+
+def test_image_build_qualification_rejects_digest_only_in_comment(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    lock = tmp_path / "package-lock.json"
+    receipt_path = tmp_path / "qualification.json"
+    base = "node@sha256:" + "b" * 64
+    dockerfile.write_text(
+        f"# intended base: {base}\nFROM node:24-slim\n"
+        "COPY package-lock.json /build/package-lock.json\n",
+        encoding="utf-8",
+    )
+    lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+    image_id = "sha256:" + "c" * 64
+    payload = {
+        "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
+        "observed_at": NOW.isoformat(),
+        "image_reference": "mcp-trust:test",
+        "build_source_sha256": grade_refresh.digest_file(dockerfile),
+        "base_images": [base],
+        "dependency_locks": {
+            "npm": {
+                "path": "package-lock.json",
+                "sha256": grade_refresh.digest_file(lock),
+            }
+        },
+        "build_network_policy": ["none"],
+        "tool_versions": {"docker": "29.5.2"},
+        "first_build_image_id": image_id,
+        "second_build_image_id": image_id,
+        "repeatable": True,
+    }
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert grade_refresh._image_build_qualification(
+        repo_root=tmp_path,
+        reference="mcp-trust:test",
+        build_source="Dockerfile",
+        build_source_sha256=grade_refresh.digest_file(dockerfile),
+        receipt_path="qualification.json",
+    ) is None
+
+
+def test_image_build_qualification_rejects_split_dynamic_install(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    lock = tmp_path / "package-lock.json"
+    receipt_path = tmp_path / "qualification.json"
+    base = "node@sha256:" + "b" * 64
+    dockerfile.write_text(
+        f"FROM {base}\nCOPY package-lock.json /build/package-lock.json\n"
+        "RUN npm \\\n"
+        "    install some-package@1.0.0\n",
+        encoding="utf-8",
+    )
+    lock.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+    image_id = "sha256:" + "c" * 64
+    payload = {
+        "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
+        "observed_at": NOW.isoformat(),
+        "image_reference": "mcp-trust:test",
+        "build_source_sha256": grade_refresh.digest_file(dockerfile),
+        "base_images": [base],
+        "dependency_locks": {
+            "npm": {
+                "path": "package-lock.json",
+                "sha256": grade_refresh.digest_file(lock),
+            }
+        },
+        "build_network_policy": ["none"],
+        "tool_versions": {"docker": "29.5.2"},
+        "first_build_image_id": image_id,
+        "second_build_image_id": image_id,
+        "repeatable": True,
+    }
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
     )
     receipt_path.write_text(json.dumps(payload), encoding="utf-8")
 
