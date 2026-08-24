@@ -13,9 +13,12 @@ from mcp_trust.site.candidate import (
     ACCEPTED_REVIEW_STATE,
     DEPLOYABLE_STATE,
     PENDING_STATE,
+    PROVIDER_NATIVE_ROLLBACK_SCHEMA,
+    PROVIDER_NATIVE_ROLLBACK_STATE,
     SiteCandidateError,
     build_site_candidate,
     canonical_bytes,
+    provider_native_rollback_binding_from_evidence,
     site_candidate_readback_manifest,
     verify_site_candidate,
 )
@@ -190,6 +193,129 @@ def _tree(root: Path) -> dict[str, bytes]:
     }
 
 
+def _write_receipted(path: Path, payload: dict[str, object]) -> str:
+    payload.pop("receipt_digest", None)
+    receipt = "sha256:" + hashlib.sha256(canonical_bytes(payload)).hexdigest()
+    payload["receipt_digest"] = receipt
+    path.write_bytes(canonical_bytes(payload))
+    return receipt
+
+
+def _provider_rollback_binding(tmp_path: Path) -> tuple[Path, dict[str, object], str]:
+    payload: dict[str, object] = {
+        "schema": PROVIDER_NATIVE_ROLLBACK_SCHEMA,
+        "state": PROVIDER_NATIVE_ROLLBACK_STATE,
+        "provider": "vercel",
+        "observed_at": "2026-08-24T09:40:21+00:00",
+        "freshness_seconds": 3600,
+        "production_target": {
+            "alias": "mcp-trust.example",
+            "deployment_id": "dpl_CurrentTarget1",
+            "immutable_deployment_url": "mcp-trust-current-project.vercel.app",
+            "project_id": "prj_Project1",
+            "team_id": "team_Team1",
+            "target": "production",
+            "deployment_state": "READY_PROMOTED",
+            "source_revision": "1" * 40,
+            "source_tree": "2" * 40,
+            "public_tree_digest": "sha256:" + "3" * 64,
+        },
+        "provenance": {
+            "provider_metadata_receipt": "sha256:" + "4" * 64,
+            "provider_binding_decision_receipt": "sha256:" + "5" * 64,
+        },
+        "conditions": {
+            "first_following_same_project_publication": True,
+            "no_intervening_production_deployment": True,
+            "target_must_remain_retained": True,
+            "prepublication_provider_readback_required": True,
+            "immediate_previous_rollback_only": True,
+        },
+        "authority": {
+            "publication_allowed": False,
+            "deployment_allowed": False,
+            "rollback_execution_allowed": False,
+            "scheduler_activation_allowed": False,
+        },
+        "unknown": [
+            "provider_artifact_digest",
+            "exercised_rollback_routing",
+            "future_prepublication_binding",
+        ],
+        "claim_ceiling": (
+            "Review-only target binding; not publication authority, not deployment "
+            "authority, and not exercised rollback proof."
+        ),
+    }
+    path = tmp_path / "provider-rollback.json"
+    receipt = _write_receipted(path, payload)
+    return path, payload, receipt
+
+
+def _provider_evidence(tmp_path: Path) -> tuple[Path, Path]:
+    metadata: dict[str, object] = {
+        "schema": "McpTrustAuthenticatedProviderMetadataEvidenceV1",
+        "as_of": "2026-08-24T09:40:21Z",
+        "authentication": {"credential_values_read_or_recorded": False},
+        "deployment": {
+            "alias": "mcp-trust.example",
+            "deployment_id": "dpl_CurrentTarget1",
+            "immutable_deployment_url": "mcp-trust-current-project.vercel.app",
+            "target": "production",
+            "status": "READY",
+            "ready_state": "READY",
+            "ready_substate": "PROMOTED",
+            "alias_assigned": True,
+        },
+        "provider_source": {
+            "git_commit_sha": "1" * 40,
+            "local_git_tree": "2" * 40,
+        },
+        "project_binding": {
+            "project_id": "prj_Project1",
+            "team_id": "team_Team1",
+            "provider_deployment_project_matches_local_link": True,
+            "provider_deployment_team_matches_local_link": True,
+        },
+        "reconciliation": {
+            "provider_source_matches_public_source_witness": True,
+            "provider_source_revision": "1" * 40,
+            "public_source_witness_revision": "1" * 40,
+            "public_source_witness_tree": "2" * 40,
+            "current_public_route_matches": 7,
+            "current_public_route_total": 7,
+            "current_public_tree_digest": "sha256:" + "3" * 64,
+        },
+        "external_effects": [],
+    }
+    metadata_path = tmp_path / "provider-metadata.json"
+    metadata_receipt = _write_receipted(metadata_path, metadata)
+    decision: dict[str, object] = {
+        "schema": "McpTrustProviderRollbackBindingDecisionV1",
+        "decision": "NO_GO",
+        "state": "PROVIDER_NATIVE_TARGET_BOUND_SOURCE_GUARD_NOT_BOOTSTRAPPED",
+        "provider_metadata_receipt": metadata_receipt,
+        "provider_binding": {
+            "alias": "mcp-trust.example",
+            "deployment_id": "dpl_CurrentTarget1",
+            "immutable_deployment_url": "mcp-trust-current-project.vercel.app",
+            "project_id": "prj_Project1",
+            "team_id": "team_Team1",
+            "target": "production",
+            "deployment_state": "READY_PROMOTED",
+            "source_revision": "1" * 40,
+        },
+        "provider_native_rollback_target": {"state": "CONDITIONALLY_QUALIFIED"},
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "rollback_execution_allowed": False,
+        "scheduler_activation_allowed": False,
+    }
+    decision_path = tmp_path / "provider-decision.json"
+    _write_receipted(decision_path, decision)
+    return metadata_path, decision_path
+
+
 def _accepted_fixture(tmp_path: Path) -> dict[str, object]:
     inputs = _fixture(tmp_path)
     review_path = inputs["review_path"]
@@ -202,9 +328,7 @@ def _accepted_fixture(tmp_path: Path) -> dict[str, object]:
         "decision": "OPERATOR_ACCEPTED_EXACT_V38",
         "acceptance": {
             "state": "ACCEPTED_EXACT_V38",
-            "scope": (
-                "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
-            ),
+            "scope": ("all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"),
             "proposal_policy_sha256": review["disposition_policy"]["sha256"],
         },
         "forward_baseline": {
@@ -222,9 +346,7 @@ def _accepted_fixture(tmp_path: Path) -> dict[str, object]:
                     "disposition": entry["disposition"],
                     "rationale_code": entry["rationale_code"],
                     "next_review_condition": entry["next_review_condition"],
-                    "projection_digest": entry["controlled_evidence"][
-                        "projection_digest"
-                    ],
+                    "projection_digest": entry["controlled_evidence"]["projection_digest"],
                 }
                 for entry in review["entry_dispositions"]
             ],
@@ -241,9 +363,7 @@ def _accepted_fixture(tmp_path: Path) -> dict[str, object]:
             "production_deployment_revision": "UNKNOWN",
         },
     }
-    artifact["receipt_digest"] = "sha256:" + hashlib.sha256(
-        canonical_bytes(artifact)
-    ).hexdigest()
+    artifact["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(artifact)).hexdigest()
     artifact_path = tmp_path / "accepted_disposition_artifact_v38.json"
     artifact_path.write_bytes(canonical_bytes(artifact))
     disposition = {
@@ -253,15 +373,11 @@ def _accepted_fixture(tmp_path: Path) -> dict[str, object]:
         "historical_baseline": review["historical_baseline"],
         "forward_baseline": {
             "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
-            "disposition": (
-                "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
-            ),
+            "disposition": ("adopt-exact-v37-candidate-bindings-as-current-forward-baseline"),
         },
         "acceptance": {
             "authority": "operator",
-            "scope": (
-                "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
-            ),
+            "scope": ("all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"),
             "acceptance_state": "ACCEPTED_EXACT_V38",
             "accepted_review_path": review_path.name,
             "accepted_review_artifact_sha256": digest_file(review_path),
@@ -325,10 +441,224 @@ def test_accepted_current_site_candidate_is_deterministic_and_non_publishable(
     manifest = json.loads((first / "SITE_CANDIDATE.json").read_text())
     assert "sanitized_review_acceptance_required" not in manifest["blocking_gates"]
     assert "explicit_publication_authority_required" in manifest["blocking_gates"]
-    assert "production_source_and_deployment_binding_unknown" in manifest[
-        "blocking_gates"
-    ]
+    assert "production_source_and_deployment_binding_unknown" in manifest["blocking_gates"]
     assert "rollback_artifact_binding_unknown" in manifest["blocking_gates"]
+
+
+def test_provider_native_rollback_is_deterministic_and_review_only(tmp_path: Path) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, _, receipt = _provider_rollback_binding(tmp_path)
+    inputs.update(
+        provider_rollback_binding=binding_path,
+        provider_rollback_binding_receipt=receipt,
+        now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+    )
+
+    first = build_site_candidate(output_path=tmp_path / "first", **inputs)
+    second = build_site_candidate(output_path=tmp_path / "second", **inputs)
+
+    assert _tree(first) == _tree(second)
+    verified = verify_site_candidate(first)
+    assert verified["state"] == ACCEPTED_REVIEW_STATE
+    assert verified["publication_allowed"] is False
+    assert verified["deployment_allowed"] is False
+    assert verified["rollback_state"] == PROVIDER_NATIVE_ROLLBACK_STATE
+    manifest = json.loads((first / "SITE_CANDIDATE.json").read_text())
+    assert manifest["rollback"]["receipt_digest"] == receipt
+    assert manifest["bindings"]["rollback_state"] == PROVIDER_NATIVE_ROLLBACK_STATE
+    assert "rollback_artifact_binding_unknown" not in manifest["blocking_gates"]
+    assert (
+        "provider_native_rollback_revalidation_and_publication_approval_required"
+        in manifest["blocking_gates"]
+    )
+    assert "explicit_publication_authority_required" in manifest["blocking_gates"]
+
+
+def test_provider_native_binding_is_projected_from_receipt_bound_evidence(
+    tmp_path: Path,
+) -> None:
+    metadata_path, decision_path = _provider_evidence(tmp_path)
+    first = provider_native_rollback_binding_from_evidence(
+        provider_metadata_path=metadata_path,
+        provider_decision_path=decision_path,
+        expected_base_url="https://mcp-trust.example",
+        now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+    )
+    second = provider_native_rollback_binding_from_evidence(
+        provider_metadata_path=metadata_path,
+        provider_decision_path=decision_path,
+        expected_base_url="https://mcp-trust.example",
+        now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+    )
+
+    assert first == second
+    assert first["state"] == PROVIDER_NATIVE_ROLLBACK_STATE
+    assert first["authority"]["publication_allowed"] is False
+    assert first["authority"]["deployment_allowed"] is False
+    assert first["production_target"]["source_tree"] == "2" * 40
+
+
+def test_provider_native_projection_rejects_evidence_tamper(tmp_path: Path) -> None:
+    metadata_path, decision_path = _provider_evidence(tmp_path)
+    metadata = json.loads(metadata_path.read_text())
+    metadata["deployment"]["deployment_id"] = "dpl_Substituted"
+    metadata_path.write_bytes(canonical_bytes(metadata))
+
+    with pytest.raises(SiteCandidateError, match="metadata evidence receipt"):
+        provider_native_rollback_binding_from_evidence(
+            provider_metadata_path=metadata_path,
+            provider_decision_path=decision_path,
+            expected_base_url="https://mcp-trust.example",
+            now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+        )
+
+
+def test_provider_native_rollback_rejects_unapproved_or_historical_receipt(
+    tmp_path: Path,
+) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, payload, approved_receipt = _provider_rollback_binding(tmp_path)
+    target = payload["production_target"]
+    assert isinstance(target, dict)
+    target["deployment_id"] = "dpl_HistoricalTarget2"
+    _write_receipted(binding_path, payload)
+
+    with pytest.raises(SiteCandidateError, match="receipt does not match approval"):
+        build_site_candidate(
+            output_path=tmp_path / "output",
+            provider_rollback_binding=binding_path,
+            provider_rollback_binding_receipt=approved_receipt,
+            now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+            **inputs,
+        )
+
+
+def test_provider_native_rollback_rejects_alias_drift_with_valid_receipt(
+    tmp_path: Path,
+) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, payload, _ = _provider_rollback_binding(tmp_path)
+    target = payload["production_target"]
+    assert isinstance(target, dict)
+    target["alias"] = "different.example"
+    receipt = _write_receipted(binding_path, payload)
+
+    with pytest.raises(SiteCandidateError, match="target identity"):
+        build_site_candidate(
+            output_path=tmp_path / "output",
+            provider_rollback_binding=binding_path,
+            provider_rollback_binding_receipt=receipt,
+            now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+            **inputs,
+        )
+
+
+def test_provider_native_rollback_rejects_stale_observation(tmp_path: Path) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, _, receipt = _provider_rollback_binding(tmp_path)
+
+    with pytest.raises(SiteCandidateError, match="stale or from the future"):
+        build_site_candidate(
+            output_path=tmp_path / "output",
+            provider_rollback_binding=binding_path,
+            provider_rollback_binding_receipt=receipt,
+            now=datetime(2026, 8, 24, 10, 41, tzinfo=UTC),
+            **inputs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "message"),
+    [
+        ("conditions", "no_intervening_production_deployment", False, "conditions changed"),
+        ("authority", "deployment_allowed", True, "exceeds review authority"),
+        ("production_target", "project_id", "historical-project", "target identity"),
+        ("provenance", "provider_metadata_receipt", "UNKNOWN", "provenance"),
+    ],
+)
+def test_provider_native_rollback_false_green_fields_fail_closed(
+    tmp_path: Path,
+    section: str,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, payload, _ = _provider_rollback_binding(tmp_path)
+    nested = payload[section]
+    assert isinstance(nested, dict)
+    nested[field] = value
+    receipt = _write_receipted(binding_path, payload)
+
+    with pytest.raises(SiteCandidateError, match=message):
+        build_site_candidate(
+            output_path=tmp_path / "output",
+            provider_rollback_binding=binding_path,
+            provider_rollback_binding_receipt=receipt,
+            now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+            **inputs,
+        )
+
+
+def test_provider_native_and_retained_rollback_are_mutually_exclusive(tmp_path: Path) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, _, receipt = _provider_rollback_binding(tmp_path)
+
+    with pytest.raises(SiteCandidateError, match="mutually exclusive"):
+        build_site_candidate(
+            output_path=tmp_path / "output",
+            rollback_candidate=tmp_path / "prior",
+            provider_rollback_binding=binding_path,
+            provider_rollback_binding_receipt=receipt,
+            **inputs,
+        )
+
+
+def test_provider_native_review_candidate_cannot_self_assert_deployment(
+    tmp_path: Path,
+) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path, _, receipt = _provider_rollback_binding(tmp_path)
+    output = build_site_candidate(
+        output_path=tmp_path / "output",
+        provider_rollback_binding=binding_path,
+        provider_rollback_binding_receipt=receipt,
+        now=datetime(2026, 8, 24, 9, 45, tzinfo=UTC),
+        **inputs,
+    )
+    manifest_path = output / "SITE_CANDIDATE.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("receipt_digest")
+    manifest["state"] = DEPLOYABLE_STATE
+    manifest["publication_allowed"] = True
+    manifest["deployment_allowed"] = True
+    manifest["blocking_gates"] = []
+    manifest["bindings"]["state"] = DEPLOYABLE_STATE
+    manifest["bindings"]["publication_allowed"] = True
+    manifest["bindings"]["deployment_allowed"] = True
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+    manifest_path.write_bytes(canonical_bytes(manifest))
+
+    with pytest.raises(SiteCandidateError, match="review binding is incomplete"):
+        verify_site_candidate(output)
+
+
+def test_provider_native_binding_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    inputs = _accepted_fixture(tmp_path)
+    binding_path = tmp_path / "provider-rollback.json"
+    binding_path.write_text(
+        '{"schema":"McpTrustProviderNativeRollbackBindingV1",'
+        '"schema":"McpTrustProviderNativeRollbackBindingV1"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SiteCandidateError, match="duplicate JSON key"):
+        build_site_candidate(
+            output_path=tmp_path / "output",
+            provider_rollback_binding=binding_path,
+            provider_rollback_binding_receipt="sha256:" + "1" * 64,
+            **inputs,
+        )
 
 
 def test_accepted_current_site_candidate_rejects_acceptance_artifact_tamper(
@@ -338,9 +668,7 @@ def test_accepted_current_site_candidate_rejects_acceptance_artifact_tamper(
     disposition_path = inputs["disposition_path"]
     assert isinstance(disposition_path, Path)
     disposition = json.loads(disposition_path.read_text())
-    artifact = disposition_path.parent / disposition["acceptance"][
-        "accepted_disposition_path"
-    ]
+    artifact = disposition_path.parent / disposition["acceptance"]["accepted_disposition_path"]
     artifact.write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(SiteCandidateError, match="artifact integrity"):

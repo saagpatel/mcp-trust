@@ -86,21 +86,36 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--corrections", type=Path, default=ROOT / "corrections.json")
     parser.add_argument("--out", type=Path)
     parser.add_argument("--base-url", default="https://mcp-trust.vercel.app")
-    parser.add_argument("--rollback-candidate", type=Path)
+    rollback = parser.add_mutually_exclusive_group()
+    rollback.add_argument("--rollback-candidate", type=Path)
+    rollback.add_argument(
+        "--provider-rollback-binding",
+        type=Path,
+        help="Receipt-bound provider-native first-publication rollback target.",
+    )
+    parser.add_argument(
+        "--provider-rollback-binding-receipt",
+        help="Exact approved receipt_digest for --provider-rollback-binding.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        rollback_build_arguments = (
+            args.rollback_candidate is not None
+            or args.provider_rollback_binding is not None
+            or args.provider_rollback_binding_receipt is not None
+        )
         if args.verify is not None:
-            if args.candidate is not None or args.out is not None:
+            if args.candidate is not None or args.out is not None or rollback_build_arguments:
                 raise SiteCandidateError("--verify cannot be combined with build arguments")
             result = verify_site_candidate(args.verify)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.readback_manifest is not None:
-            if args.candidate is not None or args.out is not None:
+            if args.candidate is not None or args.out is not None or rollback_build_arguments:
                 raise SiteCandidateError(
                     "--readback-manifest cannot be combined with build arguments"
                 )
@@ -120,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
             output_path=args.out,
             base_url=args.base_url,
             rollback_candidate=args.rollback_candidate,
+            provider_rollback_binding=args.provider_rollback_binding,
+            provider_rollback_binding_receipt=args.provider_rollback_binding_receipt,
             implementation_binding=_implementation_binding(),
         )
         result = verify_site_candidate(output)

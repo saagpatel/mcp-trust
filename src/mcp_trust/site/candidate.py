@@ -15,9 +15,10 @@ import sqlite3
 import stat
 import tempfile
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from mcp_trust.grade_refresh import (
     DISPOSITION_POLICY_SCHEMA,
@@ -33,6 +34,9 @@ SITE_CANDIDATE_MANIFEST = "SITE_CANDIDATE.json"
 PENDING_STATE = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
 ACCEPTED_REVIEW_STATE = "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW"
 DEPLOYABLE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"
+PROVIDER_NATIVE_ROLLBACK_SCHEMA = "McpTrustProviderNativeRollbackBindingV1"
+PROVIDER_NATIVE_ROLLBACK_STATE = "PROVIDER_NATIVE_FIRST_PUBLICATION_REVIEW_BOUND"
+_PROVIDER_NATIVE_MAX_FRESHNESS_SECONDS = 3600
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DEPLOYMENT_ENVELOPE_FILES = frozenset({".vercel/project.json"})
 _READBACK_MANIFEST_SCHEMA = "WebReleaseSentinelManifestV1"
@@ -68,6 +72,16 @@ _REVIEW_KEYS = frozenset(
 
 class SiteCandidateError(RuntimeError):
     """A site-candidate input, build, or verification contract failed."""
+
+
+def _aware_datetime(value: object, label: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SiteCandidateError(f"{label} is invalid") from exc
+    if parsed.tzinfo is None:
+        raise SiteCandidateError(f"{label} lacks a timezone")
+    return parsed.astimezone(UTC)
 
 
 def canonical_bytes(value: object) -> bytes:
@@ -163,6 +177,299 @@ def _regular_json(path: Path, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise SiteCandidateError(f"{label} must be a JSON object")
     return payload
+
+
+def _validate_provider_native_rollback_payload(
+    payload: dict[str, Any],
+    *,
+    expected_base_url: str,
+    now: datetime | None,
+) -> dict[str, Any]:
+    expected_keys = {
+        "schema",
+        "state",
+        "provider",
+        "observed_at",
+        "freshness_seconds",
+        "production_target",
+        "provenance",
+        "conditions",
+        "authority",
+        "unknown",
+        "claim_ceiling",
+        "receipt_digest",
+    }
+    if set(payload) != expected_keys:
+        raise SiteCandidateError("provider-native rollback binding fields are invalid")
+    if (
+        payload.get("schema") != PROVIDER_NATIVE_ROLLBACK_SCHEMA
+        or payload.get("state") != PROVIDER_NATIVE_ROLLBACK_STATE
+        or payload.get("provider") != "vercel"
+        or not _receipt_valid(payload)
+    ):
+        raise SiteCandidateError("provider-native rollback binding receipt is invalid")
+
+    freshness = payload.get("freshness_seconds")
+    if type(freshness) is not int or not 1 <= freshness <= _PROVIDER_NATIVE_MAX_FRESHNESS_SECONDS:
+        raise SiteCandidateError("provider-native rollback freshness policy is invalid")
+    observed_at = _aware_datetime(payload.get("observed_at"), "provider observation time")
+    if now is not None:
+        if now.tzinfo is None:
+            raise SiteCandidateError("provider rollback verification time lacks a timezone")
+        age_seconds = (now.astimezone(UTC) - observed_at).total_seconds()
+        if age_seconds < -60 or age_seconds > freshness:
+            raise SiteCandidateError("provider-native rollback binding is stale or from the future")
+
+    parsed_base = urlsplit(expected_base_url.rstrip("/"))
+    try:
+        port = parsed_base.port
+    except ValueError as exc:
+        raise SiteCandidateError("site candidate base URL is not an exact HTTPS origin") from exc
+    if (
+        parsed_base.scheme != "https"
+        or not parsed_base.hostname
+        or parsed_base.username is not None
+        or parsed_base.password is not None
+        or port is not None
+        or parsed_base.path not in {"", "/"}
+        or parsed_base.query
+        or parsed_base.fragment
+    ):
+        raise SiteCandidateError("site candidate base URL is not an exact HTTPS origin")
+
+    target = payload.get("production_target")
+    target_keys = {
+        "alias",
+        "deployment_id",
+        "immutable_deployment_url",
+        "project_id",
+        "team_id",
+        "target",
+        "deployment_state",
+        "source_revision",
+        "source_tree",
+        "public_tree_digest",
+    }
+    if not isinstance(target, dict) or set(target) != target_keys:
+        raise SiteCandidateError("provider-native rollback target fields are invalid")
+    if (
+        target.get("alias") != parsed_base.hostname
+        or re.fullmatch(r"dpl_[A-Za-z0-9]+", str(target.get("deployment_id", ""))) is None
+        or re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.vercel\.app",
+            str(target.get("immutable_deployment_url", "")),
+        )
+        is None
+        or target.get("immutable_deployment_url") == target.get("alias")
+        or re.fullmatch(r"prj_[A-Za-z0-9]+", str(target.get("project_id", ""))) is None
+        or re.fullmatch(r"team_[A-Za-z0-9]+", str(target.get("team_id", ""))) is None
+        or target.get("target") != "production"
+        or target.get("deployment_state") != "READY_PROMOTED"
+        or re.fullmatch(r"[0-9a-f]{40}", str(target.get("source_revision", ""))) is None
+        or re.fullmatch(r"[0-9a-f]{40}", str(target.get("source_tree", ""))) is None
+        or _SHA256.fullmatch(str(target.get("public_tree_digest", ""))) is None
+    ):
+        raise SiteCandidateError("provider-native rollback target identity is invalid")
+
+    provenance = payload.get("provenance")
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != {"provider_metadata_receipt", "provider_binding_decision_receipt"}
+        or any(_SHA256.fullmatch(str(value)) is None for value in provenance.values())
+    ):
+        raise SiteCandidateError("provider-native rollback provenance is incomplete")
+    if payload.get("conditions") != {
+        "first_following_same_project_publication": True,
+        "no_intervening_production_deployment": True,
+        "target_must_remain_retained": True,
+        "prepublication_provider_readback_required": True,
+        "immediate_previous_rollback_only": True,
+    }:
+        raise SiteCandidateError("provider-native rollback validity conditions changed")
+    if payload.get("authority") != {
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "rollback_execution_allowed": False,
+        "scheduler_activation_allowed": False,
+    }:
+        raise SiteCandidateError("provider-native rollback binding exceeds review authority")
+    if payload.get("unknown") != [
+        "provider_artifact_digest",
+        "exercised_rollback_routing",
+        "future_prepublication_binding",
+    ]:
+        raise SiteCandidateError("provider-native rollback UNKNOWN semantics changed")
+    claim_ceiling = payload.get("claim_ceiling")
+    required_claims = {
+        "review-only",
+        "not publication authority",
+        "not deployment authority",
+        "not exercised rollback proof",
+    }
+    if not isinstance(claim_ceiling, str) or not all(
+        claim in claim_ceiling.lower() for claim in required_claims
+    ):
+        raise SiteCandidateError("provider-native rollback claim ceiling is incomplete")
+    return payload
+
+
+def verify_provider_native_rollback_binding(
+    *,
+    binding_path: Path,
+    expected_base_url: str,
+    expected_receipt_digest: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Verify a sanitized provider target for one local review artifact.
+
+    This does not authenticate a provider receipt, re-read Vercel, authorize a
+    publication, or prove that rollback routing has been exercised.
+    """
+    payload = _regular_json(binding_path, "provider-native rollback binding")
+    if (
+        _SHA256.fullmatch(expected_receipt_digest) is None
+        or payload.get("receipt_digest") != expected_receipt_digest
+    ):
+        raise SiteCandidateError("provider-native rollback receipt does not match approval")
+    return _validate_provider_native_rollback_payload(
+        payload,
+        expected_base_url=expected_base_url,
+        now=now,
+    )
+
+
+def provider_native_rollback_binding_from_evidence(
+    *,
+    provider_metadata_path: Path,
+    provider_decision_path: Path,
+    expected_base_url: str,
+    now: datetime,
+    freshness_seconds: int = _PROVIDER_NATIVE_MAX_FRESHNESS_SECONDS,
+) -> dict[str, Any]:
+    """Project sanitized provider evidence into the strict review-only contract."""
+    metadata = _regular_json(provider_metadata_path, "provider metadata evidence")
+    decision = _regular_json(provider_decision_path, "provider rollback decision")
+    if metadata.get(
+        "schema"
+    ) != "McpTrustAuthenticatedProviderMetadataEvidenceV1" or not _receipt_valid(metadata):
+        raise SiteCandidateError("provider metadata evidence receipt is invalid")
+    if decision.get("schema") != "McpTrustProviderRollbackBindingDecisionV1" or not _receipt_valid(
+        decision
+    ):
+        raise SiteCandidateError("provider rollback decision receipt is invalid")
+    metadata_receipt = metadata.get("receipt_digest")
+    decision_receipt = decision.get("receipt_digest")
+    deployment = metadata.get("deployment")
+    provider_source = metadata.get("provider_source")
+    project = metadata.get("project_binding")
+    reconciliation = metadata.get("reconciliation")
+    provider_binding = decision.get("provider_binding")
+    rollback_target = decision.get("provider_native_rollback_target")
+    authentication = metadata.get("authentication")
+    if (
+        not isinstance(deployment, dict)
+        or not isinstance(provider_source, dict)
+        or not isinstance(project, dict)
+        or not isinstance(reconciliation, dict)
+        or not isinstance(provider_binding, dict)
+        or not isinstance(rollback_target, dict)
+        or not isinstance(authentication, dict)
+    ):
+        raise SiteCandidateError("provider rollback evidence structure is incomplete")
+    if (
+        decision.get("provider_metadata_receipt") != metadata_receipt
+        or decision.get("decision") != "NO_GO"
+        or decision.get("state") != "PROVIDER_NATIVE_TARGET_BOUND_SOURCE_GUARD_NOT_BOOTSTRAPPED"
+        or rollback_target.get("state") != "CONDITIONALLY_QUALIFIED"
+        or decision.get("publication_allowed") is not False
+        or decision.get("deployment_allowed") is not False
+        or decision.get("rollback_execution_allowed") is not False
+        or decision.get("scheduler_activation_allowed") is not False
+        or authentication.get("credential_values_read_or_recorded") is not False
+        or metadata.get("external_effects") != []
+    ):
+        raise SiteCandidateError("provider rollback evidence claim ceiling is invalid")
+    target_projection = {
+        "alias": deployment.get("alias"),
+        "deployment_id": deployment.get("deployment_id"),
+        "immutable_deployment_url": deployment.get("immutable_deployment_url"),
+        "project_id": project.get("project_id"),
+        "team_id": project.get("team_id"),
+        "target": deployment.get("target"),
+        "deployment_state": (f"{deployment.get('ready_state')}_{deployment.get('ready_substate')}"),
+        "source_revision": provider_source.get("git_commit_sha"),
+        "source_tree": provider_source.get("local_git_tree"),
+        "public_tree_digest": reconciliation.get("current_public_tree_digest"),
+    }
+    decision_projection = {
+        "alias": provider_binding.get("alias"),
+        "deployment_id": provider_binding.get("deployment_id"),
+        "immutable_deployment_url": provider_binding.get("immutable_deployment_url"),
+        "project_id": provider_binding.get("project_id"),
+        "team_id": provider_binding.get("team_id"),
+        "target": provider_binding.get("target"),
+        "deployment_state": provider_binding.get("deployment_state"),
+        "source_revision": provider_binding.get("source_revision"),
+    }
+    if (
+        any(target_projection[key] != decision_projection[key] for key in decision_projection)
+        or deployment.get("status") != "READY"
+        or deployment.get("alias_assigned") is not True
+        or project.get("provider_deployment_project_matches_local_link") is not True
+        or project.get("provider_deployment_team_matches_local_link") is not True
+        or reconciliation.get("provider_source_matches_public_source_witness") is not True
+        or reconciliation.get("provider_source_revision") != target_projection["source_revision"]
+        or reconciliation.get("public_source_witness_revision")
+        != target_projection["source_revision"]
+        or reconciliation.get("public_source_witness_tree") != target_projection["source_tree"]
+        or type(reconciliation.get("current_public_route_matches")) is not int
+        or reconciliation.get("current_public_route_matches")
+        != reconciliation.get("current_public_route_total")
+        or reconciliation.get("current_public_route_total", 0) <= 0
+    ):
+        raise SiteCandidateError("provider rollback evidence identity does not reconcile")
+
+    payload: dict[str, Any] = {
+        "schema": PROVIDER_NATIVE_ROLLBACK_SCHEMA,
+        "state": PROVIDER_NATIVE_ROLLBACK_STATE,
+        "provider": "vercel",
+        "observed_at": metadata.get("as_of"),
+        "freshness_seconds": freshness_seconds,
+        "production_target": target_projection,
+        "provenance": {
+            "provider_metadata_receipt": metadata_receipt,
+            "provider_binding_decision_receipt": decision_receipt,
+        },
+        "conditions": {
+            "first_following_same_project_publication": True,
+            "no_intervening_production_deployment": True,
+            "target_must_remain_retained": True,
+            "prepublication_provider_readback_required": True,
+            "immediate_previous_rollback_only": True,
+        },
+        "authority": {
+            "publication_allowed": False,
+            "deployment_allowed": False,
+            "rollback_execution_allowed": False,
+            "scheduler_activation_allowed": False,
+        },
+        "unknown": [
+            "provider_artifact_digest",
+            "exercised_rollback_routing",
+            "future_prepublication_binding",
+        ],
+        "claim_ceiling": (
+            "Review-only provider target binding for the exact sanitized evidence; "
+            "not publication authority, not deployment authority, and not exercised "
+            "rollback proof."
+        ),
+    }
+    payload["receipt_digest"] = _sha256_bytes(canonical_bytes(payload))
+    return _validate_provider_native_rollback_payload(
+        payload,
+        expected_base_url=expected_base_url,
+        now=now,
+    )
 
 
 def _validate_review_semantics(review: dict[str, Any]) -> None:
@@ -367,8 +674,7 @@ def verify_site_candidate_review(
         artifact_name = acceptance.get("accepted_disposition_path")
         if (
             disposition.get("schema") != DISPOSITION_POLICY_SCHEMA
-            or disposition.get("grade_semantics")
-            != "technical-danger-not-endorsement"
+            or disposition.get("grade_semantics") != "technical-danger-not-endorsement"
             or disposition.get("historical_baseline")
             != {
                 "state": "UNKNOWN",
@@ -377,21 +683,16 @@ def verify_site_candidate_review(
             or disposition.get("forward_baseline")
             != {
                 "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
-                "disposition": (
-                    "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
-                ),
+                "disposition": ("adopt-exact-v37-candidate-bindings-as-current-forward-baseline"),
             }
             or acceptance.get("acceptance_state") != "ACCEPTED_EXACT_V38"
             or acceptance.get("scope")
             != "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
             or acceptance.get("accepted_review_path") != review_path.name
-            or acceptance.get("accepted_review_artifact_sha256")
-            != _sha256_file(review_path)
-            or acceptance.get("accepted_review_receipt_digest")
-            != review.get("receipt_digest")
+            or acceptance.get("accepted_review_artifact_sha256") != _sha256_file(review_path)
+            or acceptance.get("accepted_review_receipt_digest") != review.get("receipt_digest")
             or not isinstance(review_policy, dict)
-            or review_policy.get("sha256")
-            != acceptance.get("accepted_review_policy_sha256")
+            or review_policy.get("sha256") != acceptance.get("accepted_review_policy_sha256")
             or not isinstance(artifact_name, str)
             or Path(artifact_name).name != artifact_name
         ):
@@ -404,8 +705,7 @@ def verify_site_candidate_review(
         artifact_privacy = artifact.get("privacy")
         artifact_public = artifact.get("separate_public_state")
         if (
-            _sha256_file(artifact_path)
-            != acceptance.get("accepted_disposition_artifact_sha256")
+            _sha256_file(artifact_path) != acceptance.get("accepted_disposition_artifact_sha256")
             or artifact.get("schema") != "McpTrustAcceptedDispositionArtifactV1"
             or artifact.get("decision") != "OPERATOR_ACCEPTED_EXACT_V38"
             or not _receipt_valid(artifact)
@@ -417,14 +717,11 @@ def verify_site_candidate_review(
             or artifact_acceptance.get("proposal_policy_sha256")
             != acceptance.get("accepted_review_policy_sha256")
             or not isinstance(artifact_forward, dict)
-            or artifact_forward.get("state")
-            != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
-            or artifact.get("historical_baseline")
-            != review.get("historical_baseline")
+            or artifact_forward.get("state") != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+            or artifact.get("historical_baseline") != review.get("historical_baseline")
             or not isinstance(artifact_masked, dict)
             or artifact_masked.get("count") != len(review.get("entry_dispositions", []))
-            or artifact_masked.get("acceptance_state")
-            != "ACCEPTED_EXACT_V38_RETAIN_MASKED"
+            or artifact_masked.get("acceptance_state") != "ACCEPTED_EXACT_V38_RETAIN_MASKED"
             or artifact_masked.get("projection_repeatability") != "PASS"
             or artifact_privacy
             != {
@@ -492,8 +789,7 @@ def verify_site_candidate_review(
         if artifact_projection != review_projection:
             raise SiteCandidateError("accepted disposition artifact semantics changed")
     elif (
-        acceptance.get("sanitized_acceptance_state")
-        != "PENDING_OPERATOR_REACCEPTANCE"
+        acceptance.get("sanitized_acceptance_state") != "PENDING_OPERATOR_REACCEPTANCE"
         or acceptance.get("sanitized_review_path") != review_path.name
         or acceptance.get("sanitized_review_artifact_sha256") != _sha256_file(review_path)
         or acceptance.get("sanitized_review_receipt_digest") != review.get("receipt_digest")
@@ -690,7 +986,11 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
     else:
         raise SiteCandidateError("site candidate state is unsupported")
     rollback = manifest.get("rollback")
-    if not isinstance(rollback, dict) or rollback.get("state") not in {"BOUND", "UNKNOWN"}:
+    if not isinstance(rollback, dict) or rollback.get("state") not in {
+        "BOUND",
+        "UNKNOWN",
+        PROVIDER_NATIVE_ROLLBACK_STATE,
+    }:
         raise SiteCandidateError("site candidate rollback lineage is invalid")
     if rollback.get("state") == "BOUND" and (
         not isinstance(rollback.get("site_receipt_digest"), str)
@@ -705,6 +1005,22 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         or "rollback_artifact_binding_unknown" not in blocking_gates
     ):
         raise SiteCandidateError("UNKNOWN rollback is not fail-closed")
+    if rollback.get("state") == PROVIDER_NATIVE_ROLLBACK_STATE:
+        bindings = manifest.get("bindings")
+        if (
+            state_value not in {PENDING_STATE, ACCEPTED_REVIEW_STATE}
+            or not isinstance(manifest.get("base_url"), str)
+            or not isinstance(bindings, dict)
+            or bindings.get("rollback_state") != PROVIDER_NATIVE_ROLLBACK_STATE
+            or "provider_native_rollback_revalidation_and_publication_approval_required"
+            not in blocking_gates
+        ):
+            raise SiteCandidateError("provider-native rollback binding is not fail-closed")
+        _validate_provider_native_rollback_payload(
+            rollback,
+            expected_base_url=manifest["base_url"],
+            now=None,
+        )
     files = _capture_content(root, allow_deployment_envelope=allow_deployment_envelope)
     content = manifest.get("content")
     if not isinstance(content, dict) or content.get("files") != files:
@@ -769,6 +1085,8 @@ def build_site_candidate(
     output_path: Path,
     base_url: str,
     rollback_candidate: Path | None = None,
+    provider_rollback_binding: Path | None = None,
+    provider_rollback_binding_receipt: str | None = None,
     implementation_binding: dict[str, str],
     candidate_verifier: Callable[..., dict[str, object]] = verify_refresh_candidate,
     now: datetime | None = None,
@@ -819,8 +1137,27 @@ def build_site_candidate(
     if not isinstance(corrections, list):
         raise SiteCandidateError("corrections input must be a JSON list")
 
+    if rollback_candidate is not None and provider_rollback_binding is not None:
+        raise SiteCandidateError(
+            "retained-site and provider-native rollback bindings are mutually exclusive"
+        )
+    if (provider_rollback_binding is None) != (provider_rollback_binding_receipt is None):
+        raise SiteCandidateError(
+            "provider-native rollback path and approved receipt must be supplied together"
+        )
     rollback: dict[str, Any]
-    if rollback_candidate is None:
+    provider_rollback_snapshot: dict[str, Any] | None = None
+    if provider_rollback_binding is not None:
+        if provider_rollback_binding_receipt is None:
+            raise SiteCandidateError("provider-native rollback approved receipt is missing")
+        provider_rollback_snapshot = verify_provider_native_rollback_binding(
+            binding_path=provider_rollback_binding,
+            expected_base_url=base_url,
+            expected_receipt_digest=provider_rollback_binding_receipt,
+            now=now or datetime.now(UTC),
+        )
+        rollback = provider_rollback_snapshot
+    elif rollback_candidate is None:
         rollback = {
             "state": "UNKNOWN",
             "reason": "no-prior-immutable-site-candidate-bound",
@@ -878,9 +1215,21 @@ def build_site_candidate(
         )
         if final_binding != binding:
             raise SiteCandidateError("site candidate inputs changed during rendering")
+        if provider_rollback_binding is not None:
+            final_provider_rollback = verify_provider_native_rollback_binding(
+                binding_path=provider_rollback_binding,
+                expected_base_url=base_url,
+                expected_receipt_digest=provider_rollback_binding_receipt,
+                now=now or datetime.now(UTC),
+            )
+            if final_provider_rollback != provider_rollback_snapshot:
+                raise SiteCandidateError(
+                    "provider-native rollback binding changed during rendering"
+                )
 
         files = _capture_content(temporary)
         accepted_current = binding["state"] == ACCEPTED_REVIEW_STATE
+        site_binding = {**binding, "rollback_state": rollback["state"]}
         blocking_gates = [
             *([] if accepted_current else ["sanitized_review_acceptance_required"]),
             "explicit_publication_authority_required",
@@ -888,6 +1237,10 @@ def build_site_candidate(
         ]
         if rollback["state"] == "UNKNOWN":
             blocking_gates.append("rollback_artifact_binding_unknown")
+        elif rollback["state"] == PROVIDER_NATIVE_ROLLBACK_STATE:
+            blocking_gates.append(
+                "provider_native_rollback_revalidation_and_publication_approval_required"
+            )
         manifest: dict[str, Any] = {
             "schema": SITE_CANDIDATE_SCHEMA,
             "state": binding["state"],
@@ -905,7 +1258,7 @@ def build_site_candidate(
                 else "Deterministic local review artifact only; not sanitized acceptance, "
                 "publication, deployment, production freshness, safety, or endorsement."
             ),
-            "bindings": binding,
+            "bindings": site_binding,
             "corrections_digest": (
                 _sha256_file(corrections_path)
                 if corrections_path.exists()
