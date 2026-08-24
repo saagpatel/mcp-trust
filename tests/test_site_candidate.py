@@ -1,0 +1,311 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from mcp_trust.core.models import Server, ServerSource, SourceKind
+from mcp_trust.grade_refresh import digest_file
+from mcp_trust.site.candidate import (
+    PENDING_STATE,
+    SiteCandidateError,
+    build_site_candidate,
+    canonical_bytes,
+    verify_site_candidate,
+)
+from mcp_trust.store.db import connect, init_schema
+from mcp_trust.store.repository import ServerRepository
+
+
+def _fixture(tmp_path: Path) -> dict[str, object]:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    connection = connect(candidate / "registry.db")
+    init_schema(connection)
+    ServerRepository(connection).upsert(
+        Server(
+            slug="masked-server",
+            name="Masked Server",
+            description="grade-must-remain-withheld",
+            source=ServerSource(kind=SourceKind.NPM, reference="masked-server"),
+            added_at=datetime(2026, 8, 23, tzinfo=UTC),
+        )
+    )
+    connection.close()
+    (candidate / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-08-23T17:36:33+00:00",
+                "masking": {"slugs": ["masked-server"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    seed = tmp_path / "seed.json"
+    seed.write_text("[]\n", encoding="utf-8")
+    masked = tmp_path / "masked.json"
+    masked.write_text('["masked-server"]\n', encoding="utf-8")
+    policy = tmp_path / "policy.json"
+    policy.write_text('{"schema":"test-policy"}\n', encoding="utf-8")
+    corrections = tmp_path / "corrections.json"
+    corrections.write_text("[]\n", encoding="utf-8")
+
+    manifest_hex = "a" * 64
+    review: dict[str, object] = {
+        "schema": "McpTrustPublicationReviewDecisionV1",
+        "review_state": "READY_FOR_HUMAN_DISPOSITION",
+        "decision": "NO_GO",
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "scheduler_change_allowed": False,
+        "grade_semantics": "technical-danger-not-endorsement",
+        "claim_ceiling": "Local review only; not publication or deployment.",
+        "disposition_policy": {
+            "path": "refresh_disposition_policy.json",
+            "review_state": "PROPOSED",
+            "sha256": "sha256:" + "1" * 64,
+        },
+        "entry_dispositions": [
+            {
+                "slug": "masked-server",
+                "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+                "rationale_code": "operator-masking-continuity",
+                "next_review_condition": "explicit-human-disposition",
+                "acceptance_state": "PENDING_HUMAN_ACCEPTANCE",
+                "classification": {
+                    "unsupported_upstream": False,
+                    "credential_dependent": False,
+                    "backing_service_dependent": False,
+                    "unsafe_to_execute_unsandboxed": True,
+                },
+                "controlled_evidence": {
+                    "outcome": "scan_succeeded",
+                    "evidence_state": "present",
+                    "sandbox_image_id": "sha256:" + "d" * 64,
+                    "projection_digest": "sha256:" + "e" * 64,
+                },
+                "claim_ceiling": "No unmasked grade or safety claim.",
+            }
+        ],
+        "disposition_counts": {
+            "total": 1,
+            "pending_human_acceptance": 1,
+            "retain_masked": 1,
+        },
+        "candidate_counts": {"fresh": 0, "masked": 1, "total": 1},
+        "historical_baseline": {
+            "state": "UNKNOWN",
+            "disposition": "preserve-unknown-no-retroactive-comparison",
+        },
+        "forward_baseline": {
+            "state": "PROPOSED",
+            "candidate_manifest_digest": "sha256:" + manifest_hex,
+            "repeat_candidate_manifest_digest": "sha256:" + "f" * 64,
+            "seed_digest": digest_file(seed),
+            "masking_digest": digest_file(masked),
+            "policy_digest": digest_file(policy),
+            "preflight_receipt_digest": "sha256:" + "2" * 64,
+            "repeatability_receipt_digest": "sha256:" + "3" * 64,
+            "triage_receipt_digest": "sha256:" + "4" * 64,
+            "catalog_denominator": 1,
+            "source_revision": "b" * 40,
+            "source_tree_digest": "sha256:" + "c" * 64,
+            "qualified_images": {"fixture": "sha256:" + "d" * 64},
+            "tool_versions": {"python": "3.11.15", "python_executable": "python3.11"},
+        },
+        "scheduler_disposition": {
+            "activation_authorized": False,
+            "mutation_performed": False,
+            "observed_state": "DISABLED_UNLOADED",
+            "loaded_domains": [],
+        },
+        "blocking_gates": [
+            "masked_disposition_acceptance_required",
+            "forward_baseline_acceptance_required",
+            "exact_source_review_and_landing_required",
+            "immutable_site_artifact_and_rollback_binding_required",
+            "explicit_publication_authority_required",
+            "production_source_and_deployment_binding_unknown",
+        ],
+        "quarantined_gates": ["dormant_scheduler_definition_drift_before_activation"],
+        "false_green_guards": [
+            "candidate-readiness-is-not-publication-authority",
+            "masked-scan-success-is-not-an-unmasked-grade-or-safety-claim",
+            "local-candidate-freshness-does-not-prove-production-freshness",
+        ],
+    }
+    review["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(review)).hexdigest()
+    review_path = tmp_path / "sanitized-review.json"
+    review_path.write_bytes(canonical_bytes(review))
+    disposition = {
+        "schema": "McpTrustGradeRefreshDispositionPolicyV1",
+        "review_state": "SANITIZED_REACCEPTANCE_REQUIRED",
+        "acceptance": {
+            "sanitized_acceptance_state": "PENDING_OPERATOR_REACCEPTANCE",
+            "sanitized_review_path": review_path.name,
+            "sanitized_review_artifact_sha256": digest_file(review_path),
+            "sanitized_review_receipt_digest": review["receipt_digest"],
+        },
+    }
+    disposition_path = tmp_path / "disposition.json"
+    disposition_path.write_text(json.dumps(disposition), encoding="utf-8")
+
+    def verifier(*_args, **_kwargs) -> dict[str, object]:
+        return {
+            "publication_ready": True,
+            "manifest_sha256": manifest_hex,
+            "scan_counts": {"fresh": 0, "masked": 1, "total": 1, "failed": 0},
+            "errors": [],
+        }
+
+    return {
+        "candidate_path": candidate,
+        "review_path": review_path,
+        "disposition_path": disposition_path,
+        "seed_path": seed,
+        "masked_path": masked,
+        "policy_path": policy,
+        "corrections_path": corrections,
+        "base_url": "https://mcp-trust.example",
+        "implementation_binding": {
+            "state": "CLEAN_COMMITTED",
+            "revision": "9" * 40,
+            "source_tree_digest": "sha256:" + "8" * 64,
+        },
+        "candidate_verifier": verifier,
+    }
+
+
+def _tree(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_pending_site_candidate_is_deterministic_and_non_publishable(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    first = build_site_candidate(output_path=tmp_path / "first", **inputs)
+    second = build_site_candidate(output_path=tmp_path / "second", **inputs)
+
+    assert _tree(first) == _tree(second)
+    verified = verify_site_candidate(first)
+    assert verified == {
+        "structural_valid": True,
+        "state": PENDING_STATE,
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "rollback_state": "UNKNOWN",
+        "content_digest": verified["content_digest"],
+        "receipt_digest": verified["receipt_digest"],
+        "file_count": 7,
+    }
+    badge = json.loads((first / "servers/masked-server/badge.json").read_text())
+    assert badge["message"] == "under review"
+    assert '"message": "A"' not in (first / "servers/masked-server/badge.json").read_text()
+    manifest = json.loads((first / "SITE_CANDIDATE.json").read_text())
+    assert manifest["implementation_binding"] == inputs["implementation_binding"]
+
+
+def test_pending_prior_artifact_cannot_become_bound_rollback(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    prior = build_site_candidate(output_path=tmp_path / "prior", **inputs)
+    current = tmp_path / "current"
+
+    with pytest.raises(SiteCandidateError, match="not a retained deployment-qualified"):
+        build_site_candidate(output_path=current, rollback_candidate=prior, **inputs)
+    assert not current.exists()
+
+
+def test_tampered_review_fails_without_final_output(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    review = inputs["review_path"]
+    assert isinstance(review, Path)
+    payload = json.loads(review.read_text())
+    payload["candidate_counts"]["total"] = 2
+    review.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "output"
+
+    with pytest.raises(SiteCandidateError, match="lineage|integrity"):
+        build_site_candidate(output_path=output, **inputs)
+    assert not output.exists()
+    assert not list(tmp_path.glob(".output.tmp-*"))
+
+
+def test_site_candidate_tamper_and_extra_file_fail_verification(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    output = build_site_candidate(output_path=tmp_path / "output", **inputs)
+    badge = output / "servers/masked-server/badge.json"
+    badge.write_text('{"message":"A"}\n', encoding="utf-8")
+    with pytest.raises(SiteCandidateError, match="file manifest changed"):
+        verify_site_candidate(output)
+
+    badge.unlink()
+    (output / "unexpected.txt").write_text("extra\n", encoding="utf-8")
+    with pytest.raises(SiteCandidateError, match="file manifest changed"):
+        verify_site_candidate(output)
+
+
+def test_pending_manifest_cannot_self_assert_publication_authority(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    output = build_site_candidate(output_path=tmp_path / "output", **inputs)
+    manifest_path = output / "SITE_CANDIDATE.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("receipt_digest")
+    manifest["publication_allowed"] = True
+    manifest["deployment_allowed"] = True
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+    manifest_path.write_bytes(canonical_bytes(manifest))
+
+    with pytest.raises(SiteCandidateError, match="exceeds its authority"):
+        verify_site_candidate(output)
+
+
+def test_input_drift_during_rendering_fails_without_output(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    stable = inputs["candidate_verifier"]
+    assert callable(stable)
+    calls = 0
+
+    def drifting(*args, **kwargs) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        result = dict(stable(*args, **kwargs))
+        if calls > 1:
+            result["manifest_sha256"] = "e" * 64
+        return result
+
+    inputs["candidate_verifier"] = drifting
+    output = tmp_path / "output"
+    with pytest.raises(SiteCandidateError, match="candidate_manifest_digest"):
+        build_site_candidate(output_path=output, **inputs)
+    assert not output.exists()
+
+
+def test_symlinked_review_input_is_rejected(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    review = inputs["review_path"]
+    assert isinstance(review, Path)
+    link = tmp_path / "review-link.json"
+    link.symlink_to(review)
+    inputs["review_path"] = link
+
+    with pytest.raises(SiteCandidateError, match="must not be symlinked"):
+        build_site_candidate(output_path=tmp_path / "output", **inputs)
+
+
+def test_site_candidate_refuses_existing_target_and_symlink(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    output = tmp_path / "output"
+    output.mkdir()
+    with pytest.raises(SiteCandidateError, match="already exists"):
+        build_site_candidate(output_path=output, **inputs)
+
+    output.rmdir()
+    output.symlink_to(tmp_path / "missing")
+    with pytest.raises(SiteCandidateError, match="already exists"):
+        build_site_candidate(output_path=output, **inputs)

@@ -188,6 +188,15 @@ explicit publication authority remain separate gates. Dormant scheduler-
 definition drift is quarantined behind reconciliation and separate activation
 approval instead of being normalized away by the disabled and unloaded state.
 
+The `build_site_candidate.py` layer consumes the exact candidate and sanitized
+review receipts, then renders with a deterministic candidate timestamp into a
+fresh temporary directory. Its canonical content manifest is independently
+verified before and after atomic finalization and binds the clean committed
+builder revision plus complete Git-tree digest. A missing prior artifact remains
+`UNKNOWN` rollback lineage; the current pending sanitized review always yields
+`publication_allowed: false` and `deployment_allowed: false`. Deployment
+authorization V3 rejects raw, pending, tampered, or rollback-unbound site trees.
+
 ## Freshness and safe failure
 
 - A candidate and its individual scans must be less than 24 hours old.

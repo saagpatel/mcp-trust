@@ -145,14 +145,43 @@ grades, or turn controlled startup evidence into a safety or backing-service
 claim. V20 acceptance is not silently transferred to the sanitized bytes, and
 neither acceptance is publication authority.
 
-## 6. Publication gate
+## 6. Build the immutable local site candidate
+
+Use only the exact verified refresh candidate and bundled sanitized review
+packet. The builder renders in a fresh sibling temporary directory, fixes the
+rendering time to the candidate timestamp, writes a canonical per-file manifest,
+and atomically finalizes the output. Run it only from the clean locally landed
+commit: the manifest binds that exact Git revision and a SHA-256 projection of
+its complete Git tree. A dirty or untracked implementation fails closed:
+
+```bash
+uv run --frozen python scripts/build_site_candidate.py \
+  --candidate ./dist/refresh-candidates/<candidate> \
+  --out ./dist/site-candidates/<name>
+uv run --frozen python scripts/build_site_candidate.py \
+  --verify ./dist/site-candidates/<name>
+```
+
+With the current policy this succeeds only as
+`REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE`; both authority booleans remain
+false. If no exact prior immutable site candidate is supplied with
+`--rollback-candidate`, rollback is `UNKNOWN` and is an additional publication
+block. A pending or otherwise non-deployable prior artifact is rejected and
+cannot upgrade rollback to `BOUND`; only a retained, independently verified
+deployment-qualified artifact can be referenced. No such promotion path is
+enabled by this review-only lane. Repeat the build to a second new path and
+require byte-identical output.
+Raw `build_site.py --db` output is a development preview and is never a
+deployment-qualified artifact.
+
+## 7. Publication gate
 
 Stop. Publication, Vercel deployment, scheduler enablement, and outreach require
 separate explicit approval. Use the package's `HumanGateResumeCapsuleV1.json`
 for the chat gate. Re-read the live public route separately; local equivalence
 does not prove production uptake.
 
-## 7. Rollback preparation
+## 8. Rollback preparation
 
 Before any future publication retain the exact prior deployment identifier,
 source revision, site artifact digest, snapshot digest, masking digest, and

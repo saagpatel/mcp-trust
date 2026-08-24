@@ -59,13 +59,17 @@ the seed catalog, running real scans, or changing grading bands.
 
    ```bash
    python scripts/build_deploy_bundle.py \
-     --candidate ./dist/refresh-candidate-<timestamp>
+     --candidate ./dist/refresh-candidate-<timestamp> \
+     --review ./dist/publication-review.json \
+     --disposition ./src/mcp_trust/catalog/refresh_disposition_policy.json \
+     --policy ./src/mcp_trust/catalog/refresh_policy.json
    ```
 
-   The builder independently verifies the review-only refresh candidate and
-   refuses incomplete, stale, or unbound input. The bundle contains a pruned
-   `registry.db`, referenced receipts, and a `MANIFEST.json` bound to the
-   candidate manifest digest. Bundle creation does not authorize deployment.
+   The builder independently verifies the candidate and exact review bindings,
+   and refuses incomplete, stale, pending, non-deployable, or rollback-unbound
+   input. No supported promotion path exists in the current review-only lane,
+   so the sanitized pending review intentionally blocks this command. A future
+   successful bundle would still not authorize upload or deployment.
 
 5. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`

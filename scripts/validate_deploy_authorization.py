@@ -9,12 +9,16 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "McpTrustProductionDeployAuthorizationV2"
+SCHEMA = "McpTrustProductionDeployAuthorizationV3"
+SITE_SCHEMA = "McpTrustSiteCandidateV1"
+SITE_MANIFEST = "SITE_CANDIDATE.json"
+DEPLOYABLE_SITE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"
 MAX_VALIDITY = timedelta(minutes=15)
 MAX_FUTURE_SKEW = timedelta(seconds=60)
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -37,12 +41,39 @@ def _parse_time(value: Any, field: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _stable_file_bytes(path: Path, label: str) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        _fail(f"{label} cannot be opened safely: {exc}")
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            _fail(f"{label} must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            content = handle.read()
+        after = os.fstat(descriptor)
+        current = os.stat(path, follow_symlinks=False)
+    finally:
+        os.close(descriptor)
+
+    def identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_size,
+            value.st_mtime_ns,
+        )
+
+    if identity(before) != identity(after) or identity(after) != identity(current):
+        _fail(f"{label} changed while it was read")
+    return content
+
+
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashlib.sha256(_stable_file_bytes(path, str(path))).hexdigest()
 
 
 def _tree_sha256(root: Path) -> str:
@@ -68,6 +99,165 @@ def _tree_sha256(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _canonical_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode() + b"\n"
+    )
+
+
+def _prefixed_digest(value: bytes) -> str:
+    return "sha256:" + hashlib.sha256(value).hexdigest()
+
+
+def _strict_json(value: bytes, label: str) -> Any:
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in result:
+                _fail(f"{label} contains duplicate key: {key}")
+            result[key] = item
+        return result
+
+    try:
+        return json.loads(value, object_pairs_hook=reject_duplicates)
+    except json.JSONDecodeError as exc:
+        _fail(f"{label} is invalid JSON: {exc}")
+
+
+def _git_tree_digest(repository: Path, commit: str) -> str:
+    if SHA_RE.fullmatch(commit) is None:
+        _fail("approved commit must be a full lowercase Git SHA")
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(repository), "ls-tree", "-r", "--full-tree", commit],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        _fail("approved commit Git tree cannot be read")
+    return _prefixed_digest(result.stdout)
+
+
+def _validate_site_candidate(output_path: Path) -> dict[str, str]:
+    """Require a receipt-bound, rollback-bound artifact before deploy approval."""
+    manifest_path = _regular_file(output_path / SITE_MANIFEST, "site candidate manifest")
+    manifest = _strict_json(
+        _stable_file_bytes(manifest_path, "site candidate manifest"),
+        "site candidate manifest",
+    )
+    if not isinstance(manifest, dict) or manifest.get("schema") != SITE_SCHEMA:
+        _fail("site candidate manifest schema is invalid")
+    unsigned = dict(manifest)
+    claimed = unsigned.pop("receipt_digest", None)
+    if not isinstance(claimed, str) or claimed != _prefixed_digest(_canonical_bytes(unsigned)):
+        _fail("site candidate manifest receipt integrity is invalid")
+    if (
+        manifest.get("state") != DEPLOYABLE_SITE_STATE
+        or manifest.get("publication_allowed") is not True
+        or manifest.get("deployment_allowed") is not True
+        or manifest.get("blocking_gates", []) != []
+    ):
+        _fail("site candidate is not publication-approved and deployment-eligible")
+    implementation = manifest.get("implementation_binding")
+    if (
+        not isinstance(implementation, dict)
+        or implementation.get("state") != "CLEAN_COMMITTED"
+        or re.fullmatch(r"[0-9a-f]{40}", str(implementation.get("revision", ""))) is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", str(implementation.get("source_tree_digest", "")))
+        is None
+    ):
+        _fail("site candidate implementation binding is invalid")
+    rollback = manifest.get("rollback")
+    if (
+        not isinstance(rollback, dict)
+        or rollback.get("state") != "BOUND"
+        or not isinstance(rollback.get("site_receipt_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", rollback["site_receipt_digest"]) is None
+        or not isinstance(rollback.get("content_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", rollback["content_digest"]) is None
+    ):
+        _fail("site candidate rollback lineage is not exact and complete")
+    bindings = manifest.get("bindings")
+    required_bindings = {
+        "candidate_manifest_digest",
+        "review_artifact_sha256",
+        "review_receipt_digest",
+        "disposition_policy_sha256",
+        "seed_digest",
+        "masking_digest",
+        "policy_digest",
+        "source_revision",
+        "source_tree_digest",
+        "state",
+        "publication_allowed",
+        "deployment_allowed",
+        "rollback_state",
+    }
+    if not isinstance(bindings, dict) or not required_bindings <= set(bindings):
+        _fail("site candidate provenance bindings are incomplete")
+    if (
+        bindings.get("state") != DEPLOYABLE_SITE_STATE
+        or bindings.get("publication_allowed") is not True
+        or bindings.get("deployment_allowed") is not True
+        or bindings.get("rollback_state") != "BOUND"
+    ):
+        _fail("site candidate review authority binding is invalid")
+    digest_bindings = required_bindings - {
+        "source_revision",
+        "state",
+        "publication_allowed",
+        "deployment_allowed",
+        "rollback_state",
+    }
+    if (
+        any(
+            not isinstance(bindings.get(field), str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", bindings[field]) is None
+            for field in digest_bindings
+        )
+        or re.fullmatch(r"[0-9a-f]{40}", str(bindings.get("source_revision", ""))) is None
+    ):
+        _fail("site candidate provenance binding format is invalid")
+
+    content = manifest.get("content")
+    expected_files = content.get("files") if isinstance(content, dict) else None
+    if not isinstance(expected_files, list) or not expected_files:
+        _fail("site candidate content manifest is missing")
+    actual_files: list[dict[str, object]] = []
+    paths = sorted(
+        output_path.rglob("*"),
+        key=lambda item: item.relative_to(output_path).as_posix(),
+    )
+    for path in paths:
+        relative = path.relative_to(output_path).as_posix()
+        if path.is_symlink():
+            _fail(f"site candidate contains a symlink: {relative}")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            _fail(f"site candidate contains a special file: {relative}")
+        if relative in {SITE_MANIFEST, ".vercel/project.json"}:
+            continue
+        file_content = _stable_file_bytes(path, f"site candidate file {relative}")
+        actual_files.append(
+            {
+                "path": relative,
+                "bytes": len(file_content),
+                "sha256": "sha256:" + hashlib.sha256(file_content).hexdigest(),
+            }
+        )
+    content_digest = _prefixed_digest(_canonical_bytes(actual_files))
+    if expected_files != actual_files or content.get("digest") != content_digest:
+        _fail("site candidate content manifest changed")
+    return {
+        "receipt_digest": claimed,
+        "content_digest": content_digest,
+        "rollback_receipt_digest": rollback["site_receipt_digest"],
+        "rollback_content_digest": rollback["content_digest"],
+        "implementation_revision": implementation["revision"],
+        "implementation_source_tree_digest": implementation["source_tree_digest"],
+    }
+
+
 def _regular_file(path: Path, label: str) -> Path:
     if path.is_symlink() or path.parent.is_symlink():
         _fail(f"{label} must not be symlinked: {path}")
@@ -82,10 +272,7 @@ def _regular_file(path: Path, label: str) -> Path:
 
 def _project_link(path: Path, label: str, project_id: str, org_id: str) -> None:
     _regular_file(path, label)
-    try:
-        link = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        _fail(f"{label} is invalid JSON: {exc}")
+    link = _strict_json(_stable_file_bytes(path, label), label)
     if not isinstance(link, dict):
         _fail(f"{label} must be a JSON object")
     if link.get("projectId") != project_id or link.get("orgId") != org_id:
@@ -136,6 +323,7 @@ def validate(
     node_bin: Path,
     output_path: Path,
     output_sha256: str,
+    rollback_artifact: Path,
     now: datetime | None = None,
 ) -> None:
     if output_path.is_symlink():
@@ -149,10 +337,7 @@ def validate(
     if approval_path.stat().st_uid != os.getuid():
         _fail("approval must be owned by the executing user")
 
-    try:
-        payload = json.loads(approval_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        _fail(f"approval JSON is invalid: {exc}")
+    payload = _strict_json(_stable_file_bytes(approval_path, "approval"), "approval")
     if not isinstance(payload, dict):
         _fail("approval JSON must be an object")
 
@@ -160,6 +345,32 @@ def validate(
     node_invocation_path = node_bin.absolute()
     vercel_resolved = vercel_bin.resolve(strict=True)
     node_resolved = node_bin.resolve(strict=True)
+    site_identity = _validate_site_candidate(output_path.resolve(strict=True))
+    current_component = rollback_artifact
+    while current_component != current_component.parent:
+        if current_component.is_symlink():
+            _fail("rollback artifact path must not contain a symlink")
+        current_component = current_component.parent
+    rollback_artifact = rollback_artifact.resolve(strict=True)
+    resolved_output = output_path.resolve(strict=True)
+    if (
+        rollback_artifact == resolved_output
+        or resolved_output in rollback_artifact.parents
+        or rollback_artifact in resolved_output.parents
+    ):
+        _fail("rollback artifact must be distinct from and outside current output")
+    rollback_identity = _validate_site_candidate(rollback_artifact)
+    if (
+        site_identity["rollback_receipt_digest"] != rollback_identity["receipt_digest"]
+        or site_identity["rollback_content_digest"] != rollback_identity["content_digest"]
+    ):
+        _fail("site candidate rollback lineage does not match retained artifact")
+    expected_tree_digest = _git_tree_digest(repository.resolve(strict=True), commit)
+    if (
+        site_identity["implementation_revision"] != commit
+        or site_identity["implementation_source_tree_digest"] != expected_tree_digest
+    ):
+        _fail("site candidate implementation binding does not match approved commit")
     expected = {
         "schema": SCHEMA,
         "repository": str(repository.resolve(strict=True)),
@@ -174,6 +385,13 @@ def validate(
         "node_bin": str(node_resolved),
         "output_path": str(output_path.resolve(strict=True)),
         "output_sha256": output_sha256,
+        "site_candidate_receipt_digest": site_identity["receipt_digest"],
+        "site_candidate_content_digest": site_identity["content_digest"],
+        "rollback_artifact_path": str(rollback_artifact),
+        "rollback_site_candidate_receipt_digest": rollback_identity["receipt_digest"],
+        "rollback_site_candidate_content_digest": rollback_identity["content_digest"],
+        "implementation_revision": site_identity["implementation_revision"],
+        "implementation_source_tree_digest": site_identity["implementation_source_tree_digest"],
         "approval_path": str(approval_path),
     }
     for field, value in expected.items():
@@ -204,9 +422,7 @@ def validate(
     if not isinstance(expected_digest, str) or expected_digest != _sha256(vercel_resolved):
         _fail("approval vercel_sha256 mismatch")
     expected_node_digest = payload.get("node_sha256")
-    if not isinstance(expected_node_digest, str) or expected_node_digest != _sha256(
-        node_resolved
-    ):
+    if not isinstance(expected_node_digest, str) or expected_node_digest != _sha256(node_resolved):
         _fail("approval node_sha256 mismatch")
     if not re.fullmatch(r"[0-9a-f]{64}", output_sha256):
         _fail("approved output SHA-256 must be 64 lowercase hex characters")
@@ -229,6 +445,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--node-bin", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--output-sha256", required=True)
+    parser.add_argument("--rollback-artifact", type=Path, required=True)
     return parser
 
 
@@ -247,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
             node_bin=args.node_bin,
             output_path=args.output,
             output_sha256=args.output_sha256,
+            rollback_artifact=args.rollback_artifact,
         )
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
