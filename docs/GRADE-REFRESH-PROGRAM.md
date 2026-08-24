@@ -49,10 +49,6 @@ claim that a server is benign or malicious.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
   remain UNKNOWN until all 31 qualified entries are safely rescanned.
-- The legacy VM bundle gate is weaker than full refresh-candidate verification.
-  Masking is now fail-closed, but future VM publication must additionally
-  require current candidate, provenance, freshness, and receipt verification.
-
 ### Medium
 
 - The host LaunchAgent is persistently disabled and unloaded, but a dormant

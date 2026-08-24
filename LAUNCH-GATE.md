@@ -21,7 +21,13 @@ Current decision: **NO-GO for public launch**.
 - The isolated 2026-08-21 reference-corpus runner used MCPAudit 2.7.0; the
   current evidence is committed at `docs/reference-corpus-evidence-v1.json`.
 
-## Local Launch Evidence
+## Historical launch and rehearsal evidence
+
+Unless a bullet carries a newer explicit date, the VM, service, backup, and
+smoke observations in this section are historical 2026-06-19/20 rehearsal
+evidence. They are not a current runtime, deployment, availability, or
+production-freshness readback. Current public freshness and source/deployment
+binding remain `UNKNOWN` until a separately authorized live release readback.
 
 - Docker/Colima were repaired locally by clearing a stale broken Colima disk
   entry and recreating the Colima VM profile.

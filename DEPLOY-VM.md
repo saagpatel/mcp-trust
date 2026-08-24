@@ -81,11 +81,15 @@ python scripts/build_deploy_bundle.py \
   --policy ./src/mcp_trust/catalog/refresh_policy.json
 ```
 
-The command verifies the candidate and records its manifest digest. It refuses
-to create a deployment-shaped bundle while the review is pending, `NO_GO`, or
-otherwise lacks deployment authority. A successful future command creates an
-offline transfer artifact only; upload and deployment remain separate,
-explicitly authorized steps.
+The command requires a clean committed builder, verifies the complete candidate,
+and binds every stable-copied DB/receipt byte to its artifact manifest. The V2
+bundle manifest contains no host candidate path, carries its own canonical
+receipt and content digest, and the byte-deterministic archive appears only
+after an atomic no-clobber finalize. Candidate inputs are reverified before
+finalization. The command refuses to create a deployment-shaped bundle while
+the review is pending, `NO_GO`, rollback-unbound, or otherwise lacks deployment
+authority. A successful future command creates an offline transfer artifact
+only; upload and deployment remain separate, explicitly authorized steps.
 
 Upload the resulting `dist/mcp-trust-deploy-bundle-*.tar.gz` to the VM, extract
 it, and copy its contents into `/data/mcp-trust/`:
