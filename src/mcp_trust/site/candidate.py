@@ -21,6 +21,7 @@ from typing import Any
 
 from mcp_trust.grade_refresh import (
     DISPOSITION_POLICY_SCHEMA,
+    DISPOSITION_POLICY_SCHEMA_V1,
     PUBLICATION_REVIEW_SCHEMA,
 )
 from mcp_trust.refresh import verify_refresh_candidate
@@ -30,6 +31,7 @@ from mcp_trust.store.repository import ScanRepository, ServerRepository
 SITE_CANDIDATE_SCHEMA = "McpTrustSiteCandidateV1"
 SITE_CANDIDATE_MANIFEST = "SITE_CANDIDATE.json"
 PENDING_STATE = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
+ACCEPTED_REVIEW_STATE = "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW"
 DEPLOYABLE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DEPLOYMENT_ENVELOPE_FILES = frozenset({".vercel/project.json"})
@@ -164,23 +166,24 @@ def _regular_json(path: Path, label: str) -> dict[str, Any]:
 
 
 def _validate_review_semantics(review: dict[str, Any]) -> None:
-    """Validate the complete sanitized proposal surface, including false greens."""
+    """Validate the complete proposal surface, including privacy false greens."""
     if set(review) != _REVIEW_KEYS:
-        raise SiteCandidateError("sanitized review fields are invalid")
+        raise SiteCandidateError("review fields are invalid")
     if review.get("historical_baseline") != {
         "state": "UNKNOWN",
         "disposition": "preserve-unknown-no-retroactive-comparison",
     }:
-        raise SiteCandidateError("sanitized review historical baseline is not UNKNOWN")
+        raise SiteCandidateError("review historical baseline is not UNKNOWN")
     disposition = review.get("disposition_policy")
     if (
         not isinstance(disposition, dict)
-        or disposition.get("path") != "refresh_disposition_policy.json"
+        or not isinstance(disposition.get("path"), str)
+        or Path(disposition["path"]).name != disposition["path"]
         or disposition.get("review_state") != "PROPOSED"
         or not isinstance(disposition.get("sha256"), str)
         or _SHA256.fullmatch(disposition["sha256"]) is None
     ):
-        raise SiteCandidateError("sanitized review disposition projection is invalid")
+        raise SiteCandidateError("review disposition projection is invalid")
     entries = review.get("entry_dispositions")
     counts = review.get("disposition_counts")
     candidates = review.get("candidate_counts")
@@ -192,14 +195,22 @@ def _validate_review_semantics(review: dict[str, Any]) -> None:
         or any(type(candidates[key]) is not int for key in candidates)
         or candidates["fresh"] + candidates["masked"] != candidates["total"]
         or counts
-        != {
-            "total": len(entries),
-            "pending_human_acceptance": len(entries),
-            "retain_masked": len(entries),
-        }
+        not in (
+            {
+                "total": len(entries),
+                "pending_human_acceptance": len(entries),
+                "retain_masked": len(entries),
+            },
+            {
+                "total": len(entries),
+                "pending_human_acceptance": len(entries),
+                "accepted_human": 0,
+                "retain_masked": len(entries),
+            },
+        )
         or candidates["masked"] != len(entries)
     ):
-        raise SiteCandidateError("sanitized review disposition or candidate counts are invalid")
+        raise SiteCandidateError("review disposition or candidate counts are invalid")
     slugs: list[str] = []
     for entry in entries:
         classification = entry.get("classification") if isinstance(entry, dict) else None
@@ -228,14 +239,14 @@ def _validate_review_semantics(review: dict[str, Any]) -> None:
             or _SHA256.fullmatch(str(evidence.get("sandbox_image_id", ""))) is None
             or _SHA256.fullmatch(str(evidence.get("projection_digest", ""))) is None
         ):
-            raise SiteCandidateError("sanitized review masked disposition evidence is invalid")
+            raise SiteCandidateError("review masked disposition evidence is invalid")
         slugs.append(entry["slug"])
     if len(slugs) != len(set(slugs)):
-        raise SiteCandidateError("sanitized review contains duplicate dispositions")
+        raise SiteCandidateError("review contains duplicate dispositions")
 
     forward = review.get("forward_baseline")
     if not isinstance(forward, dict) or forward.get("state") != "PROPOSED":
-        raise SiteCandidateError("sanitized review forward baseline state is invalid")
+        raise SiteCandidateError("review forward baseline state is invalid")
     required_forward = {
         "candidate_manifest_digest",
         "repeat_candidate_manifest_digest",
@@ -255,7 +266,7 @@ def _validate_review_semantics(review: dict[str, Any]) -> None:
         )
         or re.fullmatch(r"[0-9a-f]{40}", str(forward.get("source_revision", ""))) is None
     ):
-        raise SiteCandidateError("sanitized review provenance digests are invalid")
+        raise SiteCandidateError("review provenance digests are invalid")
     tool_versions = forward.get("tool_versions")
     images = forward.get("qualified_images")
     if (
@@ -271,7 +282,7 @@ def _validate_review_semantics(review: dict[str, Any]) -> None:
             for reference, image_id in images.items()
         )
     ):
-        raise SiteCandidateError("sanitized review tool or image provenance is invalid")
+        raise SiteCandidateError("review tool or image provenance is invalid")
     blockers = review.get("blocking_gates")
     false_green = review.get("false_green_guards")
     scheduler = review.get("scheduler_disposition")
@@ -299,7 +310,7 @@ def _validate_review_semantics(review: dict[str, Any]) -> None:
         or scheduler.get("observed_state") != "DISABLED_UNLOADED"
         or scheduler.get("loaded_domains") != []
     ):
-        raise SiteCandidateError("sanitized review fail-closed gates are invalid")
+        raise SiteCandidateError("review fail-closed gates are invalid")
 
 
 def verify_site_candidate_review(
@@ -313,7 +324,7 @@ def verify_site_candidate_review(
     candidate_verifier: Callable[..., dict[str, object]] = verify_refresh_candidate,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Verify the exact pending sanitized review and all forward bindings.
+    """Verify an exact review-only acceptance or pending sanitized review.
 
     A successful return is an admission to build a local review artifact only.
     It is never publication or deployment authority.
@@ -336,22 +347,160 @@ def verify_site_candidate_review(
 
     disposition = _regular_json(disposition_path, "disposition policy")
     review = _regular_json(review_path, "sanitized review")
-    if disposition.get("schema") != DISPOSITION_POLICY_SCHEMA:
+    if disposition.get("schema") not in {
+        DISPOSITION_POLICY_SCHEMA,
+        DISPOSITION_POLICY_SCHEMA_V1,
+    }:
         raise SiteCandidateError("disposition policy schema is unsupported")
-    if disposition.get("review_state") != "SANITIZED_REACCEPTANCE_REQUIRED":
-        raise SiteCandidateError("disposition policy is not pending sanitized reacceptance")
+    disposition_state = disposition.get("review_state")
+    if disposition_state not in {
+        "SANITIZED_REACCEPTANCE_REQUIRED",
+        "ACCEPTED_CURRENT_SOURCE_REVIEW",
+    }:
+        raise SiteCandidateError("disposition policy is not review-only admissible")
+    accepted_current = disposition_state == "ACCEPTED_CURRENT_SOURCE_REVIEW"
     acceptance = disposition.get("acceptance")
     if not isinstance(acceptance, dict):
-        raise SiteCandidateError("disposition policy lacks sanitized acceptance lineage")
-    if (
-        acceptance.get("sanitized_acceptance_state") != "PENDING_OPERATOR_REACCEPTANCE"
+        raise SiteCandidateError("disposition policy lacks acceptance lineage")
+    if accepted_current:
+        review_policy = review.get("disposition_policy")
+        artifact_name = acceptance.get("accepted_disposition_path")
+        if (
+            disposition.get("schema") != DISPOSITION_POLICY_SCHEMA
+            or disposition.get("grade_semantics")
+            != "technical-danger-not-endorsement"
+            or disposition.get("historical_baseline")
+            != {
+                "state": "UNKNOWN",
+                "disposition": "preserve-unknown-no-retroactive-comparison",
+            }
+            or disposition.get("forward_baseline")
+            != {
+                "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
+                "disposition": (
+                    "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
+                ),
+            }
+            or acceptance.get("acceptance_state") != "ACCEPTED_EXACT_V38"
+            or acceptance.get("scope")
+            != "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
+            or acceptance.get("accepted_review_path") != review_path.name
+            or acceptance.get("accepted_review_artifact_sha256")
+            != _sha256_file(review_path)
+            or acceptance.get("accepted_review_receipt_digest")
+            != review.get("receipt_digest")
+            or not isinstance(review_policy, dict)
+            or review_policy.get("sha256")
+            != acceptance.get("accepted_review_policy_sha256")
+            or not isinstance(artifact_name, str)
+            or Path(artifact_name).name != artifact_name
+        ):
+            raise SiteCandidateError("accepted review does not match current-source lineage")
+        artifact_path = disposition_path.parent / artifact_name
+        artifact = _regular_json(artifact_path, "accepted disposition artifact")
+        artifact_acceptance = artifact.get("acceptance")
+        artifact_forward = artifact.get("forward_baseline")
+        artifact_masked = artifact.get("masked_dispositions")
+        artifact_privacy = artifact.get("privacy")
+        artifact_public = artifact.get("separate_public_state")
+        if (
+            _sha256_file(artifact_path)
+            != acceptance.get("accepted_disposition_artifact_sha256")
+            or artifact.get("schema") != "McpTrustAcceptedDispositionArtifactV1"
+            or artifact.get("decision") != "OPERATOR_ACCEPTED_EXACT_V38"
+            or not _receipt_valid(artifact)
+            or artifact.get("receipt_digest")
+            != acceptance.get("accepted_disposition_receipt_digest")
+            or not isinstance(artifact_acceptance, dict)
+            or artifact_acceptance.get("state") != "ACCEPTED_EXACT_V38"
+            or artifact_acceptance.get("scope") != acceptance.get("scope")
+            or artifact_acceptance.get("proposal_policy_sha256")
+            != acceptance.get("accepted_review_policy_sha256")
+            or not isinstance(artifact_forward, dict)
+            or artifact_forward.get("state")
+            != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+            or artifact.get("historical_baseline")
+            != review.get("historical_baseline")
+            or not isinstance(artifact_masked, dict)
+            or artifact_masked.get("count") != len(review.get("entry_dispositions", []))
+            or artifact_masked.get("acceptance_state")
+            != "ACCEPTED_EXACT_V38_RETAIN_MASKED"
+            or artifact_masked.get("projection_repeatability") != "PASS"
+            or artifact_privacy
+            != {
+                "host_specific_path_matches": 0,
+                "credential_values_present": False,
+                "masked_grade_risk_finding_or_receipt_fields_present": False,
+                "raw_candidate_transfer_allowed": False,
+            }
+            or not isinstance(artifact_public, dict)
+            or artifact_public.get("production_freshness") != "UNKNOWN"
+            or artifact_public.get("production_source_binding") != "UNKNOWN"
+            or artifact_public.get("production_deployment_revision") != "UNKNOWN"
+        ):
+            raise SiteCandidateError("accepted disposition artifact integrity is invalid")
+        review_forward = review.get("forward_baseline")
+        artifact_entries = artifact_masked.get("entries")
+        review_entries = review.get("entry_dispositions")
+        shared_forward_fields = {
+            "source_revision",
+            "source_tree_digest",
+            "policy_digest",
+            "seed_digest",
+            "masking_digest",
+            "catalog_denominator",
+            "preflight_receipt_digest",
+            "repeatability_receipt_digest",
+            "triage_receipt_digest",
+            "candidate_manifest_digest",
+            "repeat_candidate_manifest_digest",
+        }
+        if (
+            not isinstance(review_forward, dict)
+            or any(
+                artifact_forward.get(field) != review_forward.get(field)
+                for field in shared_forward_fields
+            )
+            or not isinstance(artifact_entries, list)
+            or not isinstance(review_entries, list)
+        ):
+            raise SiteCandidateError("accepted disposition artifact semantics changed")
+        artifact_projection = {
+            entry.get("slug"): {
+                "disposition": entry.get("disposition"),
+                "rationale_code": entry.get("rationale_code"),
+                "next_review_condition": entry.get("next_review_condition"),
+                "projection_digest": entry.get("projection_digest"),
+            }
+            for entry in artifact_entries
+            if isinstance(entry, dict)
+        }
+        review_projection = {
+            entry.get("slug"): {
+                "disposition": entry.get("disposition"),
+                "rationale_code": entry.get("rationale_code"),
+                "next_review_condition": entry.get("next_review_condition"),
+                "projection_digest": (
+                    entry.get("controlled_evidence", {}).get("projection_digest")
+                    if isinstance(entry.get("controlled_evidence"), dict)
+                    else None
+                ),
+            }
+            for entry in review_entries
+            if isinstance(entry, dict)
+        }
+        if artifact_projection != review_projection:
+            raise SiteCandidateError("accepted disposition artifact semantics changed")
+    elif (
+        acceptance.get("sanitized_acceptance_state")
+        != "PENDING_OPERATOR_REACCEPTANCE"
         or acceptance.get("sanitized_review_path") != review_path.name
         or acceptance.get("sanitized_review_artifact_sha256") != _sha256_file(review_path)
         or acceptance.get("sanitized_review_receipt_digest") != review.get("receipt_digest")
     ):
         raise SiteCandidateError("sanitized review does not match disposition-policy lineage")
     if review.get("schema") != PUBLICATION_REVIEW_SCHEMA or not _receipt_valid(review):
-        raise SiteCandidateError("sanitized review receipt integrity is invalid")
+        raise SiteCandidateError("review receipt integrity is invalid")
     _validate_review_semantics(review)
     if (
         review.get("review_state") != "READY_FOR_HUMAN_DISPOSITION"
@@ -361,13 +510,13 @@ def verify_site_candidate_review(
         or review.get("scheduler_change_allowed") is not False
         or review.get("grade_semantics") != "technical-danger-not-endorsement"
     ):
-        raise SiteCandidateError("sanitized review claim ceiling is invalid")
+        raise SiteCandidateError("review claim ceiling is invalid")
 
     forward = review.get("forward_baseline")
     counts = review.get("candidate_counts")
     scan_counts = verification.get("scan_counts")
     if not isinstance(forward, dict) or not isinstance(counts, dict):
-        raise SiteCandidateError("sanitized review forward bindings are missing")
+        raise SiteCandidateError("review forward bindings are missing")
     expected = {
         "candidate_manifest_digest": "sha256:" + manifest_digest,
         "seed_digest": _sha256_file(seed_path),
@@ -376,21 +525,21 @@ def verify_site_candidate_review(
     }
     for field, value in expected.items():
         if forward.get(field) != value:
-            raise SiteCandidateError(f"sanitized review {field} does not match current input")
+            raise SiteCandidateError(f"review {field} does not match current input")
     verified_counts = (
         {key: scan_counts.get(key) for key in ("fresh", "masked", "total")}
         if isinstance(scan_counts, dict)
         else None
     )
     if counts != verified_counts or counts.get("total") != forward.get("catalog_denominator"):
-        raise SiteCandidateError("sanitized review candidate denominator changed")
+        raise SiteCandidateError("review candidate denominator changed")
     if not isinstance(forward.get("source_revision"), str) or not isinstance(
         forward.get("qualified_images"), dict
     ):
-        raise SiteCandidateError("sanitized review provenance bindings are incomplete")
+        raise SiteCandidateError("review provenance bindings are incomplete")
 
     return {
-        "state": PENDING_STATE,
+        "state": ACCEPTED_REVIEW_STATE if accepted_current else PENDING_STATE,
         "publication_allowed": False,
         "deployment_allowed": False,
         "rollback_state": "UNKNOWN",
@@ -398,7 +547,7 @@ def verify_site_candidate_review(
         "review_artifact_sha256": _sha256_file(review_path),
         "review_receipt_digest": review["receipt_digest"],
         "disposition_policy_sha256": _sha256_file(disposition_path),
-        "disposition_review_state": disposition["review_state"],
+        "disposition_review_state": disposition_state,
         "seed_digest": forward["seed_digest"],
         "masking_digest": forward["masking_digest"],
         "policy_digest": forward["policy_digest"],
@@ -516,12 +665,12 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
     ):
         raise SiteCandidateError("site candidate implementation binding is invalid")
     state_value = manifest.get("state")
-    if state_value == PENDING_STATE:
+    if state_value in {PENDING_STATE, ACCEPTED_REVIEW_STATE}:
         if (
             manifest.get("publication_allowed") is not False
             or manifest.get("deployment_allowed") is not False
         ):
-            raise SiteCandidateError("pending site candidate exceeds its authority")
+            raise SiteCandidateError("review-only site candidate exceeds its authority")
     elif state_value == DEPLOYABLE_STATE:
         if (
             manifest.get("publication_allowed") is not True
@@ -552,7 +701,8 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         raise SiteCandidateError("bound rollback lineage is incomplete")
     blocking_gates = manifest.get("blocking_gates", [])
     if rollback.get("state") == "UNKNOWN" and (
-        state_value != PENDING_STATE or "rollback_artifact_binding_unknown" not in blocking_gates
+        state_value not in {PENDING_STATE, ACCEPTED_REVIEW_STATE}
+        or "rollback_artifact_binding_unknown" not in blocking_gates
     ):
         raise SiteCandidateError("UNKNOWN rollback is not fail-closed")
     files = _capture_content(root, allow_deployment_envelope=allow_deployment_envelope)
@@ -730,8 +880,9 @@ def build_site_candidate(
             raise SiteCandidateError("site candidate inputs changed during rendering")
 
         files = _capture_content(temporary)
+        accepted_current = binding["state"] == ACCEPTED_REVIEW_STATE
         blocking_gates = [
-            "sanitized_review_acceptance_required",
+            *([] if accepted_current else ["sanitized_review_acceptance_required"]),
             "explicit_publication_authority_required",
             "production_source_and_deployment_binding_unknown",
         ]
@@ -739,14 +890,19 @@ def build_site_candidate(
             blocking_gates.append("rollback_artifact_binding_unknown")
         manifest: dict[str, Any] = {
             "schema": SITE_CANDIDATE_SCHEMA,
-            "state": PENDING_STATE,
+            "state": binding["state"],
             "created_at": as_of.isoformat(),
             "base_url": base_url.rstrip("/"),
             "implementation_binding": dict(implementation_binding),
             "publication_allowed": False,
             "deployment_allowed": False,
             "claim_ceiling": (
-                "Deterministic local review artifact only; not sanitized acceptance, "
+                "Deterministic local review artifact for the exact V38 accepted source "
+                "contract only; not publication, deployment, production freshness, "
+                "safety, backing-service functionality, credentialed functionality, "
+                "or endorsement."
+                if accepted_current
+                else "Deterministic local review artifact only; not sanitized acceptance, "
                 "publication, deployment, production freshness, safety, or endorsement."
             ),
             "bindings": binding,

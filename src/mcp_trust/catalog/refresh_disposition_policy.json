@@ -1,28 +1,26 @@
 {
-  "schema": "McpTrustGradeRefreshDispositionPolicyV1",
-  "review_state": "SANITIZED_REACCEPTANCE_REQUIRED",
+  "schema": "McpTrustGradeRefreshDispositionPolicyV2",
+  "review_state": "ACCEPTED_CURRENT_SOURCE_REVIEW",
   "grade_semantics": "technical-danger-not-endorsement",
   "historical_baseline": {
     "state": "UNKNOWN",
     "disposition": "preserve-unknown-no-retroactive-comparison"
   },
   "forward_baseline": {
-    "state": "PENDING_SANITIZED_REACCEPTANCE",
-    "disposition": "preserve-exact-v20-bindings-pending-sanitized-artifact-reacceptance"
+    "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
+    "disposition": "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
   },
   "acceptance": {
     "authority": "operator",
-    "scope": "all-eight-masked-dispositions-and-exact-v20-forward-baseline",
-    "historical_review_receipt_digest": "sha256:15b1367db8f671c84884247f2fc698abef8436897d9a7e1c31634d0f2bcbbddc",
-    "historical_review_artifact_sha256": "sha256:2a7a95f129b86a115c067bf1542757a8524318a8b2f2f44a6b84d891c46139a8",
-    "sanitized_review_path": "sanitized_publication_review_v24.json",
-    "sanitized_review_receipt_digest": "sha256:59625dae4ea5eef743665f99fdcf75df9fee67a396be20c0a17abec75ff5e64d",
-    "sanitized_review_artifact_sha256": "sha256:88e93d858a5fc2daa792844b089418fe48a7ecb091cfc068715a72c1a1919cb7",
-    "sanitization_policy": "normalize-python-executable-to-versioned-command-v1",
-    "sanitized_field": "forward_baseline.tool_versions.python_executable",
-    "sanitized_replacement": "python3.11",
-    "original_value_sha256": "sha256:9061081ffe2519f9fad388ce242ef4303808a4a5a5433e31db73a4ad925f89b8",
-    "sanitized_acceptance_state": "PENDING_OPERATOR_REACCEPTANCE"
+    "scope": "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline",
+    "acceptance_state": "ACCEPTED_EXACT_V38",
+    "accepted_review_path": "accepted_publication_review_v38.json",
+    "accepted_review_receipt_digest": "sha256:631b2f820acac667bd2234d58bfc0cfec72d59e13d14d635031891b7aef01ef6",
+    "accepted_review_artifact_sha256": "sha256:2729ef5592ce398bc8fea4ded2a6fbe24dc7e2f9a7e3ca6e65bf19940b387e5c",
+    "accepted_review_policy_sha256": "sha256:2793e4bd93ea28261febdd68536b4ce14cd4c5631326b137b06b20f8ca14f5a4",
+    "accepted_disposition_path": "accepted_disposition_artifact_v38.json",
+    "accepted_disposition_receipt_digest": "sha256:9f8d932f3146d13917ae214b9558ac3c21ec7142b5c754b274ad8d0946fa816a",
+    "accepted_disposition_artifact_sha256": "sha256:04c05b51234b4b6ff71fb3b7935e62ce4aaee485c501d615df45a49f1360d6e9"
   },
   "scheduler": {
     "disposition": "quarantine-disabled-unloaded",

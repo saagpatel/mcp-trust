@@ -123,33 +123,28 @@ uv run --frozen --extra dev python scripts/grade_refresh.py publication-review \
   --preflight ./dist/grade-refresh/preflight.json \
   --repeatability ./dist/grade-refresh/fixture-repeatability.json \
   --triage ./dist/grade-refresh/triage.json \
-  --accepted-review ./src/mcp_trust/catalog/sanitized_publication_review_v24.json \
+  --accepted-review ./src/mcp_trust/catalog/accepted_publication_review_v38.json \
   --out ./dist/grade-refresh/publication-review.json \
   --markdown-out ./dist/grade-refresh/publication-review.md \
   --state-card-out ./dist/grade-refresh/publication-review-state-card.json
 ```
 
-The tracked disposition policy preserves operator acceptance of every current
-mask and the exact V20 artifact and receipt digests as historical lineage. The
-raw V20 bytes are not bundled because they exposed a host-specific interpreter
-path. `--accepted-review` defaults to a deterministic sanitized successor whose
-only allowed normalization replaces that path with the versioned command
-`python3.11`; an explicit path must have identical bytes. Backing-service and
-archived/unsupported rows keep their specific
-limitations; all eight entries remain masked. The packet independently verifies
-the historical lineage and sanitized artifact, preserves the historical
-baseline as `UNKNOWN`, and keeps the exact V20 candidate bindings pending
-explicit operator reacceptance of the new artifact digest and receipt. It always
-returns `NO_GO` and cannot publish, deploy, change the scheduler, expose masked
-grades, or turn controlled startup evidence into a safety or backing-service
-claim. V20 acceptance is not silently transferred to the sanitized bytes, and
-neither acceptance is publication authority.
+The tracked V2 disposition policy binds the exact V38 proposal receipt and the
+separate receipt-bound V38 acceptance artifact. V20/V33 evidence remains lineage
+only and is not transferred. Backing-service and archived/unsupported rows keep
+their specific limitations; all eight entries remain masked. The packet verifies
+the accepted dispositions and exact V37 source, policy, masking, candidate,
+repeatability, triage, image, and tool bindings; preserves the historical
+baseline as `UNKNOWN`; and returns `NO_GO`. Current-source acceptance is not
+publication or deployment authority and does not prove production freshness,
+safety, endorsement, backing-service behavior, or credentialed behavior.
 
 ## 6. Build the immutable local site candidate
 
-Use only the exact verified refresh candidate and bundled sanitized review
-packet. The builder renders in a fresh sibling temporary directory, fixes the
-rendering time to the candidate timestamp, writes a canonical per-file manifest,
+Use only the exact verified refresh candidate, bundled V38 proposal receipt, and
+accepted disposition artifact. The builder renders in a fresh sibling temporary
+directory, fixes the rendering time to the candidate timestamp, writes a
+canonical per-file manifest,
 and atomically finalizes the output. Run it only from the clean locally landed
 commit: the manifest binds that exact Git revision and a SHA-256 projection of
 its complete Git tree. A dirty or untracked implementation fails closed:
@@ -173,10 +168,11 @@ authority. A future approved preview and production lane must run it through
 a source-adoption claim.
 
 With the current policy this succeeds only as
-`REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE`; both authority booleans remain
+`REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW`; both authority booleans remain
 false. If no exact prior immutable site candidate is supplied with
 `--rollback-candidate`, rollback is `UNKNOWN` and is an additional publication
-block. A pending or otherwise non-deployable prior artifact is rejected and
+block. A pending, accepted-review-only, or otherwise non-deployable prior
+artifact is rejected and
 cannot upgrade rollback to `BOUND`; only a retained, independently verified
 deployment-qualified artifact can be referenced. No such promotion path is
 enabled by this review-only lane. Repeat the build to a second new path and

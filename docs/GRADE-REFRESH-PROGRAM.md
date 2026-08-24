@@ -175,23 +175,28 @@ The tracked `refresh_disposition_policy.json` and `publication-review` command
 form the next fail-closed review layer. They require exactly one disposition for
 every masked slug, independently recompute triage, verify both masked controlled
 projections, and preserve the historical policy baseline as `UNKNOWN`. The
-accepted policy additionally requires the bundled exact proposed V20 artifact
-bytes and self-digest, then proves that every disposition and forward source, policy,
-masking, candidate, tool, and image binding is unchanged. The resulting packet
+current policy additionally requires both the bundled exact V38 proposal receipt
+and the independently receipt-bound V38 acceptance artifact. It rejects V20/V33
+acceptance transfer and proves that every disposition and V37 forward source,
+policy, masking, candidate, tool, and image binding is unchanged. The resulting
+packet
 contains no masked grade, risk, or finding detail and always returns `NO_GO`;
-source landing, immutable site and rollback binding, production binding, and
-explicit publication authority remain separate gates. Dormant scheduler-
+immutable site and rollback binding, production binding, and explicit publication
+authority remain separate gates. The evidence-source revision remains distinct
+from the later clean committed implementation binding. Dormant scheduler-
 definition drift is quarantined behind reconciliation and separate activation
 approval instead of being normalized away by the disabled and unloaded state.
 
-The `build_site_candidate.py` layer consumes the exact candidate and sanitized
-review receipts, then renders with a deterministic candidate timestamp into a
+The `build_site_candidate.py` layer consumes the exact candidate, accepted V38
+review receipt, and acceptance artifact, then renders with a deterministic
+candidate timestamp into a
 fresh temporary directory. Its canonical content manifest is independently
 verified before and after atomic finalization and binds the clean committed
 builder revision plus complete Git-tree digest. A missing prior artifact remains
-`UNKNOWN` rollback lineage; the current pending sanitized review always yields
+`UNKNOWN` rollback lineage; the current accepted-source review always yields
 `publication_allowed: false` and `deployment_allowed: false`. Deployment
-authorization V3 rejects raw, pending, tampered, or rollback-unbound site trees.
+authorization V3 rejects raw, pending, accepted-review-only, tampered, or
+rollback-unbound site trees.
 
 ## Freshness and safe failure
 
