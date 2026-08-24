@@ -123,23 +123,27 @@ uv run --frozen --extra dev python scripts/grade_refresh.py publication-review \
   --preflight ./dist/grade-refresh/preflight.json \
   --repeatability ./dist/grade-refresh/fixture-repeatability.json \
   --triage ./dist/grade-refresh/triage.json \
-  --accepted-review ./dist/grade-refresh/publication-review-v20.json \
+  --accepted-review ./src/mcp_trust/catalog/sanitized_publication_review_v24.json \
   --out ./dist/grade-refresh/publication-review.json \
   --markdown-out ./dist/grade-refresh/publication-review.md \
   --state-card-out ./dist/grade-refresh/publication-review-state-card.json
 ```
 
-The tracked disposition policy records operator acceptance of every current
-mask and binds that acceptance to the bundled exact proposed V20 receipt and
-artifact digest. `--accepted-review` defaults to that bundled artifact; an
-explicit path must have identical bytes. Backing-service and
+The tracked disposition policy preserves operator acceptance of every current
+mask and the exact V20 artifact and receipt digests as historical lineage. The
+raw V20 bytes are not bundled because they exposed a host-specific interpreter
+path. `--accepted-review` defaults to a deterministic sanitized successor whose
+only allowed normalization replaces that path with the versioned command
+`python3.11`; an explicit path must have identical bytes. Backing-service and
 archived/unsupported rows keep their specific
 limitations; all eight entries remain masked. The packet independently verifies
-the accepted artifact, preserves the historical baseline as `UNKNOWN`, and
-adopts only the exact V20 candidate bindings as the forward baseline. It always
+the historical lineage and sanitized artifact, preserves the historical
+baseline as `UNKNOWN`, and keeps the exact V20 candidate bindings pending
+explicit operator reacceptance of the new artifact digest and receipt. It always
 returns `NO_GO` and cannot publish, deploy, change the scheduler, expose masked
 grades, or turn controlled startup evidence into a safety or backing-service
-claim. Acceptance is not publication authority.
+claim. V20 acceptance is not silently transferred to the sanitized bytes, and
+neither acceptance is publication authority.
 
 ## 6. Publication gate
 
