@@ -169,14 +169,28 @@ a source-adoption claim.
 
 With the current policy this succeeds only as
 `REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW`; both authority booleans remain
-false. If no exact prior immutable site candidate is supplied with
-`--rollback-candidate`, rollback is `UNKNOWN` and is an additional publication
-block. A pending, accepted-review-only, or otherwise non-deployable prior
-artifact is rejected and
-cannot upgrade rollback to `BOUND`; only a retained, independently verified
-deployment-qualified artifact can be referenced. No such promotion path is
-enabled by this review-only lane. Repeat the build to a second new path and
-require byte-identical output.
+false. Rollback evidence can be supplied through exactly one of two paths:
+
+- `--rollback-candidate` accepts only a retained, independently verified,
+  deployment-qualified site artifact. A pending, accepted-review-only, or
+  otherwise non-deployable prior artifact is rejected.
+- `--provider-rollback-binding` plus
+  `--provider-rollback-binding-receipt` accepts an exact, current,
+  receipt-bound `McpTrustProviderNativeRollbackBindingV1` base case for the
+  first following same-project publication. The contract binds the alias,
+  deployment ID, immutable URL, project/team, provider source revision/tree,
+  public-tree witness, provenance receipts, freshness, invalidation
+  conditions, and explicit `UNKNOWN` fields.
+
+The provider-native path emits
+`PROVIDER_NATIVE_FIRST_PUBLICATION_REVIEW_BOUND`, but it remains review-only.
+It does not set either authority boolean, does not prove exercised rollback,
+and adds a mandatory pre-publication provider-revalidation and publication-
+approval gate. The two rollback paths are mutually exclusive. If neither is
+supplied, rollback stays `UNKNOWN` and remains an additional publication
+block. No publication promotion or provider invocation is enabled by this
+builder. Repeat the build to a second new path and require byte-identical
+output.
 Raw `build_site.py --db` output is a development preview and is never a
 deployment-qualified artifact.
 
