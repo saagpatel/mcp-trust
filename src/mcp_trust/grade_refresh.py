@@ -34,6 +34,9 @@ PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV1"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
+DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV1"
+PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
+PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
 IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -1903,6 +1906,669 @@ def _triage_integrity_valid(
         and verification.get("state") == triage.get("candidate_claimed_state")
         and verification.get("errors") == []
     )
+
+
+def _load_disposition_policy(
+    *, path: Path, inventory: dict[str, Any]
+) -> dict[str, Any]:
+    payload = load_json(path)
+    base_keys = {
+        "schema",
+        "review_state",
+        "grade_semantics",
+        "historical_baseline",
+        "forward_baseline",
+        "scheduler",
+        "entries",
+    }
+    if not isinstance(payload, dict):
+        raise GradeRefreshError("refresh disposition policy fields are invalid")
+    if payload.get("schema") != DISPOSITION_POLICY_SCHEMA:
+        raise GradeRefreshError("refresh disposition policy schema is unsupported")
+    review_state = payload.get("review_state")
+    if review_state not in {"PROPOSED", "ACCEPTED"}:
+        raise GradeRefreshError("refresh disposition review state is invalid")
+    expected_keys = base_keys | ({"acceptance"} if review_state == "ACCEPTED" else set())
+    if set(payload) != expected_keys:
+        raise GradeRefreshError("refresh disposition policy fields are invalid")
+    if payload.get("grade_semantics") != "technical-danger-not-endorsement":
+        raise GradeRefreshError("refresh disposition grade semantics are invalid")
+    if payload.get("historical_baseline") != {
+        "state": "UNKNOWN",
+        "disposition": "preserve-unknown-no-retroactive-comparison",
+    }:
+        raise GradeRefreshError("historical baseline must remain UNKNOWN")
+    expected_forward = (
+        {
+            "state": "ACCEPTED",
+            "disposition": "adopt-exact-v20-candidate-bindings-as-forward-baseline",
+        }
+        if review_state == "ACCEPTED"
+        else {
+            "state": "PROPOSED",
+            "disposition": "adopt-exact-candidate-bindings-after-operator-acceptance",
+        }
+    )
+    if payload.get("forward_baseline") != expected_forward:
+        raise GradeRefreshError("forward baseline disposition is invalid")
+    if review_state == "ACCEPTED":
+        acceptance = payload.get("acceptance")
+        if (
+            not isinstance(acceptance, dict)
+            or set(acceptance)
+            != {
+                "authority",
+                "scope",
+                "accepted_review_path",
+                "accepted_review_receipt_digest",
+                "accepted_review_artifact_sha256",
+            }
+            or acceptance.get("authority") != "operator"
+            or acceptance.get("scope")
+            != "all-eight-masked-dispositions-and-exact-v20-forward-baseline"
+            or acceptance.get("accepted_review_path")
+            != "accepted_publication_review_v20.json"
+            or not isinstance(acceptance.get("accepted_review_receipt_digest"), str)
+            or _SHA256.fullmatch(acceptance["accepted_review_receipt_digest"]) is None
+            or not isinstance(acceptance.get("accepted_review_artifact_sha256"), str)
+            or _SHA256.fullmatch(acceptance["accepted_review_artifact_sha256"]) is None
+        ):
+            raise GradeRefreshError("refresh disposition acceptance binding is invalid")
+    if payload.get("scheduler") != {
+        "disposition": "quarantine-disabled-unloaded",
+        "definition_drift": "open-medium-gate",
+        "activation_authorized": False,
+        "activation_gate": "reconcile-definition-and-obtain-separate-approval",
+    }:
+        raise GradeRefreshError("scheduler disposition is invalid")
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise GradeRefreshError("refresh disposition entries must be a list")
+    inventory_entries = inventory.get("entries")
+    if not isinstance(inventory_entries, list):
+        raise GradeRefreshError("catalog inventory entries are invalid")
+    masked_inventory = {
+        row["slug"]: row
+        for row in inventory_entries
+        if isinstance(row, dict)
+        and isinstance(row.get("slug"), str)
+        and row.get("intentionally_masked") is True
+    }
+    normalized: list[dict[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {
+            "slug",
+            "disposition",
+            "rationale_code",
+            "next_review_condition",
+        }:
+            raise GradeRefreshError("refresh disposition entry fields are invalid")
+        if not all(isinstance(value, str) and value for value in entry.values()):
+            raise GradeRefreshError("refresh disposition entry values are invalid")
+        slug = entry["slug"]
+        inventory_row = masked_inventory.get(slug)
+        if inventory_row is None:
+            raise GradeRefreshError("refresh disposition references an unmasked entry")
+        if (
+            inventory_row.get("unsupported_upstream") is True
+            and inventory_row.get("credential_dependent") is True
+            and inventory_row.get("backing_service_dependent") is True
+        ):
+            expected = {
+                "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+                "rationale_code": "archived-unsupported-credential-and-backing-service",
+                "next_review_condition": (
+                    "supported-upstream-and-approved-controlled-service-evidence"
+                ),
+            }
+        elif inventory_row.get("backing_service_dependent") is True:
+            expected = {
+                "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+                "rationale_code": "backing-service-not-exercised",
+                "next_review_condition": "approved-controlled-backing-service-evidence",
+            }
+        else:
+            expected = {
+                "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+                "rationale_code": "operator-masking-continuity",
+                "next_review_condition": "explicit-human-disposition",
+            }
+        if any(entry.get(key) != value for key, value in expected.items()):
+            raise GradeRefreshError(
+                f"refresh disposition is inconsistent with inventory: {slug}"
+            )
+        normalized.append(dict(entry))
+    slugs = [entry["slug"] for entry in normalized]
+    if len(slugs) != len(set(slugs)) or set(slugs) != set(masked_inventory):
+        raise GradeRefreshError("every masked catalog entry needs one disposition")
+    result = dict(payload)
+    result["entries"] = sorted(normalized, key=lambda item: item["slug"])
+    return result
+
+
+def _load_accepted_review(
+    *, path: Path, disposition_policy: dict[str, Any]
+) -> dict[str, Any]:
+    acceptance = disposition_policy.get("acceptance")
+    if not isinstance(acceptance, dict):
+        raise GradeRefreshError("accepted disposition policy lacks acceptance evidence")
+    if digest_file(path) != acceptance.get("accepted_review_artifact_sha256"):
+        raise GradeRefreshError("accepted review artifact digest does not match policy")
+    review = load_json(path)
+    if review.get("schema") != PUBLICATION_REVIEW_SCHEMA:
+        raise GradeRefreshError("accepted review schema is invalid")
+    unsigned = dict(review)
+    claimed = unsigned.pop("receipt_digest", None)
+    if (
+        not isinstance(claimed, str)
+        or claimed != digest_bytes(canonical_bytes(unsigned))
+        or claimed != acceptance.get("accepted_review_receipt_digest")
+    ):
+        raise GradeRefreshError("accepted review receipt integrity is invalid")
+    if (
+        review.get("decision") != "NO_GO"
+        or review.get("review_state") != "READY_FOR_HUMAN_DISPOSITION"
+        or review.get("publication_allowed") is not False
+        or review.get("deployment_allowed") is not False
+        or review.get("scheduler_change_allowed") is not False
+        or review.get("disposition_policy", {}).get("review_state") != "PROPOSED"
+        or review.get("forward_baseline", {}).get("state") != "PROPOSED"
+    ):
+        raise GradeRefreshError("accepted review is not an exact proposed V20 decision")
+    return review
+
+
+def _masked_projection_evidence(
+    *, slug: str, projection: dict[str, Any]
+) -> dict[str, str]:
+    sandbox = projection.get("sandbox")
+    if (
+        projection.get("state") != "masked"
+        or projection.get("proof_outcome") != "scan_succeeded"
+        or projection.get("evidence_present") is not True
+        or not isinstance(sandbox, dict)
+        or sandbox.get("MCP_TRUST_SANDBOX") != "docker"
+        or sandbox.get("MCP_TRUST_SANDBOX_NETWORK") != "none"
+        or sandbox.get("MCP_TRUST_SCAN_CREDENTIALS") != "dummy"
+        or not isinstance(sandbox.get("MCP_TRUST_SANDBOX_IMAGE"), str)
+        or _SHA256.fullmatch(sandbox["MCP_TRUST_SANDBOX_IMAGE"]) is None
+        or "fresh_grade" in projection
+        or "risk" in projection
+        or "findings" in projection
+    ):
+        raise GradeRefreshError(f"masked controlled evidence is invalid: {slug}")
+    return {
+        "outcome": "scan_succeeded",
+        "evidence_state": "present",
+        "sandbox_image_id": sandbox["MCP_TRUST_SANDBOX_IMAGE"],
+        "projection_digest": digest_bytes(canonical_bytes(projection)),
+    }
+
+
+def build_publication_review_decision(
+    *,
+    candidate: Path,
+    repeat_candidate: Path,
+    preflight: dict[str, Any],
+    repeatability: dict[str, Any],
+    triage: dict[str, Any],
+    seed_path: Path,
+    masked_path: Path,
+    policy_path: Path,
+    disposition_path: Path,
+    accepted_review_path: Path | None = None,
+    candidate_verifier: Callable[..., dict[str, Any]] | None = None,
+    projection_builder: Callable[[Path], dict[str, dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    """Build a deterministic, non-publishing disposition and decision receipt."""
+    inventory = catalog_inventory(
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=policy_path,
+    )
+    disposition_policy = _load_disposition_policy(
+        path=disposition_path, inventory=inventory
+    )
+    review_state = disposition_policy["review_state"]
+    accepted_review: dict[str, Any] | None = None
+    if review_state == "ACCEPTED":
+        if accepted_review_path is None:
+            raise GradeRefreshError("accepted disposition policy requires a review artifact")
+        accepted_review = _load_accepted_review(
+            path=accepted_review_path, disposition_policy=disposition_policy
+        )
+    elif accepted_review_path is not None:
+        raise GradeRefreshError("proposed disposition policy cannot accept a review artifact")
+    recomputed_triage = triage_candidate(
+        candidate=candidate,
+        repeat_candidate=repeat_candidate,
+        preflight=preflight,
+        repeatability=repeatability,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        candidate_verifier=candidate_verifier,
+    )
+    if triage != recomputed_triage:
+        raise GradeRefreshError("publication review triage is not independently reproducible")
+    if triage.get("counts") != {
+        "Critical": 0,
+        "High": 8,
+        "Medium": 9,
+        "Low": 0,
+    }:
+        raise GradeRefreshError("publication review requires the exact admitted finding set")
+    masked_findings = {
+        finding.get("slug")
+        for finding in triage.get("findings", [])
+        if isinstance(finding, dict)
+        and finding.get("severity") == "High"
+        and finding.get("code") == "masked_result_requires_review"
+    }
+    masked_slugs = {
+        entry["slug"]
+        for entry in disposition_policy["entries"]
+    }
+    if masked_findings != masked_slugs:
+        raise GradeRefreshError("masked findings and dispositions do not match")
+    if projection_builder is None:
+        projection_builder = _controlled_result_projection
+    first_projection = projection_builder(candidate)
+    second_projection = projection_builder(repeat_candidate)
+    candidate_counts = {
+        "fresh": sum(row.get("state") == "fresh" for row in first_projection.values()),
+        "masked": sum(row.get("state") == "masked" for row in first_projection.values()),
+        "total": len(first_projection),
+    }
+    if candidate_counts != {"fresh": 23, "masked": 8, "total": 31}:
+        raise GradeRefreshError("publication review candidate denominator is invalid")
+    if candidate_counts["total"] != inventory["catalog_denominator"]:
+        raise GradeRefreshError("publication review inventory denominator changed")
+    inventory_by_slug = {
+        row["slug"]: row
+        for row in inventory["entries"]
+        if isinstance(row, dict) and isinstance(row.get("slug"), str)
+    }
+    entry_dispositions: list[dict[str, Any]] = []
+    for disposition in disposition_policy["entries"]:
+        slug = disposition["slug"]
+        first = _masked_projection_evidence(
+            slug=slug, projection=first_projection.get(slug, {})
+        )
+        second = _masked_projection_evidence(
+            slug=slug, projection=second_projection.get(slug, {})
+        )
+        if first != second:
+            raise GradeRefreshError(f"masked controlled repeats differ: {slug}")
+        inventory_row = inventory_by_slug[slug]
+        entry_dispositions.append(
+            {
+                **disposition,
+                "acceptance_state": (
+                    "HUMAN_ACCEPTED"
+                    if review_state == "ACCEPTED"
+                    else "PENDING_HUMAN_ACCEPTANCE"
+                ),
+                "classification": {
+                    "unsupported_upstream": inventory_row["unsupported_upstream"],
+                    "credential_dependent": inventory_row["credential_dependent"],
+                    "backing_service_dependent": inventory_row[
+                        "backing_service_dependent"
+                    ],
+                    "unsafe_to_execute_unsandboxed": inventory_row[
+                        "unsafe_to_execute_unsandboxed"
+                    ],
+                },
+                "controlled_evidence": first,
+                "claim_ceiling": (
+                    "Controlled network-none invocation and masked evidence presence only; "
+                    "no unmasked grade, safety, endorsement, or backing-service claim."
+                ),
+            }
+        )
+    source = preflight.get("source_binding")
+    catalog = preflight.get("catalog")
+    sandbox = preflight.get("sandbox")
+    scheduler = preflight.get("scheduler")
+    if not all(isinstance(value, dict) for value in (source, catalog, sandbox, scheduler)):
+        raise GradeRefreshError("publication review preflight bindings are invalid")
+    assert isinstance(source, dict)
+    assert isinstance(catalog, dict)
+    assert isinstance(sandbox, dict)
+    assert isinstance(scheduler, dict)
+    if (
+        preflight.get("status") != "READY"
+        or preflight.get("safe_to_execute_catalog") is not True
+        or catalog.get("policy_digest") != digest_file(policy_path)
+        or catalog.get("seed_digest") != digest_file(seed_path)
+        or catalog.get("masking_digest") != digest_file(masked_path)
+        or catalog.get("denominator") != inventory["catalog_denominator"]
+    ):
+        raise GradeRefreshError("publication review preflight is stale or unbound")
+    image_bindings = sandbox.get("image_bindings")
+    if (
+        not isinstance(image_bindings, list)
+        or len(image_bindings) != 5
+        or not all(
+            isinstance(binding, dict)
+            and isinstance(binding.get("reference"), str)
+            and binding.get("state") == "BOUND"
+            and isinstance(binding.get("image_id"), str)
+            and _SHA256.fullmatch(binding["image_id"]) is not None
+            and isinstance(binding.get("sandbox_controls"), dict)
+            and binding["sandbox_controls"].get("all_required_controls") is True
+            for binding in image_bindings
+        )
+    ):
+        raise GradeRefreshError("publication review image bindings are incomplete")
+    qualified_image_ids = {binding["image_id"] for binding in image_bindings}
+    if any(
+        entry["controlled_evidence"]["sandbox_image_id"] not in qualified_image_ids
+        for entry in entry_dispositions
+    ):
+        raise GradeRefreshError("masked evidence does not use a qualified image binding")
+    scheduler_safe = bool(
+        scheduler.get("state") == "DISABLED_UNLOADED"
+        and scheduler.get("persistently_disabled") is True
+        and scheduler.get("loaded_domains") == []
+        and scheduler.get("mutation_performed") is False
+    )
+    scheduler_gates = ["dormant_scheduler_definition_drift_before_activation"]
+    if not scheduler_safe:
+        scheduler_gates.append("scheduler_state_changed_or_unknown")
+    acceptance_gates = (
+        []
+        if review_state == "ACCEPTED"
+        else [
+            "masked_disposition_acceptance_required",
+            "forward_baseline_acceptance_required",
+        ]
+    )
+    payload: dict[str, Any] = {
+        "schema": PUBLICATION_REVIEW_SCHEMA,
+        "decision": "NO_GO",
+        "review_state": (
+            "ACCEPTED_FOR_SOURCE_REVIEW"
+            if review_state == "ACCEPTED"
+            else "READY_FOR_HUMAN_DISPOSITION"
+        ),
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "scheduler_change_allowed": False,
+        "grade_semantics": disposition_policy["grade_semantics"],
+        "claim_ceiling": (
+            "Local disposition acceptance record for the exact controlled candidate only; "
+            "not publication, deployment, production freshness, scheduler, safety, or endorsement."
+            if review_state == "ACCEPTED"
+            else "Local disposition proposal for the exact controlled candidate only; "
+            "not publication, deployment, production freshness, scheduler, safety, or endorsement."
+        ),
+        "disposition_policy": {
+            "path": str(disposition_path.name),
+            "sha256": digest_file(disposition_path),
+            "review_state": disposition_policy["review_state"],
+        },
+        "entry_dispositions": entry_dispositions,
+        "disposition_counts": {
+            "total": len(entry_dispositions),
+            "pending_human_acceptance": (
+                0 if review_state == "ACCEPTED" else len(entry_dispositions)
+            ),
+            "accepted_human": (
+                len(entry_dispositions) if review_state == "ACCEPTED" else 0
+            ),
+            "retain_masked": len(entry_dispositions),
+        },
+        "candidate_counts": candidate_counts,
+        "historical_baseline": disposition_policy["historical_baseline"],
+        "forward_baseline": {
+            **disposition_policy["forward_baseline"],
+            "source_revision": source.get("revision", "UNKNOWN"),
+            "source_tree_digest": source.get("source_tree_digest", "UNKNOWN"),
+            "policy_digest": catalog.get("policy_digest", "UNKNOWN"),
+            "seed_digest": catalog.get("seed_digest", "UNKNOWN"),
+            "masking_digest": catalog.get("masking_digest", "UNKNOWN"),
+            "catalog_denominator": catalog.get("denominator", 0),
+            "preflight_receipt_digest": preflight.get("receipt_digest", "UNKNOWN"),
+            "repeatability_receipt_digest": repeatability.get(
+                "receipt_digest", "UNKNOWN"
+            ),
+            "triage_receipt_digest": triage.get("receipt_digest", "UNKNOWN"),
+            "candidate_manifest_digest": triage.get(
+                "candidate_manifest_digest", "UNKNOWN"
+            ),
+            "repeat_candidate_manifest_digest": triage.get(
+                "repeat_candidate_manifest_digest", "UNKNOWN"
+            ),
+            "tool_versions": preflight.get("tool_versions", {}),
+            "qualified_images": {
+                binding["reference"]: binding["image_id"]
+                for binding in sorted(image_bindings, key=lambda item: item["reference"])
+            },
+        },
+        "scheduler_disposition": {
+            **disposition_policy["scheduler"],
+            "observed_state": scheduler.get("state", "UNKNOWN"),
+            "persistently_disabled": scheduler.get("persistently_disabled", "UNKNOWN"),
+            "loaded_domains": scheduler.get("loaded_domains", "UNKNOWN"),
+            "definitions_match": scheduler.get("definitions_match", "UNKNOWN"),
+            "installed_plist_sha256": scheduler.get(
+                "installed_plist_sha256", "UNKNOWN"
+            ),
+            "repository_plist_sha256": scheduler.get(
+                "repository_plist_sha256", "UNKNOWN"
+            ),
+            "mutation_performed": scheduler.get("mutation_performed", "UNKNOWN"),
+        },
+        "blocking_gates": [
+            *acceptance_gates,
+            "exact_source_review_and_landing_required",
+            "immutable_site_artifact_and_rollback_binding_required",
+            "explicit_publication_authority_required",
+            "production_source_and_deployment_binding_unknown",
+        ],
+        "quarantined_gates": scheduler_gates,
+        "false_green_guards": [
+            "candidate-readiness-is-not-publication-authority",
+            "masked-scan-success-is-not-an-unmasked-grade-or-safety-claim",
+            "qualified-images-do-not-prove-third-party-behavior",
+            "local-candidate-freshness-does-not-prove-production-freshness",
+            "disabled-scheduler-state-does-not-resolve-definition-drift",
+            (
+                "source-acceptance-record-is-not-publication-authority"
+                if review_state == "ACCEPTED"
+                else "masking-configuration-is-not-human-disposition-evidence"
+            ),
+        ],
+    }
+    if accepted_review is not None:
+        payload["acceptance"] = dict(disposition_policy["acceptance"])
+        proposed_entries = accepted_review.get("entry_dispositions")
+        if not isinstance(proposed_entries, list) or len(proposed_entries) != len(
+            entry_dispositions
+        ):
+            raise GradeRefreshError("accepted review disposition denominator changed")
+        for proposed, accepted in zip(proposed_entries, entry_dispositions, strict=True):
+            if not isinstance(proposed, dict):
+                raise GradeRefreshError("accepted review disposition is invalid")
+            proposed_without_state = dict(proposed)
+            proposed_without_state.pop("acceptance_state", None)
+            accepted_without_state = dict(accepted)
+            accepted_without_state.pop("acceptance_state", None)
+            if (
+                proposed.get("acceptance_state") != "PENDING_HUMAN_ACCEPTANCE"
+                or proposed_without_state != accepted_without_state
+            ):
+                raise GradeRefreshError("accepted review dispositions changed")
+        proposed_forward = dict(accepted_review.get("forward_baseline", {}))
+        accepted_forward = dict(payload["forward_baseline"])
+        for projection in (proposed_forward, accepted_forward):
+            projection.pop("state", None)
+            projection.pop("disposition", None)
+        if proposed_forward != accepted_forward:
+            raise GradeRefreshError("accepted review forward baseline bindings changed")
+        if (
+            accepted_review.get("historical_baseline")
+            != payload["historical_baseline"]
+            or accepted_review.get("candidate_counts") != payload["candidate_counts"]
+        ):
+            raise GradeRefreshError("accepted review candidate semantics changed")
+    payload["receipt_digest"] = digest_bytes(canonical_bytes(payload))
+    return payload
+
+
+def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, Any]:
+    """Project one integrity-checked review decision into the durable state card."""
+    if payload.get("schema") != PUBLICATION_REVIEW_SCHEMA:
+        raise GradeRefreshError("publication review decision schema is invalid")
+    unsigned = dict(payload)
+    claimed = unsigned.pop("receipt_digest", None)
+    if not isinstance(claimed, str) or claimed != digest_bytes(canonical_bytes(unsigned)):
+        raise GradeRefreshError("publication review decision receipt integrity is invalid")
+    forward = payload.get("forward_baseline")
+    dispositions = payload.get("disposition_counts")
+    candidates = payload.get("candidate_counts")
+    blockers = payload.get("blocking_gates")
+    quarantines = payload.get("quarantined_gates")
+    if not all(
+        isinstance(value, dict) for value in (forward, dispositions, candidates)
+    ) or not all(isinstance(value, list) for value in (blockers, quarantines)):
+        raise GradeRefreshError("publication review decision state fields are invalid")
+    assert isinstance(forward, dict)
+    assert isinstance(dispositions, dict)
+    assert isinstance(candidates, dict)
+    assert isinstance(blockers, list)
+    assert isinstance(quarantines, list)
+    total = dispositions.get("total")
+    if not isinstance(total, int) or isinstance(total, bool) or total <= 0:
+        raise GradeRefreshError("publication review disposition count is invalid")
+    proposed_counts = {
+        "total": total,
+        "pending_human_acceptance": total,
+        "accepted_human": 0,
+        "retain_masked": total,
+    }
+    accepted_counts = {
+        "total": total,
+        "pending_human_acceptance": 0,
+        "accepted_human": total,
+        "retain_masked": total,
+    }
+    if payload.get("review_state") == "ACCEPTED_FOR_SOURCE_REVIEW":
+        accepted = True
+        if dispositions != accepted_counts:
+            raise GradeRefreshError("accepted disposition counts are invalid")
+    elif payload.get("review_state") == "READY_FOR_HUMAN_DISPOSITION":
+        accepted = False
+        if dispositions != proposed_counts:
+            raise GradeRefreshError("proposed disposition counts are invalid")
+    else:
+        raise GradeRefreshError("publication review state is invalid")
+    state: dict[str, Any] = {
+        "schema": PUBLICATION_REVIEW_STATE_CARD_SCHEMA,
+        "source_revision": forward.get("source_revision", "UNKNOWN"),
+        "source_tree_digest": forward.get("source_tree_digest", "UNKNOWN"),
+        "catalog_denominator": forward.get("catalog_denominator", 0),
+        "candidate_counts": candidates,
+        "disposition_counts": dispositions,
+        "severity_findings": {
+            "Critical": 0,
+            "High": dispositions.get("retain_masked", 0),
+            "Medium": 10,
+            "Low": 0,
+        },
+        "completed_controls": [
+            "catalog-inventory",
+            "source-and-policy-digests",
+            "image-provenance-preflight-run",
+            "sandbox-policy-defined",
+            "deterministic-fixture-repeatability",
+            "grade-diff-review-triage-run",
+            "controlled-sandbox-candidate-repeat",
+            (
+                "masked-disposition-accepted"
+                if accepted
+                else "masked-disposition-proposal"
+            ),
+            "forward-baseline-accepted" if accepted else "forward-baseline-proposal",
+            "publication-decision-packet",
+            "scheduler-readback-no-mutation",
+        ],
+        "outstanding_gates": [*blockers, *quarantines],
+        "publication_state": payload.get("decision", "UNKNOWN"),
+        "production_freshness": "UNKNOWN",
+        "next_action": (
+            "Review and land the accepted source record locally; immutable site and "
+            "rollback binding, explicit publication authority, and production binding "
+            "remain separate gates."
+            if accepted
+            else "Accept or revise the eight proposed masked-entry dispositions and the "
+            "forward baseline; publication remains separately gated."
+        ),
+        "publication_review_receipt_digest": claimed,
+    }
+    state["receipt_digest"] = digest_bytes(canonical_bytes(state))
+    return state
+
+
+def publication_review_markdown(payload: dict[str, Any]) -> str:
+    """Render a compact, grade-free human review view of a decision receipt."""
+    entries = payload.get("entry_dispositions", [])
+    accepted = payload.get("disposition_counts", {}).get("accepted_human") == len(
+        entries
+    )
+    entry_lines = "\n".join(
+        f"- `{entry['slug']}` — `{entry['disposition']}`; "
+        f"reason `{entry['rationale_code']}`; "
+        f"{'accepted and remains masked' if accepted else 'acceptance pending'}."
+        for entry in entries
+        if isinstance(entry, dict)
+    )
+    blockers = "\n".join(
+        f"- `{gate}`" for gate in payload.get("blocking_gates", [])
+    )
+    quarantines = "\n".join(
+        f"- `{gate}`" for gate in payload.get("quarantined_gates", [])
+    )
+    baseline = payload.get("forward_baseline", {})
+    status_label = "Accepted" if accepted else "Proposed"
+    source_revision = baseline.get("source_revision", "UNKNOWN")
+    policy_digest = baseline.get("policy_digest", "UNKNOWN")
+    masking_digest = baseline.get("masking_digest", "UNKNOWN")
+    return f"""# MCP Trust publication decision packet
+
+Decision: **{payload.get('decision', 'UNKNOWN')}**
+
+This is a local review artifact. It grants no publication, deployment,
+scheduler, credential, backing-service, or outreach authority. A danger grade
+is a technical capability assessment, not an endorsement.
+
+## {status_label} masked-entry dispositions
+
+{entry_lines or '- none'}
+
+No masked grade, risk detail, or finding detail is disclosed by this packet.
+Controlled success proves invocation and evidence presence only.
+
+## Baseline
+
+- Historical baseline: `UNKNOWN`; no retroactive same-policy comparison.
+- {status_label} forward source revision: `{source_revision}`
+- {status_label} forward policy digest: `{policy_digest}`
+- {status_label} forward masking digest: `{masking_digest}`
+- Adoption state: `{baseline.get('state', 'UNKNOWN')}`
+
+## Blocking publication gates
+
+{blockers or '- none'}
+
+## Quarantined scheduler gates
+
+{quarantines or '- none'}
+
+Production freshness remains `UNKNOWN`. Publication remains a separate human
+and deployment decision after the exact source, artifact, rollback, and public
+readback bindings exist.
+"""
 
 
 def build_state_card(

@@ -18,11 +18,14 @@ from mcp_trust.grade_refresh import (
     GradeRefreshError,
     build_fixture_repeatability_receipt,
     build_preflight_receipt,
+    build_publication_review_decision,
+    build_publication_review_state_card,
     build_resume_capsule,
     build_state_card,
     canonical_bytes,
     catalog_inventory,
     load_json,
+    publication_review_markdown,
     triage_candidate,
 )
 
@@ -30,6 +33,10 @@ _ROOT = Path(__file__).resolve().parents[1]
 _SEED = _ROOT / "src/mcp_trust/catalog/seed_servers.json"
 _MASKED = _ROOT / "masked-grades.json"
 _POLICY = _ROOT / "src/mcp_trust/catalog/refresh_policy.json"
+_DISPOSITIONS = _ROOT / "src/mcp_trust/catalog/refresh_disposition_policy.json"
+_ACCEPTED_REVIEW = (
+    _ROOT / "src/mcp_trust/catalog/accepted_publication_review_v20.json"
+)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -50,6 +57,20 @@ def _emit(payload: object, out: Path | None) -> None:
     if out is not None:
         _write_json(out, payload)
     sys.stdout.buffer.write(canonical_bytes(payload))
+
+
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        encoded = content.encode("utf-8")
+        written = os.write(descriptor, encoded)
+        if written != len(encoded):
+            raise OSError("short text write")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _common_inputs(parser: argparse.ArgumentParser) -> None:
@@ -100,6 +121,29 @@ def _parser() -> argparse.ArgumentParser:
     package.add_argument("--repeat-candidate", type=Path)
     package.add_argument("--task-id", required=True)
     package.add_argument("--out-dir", type=Path, required=True)
+
+    publication_review = subcommands.add_parser(
+        "publication-review",
+        help="Build a deterministic local disposition packet; never publish it.",
+    )
+    _common_inputs(publication_review)
+    publication_review.add_argument("--candidate", type=Path, required=True)
+    publication_review.add_argument("--repeat-candidate", type=Path, required=True)
+    publication_review.add_argument("--preflight", type=Path, required=True)
+    publication_review.add_argument("--repeatability", type=Path, required=True)
+    publication_review.add_argument("--triage", type=Path, required=True)
+    publication_review.add_argument(
+        "--dispositions", type=Path, default=_DISPOSITIONS
+    )
+    publication_review.add_argument(
+        "--accepted-review",
+        type=Path,
+        default=_ACCEPTED_REVIEW,
+        help="Exact proposed review artifact named by an accepted disposition policy.",
+    )
+    publication_review.add_argument("--out", type=Path)
+    publication_review.add_argument("--markdown-out", type=Path)
+    publication_review.add_argument("--state-card-out", type=Path)
     return parser
 
 
@@ -262,6 +306,28 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 None,
             )
+            return 0
+        if args.command == "publication-review":
+            payload = build_publication_review_decision(
+                candidate=args.candidate,
+                repeat_candidate=args.repeat_candidate,
+                preflight=load_json(args.preflight),
+                repeatability=load_json(args.repeatability),
+                triage=load_json(args.triage),
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
+                policy_path=args.policy,
+                disposition_path=args.dispositions,
+                accepted_review_path=args.accepted_review,
+            )
+            if args.markdown_out is not None:
+                _write_text(args.markdown_out, publication_review_markdown(payload))
+            if args.state_card_out is not None:
+                _write_json(
+                    args.state_card_out,
+                    build_publication_review_state_card(payload),
+                )
+            _emit(payload, args.out)
             return 0
     except GradeRefreshError as exc:
         _emit(

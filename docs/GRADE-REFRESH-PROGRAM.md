@@ -175,6 +175,19 @@ The triage receipt is severity-first and sets `publication_allowed: false`.
 Human review is evidence for a later approval gate; it is not publication
 authority by itself.
 
+The tracked `refresh_disposition_policy.json` and `publication-review` command
+form the next fail-closed review layer. They require exactly one disposition for
+every masked slug, independently recompute triage, verify both masked controlled
+projections, and preserve the historical policy baseline as `UNKNOWN`. The
+accepted policy additionally requires the bundled exact proposed V20 artifact
+bytes and self-digest, then proves that every disposition and forward source, policy,
+masking, candidate, tool, and image binding is unchanged. The resulting packet
+contains no masked grade, risk, or finding detail and always returns `NO_GO`;
+source landing, immutable site and rollback binding, production binding, and
+explicit publication authority remain separate gates. Dormant scheduler-
+definition drift is quarantined behind reconciliation and separate activation
+approval instead of being normalized away by the disabled and unloaded state.
+
 ## Freshness and safe failure
 
 - A candidate and its individual scans must be less than 24 hours old.
