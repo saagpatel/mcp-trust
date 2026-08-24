@@ -19,8 +19,11 @@ SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
 MASKED = ROOT / "masked-grades.json"
 POLICY = ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 DISPOSITIONS = ROOT / "src/mcp_trust/catalog/refresh_disposition_policy.json"
-BUNDLED_SANITIZED_REVIEW = (
-    ROOT / "src/mcp_trust/catalog/sanitized_publication_review_v24.json"
+BUNDLED_ACCEPTED_REVIEW = (
+    ROOT / "src/mcp_trust/catalog/accepted_publication_review_v38.json"
+)
+BUNDLED_ACCEPTED_DISPOSITION = (
+    ROOT / "src/mcp_trust/catalog/accepted_disposition_artifact_v38.json"
 )
 
 
@@ -172,18 +175,78 @@ def _build(
             disposition_path=proposed_policy_path,
             projection_builder=lambda _path: projection,
         )
-        accepted_review_path = tmp_path / "proposed-review.json"
+        accepted_review_path = tmp_path / "accepted_publication_review_v38.json"
         accepted_review_path.write_bytes(canonical_bytes(proposed))
+        artifact: dict[str, object] = {
+            "schema": "McpTrustAcceptedDispositionArtifactV1",
+            "decision": "OPERATOR_ACCEPTED_EXACT_V38",
+            "acceptance": {
+                "state": "ACCEPTED_EXACT_V38",
+                "scope": (
+                    "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
+                ),
+                "proposal_policy_sha256": proposed["disposition_policy"]["sha256"],
+            },
+            "forward_baseline": {
+                **proposed["forward_baseline"],
+                "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
+            },
+            "historical_baseline": proposed["historical_baseline"],
+            "masked_dispositions": {
+                "count": 8,
+                "acceptance_state": "ACCEPTED_EXACT_V38_RETAIN_MASKED",
+                "projection_repeatability": "PASS",
+                "entries": [
+                    {
+                        "slug": entry["slug"],
+                        "disposition": entry["disposition"],
+                        "rationale_code": entry["rationale_code"],
+                        "next_review_condition": entry["next_review_condition"],
+                        "projection_digest": entry["controlled_evidence"][
+                            "projection_digest"
+                        ],
+                    }
+                    for entry in proposed["entry_dispositions"]
+                ],
+            },
+            "privacy": {
+                "host_specific_path_matches": 0,
+                "credential_values_present": False,
+                "masked_grade_risk_finding_or_receipt_fields_present": False,
+                "raw_candidate_transfer_allowed": False,
+            },
+            "separate_public_state": {
+                "production_freshness": "UNKNOWN",
+                "production_source_binding": "UNKNOWN",
+                "production_deployment_revision": "UNKNOWN",
+                "relationship_to_v38": "NOT_PUBLISHED_AND_NOT_DEPLOYED",
+            },
+        }
+        artifact["receipt_digest"] = grade_refresh.digest_bytes(
+            canonical_bytes(artifact)
+        )
+        artifact_path = tmp_path / "accepted_disposition_artifact_v38.json"
+        artifact_path.write_bytes(canonical_bytes(artifact))
         accepted_policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
-        accepted_policy["acceptance"]["sanitized_review_receipt_digest"] = proposed[
+        accepted_policy["acceptance"]["accepted_review_receipt_digest"] = proposed[
             "receipt_digest"
         ]
-        accepted_policy["acceptance"]["sanitized_review_artifact_sha256"] = (
+        accepted_policy["acceptance"]["accepted_review_artifact_sha256"] = (
             grade_refresh.digest_file(accepted_review_path)
         )
-        accepted_policy["acceptance"]["sanitized_review_path"] = (
+        accepted_policy["acceptance"]["accepted_review_path"] = (
             accepted_review_path.name
         )
+        accepted_policy["acceptance"]["accepted_review_policy_sha256"] = proposed[
+            "disposition_policy"
+        ]["sha256"]
+        accepted_policy["acceptance"]["accepted_disposition_receipt_digest"] = (
+            artifact["receipt_digest"]
+        )
+        accepted_policy["acceptance"]["accepted_disposition_artifact_sha256"] = (
+            grade_refresh.digest_file(artifact_path)
+        )
+        accepted_policy["acceptance"]["accepted_disposition_path"] = artifact_path.name
         disposition_path = tmp_path / "accepted-dispositions.json"
         disposition_path.write_text(json.dumps(accepted_policy), encoding="utf-8")
     return build_publication_review_decision(
@@ -201,27 +264,6 @@ def _build(
     )
 
 
-def _write_sanitized_variant(
-    tmp_path: Path, review: dict[str, object]
-) -> tuple[Path, Path]:
-    unsigned = dict(review)
-    unsigned.pop("receipt_digest", None)
-    review["receipt_digest"] = grade_refresh.digest_bytes(canonical_bytes(unsigned))
-    review_path = tmp_path / "sanitized-variant.json"
-    review_path.write_bytes(canonical_bytes(review))
-    policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
-    policy["acceptance"]["sanitized_review_path"] = review_path.name
-    policy["acceptance"]["sanitized_review_receipt_digest"] = review[
-        "receipt_digest"
-    ]
-    policy["acceptance"]["sanitized_review_artifact_sha256"] = (
-        grade_refresh.digest_file(review_path)
-    )
-    policy_path = tmp_path / "variant-policy.json"
-    policy_path.write_text(json.dumps(policy), encoding="utf-8")
-    return review_path, policy_path
-
-
 def test_publication_review_is_deterministic_and_fail_closed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -233,7 +275,7 @@ def test_publication_review_is_deterministic_and_fail_closed(
     assert first["publication_allowed"] is False
     assert first["deployment_allowed"] is False
     assert first["scheduler_change_allowed"] is False
-    assert first["review_state"] == "READY_FOR_SANITIZED_REACCEPTANCE"
+    assert first["review_state"] == "ACCEPTED_FOR_SOURCE_REVIEW"
     assert first["disposition_counts"] == {
         "total": 8,
         "pending_human_acceptance": 0,
@@ -241,19 +283,21 @@ def test_publication_review_is_deterministic_and_fail_closed(
         "retain_masked": 8,
     }
     assert first["historical_baseline"]["state"] == "UNKNOWN"
-    assert first["forward_baseline"]["state"] == "PENDING_SANITIZED_REACCEPTANCE"
+    assert first["forward_baseline"]["state"] == (
+        "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+    )
     assert first["forward_baseline"]["tool_versions"]["python_executable"] == (
         "python3.11"
     )
     assert all(
-        entry["acceptance_state"] == "HUMAN_ACCEPTED_V20"
+        entry["acceptance_state"] == "HUMAN_ACCEPTED_V38"
         for entry in first["entry_dispositions"]
     )
     assert first["scheduler_disposition"]["observed_state"] == "DISABLED_UNLOADED"
     assert "masked_disposition_acceptance_required" not in first["blocking_gates"]
     assert "forward_baseline_acceptance_required" not in first["blocking_gates"]
-    assert "sanitized_review_acceptance_required" in first["blocking_gates"]
-    assert "exact_source_review_and_landing_required" in first["blocking_gates"]
+    assert "sanitized_review_acceptance_required" not in first["blocking_gates"]
+    assert "exact_source_review_and_landing_required" not in first["blocking_gates"]
     assert "explicit_publication_authority_required" in first["blocking_gates"]
     assert "dormant_scheduler_definition_drift_before_activation" in first[
         "quarantined_gates"
@@ -272,9 +316,11 @@ def test_publication_review_is_deterministic_and_fail_closed(
         "Medium": 10,
         "Low": 0,
     }
-    assert "masked-disposition-accepted-v20" in state["completed_controls"]
-    assert "sanitized-review-receipt-generated" in state["completed_controls"]
-    assert state["next_action"].startswith("Accept the exact sanitized artifact")
+    assert "masked-disposition-accepted-v38-current-source" in state[
+        "completed_controls"
+    ]
+    assert "v37-forward-baseline-accepted-v38" in state["completed_controls"]
+    assert state["next_action"].startswith("Build and verify")
 
 
 def test_publication_review_state_card_rejects_tampered_decision(
@@ -300,7 +346,7 @@ def test_publication_review_state_card_rejects_false_accepted_counts(
         build_publication_review_state_card(decision)
 
 
-def test_publication_review_state_card_requires_sanitized_acceptance_binding(
+def test_publication_review_state_card_requires_current_acceptance_binding(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     decision = _build(monkeypatch, tmp_path)
@@ -313,95 +359,75 @@ def test_publication_review_state_card_requires_sanitized_acceptance_binding(
         build_publication_review_state_card(decision)
 
 
-def test_bundled_sanitized_review_preserves_v20_lineage_and_binds_receipt() -> None:
+def test_bundled_v38_acceptance_is_receipt_bound_and_privacy_hardened() -> None:
     policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
-    review = json.loads(BUNDLED_SANITIZED_REVIEW.read_text(encoding="utf-8"))
+    review = json.loads(BUNDLED_ACCEPTED_REVIEW.read_text(encoding="utf-8"))
+    artifact = json.loads(BUNDLED_ACCEPTED_DISPOSITION.read_text(encoding="utf-8"))
 
-    assert policy["acceptance"]["sanitized_review_path"] == (
-        BUNDLED_SANITIZED_REVIEW.name
+    assert policy["review_state"] == "ACCEPTED_CURRENT_SOURCE_REVIEW"
+    assert policy["acceptance"]["accepted_review_path"] == (
+        BUNDLED_ACCEPTED_REVIEW.name
     )
-    assert policy["acceptance"]["sanitized_review_artifact_sha256"] == (
-        grade_refresh.digest_file(BUNDLED_SANITIZED_REVIEW)
+    assert policy["acceptance"]["accepted_review_artifact_sha256"] == (
+        grade_refresh.digest_file(BUNDLED_ACCEPTED_REVIEW)
     )
-    assert policy["acceptance"]["sanitized_review_receipt_digest"] == review[
+    assert policy["acceptance"]["accepted_review_receipt_digest"] == review[
         "receipt_digest"
     ]
-    assert policy["acceptance"]["historical_review_artifact_sha256"] == (
-        "sha256:2a7a95f129b86a115c067bf1542757a8524318a8b2f2f44a6b84d891c46139a8"
+    assert policy["acceptance"]["accepted_disposition_artifact_sha256"] == (
+        grade_refresh.digest_file(BUNDLED_ACCEPTED_DISPOSITION)
     )
-    assert policy["acceptance"]["historical_review_receipt_digest"] == (
-        "sha256:15b1367db8f671c84884247f2fc698abef8436897d9a7e1c31634d0f2bcbbddc"
-    )
-    assert review["forward_baseline"]["tool_versions"]["python_executable"] == (
-        "python3.11"
-    )
-    assert "/Users/" not in BUNDLED_SANITIZED_REVIEW.read_text(encoding="utf-8")
+    assert policy["acceptance"]["accepted_disposition_receipt_digest"] == artifact[
+        "receipt_digest"
+    ]
+    assert artifact["prior_acceptance_lineage"]["transfer_to_v38"] is False
+    assert artifact["historical_baseline"]["state"] == "UNKNOWN"
+    combined = BUNDLED_ACCEPTED_REVIEW.read_text() + BUNDLED_ACCEPTED_DISPOSITION.read_text()
+    assert "/Users/" not in combined
+    assert artifact["privacy"] == {
+        "host_specific_path_matches": 0,
+        "credential_values_present": False,
+        "masked_grade_risk_finding_or_receipt_fields_present": False,
+        "raw_candidate_transfer_allowed": False,
+    }
 
 
-def test_sanitized_review_rejects_absolute_interpreter_path(
+def test_current_acceptance_rejects_v20_state_transfer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    review = json.loads(BUNDLED_SANITIZED_REVIEW.read_text(encoding="utf-8"))
+    policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
+    policy["review_state"] = "ACCEPTED"
+    policy["forward_baseline"] = {
+        "state": "ACCEPTED",
+        "disposition": "adopt-exact-v20-candidate-bindings-as-forward-baseline",
+    }
+    policy_path = tmp_path / "v20-transfer.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GradeRefreshError, match="acceptance binding is invalid"):
+        _build(
+            monkeypatch,
+            tmp_path,
+            disposition_path=policy_path,
+            accepted_review_path=BUNDLED_ACCEPTED_REVIEW,
+        )
+
+
+def test_current_acceptance_rejects_absolute_interpreter_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    review = json.loads(BUNDLED_ACCEPTED_REVIEW.read_text(encoding="utf-8"))
     review["forward_baseline"]["tool_versions"]["python_executable"] = (
         "/private/host/python3.11"
     )
-    review_path, policy_path = _write_sanitized_variant(tmp_path, review)
+    review_path = tmp_path / "accepted_publication_review_v38.json"
+    review_path.write_bytes(canonical_bytes(review))
 
-    with pytest.raises(GradeRefreshError, match="privacy binding is invalid"):
+    with pytest.raises(GradeRefreshError, match="artifact digest does not match"):
         _build(
             monkeypatch,
             tmp_path,
-            disposition_path=policy_path,
             accepted_review_path=review_path,
-        )
-
-
-def test_sanitized_review_rejects_malformed_nested_policy(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    review = json.loads(BUNDLED_SANITIZED_REVIEW.read_text(encoding="utf-8"))
-    review["disposition_policy"] = None
-    review_path, policy_path = _write_sanitized_variant(tmp_path, review)
-
-    with pytest.raises(GradeRefreshError, match="exact proposed V20 decision"):
-        _build(
-            monkeypatch,
-            tmp_path,
-            disposition_path=policy_path,
-            accepted_review_path=review_path,
-        )
-
-
-def test_sanitized_review_rejects_semantic_drift(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    review = json.loads(BUNDLED_SANITIZED_REVIEW.read_text(encoding="utf-8"))
-    review["candidate_counts"]["fresh"] = 22
-    review_path, policy_path = _write_sanitized_variant(tmp_path, review)
-
-    with pytest.raises(GradeRefreshError, match="accepted review .* changed"):
-        _build(
-            monkeypatch,
-            tmp_path,
-            disposition_path=policy_path,
-            accepted_review_path=review_path,
-        )
-
-
-def test_sanitized_review_rejects_changed_v20_lineage(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
-    policy["acceptance"]["historical_review_artifact_sha256"] = "sha256:" + "0" * 64
-    policy_path = tmp_path / "changed-lineage-policy.json"
-    policy_path.write_text(json.dumps(policy), encoding="utf-8")
-
-    with pytest.raises(GradeRefreshError, match="lineage binding is invalid"):
-        _build(
-            monkeypatch,
-            tmp_path,
-            disposition_path=policy_path,
-            accepted_review_path=BUNDLED_SANITIZED_REVIEW,
         )
 
 

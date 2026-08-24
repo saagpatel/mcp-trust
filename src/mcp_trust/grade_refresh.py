@@ -34,7 +34,8 @@ PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV1"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
-DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV1"
+DISPOSITION_POLICY_SCHEMA_V1 = "McpTrustGradeRefreshDispositionPolicyV1"
+DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV2"
 PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
 PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
@@ -1930,6 +1931,7 @@ def _load_disposition_policy(
         "PROPOSED",
         "ACCEPTED",
         "SANITIZED_REACCEPTANCE_REQUIRED",
+        "ACCEPTED_CURRENT_SOURCE_REVIEW",
     }:
         raise GradeRefreshError("refresh disposition review state is invalid")
     expected_keys = base_keys | ({"acceptance"} if review_state != "PROPOSED" else set())
@@ -1943,6 +1945,14 @@ def _load_disposition_policy(
     }:
         raise GradeRefreshError("historical baseline must remain UNKNOWN")
     expected_forward = (
+        {
+            "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
+            "disposition": (
+                "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
+            ),
+        }
+        if review_state == "ACCEPTED_CURRENT_SOURCE_REVIEW"
+        else
         {
             "state": "ACCEPTED",
             "disposition": "adopt-exact-v20-candidate-bindings-as-forward-baseline",
@@ -1965,7 +1975,47 @@ def _load_disposition_policy(
     )
     if payload.get("forward_baseline") != expected_forward:
         raise GradeRefreshError("forward baseline disposition is invalid")
-    if review_state == "ACCEPTED":
+    if review_state == "ACCEPTED_CURRENT_SOURCE_REVIEW":
+        acceptance = payload.get("acceptance")
+        expected_fields = {
+            "authority",
+            "scope",
+            "acceptance_state",
+            "accepted_review_path",
+            "accepted_review_receipt_digest",
+            "accepted_review_artifact_sha256",
+            "accepted_review_policy_sha256",
+            "accepted_disposition_path",
+            "accepted_disposition_receipt_digest",
+            "accepted_disposition_artifact_sha256",
+        }
+        if (
+            not isinstance(acceptance, dict)
+            or set(acceptance) != expected_fields
+            or acceptance.get("authority") != "operator"
+            or acceptance.get("scope")
+            != "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
+            or acceptance.get("acceptance_state") != "ACCEPTED_EXACT_V38"
+            or acceptance.get("accepted_review_path")
+            != "accepted_publication_review_v38.json"
+            or not isinstance(acceptance.get("accepted_review_policy_sha256"), str)
+            or _SHA256.fullmatch(acceptance["accepted_review_policy_sha256"])
+            is None
+            or acceptance.get("accepted_disposition_path")
+            != "accepted_disposition_artifact_v38.json"
+            or any(
+                not isinstance(acceptance.get(field), str)
+                or _SHA256.fullmatch(acceptance[field]) is None
+                for field in {
+                    "accepted_review_receipt_digest",
+                    "accepted_review_artifact_sha256",
+                    "accepted_disposition_receipt_digest",
+                    "accepted_disposition_artifact_sha256",
+                }
+            )
+        ):
+            raise GradeRefreshError("current-source acceptance binding is invalid")
+    elif review_state == "ACCEPTED":
         acceptance = payload.get("acceptance")
         if (
             not isinstance(acceptance, dict)
@@ -2114,6 +2164,9 @@ def _load_accepted_review(
         disposition_policy.get("review_state")
         == "SANITIZED_REACCEPTANCE_REQUIRED"
     )
+    current_source = (
+        disposition_policy.get("review_state") == "ACCEPTED_CURRENT_SOURCE_REVIEW"
+    )
     artifact_key = (
         "sanitized_review_artifact_sha256"
         if sanitized
@@ -2150,7 +2203,113 @@ def _load_accepted_review(
         or review_policy.get("review_state") != "PROPOSED"
         or review_forward.get("state") != "PROPOSED"
     ):
-        raise GradeRefreshError("accepted review is not an exact proposed V20 decision")
+        raise GradeRefreshError("accepted review is not an exact proposed decision")
+    if current_source:
+        if (
+            acceptance.get("accepted_review_path") != path.name
+            or review_policy.get("sha256")
+            != acceptance.get("accepted_review_policy_sha256")
+        ):
+            raise GradeRefreshError("current-source review policy binding is invalid")
+        artifact_path = path.parent / str(acceptance.get("accepted_disposition_path", ""))
+        if digest_file(artifact_path) != acceptance.get(
+            "accepted_disposition_artifact_sha256"
+        ):
+            raise GradeRefreshError("accepted disposition artifact digest does not match policy")
+        artifact = load_json(artifact_path)
+        if not isinstance(artifact, dict):
+            raise GradeRefreshError("accepted disposition artifact must be an object")
+        artifact_unsigned = dict(artifact)
+        artifact_receipt = artifact_unsigned.pop("receipt_digest", None)
+        artifact_acceptance = artifact.get("acceptance")
+        artifact_forward = artifact.get("forward_baseline")
+        artifact_masked = artifact.get("masked_dispositions")
+        artifact_privacy = artifact.get("privacy")
+        artifact_public = artifact.get("separate_public_state")
+        if (
+            artifact.get("schema") != "McpTrustAcceptedDispositionArtifactV1"
+            or artifact.get("decision") != "OPERATOR_ACCEPTED_EXACT_V38"
+            or artifact_receipt
+            != acceptance.get("accepted_disposition_receipt_digest")
+            or artifact_receipt != digest_bytes(canonical_bytes(artifact_unsigned))
+            or not isinstance(artifact_acceptance, dict)
+            or artifact_acceptance.get("state") != "ACCEPTED_EXACT_V38"
+            or artifact_acceptance.get("scope") != acceptance.get("scope")
+            or artifact_acceptance.get("proposal_policy_sha256")
+            != acceptance.get("accepted_review_policy_sha256")
+            or not isinstance(artifact_forward, dict)
+            or artifact_forward.get("state")
+            != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+            or artifact.get("historical_baseline")
+            != disposition_policy.get("historical_baseline")
+            or not isinstance(artifact_masked, dict)
+            or artifact_masked.get("count") != 8
+            or artifact_masked.get("acceptance_state")
+            != "ACCEPTED_EXACT_V38_RETAIN_MASKED"
+            or artifact_masked.get("projection_repeatability") != "PASS"
+            or artifact_privacy
+            != {
+                "host_specific_path_matches": 0,
+                "credential_values_present": False,
+                "masked_grade_risk_finding_or_receipt_fields_present": False,
+                "raw_candidate_transfer_allowed": False,
+            }
+            or not isinstance(artifact_public, dict)
+            or artifact_public.get("production_freshness") != "UNKNOWN"
+            or artifact_public.get("production_source_binding") != "UNKNOWN"
+            or artifact_public.get("production_deployment_revision") != "UNKNOWN"
+            or artifact_public.get("relationship_to_v38")
+            != "NOT_PUBLISHED_AND_NOT_DEPLOYED"
+        ):
+            raise GradeRefreshError("accepted disposition artifact integrity is invalid")
+        shared_forward_fields = {
+            "source_revision",
+            "source_tree_digest",
+            "policy_digest",
+            "seed_digest",
+            "masking_digest",
+            "catalog_denominator",
+            "preflight_receipt_digest",
+            "repeatability_receipt_digest",
+            "triage_receipt_digest",
+            "candidate_manifest_digest",
+            "repeat_candidate_manifest_digest",
+        }
+        if any(
+            artifact_forward.get(field) != review_forward.get(field)
+            for field in shared_forward_fields
+        ):
+            raise GradeRefreshError("accepted current-source forward baseline changed")
+        artifact_entries = artifact_masked.get("entries")
+        review_entries = review.get("entry_dispositions")
+        if not isinstance(artifact_entries, list) or not isinstance(review_entries, list):
+            raise GradeRefreshError("accepted current-source dispositions are invalid")
+        artifact_projection = {
+            entry.get("slug"): {
+                "disposition": entry.get("disposition"),
+                "rationale_code": entry.get("rationale_code"),
+                "next_review_condition": entry.get("next_review_condition"),
+                "projection_digest": entry.get("projection_digest"),
+            }
+            for entry in artifact_entries
+            if isinstance(entry, dict)
+        }
+        review_projection = {
+            entry.get("slug"): {
+                "disposition": entry.get("disposition"),
+                "rationale_code": entry.get("rationale_code"),
+                "next_review_condition": entry.get("next_review_condition"),
+                "projection_digest": (
+                    entry.get("controlled_evidence", {}).get("projection_digest")
+                    if isinstance(entry.get("controlled_evidence"), dict)
+                    else None
+                ),
+            }
+            for entry in review_entries
+            if isinstance(entry, dict)
+        }
+        if len(artifact_projection) != 8 or artifact_projection != review_projection:
+            raise GradeRefreshError("accepted current-source dispositions changed")
     if sanitized:
         tool_versions = review_forward.get("tool_versions")
         if (
@@ -2268,7 +2427,9 @@ def build_publication_review_decision(
     dispositions_accepted = review_state in {
         "ACCEPTED",
         "SANITIZED_REACCEPTANCE_REQUIRED",
+        "ACCEPTED_CURRENT_SOURCE_REVIEW",
     }
+    current_source_accepted = review_state == "ACCEPTED_CURRENT_SOURCE_REVIEW"
     sanitized_reacceptance_required = (
         review_state == "SANITIZED_REACCEPTANCE_REQUIRED"
     )
@@ -2349,6 +2510,8 @@ def build_publication_review_decision(
                     (
                         "HUMAN_ACCEPTED_V20"
                         if sanitized_reacceptance_required
+                        else "HUMAN_ACCEPTED_V38"
+                        if current_source_accepted
                         else "HUMAN_ACCEPTED"
                     )
                     if dispositions_accepted
@@ -2423,7 +2586,7 @@ def build_publication_review_decision(
         scheduler_gates.append("scheduler_state_changed_or_unknown")
     if sanitized_reacceptance_required:
         acceptance_gates = ["sanitized_review_acceptance_required"]
-    elif review_state == "ACCEPTED":
+    elif review_state in {"ACCEPTED", "ACCEPTED_CURRENT_SOURCE_REVIEW"}:
         acceptance_gates = []
     else:
         acceptance_gates = [
@@ -2438,7 +2601,7 @@ def build_publication_review_decision(
             if sanitized_reacceptance_required
             else (
                 "ACCEPTED_FOR_SOURCE_REVIEW"
-                if review_state == "ACCEPTED"
+                if review_state in {"ACCEPTED", "ACCEPTED_CURRENT_SOURCE_REVIEW"}
                 else "READY_FOR_HUMAN_DISPOSITION"
             )
         ),
@@ -2452,7 +2615,12 @@ def build_publication_review_decision(
             "freshness, scheduler, safety, or endorsement."
             if sanitized_reacceptance_required
             else (
-                "Local disposition acceptance record for the exact controlled candidate only; "
+                "Exact V38 current-source disposition acceptance for the controlled V37 "
+                "candidate only; not publication, deployment, production freshness, "
+                "scheduler, safety, backing-service functionality, credentialed "
+                "functionality, or endorsement."
+                if current_source_accepted
+                else "Local disposition acceptance record for the exact controlled candidate only; "
                 "not publication, deployment, production freshness, scheduler, safety, "
                 "or endorsement."
                 if review_state == "ACCEPTED"
@@ -2522,7 +2690,11 @@ def build_publication_review_decision(
         },
         "blocking_gates": [
             *acceptance_gates,
-            "exact_source_review_and_landing_required",
+            *(
+                []
+                if current_source_accepted
+                else ["exact_source_review_and_landing_required"]
+            ),
             "immutable_site_artifact_and_rollback_binding_required",
             "explicit_publication_authority_required",
             "production_source_and_deployment_binding_unknown",
@@ -2539,7 +2711,7 @@ def build_publication_review_decision(
                 if sanitized_reacceptance_required
                 else (
                     "source-acceptance-record-is-not-publication-authority"
-                    if review_state == "ACCEPTED"
+                    if review_state in {"ACCEPTED", "ACCEPTED_CURRENT_SOURCE_REVIEW"}
                     else "masking-configuration-is-not-human-disposition-evidence"
                 )
             ),
@@ -2621,11 +2793,27 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
     if payload.get("review_state") == "ACCEPTED_FOR_SOURCE_REVIEW":
         accepted = True
         sanitized_pending = False
+        disposition_projection = payload.get("disposition_policy")
+        current_source_accepted = bool(
+            isinstance(disposition_projection, dict)
+            and disposition_projection.get("review_state")
+            == "ACCEPTED_CURRENT_SOURCE_REVIEW"
+        )
         if dispositions != accepted_counts:
             raise GradeRefreshError("accepted disposition counts are invalid")
+        if current_source_accepted and (
+            forward.get("state")
+            != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+            or not isinstance(payload.get("acceptance"), dict)
+            or payload["acceptance"].get("acceptance_state")
+            != "ACCEPTED_EXACT_V38"
+            or "exact_source_review_and_landing_required" in blockers
+        ):
+            raise GradeRefreshError("current-source acceptance binding is invalid")
     elif payload.get("review_state") == "READY_FOR_SANITIZED_REACCEPTANCE":
         accepted = True
         sanitized_pending = True
+        current_source_accepted = False
         if dispositions != accepted_counts:
             raise GradeRefreshError("V20 accepted disposition counts are invalid")
         if "sanitized_review_acceptance_required" not in blockers:
@@ -2642,6 +2830,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
     elif payload.get("review_state") == "READY_FOR_HUMAN_DISPOSITION":
         accepted = False
         sanitized_pending = False
+        current_source_accepted = False
         if dispositions != proposed_counts:
             raise GradeRefreshError("proposed disposition counts are invalid")
     else:
@@ -2670,6 +2859,8 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
             (
                 "masked-disposition-accepted-v20"
                 if sanitized_pending
+                else "masked-disposition-accepted-v38-current-source"
+                if current_source_accepted
                 else "masked-disposition-accepted"
                 if accepted
                 else "masked-disposition-proposal"
@@ -2677,6 +2868,8 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
             (
                 "sanitized-review-receipt-generated"
                 if sanitized_pending
+                else "v37-forward-baseline-accepted-v38"
+                if current_source_accepted
                 else "forward-baseline-accepted"
                 if accepted
                 else "forward-baseline-proposal"
@@ -2691,6 +2884,10 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
             "Accept the exact sanitized artifact digest and receipt before source review; "
             "publication, deployment, and scheduler activation remain separately gated."
             if sanitized_pending
+            else "Build and verify the deterministic local site candidate; immutable "
+            "rollback binding, explicit publication authority, and production binding "
+            "remain separate gates."
+            if current_source_accepted
             else "Review and land the accepted source record locally; immutable site and "
             "rollback binding, explicit publication authority, and production binding "
             "remain separate gates."

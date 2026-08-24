@@ -1,0 +1,139 @@
+{
+  "schema": "McpTrustAcceptedDispositionArtifactV1",
+  "as_of": "2026-08-24T08:14:30Z",
+  "artifact_id": "mcp-trust-v38-accepted-v39",
+  "decision": "OPERATOR_ACCEPTED_EXACT_V38",
+  "acceptance": {
+    "state": "ACCEPTED_EXACT_V38",
+    "source": "direct-current-chat-token",
+    "scope": "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline",
+    "proposal_artifact_sha256": "sha256:43485d757af803f35f8f9f585301b65a45195878ea0b02d8b7980c2b04c526da",
+    "proposal_receipt_digest": "sha256:997a5892c08e4aa8335b4363ba23fb96de381d4b04cb64fccd1cb7f51271d84b",
+    "proposal_policy_sha256": "sha256:2793e4bd93ea28261febdd68536b4ce14cd4c5631326b137b06b20f8ca14f5a4",
+    "original_capsule_sha256": "sha256:a0ae6566faf887b54b4bba513a8238e2e89307f08e9cfe850b2acf848a4d26d1",
+    "accepted_capsule_sha256": "sha256:8fcb30e26a0a92c9a19301f5bb97603c074e6683cf61553a1f49a696670284bb",
+    "resume_decision_sha256": "sha256:0af72993cd3e05633ece5c55eb35e290b6e3563af662d884948ccddead8211d3",
+    "resume_decision": "RESUME",
+    "provenance_authenticity": "direct-current-chat-token-externally-observed; evaluator-authenticity-not-verified"
+  },
+  "prior_acceptance_lineage": {
+    "historical_v20_review_receipt_digest": "sha256:15b1367db8f671c84884247f2fc698abef8436897d9a7e1c31634d0f2bcbbddc",
+    "historical_v20_review_artifact_sha256": "sha256:2a7a95f129b86a115c067bf1542757a8524318a8b2f2f44a6b84d891c46139a8",
+    "sanitized_v24_review_receipt_digest": "sha256:59625dae4ea5eef743665f99fdcf75df9fee67a396be20c0a17abec75ff5e64d",
+    "sanitized_v33_acceptance_receipt_digest": "sha256:9c4a122b159e52937afe5e55aff1e1cd49c78e7cf7ae1dd5d1a5f5e3385344f1",
+    "v33_acceptance_capsule_sha256": "sha256:b595cdda1303c093979569a83780c65a3a3825fde0c5f1d1d73a7446dc5abbb0",
+    "transfer_to_v38": false,
+    "reason": "The accepted v38 token independently binds the new v37 source, candidate, preflight, repeatability, and triage identities. Prior acceptance is lineage only."
+  },
+  "forward_baseline": {
+    "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
+    "source_revision": "9377780c800033b99533f09ee510566e7240b41d",
+    "source_tree_digest": "sha256:c071a5bceb23788d64e03c78d4fd20efaf2bd0bf053e26fb9d704ad851341198",
+    "policy_digest": "sha256:febaa313112abd5a0783a3a5e3c46fd47b4227b689e32fd367b9a10d1e7a94c2",
+    "seed_digest": "sha256:7645927074f5672d81cd47d6856e02992556b2fa284fe923574df9fd07ae5899",
+    "masking_digest": "sha256:9442fa81d9afe15e0135ff3e952c079e554509b9184ed2e5cfce9879597c3c67",
+    "catalog_denominator": 31,
+    "preflight_receipt_digest": "sha256:6e18a976095788fe417c7c2533affdc912fd1d780f570574ba8c5da3215af5c7",
+    "repeatability_receipt_digest": "sha256:873855fe3f0ca120777dd1f2f29981947caa1c1725315fc7ea0b8d90dff36433",
+    "triage_receipt_digest": "sha256:6068d9b644b40f3fe9143ef4cf6769917f80e60cfd23c3d81d9bbd7f99022a6b",
+    "candidate_manifest_digest": "sha256:791b181efacd0e55c5e7c75fdac359fbce137d159a6d341c437dfdbc7d690d22",
+    "repeat_candidate_manifest_digest": "sha256:656b3b33f4ba8bce029de3343713f206be3ee3559ffb4447748b7ccd855abe49",
+    "relationship_to_v20": "policy, masking, seed, catalog denominator, image set, and all eight masked projection digests match; current execution receipts and source identity are new"
+  },
+  "historical_baseline": {
+    "state": "UNKNOWN",
+    "disposition": "preserve-unknown-no-retroactive-comparison"
+  },
+  "masked_dispositions": {
+    "count": 8,
+    "acceptance_state": "ACCEPTED_EXACT_V38_RETAIN_MASKED",
+    "projection_repeatability": "PASS",
+    "projection_equivalence_to_accepted_v20": "PASS",
+    "entries": [
+      {
+        "slug": "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+        "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+        "rationale_code": "backing-service-not-exercised",
+        "next_review_condition": "approved-controlled-backing-service-evidence",
+        "projection_digest": "sha256:a7c55ff413a643b8cfa9e487aee638108fd11d3e69865d0a6bed1016f7d05c38"
+      },
+      {
+        "slug": "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+        "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+        "rationale_code": "backing-service-not-exercised",
+        "next_review_condition": "approved-controlled-backing-service-evidence",
+        "projection_digest": "sha256:6fc4fff654037350cb69ae0f07c395a92688d678edb2f4471ef6c816cf7e0b39"
+      },
+      {
+        "slug": "io-github-discourse-mcp-0-2-9",
+        "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+        "rationale_code": "operator-masking-continuity",
+        "next_review_condition": "explicit-human-disposition",
+        "projection_digest": "sha256:e51026335d7dd659c6b362b1846734a706bc5aac531b6efa37c23d4eeae6b2e3"
+      },
+      {
+        "slug": "io-github-microsoft-playwright-mcp-0-0-77",
+        "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+        "rationale_code": "backing-service-not-exercised",
+        "next_review_condition": "approved-controlled-backing-service-evidence",
+        "projection_digest": "sha256:ec3dcd0f8f714a2de2601a07fcbe91a7c595537ce8c8b505aec55b3d2a9496ee"
+      },
+      {
+        "slug": "io-github-nvidia-elements-2-1-4",
+        "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+        "rationale_code": "operator-masking-continuity",
+        "next_review_condition": "explicit-human-disposition",
+        "projection_digest": "sha256:b7c2eb78ca21d5a7b1337103bb4d19549214101c8948d6ab1f619bac3a82b63f"
+      },
+      {
+        "slug": "mcp-archived-github",
+        "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+        "rationale_code": "archived-unsupported-credential-and-backing-service",
+        "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence",
+        "projection_digest": "sha256:ee73f201dbbae0d000bbadc2c91ef291276483b2bedc7587bc193f5671c4ff92"
+      },
+      {
+        "slug": "mcp-archived-gitlab",
+        "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+        "rationale_code": "archived-unsupported-credential-and-backing-service",
+        "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence",
+        "projection_digest": "sha256:fac344ddc564b8b7c4c44f405c9d3724faf4868ce64860079e71a031c5c1c1f0"
+      },
+      {
+        "slug": "mcp-archived-slack",
+        "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+        "rationale_code": "archived-unsupported-credential-and-backing-service",
+        "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence",
+        "projection_digest": "sha256:2a810396687f8dc7674f6cb1175a2a2073148f51531d619e6a9244ed1bd51f7c"
+      }
+    ]
+  },
+  "privacy": {
+    "host_specific_path_matches": 0,
+    "credential_values_present": false,
+    "masked_grade_risk_finding_or_receipt_fields_present": false,
+    "raw_candidate_transfer_allowed": false
+  },
+  "authority": {
+    "local_acceptance_recording": true,
+    "local_source_review": true,
+    "repository_source_write": false,
+    "git_local_history": false,
+    "push": false,
+    "publication": false,
+    "deployment": false,
+    "scheduler_activation": false,
+    "credentials": false,
+    "third_party_execution": false,
+    "external_write": false
+  },
+  "separate_public_state": {
+    "production_freshness": "UNKNOWN",
+    "production_source_binding": "UNKNOWN",
+    "production_deployment_revision": "UNKNOWN",
+    "relationship_to_v38": "NOT_PUBLISHED_AND_NOT_DEPLOYED"
+  },
+  "claim_ceiling": "Receipt-bound sanitized local acceptance of the exact v38 dispositions and v37 forward baseline for source review only. It is not repository landing, publication authority, deployment proof, production freshness, scheduler authority, safety, endorsement, backing-service functionality, credentialed functionality, or certification.",
+  "receipt_projection": "canonical JSON excluding receipt_digest",
+  "receipt_digest": "sha256:9f8d932f3146d13917ae214b9558ac3c21ec7142b5c754b274ad8d0946fa816a"
+}

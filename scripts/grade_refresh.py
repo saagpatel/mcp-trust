@@ -34,8 +34,8 @@ _SEED = _ROOT / "src/mcp_trust/catalog/seed_servers.json"
 _MASKED = _ROOT / "masked-grades.json"
 _POLICY = _ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 _DISPOSITIONS = _ROOT / "src/mcp_trust/catalog/refresh_disposition_policy.json"
-_SANITIZED_REVIEW = (
-    _ROOT / "src/mcp_trust/catalog/sanitized_publication_review_v24.json"
+_ACCEPTED_REVIEW = (
+    _ROOT / "src/mcp_trust/catalog/accepted_publication_review_v38.json"
 )
 
 
@@ -138,8 +138,8 @@ def _parser() -> argparse.ArgumentParser:
     publication_review.add_argument(
         "--accepted-review",
         type=Path,
-        default=_SANITIZED_REVIEW,
-        help="Receipt-bound sanitized V20 successor named by the disposition policy.",
+        default=_ACCEPTED_REVIEW,
+        help="Receipt-bound proposal artifact named by the disposition policy.",
     )
     publication_review.add_argument("--out", type=Path)
     publication_review.add_argument("--markdown-out", type=Path)

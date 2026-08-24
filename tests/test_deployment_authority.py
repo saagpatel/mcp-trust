@@ -577,6 +577,7 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
     [
         ("missing", "site candidate manifest is missing"),
         ("pending", "not publication-approved and deployment-eligible"),
+        ("accepted_review_only", "not publication-approved and deployment-eligible"),
         ("rollback_unknown", "rollback lineage is not exact and complete"),
         ("rollback_mismatch", "does not match retained artifact"),
         ("retained_tamper", "site candidate content manifest changed"),
@@ -627,6 +628,10 @@ def test_deploy_rejects_unqualified_site_candidate(
         manifest = json.loads(manifest_path.read_text())
         if mutation == "pending":
             manifest["state"] = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
+            manifest["publication_allowed"] = False
+            manifest["deployment_allowed"] = False
+        elif mutation == "accepted_review_only":
+            manifest["state"] = "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW"
             manifest["publication_allowed"] = False
             manifest["deployment_allowed"] = False
         elif mutation == "rollback_unknown":

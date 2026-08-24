@@ -65,7 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--review",
         type=Path,
-        default=ROOT / "src/mcp_trust/catalog/sanitized_publication_review_v24.json",
+        default=ROOT / "src/mcp_trust/catalog/accepted_publication_review_v38.json",
     )
     parser.add_argument(
         "--disposition",
