@@ -75,11 +75,16 @@ Build a sanitized transfer bundle from the workstation after scans pass:
 
 ```bash
 python scripts/build_deploy_bundle.py \
-  --candidate ./dist/refresh-candidate-<timestamp>
+  --candidate ./dist/refresh-candidate-<timestamp> \
+  --review ./dist/publication-review.json \
+  --disposition ./src/mcp_trust/catalog/refresh_disposition_policy.json \
+  --policy ./src/mcp_trust/catalog/refresh_policy.json
 ```
 
-The command verifies the candidate and records its manifest digest. It creates
-an offline transfer artifact only; upload and deployment remain separate,
+The command verifies the candidate and records its manifest digest. It refuses
+to create a deployment-shaped bundle while the review is pending, `NO_GO`, or
+otherwise lacks deployment authority. A successful future command creates an
+offline transfer artifact only; upload and deployment remain separate,
 explicitly authorized steps.
 
 Upload the resulting `dist/mcp-trust-deploy-bundle-*.tar.gz` to the VM, extract

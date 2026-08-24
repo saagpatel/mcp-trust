@@ -24,6 +24,7 @@ APPROVAL=""
 VERCEL_BIN=""
 NODE_BIN=""
 EXPECTED_OUTPUT_SHA256=""
+ROLLBACK_ARTIFACT=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -36,11 +37,12 @@ while [ "$#" -gt 0 ]; do
     --vercel-bin) VERCEL_BIN="${2:-}"; shift 2 ;;
     --node-bin) NODE_BIN="${2:-}"; shift 2 ;;
     --expected-output-sha256) EXPECTED_OUTPUT_SHA256="${2:-}"; shift 2 ;;
+    --rollback-artifact) ROLLBACK_ARTIFACT="${2:-}"; shift 2 ;;
     *) die "unknown or incomplete argument: $1" ;;
   esac
 done
 
-for value in EXPECTED_REPO EXPECTED_COMMIT TARGET_URL PROJECT_ID ORG_ID APPROVAL VERCEL_BIN NODE_BIN EXPECTED_OUTPUT_SHA256; do
+for value in EXPECTED_REPO EXPECTED_COMMIT TARGET_URL PROJECT_ID ORG_ID APPROVAL VERCEL_BIN NODE_BIN EXPECTED_OUTPUT_SHA256 ROLLBACK_ARTIFACT; do
   [ -n "${!value}" ] || die "missing required input: ${value}"
 done
 
@@ -120,6 +122,7 @@ OUT="${REPO_ROOT}/site"
   --node-bin "${NODE_BIN}" \
   --output "${OUT}" \
   --output-sha256 "${EXPECTED_OUTPUT_SHA256}" \
+  --rollback-artifact "${ROLLBACK_ARTIFACT}" \
   || die "deployment approval validation failed"
 
 # A live terminal confirmation is required after the exact approval validates;
@@ -144,6 +147,7 @@ IFS= read -r TYPED_CONFIRMATION
   --node-bin "${NODE_BIN}" \
   --output "${OUT}" \
   --output-sha256 "${EXPECTED_OUTPUT_SHA256}" \
+  --rollback-artifact "${ROLLBACK_ARTIFACT}" \
   || die "deployment approval changed after confirmation"
 
 # Provider authority is checked only after every repository and approval gate.

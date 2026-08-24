@@ -26,8 +26,7 @@ def _load_module(name: str, path: Path):
 
 def _write_seed(path: Path, slugs: list[str]) -> None:
     payload = [
-        {"slug": slug, "name": slug, "source": {"kind": "npm", "reference": slug}}
-        for slug in slugs
+        {"slug": slug, "name": slug, "source": {"kind": "npm", "reference": slug}} for slug in slugs
     ]
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -106,6 +105,56 @@ def _admitted_candidate_verifier(*_args, **_kwargs) -> dict[str, object]:
     }
 
 
+def _admitted_review_verifier(**_kwargs) -> dict[str, object]:
+    return {
+        "state": "PUBLICATION_APPROVED_ROLLBACK_BOUND",
+        "publication_allowed": True,
+        "deployment_allowed": True,
+        "rollback_state": "BOUND",
+        "candidate_manifest_digest": "sha256:" + "a" * 64,
+        "review_receipt_digest": "sha256:" + "b" * 64,
+    }
+
+
+def _review_args(tmp_path: Path) -> dict[str, object]:
+    return {
+        "policy_path": tmp_path / "policy.json",
+        "review_path": tmp_path / "review.json",
+        "disposition_path": tmp_path / "disposition.json",
+        "review_verifier": _admitted_review_verifier,
+    }
+
+
+def test_build_deploy_bundle_rejects_pending_review(tmp_path: Path) -> None:
+    _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
+    builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    seed = tmp_path / "seed.json"
+    masked = tmp_path / "masked.json"
+    _write_seed(seed, ["alpha"])
+    masked.write_text("[]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not authorize a deployment-shaped bundle"):
+        builder.build_deploy_bundle(
+            candidate_path=candidate,
+            seed_path=seed,
+            masked_path=masked,
+            policy_path=tmp_path / "policy.json",
+            review_path=tmp_path / "review.json",
+            disposition_path=tmp_path / "disposition.json",
+            out_dir=tmp_path / "dist",
+            candidate_verifier=_admitted_candidate_verifier,
+            review_verifier=lambda **_kwargs: {
+                "state": "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE",
+                "publication_allowed": False,
+                "deployment_allowed": False,
+                "rollback_state": "UNKNOWN",
+            },
+        )
+    assert not (tmp_path / "dist").exists()
+
+
 def test_build_deploy_bundle_rejects_unverified_candidate(tmp_path) -> None:
     _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
     builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
@@ -122,6 +171,7 @@ def test_build_deploy_bundle_rejects_unverified_candidate(tmp_path) -> None:
             seed_path=seed_path,
             masked_path=masked_path,
             out_dir=tmp_path / "dist",
+            **_review_args(tmp_path),
         )
 
 
@@ -163,6 +213,7 @@ def test_build_deploy_bundle_sanitizes_historical_scan_rows(tmp_path) -> None:
         out_dir=out_dir,
         bundle_name="bundle",
         candidate_verifier=_admitted_candidate_verifier,
+        **_review_args(tmp_path),
     )
 
     assert bundle_path.exists()
@@ -221,6 +272,7 @@ def test_build_deploy_bundle_accepts_candidate_with_masked_rows_absent(tmp_path)
         out_dir=out_dir,
         bundle_name="bundle-masked",
         candidate_verifier=_admitted_candidate_verifier,
+        **_review_args(tmp_path),
     )
     extract_dir = tmp_path / "extract"
     with tarfile.open(bundle_path, "r:gz") as tar:
@@ -268,4 +320,5 @@ def test_build_deploy_bundle_rejects_candidate_that_contains_masked_scan(
             masked_path=masked_path,
             out_dir=tmp_path / "dist",
             candidate_verifier=_admitted_candidate_verifier,
+            **_review_args(tmp_path),
         )

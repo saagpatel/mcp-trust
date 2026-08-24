@@ -20,22 +20,30 @@ schedule (see `Scheduled freshness`), not from Vercel's Git integration.
 - A final public URL for `--base-url` (currently
   `https://mcp-trust.vercel.app`) so badge embeds resolve against the live host.
 
-## 1. Build the static site from real data
+## 1. Build a local review artifact
 
 `DOMAIN` must be the final public URL so README badge-embed snippets point at the
 live host. The build is read-only against `registry.db`; it never scans.
 
 ```bash
 DOMAIN="https://mcp-trust.vercel.app"
-uv run python scripts/build_site.py \
-  --db ./registry.db \
-  --out site \
+uv run --frozen python scripts/build_site_candidate.py \
+  --candidate ./dist/refresh-candidates/<candidate> \
+  --out ./dist/site-candidates/<name> \
   --base-url "$DOMAIN"
-# Expect the current seeded/scanned count, for example:
-# "Built static site for 19 server(s) (19 scanned) ... VERIFY OK"
+uv run --frozen python scripts/build_site_candidate.py \
+  --verify ./dist/site-candidates/<name>
 ```
 
-Ship the deploy config with the rendered output so headers/CSP/clean-URLs apply:
+The current sanitized review produces a deterministic local artifact with both
+publication and deployment authority set to false. Do not copy it into `site/`
+or deploy it. A raw `scripts/build_site.py --db` or `--candidate` build remains a
+development preview and cannot satisfy deployment authorization V3. The
+candidate builder itself requires a clean committed worktree and binds that
+implementation revision and complete Git-tree digest.
+
+Only after a separate approved promotion gate may the deploy config be added to
+an approved, rollback-bound artifact so headers/CSP/clean-URLs apply:
 
 ```bash
 cp deploy/vercel.json site/vercel.json
@@ -83,7 +91,7 @@ Production deployment is available only through
 `MCP_TRUST_AUTO_DEPLOY` are unsupported.
 
 The operator must create a mode-`0600`, non-symlinked, short-lived JSON approval
-using schema `McpTrustProductionDeployAuthorizationV2`. It binds its own exact
+using schema `McpTrustProductionDeployAuthorizationV3`. It binds its own exact
 absolute path plus repository root, `main` branch, full commit SHA, production
 URL, the repository-pinned Vercel project and organization IDs, canonical
 GitHub origin, Vercel and Node invocation/resolved executable paths and SHA-256
@@ -92,6 +100,15 @@ issuance time, and expiry no more than 15 minutes later. Symlinks and special
 files in `site/` are rejected. The ignored output digest, provider link,
 approval, and tool bytes are revalidated after confirmation and immediately
 before the provider call.
+
+V3 also binds the exact `SITE_CANDIDATE.json` receipt and content digest. The
+validator rejects raw `build_site.py` output, a review artifact pending
+sanitized reacceptance, an artifact with `UNKNOWN` rollback lineage, or content
+that no longer matches its immutable manifest. It also requires the exact
+retained prior artifact and proves the current rollback receipt/content binding
+matches it. Direct `--db` and `--candidate` builds remain development/review
+primitives; they are not deployment inputs. No source path currently promotes a
+pending candidate into the required approved state.
 The manual entrypoint separately requires those exact values and requires the
 operator to type `DEPLOY_MCP_TRUST_PRODUCTION` at a live interactive TTY after
 the approval validates; the confirmation cannot be supplied by argument or

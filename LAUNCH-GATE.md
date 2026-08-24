@@ -54,9 +54,11 @@ Current decision: **NO-GO for public launch**.
 - `scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`
   passes on the local launch DB: 7 seeded servers, 7 latest `mcpaudit` scans,
   7 matching receipt artifacts, no stub latest rows.
-- `scripts/build_deploy_bundle.py` accepts only a complete, current refresh
-  candidate that passes independent verification, then builds a sanitized
-  transfer artifact bound to the candidate manifest digest.
+- `scripts/build_deploy_bundle.py` now also requires an independently verified
+  publication/deployment decision and exact `BOUND` rollback state. The current
+  sanitized review is pending and `NO_GO`, and there is no supported promotion
+  path in this review-only lane, so deployment-shaped bundle creation is
+  intentionally blocked.
 - A GCE VM rehearsal is running as `mcp-trust-v1` in `saagars-project`
   (`us-west1-b`, external IP `8.229.92.116`) with the sanitized bundle
   installed under `/data/mcp-trust/`.

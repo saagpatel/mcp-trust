@@ -159,6 +159,74 @@ def _tree_sha256(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _canonical_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode() + b"\n"
+    )
+
+
+def _write_deployable_site_candidate(
+    site: Path,
+    *,
+    rollback_identity: dict[str, object] | None = None,
+    implementation_revision: str = "d" * 40,
+    implementation_tree_digest: str = "sha256:" + "e" * 64,
+) -> dict[str, object]:
+    files = []
+    for path in sorted(site.rglob("*"), key=lambda item: item.relative_to(site).as_posix()):
+        relative = path.relative_to(site).as_posix()
+        if not path.is_file() or relative in {"SITE_CANDIDATE.json", ".vercel/project.json"}:
+            continue
+        files.append(
+            {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
+    content_digest = "sha256:" + hashlib.sha256(_canonical_bytes(files)).hexdigest()
+    bindings = {
+        "candidate_manifest_digest": "sha256:" + "1" * 64,
+        "review_artifact_sha256": "sha256:" + "2" * 64,
+        "review_receipt_digest": "sha256:" + "3" * 64,
+        "disposition_policy_sha256": "sha256:" + "4" * 64,
+        "seed_digest": "sha256:" + "5" * 64,
+        "masking_digest": "sha256:" + "6" * 64,
+        "policy_digest": "sha256:" + "7" * 64,
+        "source_revision": "8" * 40,
+        "source_tree_digest": "sha256:" + "9" * 64,
+        "state": "PUBLICATION_APPROVED_ROLLBACK_BOUND",
+        "publication_allowed": True,
+        "deployment_allowed": True,
+        "rollback_state": "BOUND",
+    }
+    rollback = rollback_identity or {
+        "receipt_digest": "sha256:" + "a" * 64,
+        "content_digest": "sha256:" + "b" * 64,
+    }
+    manifest: dict[str, object] = {
+        "schema": "McpTrustSiteCandidateV1",
+        "state": "PUBLICATION_APPROVED_ROLLBACK_BOUND",
+        "publication_allowed": True,
+        "deployment_allowed": True,
+        "implementation_binding": {
+            "state": "CLEAN_COMMITTED",
+            "revision": implementation_revision,
+            "source_tree_digest": implementation_tree_digest,
+        },
+        "bindings": bindings,
+        "content": {"digest": content_digest, "files": files},
+        "rollback": {
+            "state": "BOUND",
+            "site_receipt_digest": rollback["receipt_digest"],
+            "content_digest": rollback["content_digest"],
+        },
+    }
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+    (site / "SITE_CANDIDATE.json").write_bytes(_canonical_bytes(manifest))
+    return manifest
+
+
 def _make_deploy_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     upstream = tmp_path / "upstream.git"
     repo = tmp_path / "repo"
@@ -177,8 +245,25 @@ def _make_deploy_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     link = json.dumps({"projectId": PROJECT_ID, "orgId": ORG_ID, "projectName": "mcp-trust"})
     (repo / ".vercel/project.json").write_text(link, encoding="utf-8")
     (repo / "site/.vercel/project.json").write_text(link, encoding="utf-8")
+    rollback_site = repo.parent / "prior-site"
+    rollback_site.mkdir()
+    (rollback_site / "index.html").write_text("prior deployment\n", encoding="utf-8")
+    rollback_manifest = _write_deployable_site_candidate(rollback_site)
+    rollback_identity = {
+        "receipt_digest": rollback_manifest["receipt_digest"],
+        "content_digest": rollback_manifest["content"]["digest"],
+    }
+    _write_deployable_site_candidate(repo / "site", rollback_identity=rollback_identity)
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "fixture")
+    commit = _git(repo, "rev-parse", "HEAD")
+    tree_output = _run(["git", "ls-tree", "-r", "--full-tree", commit], cwd=repo).stdout.encode()
+    _write_deployable_site_candidate(
+        repo / "site",
+        rollback_identity=rollback_identity,
+        implementation_revision=commit,
+        implementation_tree_digest="sha256:" + hashlib.sha256(tree_output).hexdigest(),
+    )
     _git(repo, "remote", "add", "origin", str(upstream))
     _git(repo, "push", "-u", "origin", "main")
     _git(repo, "remote", "set-url", "origin", ORIGIN_URL)
@@ -222,7 +307,7 @@ def _write_approval(
     issued_at = issued_at or now - timedelta(seconds=5)
     expires_at = expires_at or now + timedelta(minutes=5)
     payload = {
-        "schema": "McpTrustProductionDeployAuthorizationV2",
+        "schema": "McpTrustProductionDeployAuthorizationV3",
         "receipt_id": "security-test-receipt",
         "repository": str(repo.resolve()),
         "branch": branch,
@@ -242,6 +327,18 @@ def _write_approval(
         "issued_at": issued_at.isoformat().replace("+00:00", "Z"),
         "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
     }
+    site_manifest = json.loads((repo / "site/SITE_CANDIDATE.json").read_text())
+    rollback_path = repo.parent / "prior-site"
+    rollback_manifest = json.loads((rollback_path / "SITE_CANDIDATE.json").read_text())
+    payload["site_candidate_receipt_digest"] = site_manifest["receipt_digest"]
+    payload["site_candidate_content_digest"] = site_manifest["content"]["digest"]
+    payload["implementation_revision"] = site_manifest["implementation_binding"]["revision"]
+    payload["implementation_source_tree_digest"] = site_manifest["implementation_binding"][
+        "source_tree_digest"
+    ]
+    payload["rollback_artifact_path"] = str(rollback_path.resolve())
+    payload["rollback_site_candidate_receipt_digest"] = rollback_manifest["receipt_digest"]
+    payload["rollback_site_candidate_content_digest"] = rollback_manifest["content"]["digest"]
     path.write_text(json.dumps(payload), encoding="utf-8")
     path.chmod(0o600)
 
@@ -276,6 +373,8 @@ def _deploy_command(
         str(node_bin),
         "--expected-output-sha256",
         _tree_sha256(repo / "site"),
+        "--rollback-artifact",
+        str((repo.parent / "prior-site").resolve()),
     ]
 
 
@@ -422,6 +521,76 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [
+        ("missing", "site candidate manifest is missing"),
+        ("pending", "not publication-approved and deployment-eligible"),
+        ("rollback_unknown", "rollback lineage is not exact and complete"),
+        ("rollback_mismatch", "does not match retained artifact"),
+        ("retained_tamper", "site candidate content manifest changed"),
+        ("duplicate_key", "contains duplicate key: schema"),
+        ("implementation_missing", "implementation binding is invalid"),
+        ("implementation_revision", "does not match approved commit"),
+        ("implementation_tree", "does not match approved commit"),
+    ],
+)
+def test_deploy_rejects_unqualified_site_candidate(
+    tmp_path: Path, mutation: str, expected: str
+) -> None:
+    repo, vercel_bin, record = _make_deploy_repo(tmp_path)
+    commit = _git(repo, "rev-parse", "HEAD")
+    approval = tmp_path / "approval.json"
+    _write_approval(approval, repo=repo, commit=commit, vercel_bin=vercel_bin)
+    manifest_path = repo / "site/SITE_CANDIDATE.json"
+    if mutation == "missing":
+        manifest_path.unlink()
+    elif mutation == "retained_tamper":
+        (repo.parent / "prior-site/index.html").write_text("tampered\n", encoding="utf-8")
+    elif mutation == "duplicate_key":
+        manifest_path.write_text(
+            manifest_path.read_text().replace(
+                '"schema":"McpTrustSiteCandidateV1"',
+                '"schema":"McpTrustSiteCandidateV1","schema":"McpTrustSiteCandidateV1"',
+                1,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        manifest = json.loads(manifest_path.read_text())
+        if mutation == "pending":
+            manifest["state"] = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
+            manifest["publication_allowed"] = False
+            manifest["deployment_allowed"] = False
+        elif mutation == "rollback_unknown":
+            manifest["rollback"] = {
+                "state": "UNKNOWN",
+                "reason": "no-prior-immutable-site-candidate-bound",
+            }
+        elif mutation == "implementation_missing":
+            manifest.pop("implementation_binding")
+        elif mutation == "implementation_revision":
+            manifest["implementation_binding"]["revision"] = "f" * 40
+        elif mutation == "implementation_tree":
+            manifest["implementation_binding"]["source_tree_digest"] = "sha256:" + "f" * 64
+        else:
+            manifest["rollback"]["content_digest"] = "sha256:" + "c" * 64
+        manifest.pop("receipt_digest")
+        manifest["receipt_digest"] = (
+            "sha256:" + hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+        )
+        manifest_path.write_bytes(_canonical_bytes(manifest))
+    result = _run(
+        _deploy_command(repo, approval, vercel_bin),
+        cwd=repo,
+        env=_deploy_env(tmp_path, record),
+        check=False,
+    )
+    assert result.returncode != 0
+    assert expected in result.stdout + result.stderr
+    assert not record.exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
         ("scheduler", "scheduler context"),
         ("detached", "detached HEAD"),
         ("feature_branch", "approved branch"),
@@ -433,9 +602,12 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
         ("org_substitution", "approved production organization"),
         ("remote_substitution", "origin fetch URL"),
         ("expected_repo_substitution", "repository root"),
-        ("output_substitution", "output tree SHA-256 mismatch"),
-        ("output_symlink", "deployment output contains a symlink"),
+        ("output_substitution", "site candidate content manifest changed"),
+        ("output_symlink", "site candidate contains a symlink"),
         ("output_root_symlink", "output root must not be a symlink"),
+        ("rollback_same_as_output", "distinct from and outside current output"),
+        ("rollback_contains_output", "distinct from and outside current output"),
+        ("rollback_symlink", "rollback artifact path must not contain a symlink"),
         ("project_link_substitution", "project link does not match"),
         ("tool_digest_substitution", "vercel_sha256 mismatch"),
         ("stale_approval", "expired"),
@@ -487,6 +659,14 @@ def test_manual_deploy_fails_closed(tmp_path: Path, mutation: str, expected: str
         with (repo / ".git/info/exclude").open("a", encoding="utf-8") as handle:
             handle.write("site\n")
         (repo / "site").symlink_to(real_site)
+    elif mutation == "rollback_same_as_output":
+        command[command.index("--rollback-artifact") + 1] = str((repo / "site").resolve())
+    elif mutation == "rollback_contains_output":
+        command[command.index("--rollback-artifact") + 1] = str(repo.resolve())
+    elif mutation == "rollback_symlink":
+        rollback_link = tmp_path / "prior-site-link"
+        rollback_link.symlink_to(repo.parent / "prior-site", target_is_directory=True)
+        command[command.index("--rollback-artifact") + 1] = str(rollback_link)
     elif mutation == "project_link_substitution":
         (repo / ".vercel/project.json").write_text(
             json.dumps(
@@ -672,7 +852,7 @@ def test_post_confirmation_revalidation_catches_output_change(tmp_path: Path) ->
         before_confirmation=mutate_output,
     )
     assert result.returncode != 0
-    assert "output tree SHA-256 mismatch" in result.stdout
+    assert "site candidate content manifest changed" in result.stdout
     assert not record.exists()
 
 
@@ -681,8 +861,8 @@ def test_post_confirmation_revalidation_catches_output_change(tmp_path: Path) ->
     [
         ("missing_output_link", "output Vercel project link is missing"),
         ("wrong_output_link", "output Vercel project link does not match"),
-        ("symlinked_output_link", "deployment output contains a symlink"),
-        ("legacy_output_link", "unexpected ambient Vercel binding source"),
+        ("symlinked_output_link", "site candidate contains a symlink"),
+        ("legacy_output_link", "site candidate content manifest changed"),
         ("ancestor_link", "unexpected ambient Vercel binding source"),
     ],
 )

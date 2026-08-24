@@ -1,9 +1,11 @@
-"""Build a sanitized VM deploy bundle from a verified refresh candidate.
+"""Gate a sanitized VM deploy bundle behind verified publication authority.
 
 The review-only candidate may contain historical rows. This script first runs
-the independent candidate verifier, then copies only latest unmasked scan rows
-and referenced receipts into a manifest-bound transfer artifact. Creating a
-bundle does not authorize upload or deployment.
+the independent candidate and publication-review verifiers. The current pending
+review always fails closed; no supported promotion path exists in this lane.
+If a future separately authorized state is admitted, only latest unmasked scan
+rows and referenced receipts are copied. A bundle still does not authorize
+upload or deployment.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Any
 from validate_launch_state import _latest_scan_rows, validate_launch_state
 
 from mcp_trust.refresh import verify_refresh_candidate
+from mcp_trust.site.candidate import verify_site_candidate_review
 
 
 def _default_seed_path() -> Path:
@@ -89,6 +92,7 @@ def _write_manifest(
     source_receipts_dir: Path,
     candidate_path: Path,
     candidate_manifest_sha256: str,
+    review_binding: dict[str, Any],
     masked_path: Path,
     masked_slugs: set[str],
 ) -> dict[str, Any]:
@@ -123,6 +127,7 @@ def _write_manifest(
             "db": str(source_db.relative_to(candidate_path)),
             "receipts_dir": str(source_receipts_dir.relative_to(candidate_path)),
         },
+        "publication_review": review_binding,
         "masking": {
             "path": "masked-grades.json",
             "sha256": _sha256(masked_path),
@@ -148,9 +153,13 @@ def build_deploy_bundle(
     candidate_path: Path,
     seed_path: Path,
     masked_path: Path,
+    policy_path: Path,
+    review_path: Path,
+    disposition_path: Path,
     out_dir: Path,
     bundle_name: str | None = None,
     candidate_verifier: Callable[..., dict[str, object]] = verify_refresh_candidate,
+    review_verifier: Callable[..., dict[str, Any]] = verify_site_candidate_review,
 ) -> Path:
     """Build and return a bundle bound to one independently verified candidate."""
 
@@ -169,6 +178,26 @@ def build_deploy_bundle(
     candidate_manifest_sha256 = verification.get("manifest_sha256")
     if not isinstance(candidate_manifest_sha256, str) or len(candidate_manifest_sha256) != 64:
         raise ValueError("refresh candidate verification omitted its manifest digest")
+    review_binding = review_verifier(
+        review_path=review_path,
+        disposition_path=disposition_path,
+        candidate_path=candidate_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=policy_path,
+        candidate_verifier=candidate_verifier,
+    )
+    if (
+        review_binding.get("publication_allowed") is not True
+        or review_binding.get("deployment_allowed") is not True
+        or review_binding.get("rollback_state") != "BOUND"
+    ):
+        raise ValueError(
+            "publication review does not authorize a deployment-shaped bundle; "
+            f"state={review_binding.get('state', 'UNKNOWN')}"
+        )
+    if review_binding.get("candidate_manifest_digest") != ("sha256:" + candidate_manifest_sha256):
+        raise ValueError("publication review candidate binding changed")
 
     db_path = candidate_path / "registry.db"
     receipts_dir = candidate_path / "receipts"
@@ -195,6 +224,8 @@ def build_deploy_bundle(
     name = bundle_name or f"mcp-trust-deploy-bundle-{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = out_dir / f"{name}.tar.gz"
+    if bundle_path.exists() or bundle_path.is_symlink():
+        raise ValueError(f"deployment bundle output already exists: {bundle_path}")
 
     with tempfile.TemporaryDirectory(prefix="mcp-trust-bundle.") as tmp:
         root = Path(tmp) / name
@@ -226,9 +257,22 @@ def build_deploy_bundle(
             source_receipts_dir=receipts_dir,
             candidate_path=candidate_path,
             candidate_manifest_sha256=candidate_manifest_sha256,
+            review_binding=review_binding,
             masked_path=root / "masked-grades.json",
             masked_slugs=masked_slugs,
         )
+
+        final_review_binding = review_verifier(
+            review_path=review_path,
+            disposition_path=disposition_path,
+            candidate_path=candidate_path,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            policy_path=policy_path,
+            candidate_verifier=candidate_verifier,
+        )
+        if final_review_binding != review_binding:
+            raise ValueError("deployment bundle inputs changed during construction")
 
         with tarfile.open(bundle_path, "w:gz") as tar:
             tar.add(root, arcname=name)
@@ -246,6 +290,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seed", type=Path, default=_default_seed_path())
     parser.add_argument("--masked-grades", type=Path, default=_default_masked_path())
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/refresh_policy.json"),
+    )
+    parser.add_argument(
+        "--review",
+        type=Path,
+        required=True,
+        help="Receipt-bound publication review for this exact candidate.",
+    )
+    parser.add_argument(
+        "--disposition",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/refresh_disposition_policy.json"),
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("dist"))
     parser.add_argument("--name", help="Bundle directory/tarball basename.")
     return parser
@@ -257,6 +317,9 @@ def main(argv: list[str] | None = None) -> int:
         candidate_path=args.candidate,
         seed_path=args.seed,
         masked_path=args.masked_grades,
+        policy_path=args.policy,
+        review_path=args.review,
+        disposition_path=args.disposition,
         out_dir=args.out_dir,
         bundle_name=args.name,
     )
