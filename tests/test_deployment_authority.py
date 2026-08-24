@@ -165,6 +165,58 @@ def _canonical_bytes(value: object) -> bytes:
     )
 
 
+def _public_readback_manifest(files: list[dict[str, object]]) -> dict[str, object]:
+    public_files = [item for item in files if item["path"] != "vercel.json"]
+    routes = []
+    largest_body = 1
+    for index, item in enumerate(public_files):
+        relative = item["path"]
+        if relative == "index.html":
+            route, expected_status = "/", 200
+        elif relative == "404.html":
+            route, expected_status = "/__mcp_trust_candidate_missing__", 404
+        elif (
+            isinstance(relative, str)
+            and relative.startswith("ui/")
+            and relative.endswith("/index.html")
+        ):
+            route, expected_status = "/" + relative[: -len("/index.html")], 200
+        elif (
+            isinstance(relative, str)
+            and relative.startswith("servers/")
+            and relative.endswith("/badge.json")
+        ):
+            route, expected_status = "/" + relative, 200
+        else:
+            raise AssertionError(f"unmapped fixture route: {relative}")
+        body_bytes = item["bytes"]
+        body_digest = item["sha256"]
+        assert isinstance(body_bytes, int)
+        assert isinstance(body_digest, str)
+        largest_body = max(largest_body, body_bytes)
+        routes.append(
+            {
+                "id": f"route-{index:03d}",
+                "method": "GET",
+                "route": route,
+                "expected_status": expected_status,
+                "body_sha256": body_digest[len("sha256:") :],
+            }
+        )
+    return {
+        "schema": "WebReleaseSentinelManifestV1",
+        "contract_version": "1.0.0",
+        "name": "mcp-trust-site-candidate-exact",
+        "defaults": {
+            "timeout_seconds": 10,
+            "max_body_bytes": largest_body,
+            "follow_same_origin_redirects": False,
+        },
+        "denied_methods": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"],
+        "routes": routes,
+    }
+
+
 def _write_deployable_site_candidate(
     site: Path,
     *,
@@ -216,6 +268,7 @@ def _write_deployable_site_candidate(
         },
         "bindings": bindings,
         "content": {"digest": content_digest, "files": files},
+        "public_readback": _public_readback_manifest(files),
         "rollback": {
             "state": "BOUND",
             "site_receipt_digest": rollback["receipt_digest"],
@@ -238,6 +291,7 @@ def _make_deploy_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     shutil.copy2(DEPLOY, repo / "scripts/deploy_production.sh")
     shutil.copy2(VALIDATOR, repo / "scripts/validate_deploy_authorization.py")
     (repo / "site").mkdir()
+    (repo / "site/index.html").write_text("current deployment\n", encoding="utf-8")
     (repo / "site/vercel.json").write_text("{}\n", encoding="utf-8")
     (repo / ".gitignore").write_text("site/\n.vercel/\n", encoding="utf-8")
     (repo / ".vercel").mkdir()
@@ -530,6 +584,8 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
         ("implementation_missing", "implementation binding is invalid"),
         ("implementation_revision", "does not match approved commit"),
         ("implementation_tree", "does not match approved commit"),
+        ("readback_missing", "exact public readback binding is invalid"),
+        ("readback_invalid_route", "maps to an invalid public route"),
     ],
 )
 def test_deploy_rejects_unqualified_site_candidate(
@@ -553,6 +609,20 @@ def test_deploy_rejects_unqualified_site_candidate(
             ),
             encoding="utf-8",
         )
+    elif mutation == "readback_invalid_route":
+        invalid_page = repo / "site/ui/bad slug/index.html"
+        invalid_page.parent.mkdir(parents=True)
+        invalid_page.write_text("invalid route\n", encoding="utf-8")
+        current = json.loads(manifest_path.read_text())
+        _write_deployable_site_candidate(
+            repo / "site",
+            rollback_identity={
+                "receipt_digest": current["rollback"]["site_receipt_digest"],
+                "content_digest": current["rollback"]["content_digest"],
+            },
+            implementation_revision=current["implementation_binding"]["revision"],
+            implementation_tree_digest=current["implementation_binding"]["source_tree_digest"],
+        )
     else:
         manifest = json.loads(manifest_path.read_text())
         if mutation == "pending":
@@ -570,6 +640,8 @@ def test_deploy_rejects_unqualified_site_candidate(
             manifest["implementation_binding"]["revision"] = "f" * 40
         elif mutation == "implementation_tree":
             manifest["implementation_binding"]["source_tree_digest"] = "sha256:" + "f" * 64
+        elif mutation == "readback_missing":
+            manifest.pop("public_readback")
         else:
             manifest["rollback"]["content_digest"] = "sha256:" + "c" * 64
         manifest.pop("receipt_digest")

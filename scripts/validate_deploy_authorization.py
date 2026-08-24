@@ -19,6 +19,12 @@ SCHEMA = "McpTrustProductionDeployAuthorizationV3"
 SITE_SCHEMA = "McpTrustSiteCandidateV1"
 SITE_MANIFEST = "SITE_CANDIDATE.json"
 DEPLOYABLE_SITE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"
+READBACK_SCHEMA = "WebReleaseSentinelManifestV1"
+READBACK_CONTRACT_VERSION = "1.0.0"
+READBACK_MISSING_ROUTE = "/__mcp_trust_candidate_missing__"
+READBACK_MAX_ROUTES = 128
+READBACK_MAX_BODY_BYTES = 16 * 1024 * 1024
+READBACK_NON_PUBLIC_FILES = frozenset({"vercel.json"})
 MAX_VALIDITY = timedelta(minutes=15)
 MAX_FUTURE_SKEW = timedelta(seconds=60)
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -137,6 +143,68 @@ def _git_tree_digest(repository: Path, commit: str) -> str:
     return _prefixed_digest(result.stdout)
 
 
+def _public_route(relative: str) -> tuple[str, int]:
+    if relative == "index.html":
+        route, expected_status = "/", 200
+    elif relative == "404.html":
+        route, expected_status = READBACK_MISSING_ROUTE, 404
+    elif relative.startswith("ui/") and relative.endswith("/index.html"):
+        route, expected_status = "/" + relative[: -len("/index.html")], 200
+    elif relative.startswith("servers/") and relative.endswith("/badge.json"):
+        route, expected_status = "/" + relative, 200
+    else:
+        _fail(f"site candidate file has no public route mapping: {relative}")
+    if (
+        not route.startswith("/")
+        or route.startswith("//")
+        or "#" in route
+        or any(character.isspace() for character in route)
+    ):
+        _fail(f"site candidate file maps to an invalid public route: {relative}")
+    return route, expected_status
+
+
+def _public_readback_manifest(files: list[dict[str, object]]) -> dict[str, object]:
+    public_files = [item for item in files if item["path"] not in READBACK_NON_PUBLIC_FILES]
+    if not 1 <= len(public_files) <= READBACK_MAX_ROUTES:
+        _fail(f"site candidate exact readback requires between 1 and {READBACK_MAX_ROUTES} routes")
+    routes: list[dict[str, object]] = []
+    largest_body = 1
+    for index, item in enumerate(public_files):
+        relative = item["path"]
+        body_bytes = item["bytes"]
+        body_digest = item["sha256"]
+        if not isinstance(relative, str) or not isinstance(body_bytes, int):
+            _fail("site candidate exact readback file metadata is invalid")
+        if not isinstance(body_digest, str) or not body_digest.startswith("sha256:"):
+            _fail("site candidate exact readback file digest is invalid")
+        route, expected_status = _public_route(relative)
+        largest_body = max(largest_body, body_bytes)
+        routes.append(
+            {
+                "id": f"route-{index:03d}",
+                "method": "GET",
+                "route": route,
+                "expected_status": expected_status,
+                "body_sha256": body_digest[len("sha256:") :],
+            }
+        )
+    if largest_body > READBACK_MAX_BODY_BYTES:
+        _fail("site candidate file exceeds exact readback body limit")
+    return {
+        "schema": READBACK_SCHEMA,
+        "contract_version": READBACK_CONTRACT_VERSION,
+        "name": "mcp-trust-site-candidate-exact",
+        "defaults": {
+            "timeout_seconds": 10,
+            "max_body_bytes": largest_body,
+            "follow_same_origin_redirects": False,
+        },
+        "denied_methods": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"],
+        "routes": routes,
+    }
+
+
 def _validate_site_candidate(output_path: Path) -> dict[str, str]:
     """Require a receipt-bound, rollback-bound artifact before deploy approval."""
     manifest_path = _regular_file(output_path / SITE_MANIFEST, "site candidate manifest")
@@ -248,6 +316,9 @@ def _validate_site_candidate(output_path: Path) -> dict[str, str]:
     content_digest = _prefixed_digest(_canonical_bytes(actual_files))
     if expected_files != actual_files or content.get("digest") != content_digest:
         _fail("site candidate content manifest changed")
+    expected_readback = _public_readback_manifest(actual_files)
+    if manifest.get("public_readback") != expected_readback:
+        _fail("site candidate exact public readback binding is invalid")
     return {
         "receipt_digest": claimed,
         "content_digest": content_digest,
@@ -255,6 +326,7 @@ def _validate_site_candidate(output_path: Path) -> dict[str, str]:
         "rollback_content_digest": rollback["content_digest"],
         "implementation_revision": implementation["revision"],
         "implementation_source_tree_digest": implementation["source_tree_digest"],
+        "public_readback_manifest_digest": _prefixed_digest(_canonical_bytes(expected_readback)),
     }
 
 

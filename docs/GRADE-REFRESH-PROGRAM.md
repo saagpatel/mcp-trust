@@ -211,5 +211,8 @@ authorization V3 rejects raw, pending, tampered, or rollback-unbound site trees.
 - A real controlled catalog scan proves only that exact target under the exact
   bound image and controls.
 - A local candidate build proves no deployment or production freshness.
-- Only separate publication authorization plus live route readback can bind the
-public artifact; scheduler state still requires its own readback.
+- Only separate publication authorization plus the candidate-receipt-bound
+  exact all-route readback can prove that approved bytes reached the public
+  origin. A sentinel-only readback proves route shape and disclosure text, not
+  candidate adoption. Provider deployment identity and scheduler state still
+  require their own independent readbacks.

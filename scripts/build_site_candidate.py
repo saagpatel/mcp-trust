@@ -13,6 +13,7 @@ from pathlib import Path
 from mcp_trust.site.candidate import (
     SiteCandidateError,
     build_site_candidate,
+    site_candidate_readback_manifest,
     verify_site_candidate,
 )
 
@@ -51,7 +52,15 @@ def _implementation_binding() -> dict[str, str]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--verify", type=Path, help="Verify an existing site-candidate directory.")
+    read_mode = parser.add_mutually_exclusive_group()
+    read_mode.add_argument(
+        "--verify", type=Path, help="Verify an existing site-candidate directory."
+    )
+    read_mode.add_argument(
+        "--readback-manifest",
+        type=Path,
+        help="Emit the candidate's receipt-bound exact public readback manifest.",
+    )
     parser.add_argument("--candidate", type=Path, help="Verified refresh-candidate directory.")
     parser.add_argument(
         "--review",
@@ -88,6 +97,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.candidate is not None or args.out is not None:
                 raise SiteCandidateError("--verify cannot be combined with build arguments")
             result = verify_site_candidate(args.verify)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.readback_manifest is not None:
+            if args.candidate is not None or args.out is not None:
+                raise SiteCandidateError(
+                    "--readback-manifest cannot be combined with build arguments"
+                )
+            result = site_candidate_readback_manifest(args.readback_manifest)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.candidate is None or args.out is None:

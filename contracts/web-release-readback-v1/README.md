@@ -8,7 +8,7 @@ consumer.
 The reference verifier accepts an explicit origin and route-sentinel manifest,
 then emits one JSON receipt on stdout. It supports status, required and
 forbidden sentinels, exact UTF-8 bytes, SHA-256 body digests, per-route timeouts,
-bounded bodies, and GET or HEAD routes. It rejects mutation methods before any
+bounded bodies, and up to 128 explicit GET or HEAD routes. It rejects mutation methods before any
 network request.
 
 The capability boundary is structural:

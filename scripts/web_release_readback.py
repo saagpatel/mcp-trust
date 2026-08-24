@@ -53,6 +53,7 @@ MAX_TIMEOUT_SECONDS = 60.0
 MAX_BODY_BYTES = 16 * 1024 * 1024
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_MAX_ROUTES = 128
 
 
 class ManifestError(ValueError):
@@ -80,9 +81,7 @@ def _utc_now() -> datetime:
 def _isoformat_utc(value: datetime) -> str:
     if value.tzinfo is None:
         raise ValueError("receipt clock must include a timezone")
-    return value.astimezone(UTC).isoformat(timespec="seconds").replace(
-        "+00:00", "Z"
-    )
+    return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
@@ -108,11 +107,16 @@ def validate_target_url(raw: str) -> Target:
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise ManifestError("target URL must be an origin with no path, query, or fragment")
     hostname = parsed.hostname.lower()
-    if parsed.scheme.lower() == "http" and hostname not in {
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    } and not hostname.endswith(".localhost"):
+    if (
+        parsed.scheme.lower() == "http"
+        and hostname
+        not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }
+        and not hostname.endswith(".localhost")
+    ):
         raise ManifestError("non-loopback targets must use https")
     origin = _origin(candidate)
     normalized = candidate.rstrip("/")
@@ -222,13 +226,11 @@ def validate_manifest(value: object) -> dict[str, Any]:
     if len(set(denied)) != len(denied):
         raise ManifestError("denied_methods must not contain duplicates")
     if set(denied) != set(DENIED_METHODS):
-        raise ManifestError(
-            "denied_methods must contain exactly " + ", ".join(DENIED_METHODS)
-        )
+        raise ManifestError("denied_methods must contain exactly " + ", ".join(DENIED_METHODS))
 
     routes = manifest["routes"]
-    if not isinstance(routes, list) or not 1 <= len(routes) <= 64:
-        raise ManifestError("routes must contain between 1 and 64 entries")
+    if not isinstance(routes, list) or not 1 <= len(routes) <= _MAX_ROUTES:
+        raise ManifestError(f"routes must contain between 1 and {_MAX_ROUTES} entries")
     normalized_routes: list[dict[str, Any]] = []
     route_ids: set[str] = set()
     for index, raw_route in enumerate(routes):
@@ -299,9 +301,7 @@ def validate_manifest(value: object) -> dict[str, Any]:
         )
         overlap = sorted(set(required_sentinels) & set(forbidden_sentinels))
         if overlap:
-            raise ManifestError(
-                f"{label} requires and forbids the same sentinel: {overlap[0]!r}"
-            )
+            raise ManifestError(f"{label} requires and forbids the same sentinel: {overlap[0]!r}")
 
         exact_body = route.get("exact_body_utf8")
         digest = route.get("body_sha256")
@@ -312,9 +312,7 @@ def validate_manifest(value: object) -> dict[str, Any]:
         ):
             raise ManifestError(f"{label}.body_sha256 must be a lowercase SHA-256 digest")
         if exact_body is not None and digest is not None:
-            raise ManifestError(
-                f"{label} may define exact_body_utf8 or body_sha256, not both"
-            )
+            raise ManifestError(f"{label} may define exact_body_utf8 or body_sha256, not both")
         if method == "HEAD" and (
             required_sentinels
             or forbidden_sentinels
@@ -508,8 +506,7 @@ def verify_release(
         follow_same_origin=normalized["defaults"]["follow_same_origin_redirects"],
     )
     results = [
-        _route_result(route=route, target=target, opener=opener)
-        for route in normalized["routes"]
+        _route_result(route=route, target=target, opener=opener) for route in normalized["routes"]
     ]
     passed = sum(result["state"] == "passed" for result in results)
     total = len(results)
