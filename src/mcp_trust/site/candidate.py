@@ -33,6 +33,12 @@ PENDING_STATE = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
 DEPLOYABLE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DEPLOYMENT_ENVELOPE_FILES = frozenset({".vercel/project.json"})
+_READBACK_MANIFEST_SCHEMA = "WebReleaseSentinelManifestV1"
+_READBACK_CONTRACT_VERSION = "1.0.0"
+_READBACK_MISSING_ROUTE = "/__mcp_trust_candidate_missing__"
+_READBACK_MAX_ROUTES = 128
+_READBACK_MAX_BODY_BYTES = 16 * 1024 * 1024
+_READBACK_NON_PUBLIC_FILES = frozenset({"vercel.json"})
 _REVIEW_KEYS = frozenset(
     {
         "schema",
@@ -436,6 +442,64 @@ def _content_digest(files: list[dict[str, Any]]) -> str:
     return _sha256_bytes(canonical_bytes(files))
 
 
+def _public_route(relative: str) -> tuple[str, int]:
+    if relative == "index.html":
+        route, expected_status = "/", 200
+    elif relative == "404.html":
+        route, expected_status = _READBACK_MISSING_ROUTE, 404
+    elif relative.startswith("ui/") and relative.endswith("/index.html"):
+        route, expected_status = "/" + relative[: -len("/index.html")], 200
+    elif relative.startswith("servers/") and relative.endswith("/badge.json"):
+        route, expected_status = "/" + relative, 200
+    else:
+        raise SiteCandidateError(f"site candidate file has no public route mapping: {relative}")
+    if (
+        not route.startswith("/")
+        or route.startswith("//")
+        or "#" in route
+        or any(character.isspace() for character in route)
+    ):
+        raise SiteCandidateError(f"site candidate file maps to an invalid public route: {relative}")
+    return route, expected_status
+
+
+def _public_readback_manifest(files: list[dict[str, Any]]) -> dict[str, Any]:
+    public_files = [item for item in files if item["path"] not in _READBACK_NON_PUBLIC_FILES]
+    if not 1 <= len(public_files) <= _READBACK_MAX_ROUTES:
+        raise SiteCandidateError(
+            f"site candidate exact readback requires between 1 and {_READBACK_MAX_ROUTES} routes"
+        )
+    routes: list[dict[str, Any]] = []
+    largest_body = 1
+    for index, item in enumerate(public_files):
+        relative = item["path"]
+        route, expected_status = _public_route(relative)
+        largest_body = max(largest_body, item["bytes"])
+        routes.append(
+            {
+                "id": f"route-{index:03d}",
+                "method": "GET",
+                "route": route,
+                "expected_status": expected_status,
+                "body_sha256": item["sha256"].removeprefix("sha256:"),
+            }
+        )
+    if largest_body > _READBACK_MAX_BODY_BYTES:
+        raise SiteCandidateError("site candidate file exceeds exact readback body limit")
+    return {
+        "schema": _READBACK_MANIFEST_SCHEMA,
+        "contract_version": _READBACK_CONTRACT_VERSION,
+        "name": "mcp-trust-site-candidate-exact",
+        "defaults": {
+            "timeout_seconds": 10,
+            "max_body_bytes": largest_body,
+            "follow_same_origin_redirects": False,
+        },
+        "denied_methods": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"],
+        "routes": routes,
+    }
+
+
 def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False) -> dict[str, Any]:
     """Independently verify one finalized site-candidate directory."""
     if root.is_symlink() or not root.is_dir():
@@ -497,6 +561,13 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         raise SiteCandidateError("site candidate file manifest changed")
     if content.get("digest") != _content_digest(files):
         raise SiteCandidateError("site candidate content digest changed")
+    expected_readback = _public_readback_manifest(files)
+    public_readback = manifest.get("public_readback")
+    readback_manifest_bound = public_readback is not None
+    if readback_manifest_bound and public_readback != expected_readback:
+        raise SiteCandidateError("site candidate public readback manifest changed")
+    if state_value == DEPLOYABLE_STATE and not readback_manifest_bound:
+        raise SiteCandidateError("deployable site candidate lacks exact public readback binding")
     return {
         "structural_valid": True,
         "state": state_value,
@@ -506,7 +577,23 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         "content_digest": content["digest"],
         "receipt_digest": manifest["receipt_digest"],
         "file_count": len(files),
+        "readback_manifest_bound": readback_manifest_bound,
+        "readback_manifest_digest": (
+            _sha256_bytes(canonical_bytes(expected_readback)) if readback_manifest_bound else None
+        ),
     }
+
+
+def site_candidate_readback_manifest(root: Path) -> dict[str, Any]:
+    """Return the receipt-bound exact public readback manifest for one candidate."""
+    verification = verify_site_candidate(root)
+    if not verification["readback_manifest_bound"]:
+        raise SiteCandidateError("site candidate has no receipt-bound public readback manifest")
+    manifest = _regular_json(root / SITE_CANDIDATE_MANIFEST, "site candidate manifest")
+    public_readback = manifest["public_readback"]
+    if not isinstance(public_readback, dict):
+        raise SiteCandidateError("site candidate public readback manifest is invalid")
+    return public_readback
 
 
 def _connect_read_only(path: Path) -> sqlite3.Connection:
@@ -676,6 +763,7 @@ def build_site_candidate(
                 "demo": build.demo_count,
             },
             "content": {"digest": _content_digest(files), "files": files},
+            "public_readback": _public_readback_manifest(files),
             "rollback": rollback,
             "blocking_gates": blocking_gates,
         }

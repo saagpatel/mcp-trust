@@ -160,7 +160,17 @@ uv run --frozen python scripts/build_site_candidate.py \
   --out ./dist/site-candidates/<name>
 uv run --frozen python scripts/build_site_candidate.py \
   --verify ./dist/site-candidates/<name>
+uv run --frozen python scripts/build_site_candidate.py \
+  --readback-manifest ./dist/site-candidates/<name> \
+  > ./dist/site-candidates/<name>-exact-readback.json
 ```
+
+The candidate receipt binds an exact body SHA-256 assertion for every generated
+public route, including the expected 404 body. The extracted manifest is a
+credential-free GET-only readback input; it is not publication or deployment
+authority. A future approved preview and production lane must run it through
+`scripts/web_release_readback.py` and require every route to match before making
+a source-adoption claim.
 
 With the current policy this succeeds only as
 `REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE`; both authority booleans remain

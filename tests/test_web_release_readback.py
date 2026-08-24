@@ -19,11 +19,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERIFIER_PATH = REPO_ROOT / "scripts" / "web_release_readback.py"
 CONFORMANCE_PATH = (
-    REPO_ROOT
-    / "fixtures"
-    / "contracts"
-    / "web-release-readback-v1"
-    / "conformance-manifest.json"
+    REPO_ROOT / "fixtures" / "contracts" / "web-release-readback-v1" / "conformance-manifest.json"
 )
 CONTRACT_MANIFEST_PATH = CONFORMANCE_PATH.with_name("manifest.json")
 PRODUCT_MANIFEST_PATH = REPO_ROOT / "deploy" / "web-release-readback.json"
@@ -117,9 +113,7 @@ def _manifest() -> dict[str, object]:
 def _receipt(manifest: dict[str, object], target_url: str) -> dict[str, object]:
     return VERIFIER.verify_release(
         manifest=manifest,
-        manifest_sha256=hashlib.sha256(
-            json.dumps(manifest, sort_keys=True).encode()
-        ).hexdigest(),
+        manifest_sha256=hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
         target_url=target_url,
         checked_at=datetime(2026, 8, 5, 8, 0, tzinfo=UTC),
     )
@@ -224,6 +218,25 @@ def test_denied_method_policy_cannot_be_weakened() -> None:
     manifest = _manifest()
     manifest["denied_methods"] = ["POST"]
     with pytest.raises(VERIFIER.ManifestError, match="must contain exactly"):
+        VERIFIER.validate_manifest(manifest)
+
+
+def test_manifest_accepts_full_static_candidate_route_count() -> None:
+    manifest = _manifest()
+    manifest["routes"] = [
+        {
+            "id": f"route-{index:03d}",
+            "method": "GET",
+            "route": f"/route-{index:03d}",
+            "expected_status": 200,
+            "body_sha256": "0" * 64,
+        }
+        for index in range(67)
+    ]
+    assert len(VERIFIER.validate_manifest(manifest)["routes"]) == 67
+
+    manifest["routes"] = manifest["routes"] * 2
+    with pytest.raises(VERIFIER.ManifestError, match="between 1 and 128"):
         VERIFIER.validate_manifest(manifest)
 
 
@@ -336,14 +349,14 @@ def test_schema_documents_match_runtime_contract() -> None:
     receipt_schema = json.loads(
         (REPO_ROOT / "contracts/web-release-readback-v1/receipt.schema.json").read_text()
     )
-    assert manifest_schema["properties"]["schema"]["const"] == (
-        "WebReleaseSentinelManifestV1"
-    )
+    assert manifest_schema["properties"]["schema"]["const"] == ("WebReleaseSentinelManifestV1")
     assert manifest_schema["$defs"]["route"]["properties"]["method"]["enum"] == [
         "GET",
         "HEAD",
     ]
+    assert manifest_schema["properties"]["routes"]["maxItems"] == 128
     assert receipt_schema["properties"]["schema"]["const"] == "WebReleaseReadbackV1"
-    assert receipt_schema["properties"]["verifier"]["properties"][
-        "credentials_supported"
-    ]["const"] is False
+    assert (
+        receipt_schema["properties"]["verifier"]["properties"]["credentials_supported"]["const"]
+        is False
+    )

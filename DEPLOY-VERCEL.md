@@ -65,6 +65,20 @@ python3 scripts/web_release_readback.py \
   --pretty
 ```
 
+For a receipt-bound site candidate, also extract its exact all-route manifest
+and require the candidate bytes to match the preview. The sentinel manifest is
+additive and does not substitute for this byte binding:
+
+```bash
+uv run --frozen python scripts/build_site_candidate.py \
+  --readback-manifest ./dist/site-candidates/<name> \
+  > ./dist/site-candidates/<name>-exact-readback.json
+python3 scripts/web_release_readback.py \
+  --manifest ./dist/site-candidates/<name>-exact-readback.json \
+  --target-url "https://preview.example.vercel.app" \
+  --pretty
+```
+
 The receipt covers the static catalog, reference detail page, and reference
 badge. The verifier performs only credential-free GET readback and has no
 deployment or alias authority.
@@ -135,6 +149,10 @@ python3 scripts/web_release_readback.py \
   --target-url "https://mcp-trust.vercel.app" \
   --pretty
 ```
+
+Repeat the exact candidate-bound readback against production and retain its
+receipt beside the deployment receipt. A sentinel-only pass does not prove that
+the approved candidate bytes reached production.
 
 The Vercel authorization proves bounded operator intent for one exact rendered
 site tree. It is not a catalog-publisher signature and must not be used as an

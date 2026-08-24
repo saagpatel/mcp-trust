@@ -10,10 +10,12 @@ import pytest
 from mcp_trust.core.models import Server, ServerSource, SourceKind
 from mcp_trust.grade_refresh import digest_file
 from mcp_trust.site.candidate import (
+    DEPLOYABLE_STATE,
     PENDING_STATE,
     SiteCandidateError,
     build_site_candidate,
     canonical_bytes,
+    site_candidate_readback_manifest,
     verify_site_candidate,
 )
 from mcp_trust.store.db import connect, init_schema
@@ -203,12 +205,81 @@ def test_pending_site_candidate_is_deterministic_and_non_publishable(tmp_path: P
         "content_digest": verified["content_digest"],
         "receipt_digest": verified["receipt_digest"],
         "file_count": 7,
+        "readback_manifest_bound": True,
+        "readback_manifest_digest": verified["readback_manifest_digest"],
     }
     badge = json.loads((first / "servers/masked-server/badge.json").read_text())
     assert badge["message"] == "under review"
     assert '"message": "A"' not in (first / "servers/masked-server/badge.json").read_text()
     manifest = json.loads((first / "SITE_CANDIDATE.json").read_text())
     assert manifest["implementation_binding"] == inputs["implementation_binding"]
+    readback = site_candidate_readback_manifest(first)
+    assert readback == manifest["public_readback"]
+    assert len(readback["routes"]) == 7
+    assert readback["routes"][0]["route"] == "/__mcp_trust_candidate_missing__"
+    assert readback["routes"][0]["expected_status"] == 404
+    assert readback["routes"][-1]["route"] == "/ui/servers/masked-server"
+    assert all("body_sha256" in route for route in readback["routes"])
+
+
+def test_receipt_bound_public_readback_manifest_cannot_drift(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    output = build_site_candidate(output_path=tmp_path / "output", **inputs)
+    manifest_path = output / "SITE_CANDIDATE.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("receipt_digest")
+    manifest["public_readback"]["routes"][0]["body_sha256"] = "0" * 64
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+    manifest_path.write_bytes(canonical_bytes(manifest))
+
+    with pytest.raises(SiteCandidateError, match="public readback manifest changed"):
+        verify_site_candidate(output)
+
+
+def test_legacy_pending_candidate_remains_valid_but_cannot_emit_exact_readback(
+    tmp_path: Path,
+) -> None:
+    inputs = _fixture(tmp_path)
+    output = build_site_candidate(output_path=tmp_path / "output", **inputs)
+    manifest_path = output / "SITE_CANDIDATE.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("receipt_digest")
+    manifest.pop("public_readback")
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+    manifest_path.write_bytes(canonical_bytes(manifest))
+
+    verification = verify_site_candidate(output)
+    assert verification["readback_manifest_bound"] is False
+    assert verification["readback_manifest_digest"] is None
+    with pytest.raises(SiteCandidateError, match="no receipt-bound public readback"):
+        site_candidate_readback_manifest(output)
+
+
+def test_deployable_candidate_cannot_omit_exact_public_readback(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    output = build_site_candidate(output_path=tmp_path / "output", **inputs)
+    manifest_path = output / "SITE_CANDIDATE.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("receipt_digest")
+    manifest.pop("public_readback")
+    manifest["state"] = DEPLOYABLE_STATE
+    manifest["publication_allowed"] = True
+    manifest["deployment_allowed"] = True
+    manifest["blocking_gates"] = []
+    manifest["bindings"]["state"] = DEPLOYABLE_STATE
+    manifest["bindings"]["publication_allowed"] = True
+    manifest["bindings"]["deployment_allowed"] = True
+    manifest["bindings"]["rollback_state"] = "BOUND"
+    manifest["rollback"] = {
+        "state": "BOUND",
+        "site_receipt_digest": "sha256:" + "1" * 64,
+        "content_digest": "sha256:" + "2" * 64,
+    }
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+    manifest_path.write_bytes(canonical_bytes(manifest))
+
+    with pytest.raises(SiteCandidateError, match="lacks exact public readback"):
+        verify_site_candidate(output)
 
 
 def test_pending_prior_artifact_cannot_become_bound_rollback(tmp_path: Path) -> None:
