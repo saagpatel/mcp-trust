@@ -1,0 +1,76 @@
+{
+  "schema": "McpTrustGradeRefreshDispositionPolicyV1",
+  "review_state": "ACCEPTED",
+  "grade_semantics": "technical-danger-not-endorsement",
+  "historical_baseline": {
+    "state": "UNKNOWN",
+    "disposition": "preserve-unknown-no-retroactive-comparison"
+  },
+  "forward_baseline": {
+    "state": "ACCEPTED",
+    "disposition": "adopt-exact-v20-candidate-bindings-as-forward-baseline"
+  },
+  "acceptance": {
+    "authority": "operator",
+    "scope": "all-eight-masked-dispositions-and-exact-v20-forward-baseline",
+    "accepted_review_path": "accepted_publication_review_v20.json",
+    "accepted_review_receipt_digest": "sha256:15b1367db8f671c84884247f2fc698abef8436897d9a7e1c31634d0f2bcbbddc",
+    "accepted_review_artifact_sha256": "sha256:2a7a95f129b86a115c067bf1542757a8524318a8b2f2f44a6b84d891c46139a8"
+  },
+  "scheduler": {
+    "disposition": "quarantine-disabled-unloaded",
+    "definition_drift": "open-medium-gate",
+    "activation_authorized": false,
+    "activation_gate": "reconcile-definition-and-obtain-separate-approval"
+  },
+  "entries": [
+    {
+      "slug": "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "backing-service-not-exercised",
+      "next_review_condition": "approved-controlled-backing-service-evidence"
+    },
+    {
+      "slug": "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "backing-service-not-exercised",
+      "next_review_condition": "approved-controlled-backing-service-evidence"
+    },
+    {
+      "slug": "io-github-discourse-mcp-0-2-9",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "operator-masking-continuity",
+      "next_review_condition": "explicit-human-disposition"
+    },
+    {
+      "slug": "io-github-microsoft-playwright-mcp-0-0-77",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "backing-service-not-exercised",
+      "next_review_condition": "approved-controlled-backing-service-evidence"
+    },
+    {
+      "slug": "io-github-nvidia-elements-2-1-4",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "operator-masking-continuity",
+      "next_review_condition": "explicit-human-disposition"
+    },
+    {
+      "slug": "mcp-archived-github",
+      "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+      "rationale_code": "archived-unsupported-credential-and-backing-service",
+      "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence"
+    },
+    {
+      "slug": "mcp-archived-gitlab",
+      "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+      "rationale_code": "archived-unsupported-credential-and-backing-service",
+      "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence"
+    },
+    {
+      "slug": "mcp-archived-slack",
+      "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+      "rationale_code": "archived-unsupported-credential-and-backing-service",
+      "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence"
+    }
+  ]
+}

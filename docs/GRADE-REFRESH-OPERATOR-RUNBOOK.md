@@ -113,6 +113,34 @@ independently verified controlled candidates while excluding receipt IDs and
 timestamps; every grade/evidence inconsistency, upgrade, large change, new
 mask, provenance gap, or policy change requires disposition.
 
+Review the neutral disposition for every intentionally masked row and build the
+deterministic publication decision packet:
+
+```bash
+uv run --frozen --extra dev python scripts/grade_refresh.py publication-review \
+  --candidate ./dist/refresh-candidates/<candidate> \
+  --repeat-candidate ./dist/refresh-candidates/<repeat-candidate> \
+  --preflight ./dist/grade-refresh/preflight.json \
+  --repeatability ./dist/grade-refresh/fixture-repeatability.json \
+  --triage ./dist/grade-refresh/triage.json \
+  --accepted-review ./dist/grade-refresh/publication-review-v20.json \
+  --out ./dist/grade-refresh/publication-review.json \
+  --markdown-out ./dist/grade-refresh/publication-review.md \
+  --state-card-out ./dist/grade-refresh/publication-review-state-card.json
+```
+
+The tracked disposition policy records operator acceptance of every current
+mask and binds that acceptance to the bundled exact proposed V20 receipt and
+artifact digest. `--accepted-review` defaults to that bundled artifact; an
+explicit path must have identical bytes. Backing-service and
+archived/unsupported rows keep their specific
+limitations; all eight entries remain masked. The packet independently verifies
+the accepted artifact, preserves the historical baseline as `UNKNOWN`, and
+adopts only the exact V20 candidate bindings as the forward baseline. It always
+returns `NO_GO` and cannot publish, deploy, change the scheduler, expose masked
+grades, or turn controlled startup evidence into a safety or backing-service
+claim. Acceptance is not publication authority.
+
 ## 6. Publication gate
 
 Stop. Publication, Vercel deployment, scheduler enablement, and outreach require
