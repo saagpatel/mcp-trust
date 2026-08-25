@@ -631,9 +631,30 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     manifest = json.loads((candidate / "MANIFEST.json").read_text())
 
     assert verification["structural_valid"] is True
+    assert verification["schema"] == "RefreshCandidateV2"
+    assert verification["publication_eligible_schema"] is True
     assert verification["state"] == "fixture"
     assert verification["publication_ready"] is False
     assert manifest["scan_mode"] == "deterministic-fixture"
+    assert manifest["freshness"] == {
+        "mode": "STATIC_HISTORICAL_ONLY",
+        "horizon_days": 90,
+        "evaluated_at": FIXED_NOW.isoformat(),
+        "earliest_stale_after": (FIXED_NOW + timedelta(days=90)).isoformat(),
+        "publication_not_after": (FIXED_NOW + timedelta(hours=24)).isoformat(),
+        "state_counts": {
+            "FRESH": 1,
+            "STALE": 0,
+            "UNKNOWN": 0,
+            "NOT_APPLICABLE": 0,
+        },
+    }
+    assert set(manifest["semantic_digests"]) == {
+        "scan_results",
+        "static_snapshot",
+        "masking",
+    }
+    assert manifest["tool_versions"]["mcp_trust_candidate_schema"] == "RefreshCandidateV2"
     assert manifest["authority"] == {
         "candidate_creation": True,
         "publication": False,
@@ -643,6 +664,54 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     assert _results(candidate)[0]["state"] == "fresh"
     assert (candidate / "MANIFEST.json").stat().st_mode & 0o222 == 0
     assert candidate.stat().st_mode & 0o222 == 0
+
+
+def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+    candidate.chmod(0o700)
+    results_path = candidate / "scan_results.json"
+    snapshot_path = candidate / "static_snapshot.json"
+    for path in (results_path, snapshot_path):
+        path.chmod(0o600)
+
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    for result in results["results"]:
+        result.pop("freshness_state")
+        result.pop("freshness_reason")
+        result.pop("stale_after")
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    for server in snapshot["servers"]:
+        server.pop("stale_after", None)
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    _rebind_candidate_artifacts(candidate, "scan_results.json", "static_snapshot.json")
+
+    manifest_path = candidate / "MANIFEST.json"
+    manifest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema"] = "RefreshCandidateV1"
+    for field in ("freshness", "semantic_digests", "source_tree_digest", "tool_versions"):
+        manifest.pop(field)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path = candidate / "MANIFEST.sha256"
+    digest_path.chmod(0o600)
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    manifest_path.chmod(0o400)
+    digest_path.chmod(0o400)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is True
+    assert verification["schema"] == "RefreshCandidateV1"
+    assert verification["publication_eligible_schema"] is False
+    assert verification["publication_ready"] is False
 
 
 def test_empty_reviewed_catalog_is_refused_before_candidate_creation(

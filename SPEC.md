@@ -11,11 +11,12 @@ connect to.
 ## Why this and not "a scanner"
 Scanners are commoditizing fast (Snyk-acquired Invariant `mcp-scan`, Cisco MCP
 Scanner, GitHub secret-scanning MCP, Proximity). The unsaturated, defensible
-layer is the **neutral public data network**: a comprehensive, continuously
-re-scanned catalog of community MCP servers with a single readable danger grade,
-queryable for free at install time. The scanning is a solved input (we wrap the
-public `mcp-audits` engine); the catalog, the normalization into a public grade,
-and the install-time check are the product.
+layer is the **neutral public data network**: a comprehensive catalog of
+community MCP servers with point-in-time danger-grade evidence, queryable for
+free at install time. Refresh is an operator-reviewed, non-publishing candidate
+workflow; no automatic rescan or publication cadence is promised. The scanning
+is an input (we wrap the public `mcp-audits` engine); the catalog, normalization,
+evidence binding, and install-time check are the product.
 
 ## The one loop that must work (MVP definition of done)
 ```
@@ -61,6 +62,27 @@ separate caveat, not folded into the danger grade. Until then, a poor grade on
 an unannotated server means "cannot verify safe," not "known dangerous." Public
 copy must keep that distinction visible.
 
+### Freshness and public projection contract
+
+Freshness is evaluated by the provider-free `core.governance` authority using
+one explicit UTC evaluation time and a 90-day horizon. Its states are `FRESH`,
+`STALE`, `UNKNOWN`, and `NOT_APPLICABLE`. Exactly 90 days is fresh; a later
+instant is stale. Missing, malformed, or future scan times are `UNKNOWN` and
+must not expose grade, danger, findings, history letters, or other verdict
+fields. A server with no scan is `NOT_APPLICABLE`.
+
+Operator masking is independent of scan existence and is applied before any
+public projection. A masked entry may expose only the accepted neutral review
+metadata; its grade-bearing fields are withheld and it is excluded from
+grade-bearing aggregates. The compatibility field `stale` is nullable:
+`false` for `FRESH`, `true` for `STALE`, and `null` otherwise.
+
+Static output is `STATIC_HISTORICAL_ONLY`: it binds a point-in-time scan date
+and immutable `stale_after`/valid-through boundary, but static bytes never
+promise a request-time freshness transition. Request-time API and MCP surfaces
+re-evaluate freshness. Danger, transparency, and evidence quality are separate
+axes, and no grade is an endorsement, certification, or safety guarantee.
+
 ## Data model (already defined in `core/models.py` — do not redefine)
 - `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are unique uppercase environment-variable NAMES only, never values.
 - `Server{ slug, name, description, source, homepage?, added_at }`
@@ -73,7 +95,7 @@ copy must keep that distinction visible.
 - `GET  /` → **web** catalog page (HTML): servers + danger grade + transparency.
 - `GET  /ui/servers/{slug}` → **web** detail page (HTML): grade, transparency (+ caveat on low), findings, README badge-embed snippet. 404 page on unknown slug.
 - `GET  /healthz` → `{"status":"ok"}`
-- `GET  /servers` → `[{slug, name, grade, composite, scanned_at, provenance, stale, masked}]` (catalog + latest public claim state)
+- `GET  /servers` → `[{slug, name, grade, composite, scanned_at, provenance, stale, masked, operator_masked, grade_withheld, freshness_state, freshness_reason, scan_age_days, stale_after}]` (catalog + latest public claim state)
 - `GET  /servers/{slug}` → full latest public `ScanRecord` with provenance/staleness + `Server` metadata; 404 if the server is unknown. An unreadable newest scan returns a content-free `UNKNOWN` envelope and never falls back to an older grade.
 - `POST /servers/{slug}/scan` → operator scan trigger. Fail-closed by default;
   public deployments set `MCP_TRUST_PUBLIC_READONLY=1`. Local stub API demos may

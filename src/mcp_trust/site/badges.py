@@ -7,6 +7,7 @@ README can't silently imply a real scan happened.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from mcp_trust.core.governance import MASKED_BADGE_MESSAGE
@@ -31,6 +32,7 @@ def badge_payload(
     stale: bool = False,
     masked: bool = False,
     masked_scan_succeeded: bool = False,
+    historical_at: datetime | str | None = None,
 ) -> dict[str, Any]:
     """Build a shields.io *endpoint* JSON payload for one server's grade.
 
@@ -84,5 +86,10 @@ def badge_payload(
     elif stale:
         message = f"{message} (stale)"
         color = "lightgrey"
+    elif historical_at is not None:
+        historical_text = (
+            historical_at.isoformat() if isinstance(historical_at, datetime) else historical_at
+        )
+        message = f"{message} (historical {historical_text[:10]})"
 
     return {"schemaVersion": 1, "label": "mcp trust", "message": message, "color": color}

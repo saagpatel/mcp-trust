@@ -29,7 +29,8 @@ from mcp_trust.refresh import verify_refresh_candidate
 from mcp_trust.site.generator import SiteBuild, generate_site
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
-SITE_CANDIDATE_SCHEMA = "McpTrustSiteCandidateV1"
+SITE_CANDIDATE_SCHEMA_V1 = "McpTrustSiteCandidateV1"
+SITE_CANDIDATE_SCHEMA = "McpTrustSiteCandidateV2"
 SITE_CANDIDATE_MANIFEST = "SITE_CANDIDATE.json"
 PENDING_STATE = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
 ACCEPTED_REVIEW_STATE = "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW"
@@ -646,6 +647,11 @@ def verify_site_candidate_review(
     if verification.get("publication_ready") is not True:
         errors = verification.get("errors", [])
         raise SiteCandidateError(f"refresh candidate is not current and complete: {errors}")
+    if (
+        verification.get("schema") != "RefreshCandidateV2"
+        or verification.get("publication_eligible_schema") is not True
+    ):
+        raise SiteCandidateError("site candidate requires a publication-eligible V2 refresh")
     manifest_digest = verification.get("manifest_sha256")
     if (
         not isinstance(manifest_digest, str)
@@ -951,7 +957,10 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
     if root.is_symlink() or not root.is_dir():
         raise SiteCandidateError("site candidate root must be a real directory")
     manifest = _regular_json(root / SITE_CANDIDATE_MANIFEST, "site candidate manifest")
-    if manifest.get("schema") != SITE_CANDIDATE_SCHEMA or not _receipt_valid(manifest):
+    schema = manifest.get("schema")
+    if schema not in {SITE_CANDIDATE_SCHEMA_V1, SITE_CANDIDATE_SCHEMA} or not _receipt_valid(
+        manifest
+    ):
         raise SiteCandidateError("site candidate manifest receipt integrity is invalid")
     implementation = manifest.get("implementation_binding")
     if (
@@ -969,6 +978,8 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         ):
             raise SiteCandidateError("review-only site candidate exceeds its authority")
     elif state_value == DEPLOYABLE_STATE:
+        if schema == SITE_CANDIDATE_SCHEMA_V1:
+            raise SiteCandidateError("legacy site candidate cannot self-assert deploy authority")
         if (
             manifest.get("publication_allowed") is not True
             or manifest.get("deployment_allowed") is not True
@@ -1028,6 +1039,25 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         raise SiteCandidateError("site candidate file manifest changed")
     if content.get("digest") != _content_digest(files):
         raise SiteCandidateError("site candidate content digest changed")
+    if schema == SITE_CANDIDATE_SCHEMA:
+        freshness = manifest.get("freshness")
+        projection_digests = manifest.get("projection_digests")
+        if (
+            not isinstance(freshness, dict)
+            or freshness.get("mode") != "STATIC_HISTORICAL_ONLY"
+            or freshness.get("horizon_days") != 90
+            or freshness.get("evaluated_at") != manifest.get("created_at")
+            or not isinstance(freshness.get("publication_not_after"), str)
+            or not isinstance(projection_digests, dict)
+            or set(projection_digests)
+            != {"refresh_scan_results", "refresh_static_snapshot", "masking", "site_content"}
+            or projection_digests.get("site_content") != content.get("digest")
+            or any(
+                not isinstance(value, str) or _SHA256.fullmatch(value) is None
+                for value in projection_digests.values()
+            )
+        ):
+            raise SiteCandidateError("site candidate V2 freshness binding is invalid")
     expected_readback = _public_readback_manifest(files)
     public_readback = manifest.get("public_readback")
     readback_manifest_bound = public_readback is not None
@@ -1037,6 +1067,8 @@ def verify_site_candidate(root: Path, *, allow_deployment_envelope: bool = False
         raise SiteCandidateError("deployable site candidate lacks exact public readback binding")
     return {
         "structural_valid": True,
+        "schema": schema,
+        "publication_eligible_schema": schema == SITE_CANDIDATE_SCHEMA,
         "state": state_value,
         "publication_allowed": manifest["publication_allowed"],
         "deployment_allowed": manifest["deployment_allowed"],
@@ -1242,6 +1274,20 @@ def build_site_candidate(
             blocking_gates.append(
                 "provider_native_rollback_revalidation_and_publication_approval_required"
             )
+        refresh_freshness = candidate_manifest.get("freshness")
+        refresh_semantic = candidate_manifest.get("semantic_digests")
+        if (
+            candidate_manifest.get("schema") != "RefreshCandidateV2"
+            or not isinstance(refresh_freshness, dict)
+            or not isinstance(refresh_semantic, dict)
+            or set(refresh_semantic) != {"scan_results", "static_snapshot", "masking"}
+            or any(
+                not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+                for value in refresh_semantic.values()
+            )
+        ):
+            raise SiteCandidateError("refresh candidate V2 projection binding is invalid")
+        content_digest = _content_digest(files)
         manifest: dict[str, Any] = {
             "schema": SITE_CANDIDATE_SCHEMA,
             "state": binding["state"],
@@ -1272,7 +1318,14 @@ def build_site_candidate(
                 "stale": build.stale_count,
                 "demo": build.demo_count,
             },
-            "content": {"digest": _content_digest(files), "files": files},
+            "freshness": dict(refresh_freshness),
+            "projection_digests": {
+                "refresh_scan_results": "sha256:" + refresh_semantic["scan_results"],
+                "refresh_static_snapshot": "sha256:" + refresh_semantic["static_snapshot"],
+                "masking": "sha256:" + refresh_semantic["masking"],
+                "site_content": content_digest,
+            },
+            "content": {"digest": content_digest, "files": files},
             "public_readback": _public_readback_manifest(files),
             "rollback": rollback,
             "blocking_gates": blocking_gates,

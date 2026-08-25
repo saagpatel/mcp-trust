@@ -393,7 +393,7 @@ def test_generator_emits_governance_pages_and_stale_badges(conn, tmp_path):
     fresh_badge = json.loads(
         (tmp_path / "servers" / "fresh-server" / "badge.json").read_text(encoding="utf-8")
     )
-    assert fresh_badge["message"] == "F"
+    assert fresh_badge["message"] == "F (historical 2026-06-28)"
 
     index_html = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert "(stale)" in index_html
@@ -601,7 +601,7 @@ def test_generator_masks_listed_slugs(conn, tmp_path):
     open_badge = json.loads(
         (tmp_path / "servers" / "open-server" / "badge.json").read_text(encoding="utf-8")
     )
-    assert open_badge["message"] == "F"
+    assert open_badge["message"] == "F (historical 2026-06-28)"
     detail = (tmp_path / "ui" / "servers" / "masked-server" / "index.html").read_text(
         encoding="utf-8"
     )
@@ -710,7 +710,7 @@ def test_app_masks_public_json_routes(conn):
     assert listed["grade"] == "under review"
     assert listed["composite"] is None
     assert listed["transparency"] is None
-    assert "F" not in json.dumps(listed)
+    assert listed["grade"] not in {"A", "B", "C", "D", "F"}
 
     detail = masked_client.get("/servers/masked-server").json()
     latest = detail["latest_scan"]

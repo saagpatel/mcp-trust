@@ -38,9 +38,10 @@ from mcp_trust.api.web import (
     render_not_found,
 )
 from mcp_trust.core.drift import corpus_history_totals
-from mcp_trust.core.governance import is_stale
+from mcp_trust.core.governance import FreshnessState, assess_scan_freshness
 from mcp_trust.core.models import ScanRecord, TrustGrade
 from mcp_trust.core.provenance import DEMO_DISCLOSURE, ScanProvenance, classify
+from mcp_trust.core.public_projection import project_public_summary
 from mcp_trust.site.badges import badge_payload
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
@@ -169,12 +170,17 @@ def generate_site(
             scanned_count += 1
         if provenance is ScanProvenance.DEMO:
             demo_count += 1
-        stale = scan is not None and is_stale(scan.scanned_at, now)
+        freshness = assess_scan_freshness(
+            scan.scanned_at if scan is not None else None,
+            now,
+            scan_exists=scan is not None,
+        )
+        stale = freshness.state is FreshnessState.STALE
         if stale:
             stale_count += 1
         operator_masked = srv.slug in masked_slugs
         scan_masked = operator_masked and (scan is not None or masked_scan_succeeded)
-        if scan_masked:
+        if operator_masked:
             masked_count += 1
 
         grade = (
@@ -182,17 +188,22 @@ def generate_site(
             if unknown_scan
             else str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
         )
-        rows.append(
-            {
-                "slug": srv.slug,
-                "name": srv.name,
-                "grade": grade,
-                "transparency": str(scan.transparency) if scan else "",
-                "composite": scan.risk.composite if scan else None,
-                "scanned_at": scan.scanned_at.isoformat() if scan else "",
-                "masked": scan_masked,
-            }
+        row = project_public_summary(
+            srv,
+            scan,
+            now=now,
+            operator_masked=operator_masked,
+            unreadable=unknown_scan,
         )
+        if masked_scan_succeeded and scan is None:
+            row.update(
+                {
+                    "grade": "under review",
+                    "masked": True,
+                    "grade_withheld": True,
+                }
+            )
+        rows.append(row)
 
         page_banner = DEMO_DISCLOSURE if provenance is ScanProvenance.DEMO else None
         detail_path = out_dir / "ui" / "servers" / srv.slug / "index.html"
@@ -223,6 +234,7 @@ def generate_site(
                     stale=stale,
                     masked=scan_masked,
                     masked_scan_succeeded=masked_scan_succeeded,
+                    historical_at=scan.scanned_at if scan is not None else None,
                 ),
                 indent=2,
             )

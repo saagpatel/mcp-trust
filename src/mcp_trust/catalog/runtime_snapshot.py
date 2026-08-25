@@ -10,7 +10,7 @@ import json
 import math
 import re
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, TypeGuard
 
 _SCHEMA_VERSION = 2
@@ -161,7 +161,8 @@ def _validation_reasons(snapshot: dict[str, Any]) -> set[str]:
     if servers is not None and server_count is not None and server_count != len(servers):
         reasons.add("SERVER_COUNT_MISMATCH")
 
-    if not _timezone_aware_datetime(snapshot.get("generated_at")):
+    generated_at_value = snapshot.get("generated_at")
+    if not _timezone_aware_datetime(generated_at_value):
         reasons.add("GENERATED_AT_INVALID")
     generated_from = snapshot.get("generated_from_scan_at")
     if not (
@@ -176,11 +177,16 @@ def _validation_reasons(snapshot: dict[str, Any]) -> set[str]:
     if servers is not None and len(servers) > _MAX_SERVERS:
         reasons.add("SERVER_LIMIT_EXCEEDED")
     elif servers is not None:
-        _validate_servers(servers, reasons)
+        _validate_servers(servers, reasons, generated_at=generated_at_value)
     return reasons
 
 
-def _validate_servers(servers: list[Any], reasons: set[str]) -> None:
+def _validate_servers(
+    servers: list[Any],
+    reasons: set[str],
+    *,
+    generated_at: Any,
+) -> None:
     slugs: set[str] = set()
     source_coordinates: set[tuple[str, str]] = set()
 
@@ -231,7 +237,46 @@ def _validate_servers(servers: list[Any], reasons: set[str]) -> None:
             reasons.add("SCANNED_AT_INVALID")
         if not _number_in_range(server.get("scan_age_days"), minimum=0):
             reasons.add("SCAN_AGE_INVALID")
+        _validate_freshness_binding(server, generated_at, reasons)
         _validate_grade_change(server.get("grade_change"), server.get("grade"), reasons)
+
+
+def _parse_aware_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC)
+
+
+def _validate_freshness_binding(
+    server: dict[str, Any],
+    generated_at_value: Any,
+    reasons: set[str],
+) -> None:
+    generated_at = _parse_aware_datetime(generated_at_value)
+    scanned_at = _parse_aware_datetime(server.get("scanned_at"))
+    recorded_age = server.get("scan_age_days")
+    if generated_at is None or scanned_at is None:
+        return
+    age_seconds = (generated_at - scanned_at).total_seconds()
+    if age_seconds < 0:
+        reasons.add("SCANNED_AT_AFTER_GENERATED_AT")
+        return
+    expected_age = round(age_seconds / 86400, 6)
+    if type(recorded_age) not in {int, float} or abs(float(recorded_age) - expected_age) > 0.000001:
+        reasons.add("SCAN_AGE_MISMATCH")
+    if "stale_after" not in server:
+        return
+    stale_after = _parse_aware_datetime(server.get("stale_after"))
+    if stale_after is None:
+        reasons.add("STALE_AFTER_INVALID")
+    elif stale_after != scanned_at + timedelta(days=90):
+        reasons.add("STALE_AFTER_MISMATCH")
 
 
 def _add_missing_field_reasons(missing: set[str] | frozenset[str], reasons: set[str]) -> None:

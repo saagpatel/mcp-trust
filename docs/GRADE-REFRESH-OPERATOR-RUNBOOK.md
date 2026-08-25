@@ -160,6 +160,11 @@ uv run --frozen python scripts/build_site_candidate.py \
   > ./dist/site-candidates/<name>-exact-readback.json
 ```
 
+New builds emit `McpTrustSiteCandidateV2` from `RefreshCandidateV2`. V1 inputs
+remain reviewable history but are not publication-eligible. V2 binds the static
+historical freshness mode, 90-day horizon, state counts, earliest expiry,
+semantic projection digests, and exact source/tool/input lineage.
+
 The candidate receipt binds an exact body SHA-256 assertion for every generated
 public route, including the expected 404 body. The extracted manifest is a
 credential-free GET-only readback input; it is not publication or deployment
