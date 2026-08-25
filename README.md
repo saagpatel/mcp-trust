@@ -168,6 +168,15 @@ An unreadable older row leaves a readable latest grade intact but makes scan
 history and grade-change claims explicitly `UNKNOWN`. Snapshot construction
 stops until unreadable history is repaired or dispositioned.
 
+All public surfaces use one fail-closed freshness projection. Exactly 90 days
+after a scan is still `FRESH`; any later instant is `STALE`. Missing, malformed,
+or future scan times are `UNKNOWN`, with verdict fields withheld. Unscanned
+entries are `NOT_APPLICABLE`. Operator masking applies even when no scan exists
+and is never inferred from scan state. Static pages and badges are immutable
+historical evidence with a scan date or validity boundary; they do not promise
+request-time freshness. Danger, transparency, and evidence quality remain
+separate signals, and a grade is never an endorsement.
+
 Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
@@ -296,16 +305,19 @@ current and READY, and Docker and every catalog-pinned image are available
 locally at the recorded immutable IDs. Those sources run through the existing
 network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
 endpoints are probed over their live network transport without a local process
-sandbox and are labeled accordingly. The immutable bundle contains receipts,
-catalog identity, scan times and ages, masked/failed/unknown evidence states,
-attributed scan drift, an honest static snapshot, and a content-bound manifest.
+sandbox and are labeled accordingly. New immutable bundles use
+`RefreshCandidateV2` and contain receipts, catalog identity, scan times and
+ages, masked/failed/unknown evidence states, attributed scan drift, an honest
+static snapshot, source/tool bindings, freshness counts and earliest expiry,
+semantic projection digests, and a content-bound manifest. Legacy V1 bundles
+remain structurally inspectable but are publication-ineligible.
 
-Candidate creation has no publication or deployment authority. A structurally
-valid candidate must first pass `verify`, then receive a separate digest-bound,
-short-lived `approve` receipt before `publish` may stage it in a local output
-directory. `verify` exits successfully only for a current, complete,
-reviewed-input-bound candidate that is eligible for publication. Eligibility
-never grants approval, publication, deployment, or scheduling authority.
+Candidate creation has no publication or deployment authority. Structural
+verification reports schema and publication eligibility separately; a valid V1
+artifact cannot acquire V2 authority by self-assertion. A current, complete,
+reviewed-input-bound V2 candidate is only an input to later local admission.
+Eligibility never grants approval, publication, deployment, rollback,
+scheduling, or outreach authority.
 
 Snapshot signing is a separate authority after candidate approval/staging. The
 refresh process never receives a signing or recovery key, and its SHA-256

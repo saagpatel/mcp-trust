@@ -21,7 +21,11 @@ from mcp_trust.catalog.runtime_snapshot import (
     CatalogSnapshotValidationError,
     parse_catalog_snapshot,
 )
-from mcp_trust.core.governance import STALE_AFTER_DAYS, is_stale
+from mcp_trust.core.governance import (
+    STALE_AFTER_DAYS,
+    FreshnessState,
+    assess_scan_freshness,
+)
 
 _METHODOLOGY = f"""\
 MCP Trust grades public MCP servers on two orthogonal axes.
@@ -109,25 +113,31 @@ def _current_server_record(
         record["scan_age_days"] = None
         record["stale"] = None
         return record
-    try:
-        parsed = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
-    except ValueError:
-        record["scan_age_days"] = None
-        record["stale"] = None
-        return record
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
     fixed_now = now or datetime.now(tz=UTC)
-    if fixed_now.tzinfo is None:
-        fixed_now = fixed_now.replace(tzinfo=UTC)
-    record["scan_age_days"] = round(
-        max(
-            0.0,
-            (fixed_now.astimezone(UTC) - parsed.astimezone(UTC)).total_seconds() / 86400,
-        ),
-        6,
+    freshness = assess_scan_freshness(scanned_at, fixed_now)
+    record["freshness_state"] = str(freshness.state)
+    record["freshness_reason"] = freshness.reason
+    record["scan_age_days"] = freshness.scan_age_days
+    record["stale_after"] = (
+        freshness.stale_after.isoformat() if freshness.stale_after is not None else None
     )
-    record["stale"] = is_stale(parsed, fixed_now)
+    record["stale"] = (
+        freshness.state is FreshnessState.STALE
+        if freshness.state in {FreshnessState.FRESH, FreshnessState.STALE}
+        else None
+    )
+    if freshness.state is FreshnessState.UNKNOWN:
+        for field in (
+            "grade",
+            "transparency",
+            "danger_score",
+            "dimensions",
+            "findings",
+            "evidence",
+            "grade_change",
+        ):
+            if field in record:
+                record[field] = None
     return record
 
 

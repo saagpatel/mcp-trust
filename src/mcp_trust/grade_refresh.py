@@ -1621,6 +1621,11 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                     "danger_score": receipt.get("danger_score"),
                     "sandbox": receipt.get("sandbox"),
                     "caveats": receipt.get("caveats"),
+                    "freshness_state": result.get("freshness_state"),
+                    "freshness_reason": result.get("freshness_reason"),
+                    "stale_after": result.get("stale_after"),
+                    "operator_masked": False,
+                    "grade_withheld": False,
                 }
             )
         elif state == "masked":
@@ -1643,6 +1648,11 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                         proof.get("evidence_present") if isinstance(proof, dict) else None
                     ),
                     "sandbox": proof.get("sandbox") if isinstance(proof, dict) else None,
+                    "freshness_state": result.get("freshness_state"),
+                    "freshness_reason": result.get("freshness_reason"),
+                    "stale_after": result.get("stale_after"),
+                    "operator_masked": True,
+                    "grade_withheld": True,
                 }
             )
         else:

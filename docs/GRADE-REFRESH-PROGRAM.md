@@ -55,10 +55,13 @@ claim that a server is benign or malicious.
   installed plist remains and differs from the repository template. It was not
   changed. Scheduler definition drift requires review before any future load;
   scheduler enablement remains outside this program's authority.
-- Freshness has three existing meanings: 24-hour candidate eligibility,
-  90-day public grade staleness, and 30/180-day corpus aging bands. This program
-  uses 24 hours for candidate/review evidence and requires public output to show
-  point-in-time scan age. A future policy change requires review.
+- Freshness has three distinct meanings: 24-hour candidate/review evidence,
+  90-day public grade validity, and 30/180-day corpus aging bands. Public grade
+  validity is computed by one fail-closed authority: exactly day 90 is `FRESH`,
+  later is `STALE`, missing/malformed/future time is `UNKNOWN`, and no scan is
+  `NOT_APPLICABLE`. Static output is historical-only and carries an immutable
+  validity boundary; it never claims a request-time transition. A future policy
+  change requires review.
 - Several seed references are unversioned even though their executable packages
   are baked at versions declared in image build files. Image ID, build
   qualification receipt, dependency-lock digests, catalog digest, and source
@@ -187,7 +190,7 @@ from the later clean committed implementation binding. Dormant scheduler-
 definition drift is quarantined behind reconciliation and separate activation
 approval instead of being normalized away by the disabled and unloaded state.
 
-The `build_site_candidate.py` layer consumes the exact candidate, accepted V38
+The `build_site_candidate.py` layer consumes the exact `RefreshCandidateV2`, accepted V38
 review receipt, and acceptance artifact, then renders with a deterministic
 candidate timestamp into a
 fresh temporary directory. Its canonical content manifest is independently
@@ -195,17 +198,21 @@ verified before and after atomic finalization and binds the clean committed
 builder revision plus complete Git-tree digest. A missing prior artifact remains
 `UNKNOWN` rollback lineage; the current accepted-source review always yields
 `publication_allowed: false` and `deployment_allowed: false`. Deployment
-authorization V3 rejects raw, pending, accepted-review-only, tampered, or
+deployment authorization rejects raw, pending, accepted-review-only, tampered, or
 rollback-unbound site trees.
 
 ## Freshness and safe failure
 
-- A candidate and its individual scans must be less than 24 hours old.
+- A candidate and its individual scans must be within the configured 24-hour
+  candidate evidence budget. That budget is separate from the 90-day public
+  validity horizon.
 - A failed/UNKNOWN scan has no fresh grade and is excluded from candidate static
   output. The previous grade may be shown only as historical context with its
   original timestamp and never as current.
 - A stale candidate cannot be approved or built for publication.
-- Public pages must expose the last-scan time and static-refresh disclosure.
+- Public pages must expose the last-scan time, immutable validity boundary, and
+  static-historical disclosure. Rebuilding without a new scan cannot extend
+  that boundary.
 - A failed refresh leaves production unchanged but does not make production
   fresh. Production freshness remains `UNKNOWN` or `STALE` from live readback.
 

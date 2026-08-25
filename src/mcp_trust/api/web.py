@@ -38,7 +38,8 @@ from mcp_trust.core.governance import (
     DISPUTE_URL,
     MASKED_SERVER_DESCRIPTION,
     STALE_AFTER_DAYS,
-    is_stale,
+    FreshnessState,
+    assess_scan_freshness,
 )
 from mcp_trust.core.grading import rubric
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
@@ -317,7 +318,8 @@ def _refresh_cadence_notice() -> str:
         "Automated refresh was paused on "
         f"{escape(_REFRESH_AUTOMATION_PAUSED_ON)}. This static catalog does not "
         "attest the current scheduler state or promise a future scan. Every grade "
-        "is point-in-time: read the Last scanned column, not the presence of a grade."
+        "is point-in-time: read the scan and fixed valid-through dates, not the "
+        "presence of a grade. Static bytes do not transition themselves."
         "</p>"
     )
 
@@ -819,16 +821,26 @@ def render_catalog(
             grade = str(row.get("grade", "unscanned"))
             transparency = str(row.get("transparency", ""))
             composite = row.get("composite")
-            masked = bool(row.get("masked", False))
-            if masked:
+            grade_withheld = bool(row.get("grade_withheld", row.get("masked", False)))
+            if grade_withheld:
                 transparency = ""
             scanned_at_raw = str(row.get("scanned_at", "") or "")
             scanned_at = escape(scanned_at_raw)
 
-            stale = False
-            if now is not None and scanned_at_raw and grade != "unscanned":
+            freshness_state = row.get("freshness_state")
+            stale_after_raw = str(row.get("stale_after", "") or "")
+            stale = freshness_state == str(FreshnessState.STALE)
+            freshness_unknown = freshness_state == str(FreshnessState.UNKNOWN)
+            if (
+                freshness_state is None
+                and now is not None
+                and scanned_at_raw
+                and grade != "unscanned"
+            ):
                 try:
-                    stale = is_stale(datetime.fromisoformat(scanned_at_raw), now)
+                    assessment = assess_scan_freshness(scanned_at_raw, now)
+                    stale = assessment.state is FreshnessState.STALE
+                    freshness_unknown = assessment.state is FreshnessState.UNKNOWN
                 except ValueError:
                     # Renders as not-stale rather than crashing the catalog,
                     # but never silently: staleness is a trust surface.
@@ -838,18 +850,27 @@ def render_catalog(
                         slug,
                     )
 
-            composite_str = (
-                "—" if masked else (f"{composite:.1f}" if composite is not None else "—")
+            if freshness_unknown:
+                grade = "unknown"
+                transparency = ""
+                composite = None
+            composite_str = "—" if grade_withheld or freshness_unknown else (
+                f"{composite:.1f}" if composite is not None else "—"
             )
             scanned_str = scanned_at[:19].replace("T", " ") if scanned_at else "—"
-            if stale and not masked:
+            if stale_after_raw and not grade_withheld and not freshness_unknown:
+                valid_date = stale_after_raw[:10]
+                scanned_str += f" · valid through {valid_date} · point-in-time"
+            if stale and not grade_withheld:
                 scanned_str += " (stale)"
+            elif freshness_unknown:
+                scanned_str += " (freshness unknown)"
 
             parts.append(
                 "<tr>"
                 f'<td><a href="/ui/servers/{slug}">{name}</a>'
                 f'<br><small style="color:#57606a;font-size:0.78rem">{slug}</small></td>'
-                f"<td>{_grade_pill(grade, stale=stale, masked=masked)}</td>"
+                f"<td>{_grade_pill(grade, stale=stale, masked=grade_withheld)}</td>"
                 f"<td>{_transparency_chip(transparency)}</td>"
                 f'<td style="font-variant-numeric:tabular-nums">{escape(composite_str)}</td>'
                 f'<td style="font-size:0.82rem;color:#57606a">{escape(scanned_str)}</td>'
@@ -940,7 +961,14 @@ def render_detail(
         engine_version = "—"
         findings = []
 
-    stale = record is not None and now is not None and is_stale(record.scanned_at, now)
+    freshness = (
+        assess_scan_freshness(record.scanned_at, now)
+        if record is not None and now is not None
+        else None
+    )
+    stale = freshness is not None and freshness.state is FreshnessState.STALE
+    freshness_unknown = freshness is not None and freshness.state is FreshnessState.UNKNOWN
+    unknown_scan = unknown_scan or freshness_unknown
     operator_masked = masked
     masked = operator_masked and (record is not None or masked_scan_succeeded)
     if operator_masked:
@@ -950,14 +978,20 @@ def render_detail(
     )
     description = escape(description_text)
 
-    grade_display = "—" if masked else grade.upper()
+    grade_display = "—" if masked or unknown_scan else grade.upper()
     grade_color = (
         _GRADE_CSS["unscanned"]
-        if stale or masked
+        if stale or masked or unknown_scan
         else _GRADE_CSS.get(grade, _GRADE_CSS["unscanned"])
     )
     composite_str = f"{composite_val:.1f}" if composite_val is not None else "—"
-    danger_cell = "withheld" if masked else f"{escape(composite_str)} / 10"
+    danger_cell = (
+        "withheld"
+        if masked
+        else "UNKNOWN"
+        if unknown_scan
+        else f"{escape(composite_str)} / 10"
+    )
     scanned_str = (
         scanned_at_raw[:19].replace("T", " ")
         if scanned_at_raw
@@ -967,8 +1001,12 @@ def render_detail(
         if unknown_scan
         else "Never"
     )
-    if stale and not masked:
+    if stale and not masked and not unknown_scan:
         scanned_str += " (stale)"
+    if freshness is not None and freshness.stale_after is not None and not unknown_scan:
+        scanned_str += (
+            f" · point-in-time scan · valid through {freshness.stale_after.date().isoformat()}"
+        )
 
     if unknown_scan:
         status_chip = (
@@ -979,6 +1017,11 @@ def render_detail(
         status_chip = (
             f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
             "grade withheld — under governance review</span>"
+        )
+    elif operator_masked:
+        status_chip = (
+            f'<span class="chip" style="background:{_GRADE_CSS["unscanned"]}">'
+            "unscanned entry — under governance review</span>"
         )
     elif stale:
         status_chip = (
@@ -1196,7 +1239,7 @@ def render_detail(
     # Score breakdown makes the grade legibly computed, not editorial — only
     # when there is a scan on record to break down, and never on a masked
     # entry (the weighted scores ARE the withheld verdict).
-    if record is not None and not masked:
+    if record is not None and not masked and not unknown_scan:
         breakdown = (
             '<h2 style="font-size:1rem;font-weight:600;margin:1.25rem 0 0.75rem">'
             "Score breakdown</h2>"
@@ -1218,7 +1261,7 @@ def render_detail(
         _methodology_floor(
             # A masked page must not leak the letter through the floor's
             # cannot-verify line.
-            grade="—" if masked else grade,
+            grade="—" if masked or unknown_scan else grade,
             engine_name=engine_name,
             engine_version=engine_version,
             scanned_str=escape(scanned_str),
@@ -1435,10 +1478,11 @@ def render_methodology(*, history_totals: HistoryTotals | None = None) -> str:
         '<h2 style="font-size:1rem;font-weight:600;margin-bottom:0.5rem">'
         "5. Grade freshness</h2>"
         '<p style="font-size:0.875rem;color:#24292f;line-height:1.7">'
-        f"A grade older than {STALE_AFTER_DAYS} days is marked <em>stale</em> on "
-        "its page and badge, greys out, and is treated as historical until "
-        "re-scanned. Vendors ship fixes; a grade never outlives its evidence "
-        "silently."
+        f"The validity boundary is fixed at {STALE_AFTER_DAYS} days after the "
+        "recorded scan. Request-time surfaces mark later evidence <em>stale</em>; "
+        "static pages and badges remain point-in-time historical artifacts and "
+        "do not promise an automatic transition. Rebuilding without a new scan "
+        "cannot extend the boundary."
         "</p>"
         "</div>"
         f"{movement_card}"

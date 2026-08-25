@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
 import tempfile
 import unicodedata
 import uuid
@@ -26,6 +27,11 @@ from pydantic import ValidationError
 
 from mcp_trust.core import grading
 from mcp_trust.core.drift import ScanDrift, diff_latest
+from mcp_trust.core.governance import (
+    STALE_AFTER_DAYS,
+    FreshnessState,
+    assess_scan_freshness,
+)
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
@@ -34,7 +40,8 @@ from mcp_trust.receipts import build_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
-CANDIDATE_SCHEMA = "RefreshCandidateV1"
+CANDIDATE_SCHEMA_V1 = "RefreshCandidateV1"
+CANDIDATE_SCHEMA = "RefreshCandidateV2"
 APPROVAL_SCHEMA = "RefreshCandidateApprovalV1"
 PUBLICATION_SCHEMA = "RefreshCandidatePublicationV1"
 MANIFEST_NAME = "MANIFEST.json"
@@ -69,7 +76,7 @@ _MAX_JSON_STRING_CHARS = 65_536
 _MAX_JSON_NODES = 100_000
 _MAX_JSON_NUMBER_CHARS = 256
 _CANDIDATE_STATES = frozenset({"fixture", "partial", "complete"})
-_MANIFEST_KEYS = frozenset(
+_MANIFEST_KEYS_V1 = frozenset(
     {
         "schema",
         "created_at",
@@ -87,6 +94,12 @@ _MANIFEST_KEYS = frozenset(
         "authority",
     }
 )
+_MANIFEST_KEYS = _MANIFEST_KEYS_V1 | {
+    "freshness",
+    "semantic_digests",
+    "source_tree_digest",
+    "tool_versions",
+}
 _RECEIPT_KEYS = frozenset(
     {
         "format_version",
@@ -127,7 +140,7 @@ _DUMMY_CREDENTIAL_CAVEAT = (
 _REMOTE_TRANSPORT_CAVEAT = (
     "Remote transport used the live network; no local process sandbox was applicable."
 )
-_SUCCESS_RESULT_KEYS = frozenset(
+_SUCCESS_RESULT_KEYS_V1 = frozenset(
     {
         "server_slug",
         "state",
@@ -146,6 +159,11 @@ _SUCCESS_RESULT_KEYS = frozenset(
         "drift",
     }
 )
+_SUCCESS_RESULT_KEYS = _SUCCESS_RESULT_KEYS_V1 | {
+    "freshness_state",
+    "freshness_reason",
+    "stale_after",
+}
 _BLOCKED_RESULT_KEYS = frozenset(
     {
         "server_slug",
@@ -1502,6 +1520,118 @@ def _materialize_candidate_snapshot(
     _make_read_only(destination)
 
 
+def _validate_v2_freshness_manifest(
+    *,
+    manifest: dict[str, Any],
+    captured: _CandidateSnapshot,
+    results: list[Any],
+    created_at: datetime | None,
+    expires_at: datetime | None,
+    errors: list[str],
+) -> None:
+    """Cross-bind the V2 freshness and semantic projections."""
+    freshness = manifest.get("freshness")
+    required_freshness_keys = {
+        "mode",
+        "horizon_days",
+        "evaluated_at",
+        "earliest_stale_after",
+        "publication_not_after",
+        "state_counts",
+    }
+    if (
+        not isinstance(freshness, dict)
+        or set(freshness) != required_freshness_keys
+        or freshness.get("mode") != "STATIC_HISTORICAL_ONLY"
+        or freshness.get("horizon_days") != STALE_AFTER_DAYS
+        or freshness.get("evaluated_at") != manifest.get("created_at")
+        or created_at is None
+        or expires_at is None
+    ):
+        errors.append("freshness_manifest_invalid")
+        return
+    state_counts = freshness.get("state_counts")
+    if (
+        not isinstance(state_counts, dict)
+        or set(state_counts) != {state.value for state in FreshnessState}
+        or any(type(value) is not int or value < 0 for value in state_counts.values())
+    ):
+        errors.append("freshness_counts_invalid")
+        return
+    successful = [
+        result
+        for result in results
+        if isinstance(result, dict) and result.get("state") in {"fresh", "masked"}
+    ]
+    stale_after_values: list[datetime] = []
+    for result in successful:
+        try:
+            scanned_at = _parse_utc_datetime(result["scanned_at"])
+            stale_after = _parse_utc_datetime(result["stale_after"])
+        except (KeyError, OverflowError, TypeError, ValueError):
+            errors.append(
+                f"freshness_result_invalid:{_safe_error_label(result.get('server_slug'))}"
+            )
+            continue
+        assessment = assess_scan_freshness(scanned_at, created_at)
+        if (
+            assessment.state is not FreshnessState.FRESH
+            or result.get("freshness_state") != str(assessment.state)
+            or result.get("freshness_reason") != assessment.reason
+            or assessment.stale_after != stale_after
+        ):
+            errors.append(
+                f"freshness_result_mismatch:{_safe_error_label(result.get('server_slug'))}"
+            )
+        stale_after_values.append(stale_after)
+    expected_counts = {
+        "FRESH": len(successful),
+        "STALE": 0,
+        "UNKNOWN": len(results) - len(successful),
+        "NOT_APPLICABLE": 0,
+    }
+    if state_counts != expected_counts:
+        errors.append("freshness_counts_mismatch")
+    earliest = min(stale_after_values) if stale_after_values else None
+    expected_earliest = earliest.isoformat() if earliest is not None else None
+    if freshness.get("earliest_stale_after") != expected_earliest:
+        errors.append("earliest_stale_after_mismatch")
+    expected_not_after = min(expires_at, earliest or expires_at).isoformat()
+    if freshness.get("publication_not_after") != expected_not_after:
+        errors.append("publication_not_after_mismatch")
+
+    semantic = manifest.get("semantic_digests")
+    expected_semantic = {
+        "scan_results": _sha256_bytes(captured.files.get("scan_results.json", b"")),
+        "static_snapshot": _sha256_bytes(captured.files.get("static_snapshot.json", b"")),
+        "masking": (
+            manifest.get("masking", {}).get("sha256")
+            if isinstance(manifest.get("masking"), dict)
+            else None
+        ),
+    }
+    if semantic != expected_semantic:
+        errors.append("semantic_digest_mismatch")
+    source_tree_digest = manifest.get("source_tree_digest")
+    if manifest.get("candidate_state") == "fixture":
+        if source_tree_digest is not None:
+            errors.append("fixture_source_tree_claim_invalid")
+    elif (
+        not isinstance(source_tree_digest, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", source_tree_digest) is None
+    ):
+        errors.append("source_tree_digest_invalid")
+    tool_versions = manifest.get("tool_versions")
+    if (
+        not isinstance(tool_versions, dict)
+        or set(tool_versions) != {"python", "mcp_trust_candidate_schema"}
+        or not isinstance(tool_versions.get("python"), str)
+        or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", tool_versions["python"]) is None
+        or tool_versions.get("mcp_trust_candidate_schema") != CANDIDATE_SCHEMA
+    ):
+        errors.append("tool_versions_invalid")
+
+
 def create_refresh_candidate(
     *,
     source_db: Path,
@@ -1853,6 +1983,11 @@ def create_refresh_candidate(
                             "transparency": (None if masked else str(scan.transparency)),
                             "scanned_at": scan.scanned_at.isoformat(),
                             "scan_age_days": _scan_age_days(scan.scanned_at, fixed_now),
+                            "freshness_state": str(FreshnessState.FRESH),
+                            "freshness_reason": "fresh",
+                            "stale_after": (
+                                scan.scanned_at + timedelta(days=STALE_AFTER_DAYS)
+                            ).isoformat(),
                             "scan_id": None if masked else scan.id,
                             "engine_name": scan.engine_name,
                             "engine_version": scan.engine_version,
@@ -1919,10 +2054,26 @@ def create_refresh_candidate(
                 raise RefreshCandidateError("execution source changed during refresh")
         complete = all(result["state"] in {"fresh", "masked"} for result in results)
         candidate_state = "fixture" if fixture_mode else "complete" if complete else "partial"
+        successful_stale_after = sorted(
+            str(result["stale_after"])
+            for result in results
+            if result.get("state") in {"fresh", "masked"}
+            and isinstance(result.get("stale_after"), str)
+        )
+        candidate_expires_at = fixed_now + timedelta(hours=DEFAULT_MAX_AGE_HOURS)
+        earliest_stale_after = (
+            _parse_utc_datetime(successful_stale_after[0])
+            if successful_stale_after
+            else None
+        )
+        publication_not_after = min(
+            candidate_expires_at,
+            earliest_stale_after or candidate_expires_at,
+        )
         manifest = {
             "schema": CANDIDATE_SCHEMA,
             "created_at": fixed_now.isoformat(),
-            "expires_at": (fixed_now + timedelta(hours=DEFAULT_MAX_AGE_HOURS)).isoformat(),
+            "expires_at": candidate_expires_at.isoformat(),
             "candidate_state": candidate_state,
             "publication_allowed": candidate_state == "complete",
             "scan_mode": (
@@ -1958,6 +2109,42 @@ def create_refresh_candidate(
                     if result.get("engine_version")
                 }
             ),
+            "freshness": {
+                "mode": "STATIC_HISTORICAL_ONLY",
+                "horizon_days": STALE_AFTER_DAYS,
+                "evaluated_at": fixed_now.isoformat(),
+                "earliest_stale_after": (
+                    earliest_stale_after.isoformat() if earliest_stale_after else None
+                ),
+                "publication_not_after": publication_not_after.isoformat(),
+                "state_counts": {
+                    "FRESH": sum(
+                        result.get("freshness_state") == str(FreshnessState.FRESH)
+                        for result in results
+                    ),
+                    "STALE": 0,
+                    "UNKNOWN": sum(
+                        result.get("state") not in {"fresh", "masked"} for result in results
+                    ),
+                    "NOT_APPLICABLE": 0,
+                },
+            },
+            "semantic_digests": {
+                "scan_results": _sha256(temporary / "scan_results.json"),
+                "static_snapshot": _sha256(temporary / "static_snapshot.json"),
+                "masking": reviewed.masked_sha256,
+            },
+            "source_tree_digest": (
+                qualification_manifest.get("source_tree_digest")
+                if isinstance(qualification_manifest, dict)
+                else None
+            ),
+            "tool_versions": {
+                "python": (
+                    f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+                ),
+                "mcp_trust_candidate_schema": CANDIDATE_SCHEMA,
+            },
             "artifacts": _artifact_inventory(temporary),
             "authority": {
                 "candidate_creation": True,
@@ -2059,10 +2246,15 @@ def verify_refresh_candidate(
         errors.append("manifest_unreadable")
     if not expected_manifest_digest or expected_manifest_digest != actual_manifest_digest:
         errors.append("manifest_digest_mismatch")
-    if not isinstance(manifest, dict) or manifest.get("schema") != CANDIDATE_SCHEMA:
+    manifest_schema = manifest.get("schema") if isinstance(manifest, dict) else None
+    legacy_schema = manifest_schema == CANDIDATE_SCHEMA_V1
+    if not isinstance(manifest, dict) or manifest_schema not in {
+        CANDIDATE_SCHEMA_V1,
+        CANDIDATE_SCHEMA,
+    }:
         errors.append("manifest_schema_invalid")
         manifest = {}
-    elif set(manifest) != _MANIFEST_KEYS:
+    elif set(manifest) != (_MANIFEST_KEYS_V1 if legacy_schema else _MANIFEST_KEYS):
         errors.append("manifest_fields_invalid")
 
     listed: set[str] = set()
@@ -2159,6 +2351,15 @@ def verify_refresh_candidate(
         results = []
     elif results_payload.get("generated_at") != manifest.get("created_at"):
         errors.append("scan_results_timestamp_mismatch")
+    if manifest.get("schema") == CANDIDATE_SCHEMA:
+        _validate_v2_freshness_manifest(
+            manifest=manifest,
+            captured=captured,
+            results=results,
+            created_at=created_at,
+            expires_at=expires_at,
+            errors=errors,
+        )
     catalog_rows = catalog_payload.get("servers") if isinstance(catalog_payload, dict) else None
     if (
         not isinstance(catalog_payload, dict)
@@ -2452,7 +2653,8 @@ def verify_refresh_candidate(
         if not _safe_artifact_component(result.get("server_slug")):
             errors.append("successful_scan_schema_invalid:invalid")
             continue
-        if set(result) != _SUCCESS_RESULT_KEYS:
+        expected_result_keys = _SUCCESS_RESULT_KEYS_V1 if legacy_schema else _SUCCESS_RESULT_KEYS
+        if set(result) != expected_result_keys:
             errors.append(
                 f"successful_scan_schema_invalid:{_safe_error_label(result.get('server_slug'))}"
             )
@@ -2753,6 +2955,10 @@ def verify_refresh_candidate(
                 },
                 now=created_at,
             )
+            if legacy_schema:
+                for expected_server in expected_snapshot.get("servers", []):
+                    if isinstance(expected_server, dict):
+                        expected_server.pop("stale_after", None)
             if snapshot_payload != expected_snapshot:
                 errors.append("static_snapshot_scan_binding_mismatch")
         except (
@@ -2882,6 +3088,7 @@ def verify_refresh_candidate(
     publication_ready = bool(
         structural_valid
         and not stale
+        and manifest.get("schema") == CANDIDATE_SCHEMA
         and candidate_state == "complete"
         and manifest.get("publication_allowed") is True
         and reviewed_inputs_bound
@@ -2899,6 +3106,8 @@ def verify_refresh_candidate(
         "age_hours": round(age_hours, 6) if age_hours is not None else None,
         "scan_counts": validated_scan_counts,
         "reviewed_inputs_bound": reviewed_inputs_bound,
+        "schema": manifest.get("schema"),
+        "publication_eligible_schema": manifest.get("schema") == CANDIDATE_SCHEMA,
         "errors": sorted(set(errors)),
     }
     if _include_verified_masked_slugs:

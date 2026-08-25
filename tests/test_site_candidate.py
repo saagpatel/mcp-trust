@@ -45,8 +45,27 @@ def _fixture(tmp_path: Path) -> dict[str, object]:
     (candidate / "MANIFEST.json").write_text(
         json.dumps(
             {
+                "schema": "RefreshCandidateV2",
                 "created_at": "2026-08-23T17:36:33+00:00",
                 "masking": {"slugs": ["masked-server"]},
+                "freshness": {
+                    "mode": "STATIC_HISTORICAL_ONLY",
+                    "horizon_days": 90,
+                    "evaluated_at": "2026-08-23T17:36:33+00:00",
+                    "earliest_stale_after": "2026-11-21T17:36:33+00:00",
+                    "publication_not_after": "2026-08-24T17:36:33+00:00",
+                    "state_counts": {
+                        "FRESH": 0,
+                        "STALE": 0,
+                        "UNKNOWN": 0,
+                        "NOT_APPLICABLE": 1,
+                    },
+                },
+                "semantic_digests": {
+                    "scan_results": "1" * 64,
+                    "static_snapshot": "2" * 64,
+                    "masking": "3" * 64,
+                },
             }
         ),
         encoding="utf-8",
@@ -163,6 +182,8 @@ def _fixture(tmp_path: Path) -> dict[str, object]:
     def verifier(*_args, **_kwargs) -> dict[str, object]:
         return {
             "publication_ready": True,
+            "schema": "RefreshCandidateV2",
+            "publication_eligible_schema": True,
             "manifest_sha256": manifest_hex,
             "scan_counts": {"fresh": 0, "masked": 1, "total": 1, "failed": 0},
             "errors": [],
@@ -402,6 +423,8 @@ def test_pending_site_candidate_is_deterministic_and_non_publishable(tmp_path: P
     verified = verify_site_candidate(first)
     assert verified == {
         "structural_valid": True,
+        "schema": "McpTrustSiteCandidateV2",
+        "publication_eligible_schema": True,
         "state": PENDING_STATE,
         "publication_allowed": False,
         "deployment_allowed": False,
