@@ -15,10 +15,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "McpTrustProductionDeployAuthorizationV3"
-SITE_SCHEMA = "McpTrustSiteCandidateV1"
+SCHEMA = "McpTrustProductionDeployAuthorizationV4"
+SITE_SCHEMA = "McpTrustSiteCandidateV2"
 SITE_MANIFEST = "SITE_CANDIDATE.json"
-DEPLOYABLE_SITE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"
+SITE_REVIEW_STATE = "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW"
+DEPLOYABLE_SITE_STATE = "PUBLICATION_APPROVED_ROLLBACK_BOUND"  # legacy rejection helper
+PACKAGE_SCHEMA = "McpTrustPublicationPackageV1"
+PACKAGE_STATE = "PUBLICATION_PACKAGE_READY_FOR_DEPLOY_REVIEW"
+PACKAGE_MANIFEST = "PUBLICATION_PACKAGE.json"
+PUBLICATION_APPROVAL_SCHEMA = "McpTrustPublicationApprovalV1"
+PUBLICATION_APPROVAL_STATE = "PUBLICATION_CONTENT_APPROVED_LOCAL_ONLY"
 READBACK_SCHEMA = "WebReleaseSentinelManifestV1"
 READBACK_CONTRACT_VERSION = "1.0.0"
 READBACK_MISSING_ROUTE = "/__mcp_trust_candidate_missing__"
@@ -28,6 +34,7 @@ READBACK_NON_PUBLIC_FILES = frozenset({"vercel.json"})
 MAX_VALIDITY = timedelta(minutes=15)
 MAX_FUTURE_SKEW = timedelta(seconds=60)
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}")
 UTC = timezone.utc  # noqa: UP017 - /usr/bin/python3 is 3.9 on supported macOS hosts.
 
 
@@ -382,6 +389,196 @@ def _validate_project_bindings(
         _fail("unexpected ambient Vercel binding source: " + ", ".join(present))
 
 
+def _receipt_digest(payload: dict[str, Any], label: str) -> str:
+    unsigned = dict(payload)
+    claimed = unsigned.pop("receipt_digest", None)
+    expected = _prefixed_digest(_canonical_bytes(unsigned))
+    if not isinstance(claimed, str) or claimed != expected:
+        _fail(f"{label} receipt integrity is invalid")
+    return claimed
+
+
+def _candidate_files(root: Path, *, deployment_envelope: bool = False) -> list[dict[str, object]]:
+    files: list[dict[str, object]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            _fail(f"publication candidate contains a symlink: {relative}")
+        if path.is_dir():
+            continue
+        if deployment_envelope and relative == ".vercel/project.json":
+            continue
+        content = _stable_file_bytes(path, f"publication candidate file {relative}")
+        files.append(
+            {
+                "path": relative,
+                "bytes": len(content),
+                "sha256": _prefixed_digest(content),
+            }
+        )
+    if not files:
+        _fail("publication candidate contains no files")
+    return files
+
+
+def _validate_publication_inputs(
+    *,
+    package_path: Path,
+    publication_approval_path: Path,
+    output_path: Path,
+) -> dict[str, str]:
+    if package_path.is_symlink() or not package_path.is_dir():
+        _fail("publication package must be a real directory")
+    package_manifest_path = _regular_file(
+        package_path / PACKAGE_MANIFEST, "publication package manifest"
+    )
+    package = _strict_json(
+        _stable_file_bytes(package_manifest_path, "publication package manifest"),
+        "publication package manifest",
+    )
+    package_keys = {
+        "schema",
+        "state",
+        "created_at",
+        "candidate_path_name",
+        "candidate_manifest_sha256",
+        "candidate_receipt_digest",
+        "candidate_content_digest",
+        "publication_approval_sha256",
+        "publication_approval_receipt_digest",
+        "provider_revalidation_receipt_digest",
+        "content_files",
+        "content_digest",
+        "authority",
+        "claim_ceiling",
+        "receipt_digest",
+    }
+    if not isinstance(package, dict) or set(package) != package_keys:
+        _fail("publication package fields are invalid")
+    package_receipt = _receipt_digest(package, "publication package")
+    if (
+        package.get("schema") != PACKAGE_SCHEMA
+        or package.get("state") != PACKAGE_STATE
+        or package.get("authority")
+        != {
+            "public_mutation_allowed": False,
+            "deployment_allowed": False,
+            "rollback_execution_allowed": False,
+            "scheduler_activation_allowed": False,
+        }
+    ):
+        _fail("publication package authority is invalid")
+    candidate_name = package.get("candidate_path_name")
+    if (
+        not isinstance(candidate_name, str)
+        or not candidate_name
+        or Path(candidate_name).name != candidate_name
+    ):
+        _fail("publication package candidate name is invalid")
+    candidate_root = package_path / candidate_name
+    package_files = _candidate_files(candidate_root)
+    if (
+        package.get("content_files") != package_files
+        or package.get("content_digest") != _prefixed_digest(_canonical_bytes(package_files))
+    ):
+        _fail("publication package content changed")
+
+    publication_approval_path = _regular_file(
+        publication_approval_path, "publication content approval"
+    )
+    publication_approval_bytes = _stable_file_bytes(
+        publication_approval_path, "publication content approval"
+    )
+    publication_approval = _strict_json(
+        publication_approval_bytes, "publication content approval"
+    )
+    if not isinstance(publication_approval, dict):
+        _fail("publication content approval must be a JSON object")
+    publication_receipt = _receipt_digest(
+        publication_approval, "publication content approval"
+    )
+    authority = publication_approval.get("authority")
+    if (
+        publication_approval.get("schema") != PUBLICATION_APPROVAL_SCHEMA
+        or publication_approval.get("state") != PUBLICATION_APPROVAL_STATE
+        or not isinstance(authority, dict)
+        or authority.get("publication_content_approved") is not True
+        or authority.get("publication_package_build_allowed") is not True
+        or any(
+            authority.get(field) is not False
+            for field in (
+                "public_mutation_allowed",
+                "deployment_allowed",
+                "rollback_execution_allowed",
+                "scheduler_activation_allowed",
+                "outreach_allowed",
+            )
+        )
+    ):
+        _fail("publication content approval authority is invalid")
+    provider = publication_approval.get("provider_prepublication")
+    operator = publication_approval.get("operator_acceptance")
+    candidate = publication_approval.get("candidate")
+    if not isinstance(provider, dict) or not isinstance(operator, dict) or not isinstance(
+        candidate, dict
+    ):
+        _fail("publication content approval lineage is incomplete")
+    provider_receipt = _receipt_digest(provider, "provider prepublication")
+    operator_statement = operator.get("statement_sha256")
+    if not isinstance(operator_statement, str) or SHA256_RE.fullmatch(operator_statement) is None:
+        _fail("operator acceptance statement digest is invalid")
+    site_manifest_path = _regular_file(
+        candidate_root / SITE_MANIFEST, "packaged site candidate manifest"
+    )
+    site_manifest_bytes = _stable_file_bytes(
+        site_manifest_path, "packaged site candidate manifest"
+    )
+    site_manifest = _strict_json(site_manifest_bytes, "packaged site candidate manifest")
+    if not isinstance(site_manifest, dict):
+        _fail("packaged site candidate manifest must be an object")
+    site_receipt = _receipt_digest(site_manifest, "packaged site candidate")
+    implementation = site_manifest.get("implementation_binding")
+    content = site_manifest.get("content")
+    if (
+        site_manifest.get("schema") != SITE_SCHEMA
+        or site_manifest.get("state") != SITE_REVIEW_STATE
+        or site_manifest.get("publication_allowed") is not False
+        or site_manifest.get("deployment_allowed") is not False
+        or not isinstance(implementation, dict)
+        or not isinstance(content, dict)
+    ):
+        _fail("packaged site candidate is not an accepted V2 review artifact")
+    if (
+        candidate.get("manifest_sha256") != _prefixed_digest(site_manifest_bytes)
+        or candidate.get("manifest_receipt_digest") != site_receipt
+        or candidate.get("content_digest") != content.get("digest")
+        or package.get("candidate_manifest_sha256") != candidate.get("manifest_sha256")
+        or package.get("candidate_receipt_digest") != site_receipt
+        or package.get("candidate_content_digest") != content.get("digest")
+        or package.get("publication_approval_sha256")
+        != _prefixed_digest(publication_approval_bytes)
+        or package.get("publication_approval_receipt_digest") != publication_receipt
+        or package.get("provider_revalidation_receipt_digest") != provider_receipt
+    ):
+        _fail("publication package approval binding changed")
+    if _candidate_files(output_path, deployment_envelope=True) != package_files:
+        _fail("deployment output does not match the exact publication package")
+    return {
+        "package_receipt_digest": package_receipt,
+        "package_manifest_sha256": _prefixed_digest(
+            _stable_file_bytes(package_manifest_path, "publication package manifest")
+        ),
+        "publication_approval_receipt_digest": publication_receipt,
+        "publication_approval_sha256": _prefixed_digest(publication_approval_bytes),
+        "provider_prepublication_receipt_digest": provider_receipt,
+        "operator_acceptance_statement_sha256": operator_statement,
+        "site_candidate_receipt_digest": site_receipt,
+        "site_candidate_content_digest": str(content["digest"]),
+        "implementation_revision": str(implementation.get("revision")),
+        "implementation_source_tree_digest": str(implementation.get("source_tree_digest")),
+    }
+
+
 def validate(
     *,
     approval_path: Path,
@@ -393,8 +590,12 @@ def validate(
     org_id: str,
     vercel_bin: Path,
     node_bin: Path,
+    python_bin: Path,
+    publication_verifier: Path,
     output_path: Path,
     output_sha256: str,
+    publication_package: Path,
+    publication_approval: Path,
     rollback_artifact: Path,
     now: datetime | None = None,
 ) -> None:
@@ -417,7 +618,16 @@ def validate(
     node_invocation_path = node_bin.absolute()
     vercel_resolved = vercel_bin.resolve(strict=True)
     node_resolved = node_bin.resolve(strict=True)
-    site_identity = _validate_site_candidate(output_path.resolve(strict=True))
+    python_invocation_path = python_bin.absolute()
+    python_resolved = python_bin.resolve(strict=True)
+    publication_verifier = _regular_file(
+        publication_verifier.resolve(strict=True), "publication package verifier"
+    )
+    publication_identity = _validate_publication_inputs(
+        package_path=publication_package.resolve(strict=True),
+        publication_approval_path=publication_approval.resolve(strict=True),
+        output_path=output_path.resolve(strict=True),
+    )
     current_component = rollback_artifact
     while current_component != current_component.parent:
         if current_component.is_symlink():
@@ -431,18 +641,40 @@ def validate(
         or rollback_artifact in resolved_output.parents
     ):
         _fail("rollback artifact must be distinct from and outside current output")
-    rollback_identity = _validate_site_candidate(rollback_artifact)
+    rollback_manifest = _strict_json(
+        _stable_file_bytes(
+            _regular_file(rollback_artifact / SITE_MANIFEST, "rollback site manifest"),
+            "rollback site manifest",
+        ),
+        "rollback site manifest",
+    )
+    if not isinstance(rollback_manifest, dict):
+        _fail("rollback site manifest must be a JSON object")
+    rollback_receipt = _receipt_digest(rollback_manifest, "rollback site manifest")
+    rollback_content = rollback_manifest.get("content")
     if (
-        site_identity["rollback_receipt_digest"] != rollback_identity["receipt_digest"]
-        or site_identity["rollback_content_digest"] != rollback_identity["content_digest"]
+        not isinstance(rollback_content, dict)
+        or not isinstance(rollback_content.get("digest"), str)
+        or not isinstance(rollback_content.get("files"), list)
     ):
-        _fail("site candidate rollback lineage does not match retained artifact")
+        _fail("rollback site content binding is invalid")
+    rollback_files = [
+        item
+        for item in _candidate_files(rollback_artifact, deployment_envelope=True)
+        if item["path"] != SITE_MANIFEST
+    ]
+    rollback_content_digest = _prefixed_digest(_canonical_bytes(rollback_files))
+    if (
+        rollback_content["files"] != rollback_files
+        or rollback_content["digest"] != rollback_content_digest
+    ):
+        _fail("rollback artifact content digest mismatch")
     expected_tree_digest = _git_tree_digest(repository.resolve(strict=True), commit)
     if (
-        site_identity["implementation_revision"] != commit
-        or site_identity["implementation_source_tree_digest"] != expected_tree_digest
+        publication_identity["implementation_revision"] != commit
+        or publication_identity["implementation_source_tree_digest"] != expected_tree_digest
     ):
-        _fail("site candidate implementation binding does not match approved commit")
+        _fail("publication package implementation binding does not match approved commit")
     expected = {
         "schema": SCHEMA,
         "repository": str(repository.resolve(strict=True)),
@@ -455,15 +687,44 @@ def validate(
         "vercel_bin": str(vercel_resolved),
         "node_invocation_path": str(node_invocation_path),
         "node_bin": str(node_resolved),
+        "python_invocation_path": str(python_invocation_path),
+        "python_bin": str(python_resolved),
+        "publication_verifier_path": str(publication_verifier),
         "output_path": str(output_path.resolve(strict=True)),
         "output_sha256": output_sha256,
-        "site_candidate_receipt_digest": site_identity["receipt_digest"],
-        "site_candidate_content_digest": site_identity["content_digest"],
+        "site_candidate_receipt_digest": publication_identity[
+            "site_candidate_receipt_digest"
+        ],
+        "site_candidate_content_digest": publication_identity[
+            "site_candidate_content_digest"
+        ],
+        "publication_package_path": str(publication_package.resolve(strict=True)),
+        "publication_package_manifest_sha256": publication_identity[
+            "package_manifest_sha256"
+        ],
+        "publication_package_receipt_digest": publication_identity[
+            "package_receipt_digest"
+        ],
+        "publication_approval_path": str(publication_approval.resolve(strict=True)),
+        "publication_approval_sha256": publication_identity[
+            "publication_approval_sha256"
+        ],
+        "publication_approval_receipt_digest": publication_identity[
+            "publication_approval_receipt_digest"
+        ],
+        "provider_prepublication_receipt_digest": publication_identity[
+            "provider_prepublication_receipt_digest"
+        ],
+        "operator_acceptance_statement_sha256": publication_identity[
+            "operator_acceptance_statement_sha256"
+        ],
         "rollback_artifact_path": str(rollback_artifact),
-        "rollback_site_candidate_receipt_digest": rollback_identity["receipt_digest"],
-        "rollback_site_candidate_content_digest": rollback_identity["content_digest"],
-        "implementation_revision": site_identity["implementation_revision"],
-        "implementation_source_tree_digest": site_identity["implementation_source_tree_digest"],
+        "rollback_site_candidate_receipt_digest": rollback_receipt,
+        "rollback_site_candidate_content_digest": rollback_content["digest"],
+        "implementation_revision": publication_identity["implementation_revision"],
+        "implementation_source_tree_digest": publication_identity[
+            "implementation_source_tree_digest"
+        ],
         "approval_path": str(approval_path),
     }
     for field, value in expected.items():
@@ -496,6 +757,30 @@ def validate(
     expected_node_digest = payload.get("node_sha256")
     if not isinstance(expected_node_digest, str) or expected_node_digest != _sha256(node_resolved):
         _fail("approval node_sha256 mismatch")
+    expected_python_digest = payload.get("python_sha256")
+    if (
+        not isinstance(expected_python_digest, str)
+        or expected_python_digest != _sha256(python_resolved)
+    ):
+        _fail("approval python_sha256 mismatch")
+    if payload.get("publication_verifier_sha256") != _sha256(publication_verifier):
+        _fail("approval publication_verifier_sha256 mismatch")
+    unsigned = dict(payload)
+    claimed_approval_receipt = unsigned.pop("approval_receipt_digest", None)
+    if claimed_approval_receipt != _prefixed_digest(_canonical_bytes(unsigned)):
+        _fail("deployment approval receipt integrity is invalid")
+    exact_keys = set(expected) | {
+        "receipt_id",
+        "issued_at",
+        "expires_at",
+        "vercel_sha256",
+        "node_sha256",
+        "python_sha256",
+        "publication_verifier_sha256",
+        "approval_receipt_digest",
+    }
+    if set(payload) != exact_keys:
+        _fail("deployment approval fields are invalid")
     if not re.fullmatch(r"[0-9a-f]{64}", output_sha256):
         _fail("approved output SHA-256 must be 64 lowercase hex characters")
     if _tree_sha256(output_path.resolve(strict=True)) != output_sha256:
@@ -515,8 +800,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--org-id", required=True)
     parser.add_argument("--vercel-bin", type=Path, required=True)
     parser.add_argument("--node-bin", type=Path, required=True)
+    parser.add_argument("--python-bin", type=Path, required=True)
+    parser.add_argument("--publication-verifier", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--output-sha256", required=True)
+    parser.add_argument("--publication-package", type=Path, required=True)
+    parser.add_argument("--publication-approval", type=Path, required=True)
     parser.add_argument("--rollback-artifact", type=Path, required=True)
     return parser
 
@@ -534,8 +823,12 @@ def main(argv: list[str] | None = None) -> int:
             org_id=args.org_id,
             vercel_bin=args.vercel_bin,
             node_bin=args.node_bin,
+            python_bin=args.python_bin,
+            publication_verifier=args.publication_verifier,
             output_path=args.output,
             output_sha256=args.output_sha256,
+            publication_package=args.publication_package,
+            publication_approval=args.publication_approval,
             rollback_artifact=args.rollback_artifact,
         )
     except (OSError, ValueError) as exc:

@@ -105,24 +105,19 @@ Production deployment is available only through
 `MCP_TRUST_AUTO_DEPLOY` are unsupported.
 
 The operator must create a mode-`0600`, non-symlinked, short-lived JSON approval
-using schema `McpTrustProductionDeployAuthorizationV3`. It binds its own exact
-absolute path plus repository root, `main` branch, full commit SHA, production
-URL, the repository-pinned Vercel project and organization IDs, canonical
-GitHub origin, Vercel and Node invocation/resolved executable paths and SHA-256
-digests, an exact deterministic digest of every file in `site/`, receipt ID,
-issuance time, and expiry no more than 15 minutes later. Symlinks and special
-files in `site/` are rejected. The ignored output digest, provider link,
-approval, and tool bytes are revalidated after confirmation and immediately
-before the provider call.
+using schema `McpTrustProductionDeployAuthorizationV4`. V4 binds the exact
+`McpTrustPublicationPackageV1`, `McpTrustPublicationApprovalV1`, provider
+prepublication receipt, operator statement digest, retained rollback artifact,
+repository/commit/output, and the Vercel, Node, Python, and publication-verifier
+invocation/resolved paths and SHA-256 digests. Its validity is at most 15
+minutes. V3 and legacy candidate authority booleans are rejected.
 
-V3 also binds the exact `SITE_CANDIDATE.json` receipt and content digest. The
-validator rejects raw `build_site.py` output, a review artifact pending
-sanitized reacceptance, an artifact with `UNKNOWN` rollback lineage, or content
-that no longer matches its immutable manifest. It also requires the exact
-retained prior artifact and proves the current rollback receipt/content binding
-matches it. Direct `--db` and `--candidate` builds remain development/review
-primitives; they are not deployment inputs. No source path currently promotes a
-pending candidate into the required approved state.
+The deployment output must be byte-identical to the packaged site candidate;
+the package, content approval, provider/rollback lineage, output, provider
+links, retained rollback bytes, and tool bytes are validated before interactive
+confirmation and again immediately before the provider call. Direct `--db` and
+`--candidate` builds remain development/review primitives, not deployment
+inputs.
 The manual entrypoint separately requires those exact values and requires the
 operator to type `DEPLOY_MCP_TRUST_PRODUCTION` at a live interactive TTY after
 the approval validates; the confirmation cannot be supplied by argument or
@@ -153,6 +148,21 @@ python3 scripts/web_release_readback.py \
 Repeat the exact candidate-bound readback against production and retain its
 receipt beside the deployment receipt. A sentinel-only pass does not prove that
 the approved candidate bytes reached production.
+
+Verify a post-deployment `McpTrustProductionPublicationReceiptV1` against all
+four bound inputs:
+
+```bash
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-production-receipt ./dist/production-publication-receipt.json \
+  --candidate ./dist/publication-packages/<name> \
+  --approval ./dist/publication-approval.json \
+  --deployment-authorization ./dist/deployment-authorization-v4.json \
+  --readback-receipt ./dist/production-all-route-readback.json
+```
+
+A provider exit code, sentinel count, route equality without provider/source
+identity, or missing provider artifact digest cannot produce `FRESH`.
 
 The Vercel authorization proves bounded operator intent for one exact rendered
 site tree. It is not a catalog-publisher signature and must not be used as an
