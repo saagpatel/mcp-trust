@@ -25,6 +25,10 @@ Consumers must keep domain-specific checks in parallel until their new receipt
 proves equivalent coverage. In particular, a status or sentinel match cannot
 replace application-specific API validation, badge semantics, public-data
 guards, release lineage checks, or an operator decision to alias or promote.
+For MCP Trust static publication, source-adoption and freshness claims require
+the receipt's exact digest, every candidate-declared route and body digest,
+matching provider/source identity, and a provider artifact digest. Route counts
+or a sentinel-only pass remain supplementary evidence.
 
 Compatibility is additive within `1.x`: new optional receipt fields or reason
 codes may be added, while existing meanings and the safe-method boundary stay

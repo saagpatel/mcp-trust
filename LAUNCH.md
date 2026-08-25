@@ -71,6 +71,10 @@ the seed catalog, running real scans, or changing grading bands.
    so the sanitized pending review intentionally blocks this command. A future
    successful bundle would still not authorize upload or deployment.
 
+   `McpTrustPublicationApprovalV1` is specific to the static Vercel content
+   lane and is explicitly rejected by this VM bundle builder. A future VM
+   publication requires its own provider, rollback, and operator contract.
+
 5. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`
    so grades spread (don't let every capable server pile into one grade):

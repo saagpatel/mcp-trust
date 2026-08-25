@@ -208,8 +208,11 @@ The local publication-admission state machine is deliberately split:
    content approval with no mutation authority;
 3. `PUBLICATION_PACKAGE_READY_FOR_DEPLOY_REVIEW` — deterministic copy-only local
    package with no mutation authority;
-4. a separate short-lived deployment authorization (not implied by 1–3);
-5. a separate provider and all-route readback receipt after any future deploy.
+4. a separate short-lived `McpTrustProductionDeployAuthorizationV4`, binding
+   the exact package, content approval, provider/operator receipts, rollback
+   artifact, source/output, and tool digests (not implied by 1–3);
+5. a separate `McpTrustProductionPublicationReceiptV1` bound to provider/source
+   identity, provider artifact digest, and the exact all-route readback receipt.
 
 The approval expires at the earliest candidate, provider, rollback, or explicit
 operator TTL boundary. Its verifier rejects stale or UNKNOWN unmasked evidence,
@@ -245,3 +248,6 @@ future provider mutation boundary.
   origin. A sentinel-only readback proves route shape and disclosure text, not
   candidate adoption. Provider deployment identity and scheduler state still
   require their own independent readbacks.
+- Provider exit zero is never freshness evidence. Missing provider artifact,
+  source identity, or exact readback evidence remains `UNKNOWN`; an observation
+  after the candidate boundary is `STALE`.

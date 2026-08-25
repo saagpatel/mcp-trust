@@ -342,6 +342,15 @@ Every mutation authority remains false. A package is not deployment authority,
 publication proof, rollback authority, scheduler authority, endorsement, or
 production-freshness evidence.
 
+The manual static deploy lane requires a separate short-lived
+`McpTrustProductionDeployAuthorizationV4` binding that exact package, content
+approval, provider and operator receipts, retained rollback bytes, source
+revision, output, and tool digests. It revalidates before and after live TTY
+confirmation. After any provider call, freshness remains `UNKNOWN` until a
+provider/source-bound `McpTrustProductionPublicationReceiptV1` verifies the
+exact all-route readback receipt. A missing provider artifact digest can never
+be promoted to `FRESH`.
+
 Snapshot signing is a separate authority after candidate approval/staging. The
 refresh process never receives a signing or recovery key, and its SHA-256
 manifest is not a publisher identity. Production signing remains disabled until

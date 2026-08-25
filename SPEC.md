@@ -91,6 +91,17 @@ operator statement. The resulting approval and copy-only package keep public
 mutation, deployment, rollback execution, scheduler activation, and outreach
 authority false. Legacy candidate booleans cannot substitute for this receipt.
 
+Static production deployment admission uses
+`McpTrustProductionDeployAuthorizationV4`. It requires the exact local package,
+content approval, provider revalidation, operator statement, retained rollback
+artifact, source revision/tree binding, output tree, and deployment tool
+digests, with a second validation after interactive confirmation. V3 is not
+admissible. Provider exit success grants no freshness claim. Only a
+receipt-bound exact all-route readback plus matching provider/source identity
+and provider artifact digest may produce `FRESH`; missing or inconsistent
+evidence remains `UNKNOWN`, and crossing `earliest_stale_after` produces
+`STALE`. None of these receipts endorses a server or authorizes scheduling.
+
 ## Data model (already defined in `core/models.py` — do not redefine)
 - `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are unique uppercase environment-variable NAMES only, never values.
 - `Server{ slug, name, description, source, homepage?, added_at }`

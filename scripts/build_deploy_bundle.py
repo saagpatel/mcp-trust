@@ -426,11 +426,28 @@ def build_deploy_bundle(
     disposition_path: Path,
     out_dir: Path,
     bundle_name: str | None = None,
+    publication_approval_path: Path | None = None,
     candidate_verifier: Callable[..., dict[str, object]] = verify_refresh_candidate,
     review_verifier: Callable[..., dict[str, Any]] = verify_site_candidate_review,
     implementation_binding_provider: Callable[[], dict[str, str]] = _implementation_binding,
 ) -> Path:
     """Build and return a bundle bound to one independently verified candidate."""
+
+    if publication_approval_path is not None:
+        try:
+            approval = json.loads(
+                _stable_file_bytes(publication_approval_path, "publication approval")
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError("publication approval is invalid JSON") from exc
+        if (
+            isinstance(approval, dict)
+            and approval.get("schema") == "McpTrustPublicationApprovalV1"
+        ):
+            raise ValueError(
+                "static Vercel publication approval cannot authorize a VM deploy bundle"
+            )
+        raise ValueError("unsupported publication approval cannot authorize a VM deploy bundle")
 
     implementation_binding = _validated_implementation_binding(implementation_binding_provider())
     verification = candidate_verifier(
@@ -624,6 +641,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--out-dir", type=Path, default=Path("dist"))
     parser.add_argument("--name", help="Bundle directory/tarball basename.")
+    parser.add_argument(
+        "--publication-approval",
+        type=Path,
+        help="Rejected for this VM lane; reserved for a future VM-specific contract.",
+    )
     return parser
 
 
@@ -638,6 +660,7 @@ def main(argv: list[str] | None = None) -> int:
         disposition_path=args.disposition,
         out_dir=args.out_dir,
         bundle_name=args.name,
+        publication_approval_path=args.publication_approval,
     )
     print(bundle_path)
     return 0

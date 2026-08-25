@@ -231,6 +231,19 @@ separate explicit approval. Use the package's `HumanGateResumeCapsuleV1.json`
 for the chat gate. Re-read the live public route separately; local equivalence
 does not prove production uptake.
 
+The static lane accepts only `McpTrustProductionDeployAuthorizationV4`. Bind
+the exact package and content-approval paths and receipts, provider
+prepublication receipt, operator statement digest, retained rollback artifact,
+source/output, and Vercel/Node/Python/verifier digests. Revalidate before and
+after live TTY confirmation. V3 and `publication_allowed` or
+`deployment_allowed` self-assertions are not substitutes.
+
+After any provider call, keep adoption and freshness `UNKNOWN` until a
+`McpTrustProductionPublicationReceiptV1` verifies matching provider/source
+identity, provider artifact digest, and the receipt-bound exact all-route
+readback. Route counts or sentinel matches alone are insufficient. If the
+observation crosses `earliest_stale_after`, classify it `STALE`.
+
 ## 9. Rollback preparation
 
 Before any future publication retain the exact prior deployment identifier,

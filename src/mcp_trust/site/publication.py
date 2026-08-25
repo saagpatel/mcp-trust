@@ -16,6 +16,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 
 from mcp_trust.site.candidate import (
     ACCEPTED_REVIEW_STATE,
@@ -31,6 +32,7 @@ PUBLICATION_PACKAGE_SCHEMA = "McpTrustPublicationPackageV1"
 PUBLICATION_PACKAGE_STATE = "PUBLICATION_PACKAGE_READY_FOR_DEPLOY_REVIEW"
 PUBLICATION_PACKAGE_MANIFEST = "PUBLICATION_PACKAGE.json"
 PROVIDER_PREPUBLICATION_SCHEMA = "McpTrustProviderPrepublicationRevalidationV1"
+PRODUCTION_PUBLICATION_RECEIPT_SCHEMA = "McpTrustProductionPublicationReceiptV1"
 MAX_APPROVAL_FRESHNESS_SECONDS = 3600
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -182,6 +184,116 @@ _PACKAGE_KEYS = frozenset(
         "authority",
         "claim_ceiling",
         "receipt_digest",
+    }
+)
+_PRODUCTION_RECEIPT_KEYS = frozenset(
+    {
+        "schema",
+        "state",
+        "observed_at",
+        "publication_package_receipt_digest",
+        "publication_approval_receipt_digest",
+        "deployment_authorization_receipt_digest",
+        "provider_deployment_id",
+        "immutable_deployment_url",
+        "alias",
+        "project_id",
+        "team_id",
+        "provider_source_revision",
+        "provider_source_tree",
+        "provider_artifact_digest",
+        "exact_public_readback_receipt_digest",
+        "route_matches",
+        "route_total",
+        "production_freshness",
+        "rollback_target_deployment_id",
+        "external_effects",
+        "claim_ceiling",
+        "receipt_digest",
+    }
+)
+_DEPLOYMENT_AUTHORIZATION_KEYS = frozenset(
+    {
+        "schema",
+        "receipt_id",
+        "repository",
+        "branch",
+        "commit",
+        "target_url",
+        "vercel_project_id",
+        "vercel_org_id",
+        "vercel_invocation_path",
+        "vercel_bin",
+        "vercel_sha256",
+        "node_invocation_path",
+        "node_bin",
+        "node_sha256",
+        "python_invocation_path",
+        "python_bin",
+        "python_sha256",
+        "publication_verifier_path",
+        "publication_verifier_sha256",
+        "approval_path",
+        "output_path",
+        "output_sha256",
+        "issued_at",
+        "expires_at",
+        "publication_package_path",
+        "publication_package_manifest_sha256",
+        "publication_package_receipt_digest",
+        "publication_approval_path",
+        "publication_approval_sha256",
+        "publication_approval_receipt_digest",
+        "provider_prepublication_receipt_digest",
+        "operator_acceptance_statement_sha256",
+        "site_candidate_receipt_digest",
+        "site_candidate_content_digest",
+        "implementation_revision",
+        "implementation_source_tree_digest",
+        "rollback_artifact_path",
+        "rollback_site_candidate_receipt_digest",
+        "rollback_site_candidate_content_digest",
+        "approval_receipt_digest",
+    }
+)
+_READBACK_RECEIPT_KEYS = frozenset(
+    {
+        "schema",
+        "contract_version",
+        "target_url",
+        "manifest",
+        "checked_at",
+        "verifier",
+        "state",
+        "summary",
+        "routes",
+    }
+)
+_READBACK_VERIFIER = {
+    "name": "web-release-readback",
+    "version": "1.0.0",
+    "network_methods": ["GET", "HEAD"],
+    "denied_methods": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"],
+    "credentials_supported": False,
+    "proxy_environment_used": False,
+    "same_origin_redirects_only": True,
+    "mutation_capabilities": [],
+}
+_READBACK_ROUTE_KEYS = frozenset(
+    {
+        "id",
+        "method",
+        "route",
+        "requested_url",
+        "final_url",
+        "expected_status",
+        "actual_status",
+        "body_bytes",
+        "body_sha256",
+        "required_sentinels",
+        "forbidden_sentinels",
+        "state",
+        "reason_codes",
     }
 )
 
@@ -777,4 +889,253 @@ def verify_publication_package(
         "file_count": len(files),
         "public_mutation_allowed": False,
         "deployment_allowed": False,
+    }
+
+
+def verify_production_publication_receipt(
+    receipt_path: Path,
+    *,
+    package_path: Path,
+    approval_path: Path,
+    deployment_authorization_path: Path,
+    readback_receipt_path: Path,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Verify provider identity plus exact all-route readback after a deployment.
+
+    A provider exit code, route equality alone, or a missing artifact digest can
+    never produce a fresh result.
+    """
+    deployment = _stable_json(deployment_authorization_path, "deployment authorization")
+    _require_exact(
+        deployment, _DEPLOYMENT_AUTHORIZATION_KEYS, "deployment authorization"
+    )
+    if deployment.get("schema") != "McpTrustProductionDeployAuthorizationV4":
+        raise PublicationAdmissionError("deployment authorization V4 is required")
+    deployment_unsigned = dict(deployment)
+    deployment_receipt = deployment_unsigned.pop("approval_receipt_digest", None)
+    if deployment_receipt != _sha256_bytes(canonical_bytes(deployment_unsigned)):
+        raise PublicationAdmissionError("deployment authorization receipt integrity is invalid")
+    deployment_issued_at = _aware(deployment.get("issued_at"), "deployment issued_at")
+    deployment_expires_at = _aware(deployment.get("expires_at"), "deployment expires_at")
+    if not (
+        deployment_issued_at < deployment_expires_at
+        <= deployment_issued_at + timedelta(minutes=15)
+    ):
+        raise PublicationAdmissionError("deployment authorization validity is invalid")
+    package = verify_publication_package(
+        package_path,
+        approval_path=approval_path,
+        now=deployment_issued_at,
+    )
+    package_manifest_for_path = _stable_json(
+        package_path / PUBLICATION_PACKAGE_MANIFEST, "publication package"
+    )
+    approval = verify_publication_approval(
+        approval_path,
+        candidate_path=package_path / package_manifest_for_path["candidate_path_name"],
+        now=deployment_issued_at,
+    )
+    approval_payload = _stable_json(approval_path, "publication approval")
+    package_manifest_sha256 = _sha256_bytes(
+        _stable_bytes(
+            package_path / PUBLICATION_PACKAGE_MANIFEST, "publication package manifest"
+        )
+    )
+    approval_sha256 = _sha256_bytes(_stable_bytes(approval_path, "publication approval"))
+    candidate_manifest_for_binding = _stable_json(
+        package_path
+        / package_manifest_for_path["candidate_path_name"]
+        / SITE_CANDIDATE_MANIFEST,
+        "packaged site candidate",
+    )
+    if (
+        deployment.get("approval_path") != str(deployment_authorization_path.resolve())
+        or deployment.get("publication_package_path") != str(package_path.resolve())
+        or deployment.get("publication_approval_path") != str(approval_path.resolve())
+        or deployment.get("publication_package_manifest_sha256")
+        != package_manifest_sha256
+        or deployment.get("publication_package_receipt_digest")
+        != package["receipt_digest"]
+        or deployment.get("publication_approval_sha256") != approval_sha256
+        or deployment.get("publication_approval_receipt_digest")
+        != approval["receipt_digest"]
+        or deployment.get("provider_prepublication_receipt_digest")
+        != approval["provider_revalidation_receipt_digest"]
+        or deployment.get("operator_acceptance_statement_sha256")
+        != approval_payload.get("operator_acceptance", {}).get("statement_sha256")
+        or deployment.get("site_candidate_receipt_digest")
+        != candidate_manifest_for_binding.get("receipt_digest")
+        or deployment.get("site_candidate_content_digest")
+        != candidate_manifest_for_binding.get("content", {}).get("digest")
+        or deployment.get("implementation_revision")
+        != candidate_manifest_for_binding.get("implementation_binding", {}).get("revision")
+        or deployment.get("implementation_source_tree_digest")
+        != candidate_manifest_for_binding.get("implementation_binding", {}).get(
+            "source_tree_digest"
+        )
+    ):
+        raise PublicationAdmissionError("deployment authorization lineage is invalid")
+
+    receipt = _stable_json(receipt_path, "production publication receipt")
+    _require_exact(receipt, _PRODUCTION_RECEIPT_KEYS, "production publication receipt")
+    if not _receipt_valid(receipt):
+        raise PublicationAdmissionError("production publication receipt integrity is invalid")
+    if (
+        receipt["schema"] != PRODUCTION_PUBLICATION_RECEIPT_SCHEMA
+        or receipt["publication_package_receipt_digest"] != package["receipt_digest"]
+        or receipt["publication_approval_receipt_digest"] != approval["receipt_digest"]
+        or receipt["deployment_authorization_receipt_digest"] != deployment_receipt
+        or receipt["external_effects"] != ["provider_deployment_attempted"]
+        or "scheduler" in str(receipt["external_effects"]).lower()
+    ):
+        raise PublicationAdmissionError("production publication receipt lineage is invalid")
+    observed_at = _aware(receipt["observed_at"], "publication observed_at")
+    if now is not None and observed_at > now.astimezone(UTC) + timedelta(seconds=60):
+        raise PublicationAdmissionError("production publication observation is in the future")
+    package_manifest = _stable_json(
+        package_path / PUBLICATION_PACKAGE_MANIFEST, "publication package"
+    )
+    candidate_manifest = _stable_json(
+        package_path / package_manifest["candidate_path_name"] / SITE_CANDIDATE_MANIFEST,
+        "packaged site candidate",
+    )
+    readback_bytes = _stable_bytes(readback_receipt_path, "exact public readback receipt")
+    readback = _stable_json(readback_receipt_path, "exact public readback receipt")
+    _require_exact(readback, _READBACK_RECEIPT_KEYS, "exact public readback receipt")
+    public_readback = candidate_manifest.get("public_readback")
+    expected_routes = public_readback.get("routes") if isinstance(public_readback, dict) else None
+    actual_routes = readback.get("routes") if isinstance(readback, dict) else None
+    summary = readback.get("summary") if isinstance(readback, dict) else None
+    content = candidate_manifest.get("content")
+    content_files = content.get("files") if isinstance(content, dict) else None
+    public_files = (
+        [item for item in content_files if item.get("path") != "vercel.json"]
+        if isinstance(content_files, list)
+        else None
+    )
+    expected_manifest_digest = _sha256_bytes(
+        (json.dumps(public_readback, indent=2, sort_keys=True) + "\n").encode()
+    ).removeprefix("sha256:")
+    checked_at = _aware(readback.get("checked_at"), "readback checked_at")
+    readback_exact = (
+        isinstance(expected_routes, list)
+        and isinstance(actual_routes, list)
+        and isinstance(public_files, list)
+        and len(expected_routes) > 0
+        and len(actual_routes) == len(expected_routes)
+        and len(public_files) == len(expected_routes)
+        and readback.get("schema") == "WebReleaseReadbackV1"
+        and readback.get("contract_version") == "1.0.0"
+        and readback.get("target_url") == candidate_manifest.get("base_url")
+        and readback.get("manifest")
+        == {"name": public_readback.get("name"), "sha256": expected_manifest_digest}
+        and readback.get("verifier") == _READBACK_VERIFIER
+        and readback.get("state") == "passed"
+        and checked_at <= observed_at
+        and summary
+        == {"total": len(expected_routes), "passed": len(expected_routes), "failed": 0}
+        and all(
+            isinstance(actual, dict)
+            and set(actual) == _READBACK_ROUTE_KEYS
+            and actual.get("id") == expected.get("id")
+            and actual.get("method") == expected.get("method")
+            and actual.get("route") == expected.get("route")
+            and actual.get("requested_url")
+            == urljoin(
+                f"{candidate_manifest.get('base_url')}/",
+                str(expected.get("route", "")).lstrip("/"),
+            )
+            and actual.get("final_url") == actual.get("requested_url")
+            and actual.get("expected_status") == expected.get("expected_status")
+            and actual.get("actual_status") == expected.get("expected_status")
+            and actual.get("body_bytes") == expected_file.get("bytes")
+            and actual.get("body_sha256")
+            == str(expected.get("body_sha256", "")).removeprefix("sha256:")
+            and actual.get("required_sentinels") == {"expected": [], "missing": []}
+            and actual.get("forbidden_sentinels")
+            == {"expected_absent": [], "present": []}
+            and actual.get("state") == "passed"
+            and actual.get("reason_codes") == ["matched"]
+            for expected, expected_file, actual in zip(
+                expected_routes, public_files, actual_routes, strict=True
+            )
+        )
+    )
+    if not readback_exact:
+        raise PublicationAdmissionError("exact all-route public readback is invalid")
+    actual_readback_digest = _sha256_bytes(readback_bytes)
+    if receipt["exact_public_readback_receipt_digest"] != actual_readback_digest:
+        raise PublicationAdmissionError("exact public readback receipt digest changed")
+    if receipt["route_matches"] != len(actual_routes) or receipt["route_total"] != len(
+        expected_routes
+    ):
+        raise PublicationAdmissionError("production route totals do not match exact readback")
+    expected_alias = urlsplit(str(deployment.get("target_url"))).hostname
+    immutable_deployment_url = receipt["immutable_deployment_url"]
+    provider_bound = (
+        isinstance(receipt["provider_deployment_id"], str)
+        and re.fullmatch(r"dpl_[A-Za-z0-9]+", receipt["provider_deployment_id"])
+        is not None
+        and isinstance(immutable_deployment_url, str)
+        and re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.vercel\.app",
+            immutable_deployment_url,
+        )
+        is not None
+        and receipt["alias"] == expected_alias
+        and receipt["project_id"] == deployment.get("vercel_project_id")
+        and receipt["team_id"] == deployment.get("vercel_org_id")
+        and receipt["provider_source_revision"] == deployment.get("commit")
+        and receipt["provider_source_tree"]
+        == deployment.get("implementation_source_tree_digest")
+    )
+    artifact_bound = (
+        isinstance(receipt["provider_artifact_digest"], str)
+        and _SHA256.fullmatch(receipt["provider_artifact_digest"]) is not None
+    )
+    readback_bound = readback_exact
+    routes_exact = True
+    freshness = candidate_manifest.get("freshness")
+    state_counts = freshness.get("state_counts") if isinstance(freshness, dict) else None
+    earliest = (
+        _aware(freshness.get("earliest_stale_after"), "earliest stale_after")
+        if isinstance(freshness, dict) and freshness.get("earliest_stale_after") is not None
+        else None
+    )
+    expected_freshness = "UNKNOWN"
+    if (
+        routes_exact
+        and provider_bound
+        and artifact_bound
+        and readback_bound
+        and isinstance(state_counts, dict)
+        and state_counts.get("FRESH", 0) > 0
+    ):
+        expected_freshness = "STALE" if earliest is not None and observed_at > earliest else "FRESH"
+    expected_state = (
+        "PUBLICATION_OBSERVED_EXACT"
+        if routes_exact and provider_bound and readback_bound
+        else "PUBLICATION_OBSERVATION_UNKNOWN"
+    )
+    if receipt["state"] != expected_state or receipt["production_freshness"] != expected_freshness:
+        raise PublicationAdmissionError("production freshness or adoption claim is invalid")
+    rollback = approval_payload.get("rollback")
+    if (
+        not isinstance(rollback, dict)
+        or receipt["rollback_target_deployment_id"]
+        != rollback.get("immediate_previous_deployment_id")
+    ):
+        raise PublicationAdmissionError("publication rollback target changed")
+    claim = str(receipt["claim_ceiling"]).lower()
+    if "not endorsement" not in claim or "scheduler" not in claim or "static" not in claim:
+        raise PublicationAdmissionError("production publication claim ceiling is incomplete")
+    return {
+        "state": expected_state,
+        "production_freshness": expected_freshness,
+        "routes_exact": routes_exact,
+        "provider_identity_bound": provider_bound,
+        "provider_artifact_bound": artifact_bound,
+        "scheduler_change_allowed": False,
+        "receipt_digest": receipt["receipt_digest"],
     }
