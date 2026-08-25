@@ -20,6 +20,7 @@ from mcp_trust.site.candidate import (
     canonical_bytes,
     provider_native_rollback_binding_from_evidence,
     site_candidate_readback_manifest,
+    verify_provider_native_rollback_binding,
     verify_site_candidate,
 )
 from mcp_trust.store.db import connect, init_schema
@@ -564,6 +565,19 @@ def test_provider_native_rollback_rejects_stale_observation(tmp_path: Path) -> N
             provider_rollback_binding_receipt=receipt,
             now=datetime(2026, 8, 24, 10, 41, tzinfo=UTC),
             **inputs,
+        )
+
+
+def test_provider_native_rollback_verifier_defaults_to_current_time(tmp_path: Path) -> None:
+    binding_path, payload, _ = _provider_rollback_binding(tmp_path)
+    payload["observed_at"] = "2000-01-01T00:00:00Z"
+    receipt = _write_receipted(binding_path, payload)
+
+    with pytest.raises(SiteCandidateError, match="stale or from the future"):
+        verify_provider_native_rollback_binding(
+            binding_path=binding_path,
+            expected_base_url="https://mcp-trust.example",
+            expected_receipt_digest=receipt,
         )
 
 

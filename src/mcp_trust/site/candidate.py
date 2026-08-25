@@ -331,10 +331,11 @@ def verify_provider_native_rollback_binding(
         or payload.get("receipt_digest") != expected_receipt_digest
     ):
         raise SiteCandidateError("provider-native rollback receipt does not match approval")
+    verification_time = now or datetime.now(UTC)
     return _validate_provider_native_rollback_payload(
         payload,
         expected_base_url=expected_base_url,
-        now=now,
+        now=verification_time,
     )
 
 
