@@ -45,6 +45,7 @@ loop working end-to-end.
 | `catalog/seed.py` + `seed_servers.json` | Seed list of ~8–12 well-known *public* MCP servers (name, source spec, homepage). No private servers. | `core/models.py` |
 | `auth_posture.py` | Advisory, credential-free discovery of public protected-resource and authorization-server metadata for one exact Registry-manifest remote. No scan or grade authority. | saved Registry candidate manifest; RFC 9728, RFC 8414, OIDC discovery |
 | `portability/` | Local-only neutral MCP connection intent, pure Codex/Claude/VS Code adapters, semantic loss/widening reports, synthetic fixtures, and CLI. No real host-config discovery or mutation, server launch, network, secret values, trust verdict, or adoption claim. | official host configuration docs and current MCP/Registry metadata versions pinned as of 2026-08-11 |
+| `site/publication.py` | Strict provider-free verification of `McpTrustPublicationApprovalV1` and deterministic copy-only `McpTrustPublicationPackageV1` construction. No network, credentials, provider invocation, deployment, rollback execution, or scheduler capability. | accepted V2 site candidate, exact local approval artifact |
 
 ## Grading — calibration & roadmap
 The public A–F danger grade is derived only via `core.grading.grade(risk)`. It does NOT
@@ -82,6 +83,13 @@ and immutable `stale_after`/valid-through boundary, but static bytes never
 promise a request-time freshness transition. Request-time API and MCP surfaces
 re-evaluate freshness. Danger, transparency, and evidence quality are separate
 axes, and no grade is an endorsement, certification, or safety guarantee.
+
+Publication content approval is a separate local state transition. It requires
+an accepted V2 site candidate, matching repeatability/review/triage/source
+lineage, fresh provider and rollback evidence, and a digest of the exact
+operator statement. The resulting approval and copy-only package keep public
+mutation, deployment, rollback execution, scheduler activation, and outreach
+authority false. Legacy candidate booleans cannot substitute for this receipt.
 
 ## Data model (already defined in `core/models.py` — do not redefine)
 - `ServerSource{ kind, reference, command?, args[], env_keys[] }` — `env_keys` are unique uppercase environment-variable NAMES only, never values.

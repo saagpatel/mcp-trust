@@ -319,6 +319,29 @@ reviewed-input-bound V2 candidate is only an input to later local admission.
 Eligibility never grants approval, publication, deployment, rollback,
 scheduling, or outreach authority.
 
+A separately supplied `McpTrustPublicationApprovalV1` can be verified and used
+to build a deterministic local copy-only package:
+
+```bash
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-approval ./dist/publication-approval.json \
+  --candidate ./dist/site-candidates/<name>
+uv run --frozen python scripts/build_publication_package.py --build \
+  --candidate ./dist/site-candidates/<name> \
+  --approval ./dist/publication-approval.json \
+  --out ./dist/publication-packages/<name>
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-package ./dist/publication-packages/<name> \
+  --approval ./dist/publication-approval.json
+```
+
+This admission is provider-free and local-only. It binds the V2 candidate,
+repeatability and triage lineage, exact V38 review, current provider evidence,
+rollback target, operator statement digest, and the minimum freshness expiry.
+Every mutation authority remains false. A package is not deployment authority,
+publication proof, rollback authority, scheduler authority, endorsement, or
+production-freshness evidence.
+
 Snapshot signing is a separate authority after candidate approval/staging. The
 refresh process never receives a signing or recovery key, and its SHA-256
 manifest is not a publisher identity. Production signing remains disabled until

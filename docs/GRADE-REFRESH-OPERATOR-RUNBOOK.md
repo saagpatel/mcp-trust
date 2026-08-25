@@ -199,14 +199,39 @@ output.
 Raw `build_site.py --db` output is a development preview and is never a
 deployment-qualified artifact.
 
-## 7. Publication gate
+## 7. Build the local-only publication package
+
+After an operator has supplied an exact, receipt-bound
+`McpTrustPublicationApprovalV1`, verify it and build twice from the same frozen
+inputs:
+
+```bash
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-approval ./dist/publication-approval.json \
+  --candidate ./dist/site-candidates/<name>
+uv run --frozen python scripts/build_publication_package.py --build \
+  --candidate ./dist/site-candidates/<name> \
+  --approval ./dist/publication-approval.json \
+  --out ./dist/publication-packages/first
+uv run --frozen python scripts/build_publication_package.py --build \
+  --candidate ./dist/site-candidates/<name> \
+  --approval ./dist/publication-approval.json \
+  --out ./dist/publication-packages/repeat
+```
+
+Require byte-identical trees, then run `--verify-package` on each. The builder
+copies the immutable site candidate under its original directory name and adds
+a sibling `PUBLICATION_PACKAGE.json`; it does not rewrite the candidate or call
+a provider. Package readiness is content review only.
+
+## 8. Deployment gate
 
 Stop. Publication, Vercel deployment, scheduler enablement, and outreach require
 separate explicit approval. Use the package's `HumanGateResumeCapsuleV1.json`
 for the chat gate. Re-read the live public route separately; local equivalence
 does not prove production uptake.
 
-## 8. Rollback preparation
+## 9. Rollback preparation
 
 Before any future publication retain the exact prior deployment identifier,
 source revision, site artifact digest, snapshot digest, masking digest, and
