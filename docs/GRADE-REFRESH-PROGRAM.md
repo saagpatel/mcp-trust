@@ -201,6 +201,23 @@ builder revision plus complete Git-tree digest. A missing prior artifact remains
 deployment authorization rejects raw, pending, accepted-review-only, tampered, or
 rollback-unbound site trees.
 
+The local publication-admission state machine is deliberately split:
+
+1. `REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW` — immutable V2 site candidate;
+2. `PUBLICATION_CONTENT_APPROVED_LOCAL_ONLY` — strict, receipt-bound operator
+   content approval with no mutation authority;
+3. `PUBLICATION_PACKAGE_READY_FOR_DEPLOY_REVIEW` — deterministic copy-only local
+   package with no mutation authority;
+4. a separate short-lived deployment authorization (not implied by 1–3);
+5. a separate provider and all-route readback receipt after any future deploy.
+
+The approval expires at the earliest candidate, provider, rollback, or explicit
+operator TTL boundary. Its verifier rejects stale or UNKNOWN unmasked evidence,
+unresolved triage, source/repeatability drift, missing provenance, privacy leaks,
+symlinks, duplicate or extra keys, and authority self-assertion. Re-reading the
+package repeats those checks, so expired or drifted inputs fail before any
+future provider mutation boundary.
+
 ## Freshness and safe failure
 
 - A candidate and its individual scans must be within the configured 24-hour
