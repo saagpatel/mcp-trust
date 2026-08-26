@@ -153,6 +153,13 @@ OS package managers, dynamic package installs, `npx`, `uvx`, `curl`, or `wget`,
 and must consume the committed manager-specific locks. The preflight rejects a
 digest mentioned only in a comment, an untracked lock or receipt, unequal build
 image IDs, or a target tag whose live image ID differs from the qualification.
+Before any Docker, BuildKit, package-manager, network, or output-path operation,
+the shared dependency boundary rejects unsafe cohort components, absolute or
+traversing paths, symlinked inputs, mutable or descriptor-mismatched base
+images, external `COPY --from` sources, non-exact dependency specifications,
+and lock sources outside the approved npm/PyPI endpoints. A locally built
+dependency-preparation tag is a staging name only: it is inspected immediately
+and every subsequent container executes its immutable `sha256:` image ID.
 
 Docker is the current baseline, not proof against a kernel/runtime compromise.
 If the threat model requires stronger isolation, use a verified microVM/gVisor
