@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import sqlite3
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -15,13 +18,14 @@ from pydantic import BaseModel
 
 from mcp_trust.core import grading
 from mcp_trust.core.drift import latest_grade_change
-from mcp_trust.core.governance import (
-    MASKED_BADGE_MESSAGE,
-    MASKED_SERVER_DESCRIPTION,
-    is_stale,
-)
+from mcp_trust.core.governance import FreshnessState
 from mcp_trust.core.models import ScanRecord, Server, TrustGrade
 from mcp_trust.core.provenance import DEMO_DISCLOSURE, ScanProvenance, classify, is_real_engine
+from mcp_trust.core.public_projection import (
+    project_public_scan,
+    project_public_server,
+    project_public_summary,
+)
 from mcp_trust.engine.base import ScanEngine, ScanError
 from mcp_trust.receipts import write_scan_receipt
 from mcp_trust.site.badges import badge_payload
@@ -43,8 +47,14 @@ class ServerSummary(BaseModel):
     composite: float | None
     scanned_at: datetime | None
     provenance: str
-    stale: bool
+    stale: bool | None
     masked: bool = False
+    operator_masked: bool = False
+    grade_withheld: bool = False
+    freshness_state: str
+    freshness_reason: str
+    scan_age_days: float | None
+    stale_after: datetime | None
 
 
 def _is_real_scan_engine(engine: ScanEngine) -> bool:
@@ -87,51 +97,23 @@ def _authorize_scan_trigger(request: Request, engine: ScanEngine) -> None:
         raise HTTPException(status_code=401, detail="Valid scan trigger token required.")
 
 
-def _public_scan_payload(scan: ScanRecord | None, *, masked: bool) -> dict[str, Any] | None:
-    if scan is None:
-        return None
-    payload = scan.model_dump(mode="json")
-    payload["provenance"] = str(classify(scan))
-    payload["stale"] = is_stale(scan.scanned_at, datetime.now(tz=UTC))
-    payload["masked"] = masked
-    if masked:
-        payload.update(
-            {
-                "grade": MASKED_BADGE_MESSAGE,
-                "transparency": None,
-                "risk": None,
-                "findings": None,
-                "evidence": None,
-                "report_ref": None,
-                "withheld_reason": "grade_under_governance_review",
-            }
-        )
-    return payload
+def _public_scan_payload(
+    scan: ScanRecord | None,
+    *,
+    masked: bool,
+    now: datetime | None = None,
+    unreadable: bool = False,
+) -> dict[str, Any] | None:
+    return project_public_scan(
+        scan,
+        now=now or datetime.now(tz=UTC),
+        operator_masked=masked,
+        unreadable=unreadable,
+    )
 
 
 def _public_server_payload(server: Server, *, masked: bool) -> dict[str, Any]:
-    payload = server.model_dump(mode="json")
-    if masked:
-        payload["description"] = MASKED_SERVER_DESCRIPTION
-    return payload
-
-
-def _public_summary_grade(scan: ScanRecord | None, *, masked: bool) -> str:
-    if scan is None:
-        return str(TrustGrade.UNSCANNED)
-    if masked:
-        return MASKED_BADGE_MESSAGE
-    return str(scan.grade)
-
-
-def _unknown_scan_payload() -> dict[str, Any]:
-    return {
-        "status": "UNKNOWN",
-        "reason_codes": ["SCAN_RECORD_UNREADABLE"],
-        "provenance": str(ScanProvenance.UNKNOWN),
-        "stale": False,
-        "masked": False,
-    }
+    return project_public_server(server, operator_masked=masked)
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +121,44 @@ def _unknown_scan_payload() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _runtime_masked_slugs() -> set[str]:
+    """Load the mandatory public-runtime masking input fail-closed."""
+    configured = os.environ.get("MCP_TRUST_MASKED_GRADES")
+    public_readonly = os.environ.get(_PUBLIC_READONLY_ENV, "0").strip().lower() in _TRUE_ENV_VALUES
+    if configured is None:
+        if public_readonly:
+            raise RuntimeError(
+                "MCP_TRUST_MASKED_GRADES is required when MCP_TRUST_PUBLIC_READONLY=1"
+            )
+        return set()
+    try:
+        loaded = json.loads(Path(configured).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("runtime masked-grades input is unreadable") from exc
+    if (
+        not isinstance(loaded, list)
+        or not all(isinstance(slug, str) and slug for slug in loaded)
+        or len(loaded) != len(set(loaded))
+    ):
+        raise RuntimeError("runtime masked-grades input must be a unique string list")
+    return set(loaded)
+
+
+def _validate_masked_slugs(conn: sqlite3.Connection, masked_slugs: set[str]) -> None:
+    catalog_slugs = {server.slug for server in ServerRepository(conn).list()}
+    unknown = sorted(masked_slugs - catalog_slugs)
+    if unknown:
+        raise RuntimeError(
+            "runtime masked-grades contains unknown catalog slug(s): " + ",".join(unknown)
+        )
+
+
 def create_app(
     conn: sqlite3.Connection | None = None,
     engine: ScanEngine | None = None,
     corrections: list[dict] | None = None,
     masked_slugs: set[str] | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     """Build and return a configured ``FastAPI`` instance.
 
@@ -162,11 +177,14 @@ def create_app(
         Slugs whose published grade is operator-withheld pending governance
         review (pages and badges render "withheld / under review").
     """
-    _masked: set[str] = masked_slugs or set()
+    _masked: set[str] = (
+        set(masked_slugs) if masked_slugs is not None else _runtime_masked_slugs()
+    )
     # Resolve dependencies lazily so module-level ``app`` doesn't open a DB
     # at import time in test environments.
     _conn: sqlite3.Connection | None = conn
     _engine: ScanEngine | None = engine
+    _clock = clock or (lambda: datetime.now(tz=UTC))
 
     def _get_conn() -> sqlite3.Connection:
         nonlocal _conn
@@ -174,6 +192,7 @@ def create_app(
             db_path = os.environ.get("MCP_TRUST_DB", "./mcp-trust.db")
             _conn = connect(db_path)
             init_schema(_conn)
+            _validate_masked_slugs(_conn, _masked)
         return _conn
 
     def _get_engine() -> ScanEngine:
@@ -194,6 +213,7 @@ def create_app(
     # otherwise it's done lazily in _get_conn.
     if conn is not None:
         init_schema(conn)
+        _validate_masked_slugs(conn, _masked)
 
     # -----------------------------------------------------------------------
     # Routes
@@ -218,32 +238,18 @@ def create_app(
         latest = latest_readback.records
 
         result: list[dict[str, Any]] = []
+        evaluated_at = _clock()
         for srv in servers:
             scan = latest.get(srv.slug)
             unknown_scan = srv.slug in latest_readback.unreadable_slugs
-            masked = srv.slug in _masked and scan is not None
             result.append(
-                {
-                    "slug": srv.slug,
-                    "name": srv.name,
-                    "grade": (
-                        "unknown"
-                        if unknown_scan
-                        else _public_summary_grade(scan, masked=masked)
-                    ),
-                    "transparency": None if masked else scan.transparency if scan else None,
-                    "composite": None if masked else scan.risk.composite if scan else None,
-                    "scanned_at": scan.scanned_at if scan else None,
-                    "provenance": str(
-                        ScanProvenance.UNKNOWN if unknown_scan else classify(scan)
-                    ),
-                    "stale": (
-                        is_stale(scan.scanned_at, datetime.now(tz=UTC))
-                        if scan is not None
-                        else False
-                    ),
-                    "masked": masked,
-                }
+                project_public_summary(
+                    srv,
+                    scan,
+                    now=evaluated_at,
+                    operator_masked=srv.slug in _masked,
+                    unreadable=unknown_scan,
+                )
             )
         return result
 
@@ -262,7 +268,12 @@ def create_app(
         except (TypeError, ValueError):
             return {
                 "server": _public_server_payload(server, masked=slug in _masked),
-                "latest_scan": _unknown_scan_payload(),
+                "latest_scan": _public_scan_payload(
+                    None,
+                    masked=slug in _masked,
+                    now=_clock(),
+                    unreadable=True,
+                ),
                 "grade_change": None,
             }
         try:
@@ -279,7 +290,11 @@ def create_app(
         readable_grade_change = latest_grade_change(history)
         return {
             "server": _public_server_payload(server, masked=operator_masked),
-            "latest_scan": _public_scan_payload(scan, masked=scan_masked),
+            "latest_scan": _public_scan_payload(
+                scan,
+                masked=operator_masked,
+                now=_clock(),
+            ),
             "grade_change": (
                 None
                 if scan_masked
@@ -323,7 +338,7 @@ def create_app(
             risk=result.risk,
             findings=result.findings,
             evidence=result.evidence,
-            scanned_at=datetime.now(tz=UTC),
+            scanned_at=_clock(),
             sandbox_image=result.sandbox_image,
             report_ref=None,
         )
@@ -331,7 +346,7 @@ def create_app(
         if receipt_ref is not None:
             scan = scan.model_copy(update={"report_ref": receipt_ref})
         scan_repo.record(scan)
-        public_scan = _public_scan_payload(scan, masked=False)
+        public_scan = _public_scan_payload(scan, masked=slug in _masked, now=_clock())
         assert public_scan is not None
         return public_scan
 
@@ -352,8 +367,15 @@ def create_app(
         # Single payload path with the static badge files (site.badges), so the
         # live embed endpoint can never diverge on provenance, staleness, or
         # operator masking.
-        stale = scan is not None and is_stale(scan.scanned_at, datetime.now(tz=UTC))
-        masked = slug in _masked and scan is not None
+        projected = project_public_scan(
+            scan,
+            now=_clock(),
+            operator_masked=slug in _masked,
+        )
+        if projected is not None and projected["freshness_state"] == str(FreshnessState.UNKNOWN):
+            return badge_payload("unknown", ScanProvenance.UNKNOWN)
+        stale = bool(projected and projected["stale"] is True)
+        masked = bool(projected and projected["grade_withheld"] and slug in _masked)
         grade_str = str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
         return badge_payload(grade_str, classify(scan), stale=stale, masked=masked)
 
@@ -375,32 +397,25 @@ def create_app(
 
         rows = []
         has_demo = False
+        evaluated_at = _clock()
         for srv in servers:
             scan = latest.get(srv.slug)
             unknown_scan = srv.slug in latest_readback.unreadable_slugs
             has_demo = has_demo or classify(scan) is ScanProvenance.DEMO
             rows.append(
-                {
-                    "slug": srv.slug,
-                    "name": srv.name,
-                    "grade": (
-                        "unknown"
-                        if unknown_scan
-                        else str(scan.grade)
-                        if scan
-                        else str(TrustGrade.UNSCANNED)
-                    ),
-                    "transparency": str(scan.transparency) if scan else "",
-                    "composite": scan.risk.composite if scan else None,
-                    "scanned_at": scan.scanned_at.isoformat() if scan else "",
-                    "masked": srv.slug in _masked and scan is not None,
-                }
+                project_public_summary(
+                    srv,
+                    scan,
+                    now=evaluated_at,
+                    operator_masked=srv.slug in _masked,
+                    unreadable=unknown_scan,
+                )
             )
         return HTMLResponse(
             content=render_catalog(
                 rows,
                 banner=DEMO_DISCLOSURE if has_demo else None,
-                now=datetime.now(tz=UTC),
+                now=evaluated_at,
             )
         )
 
@@ -442,7 +457,7 @@ def create_app(
                     if classify(latest_scan) is ScanProvenance.DEMO
                     else None
                 ),
-                now=datetime.now(tz=UTC),
+                now=_clock(),
                 masked=slug in _masked,
                 unknown_scan=unknown_scan,
                 unknown_history=unknown_history,

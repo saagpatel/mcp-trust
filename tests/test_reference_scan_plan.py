@@ -87,7 +87,9 @@ def test_registry_derived_candidates_pin_their_batch_sandbox_image() -> None:
         "io-github-discourse-mcp-0-2-9": "mcp-trust-batch4:20260703",
         "io-github-ui5-webcomponents-react-mcp-server-2-23-2": "mcp-trust-batch4:20260703",
         "io-github-nvidia-elements-2-1-4": "mcp-trust-batch4:20260703",
-        "io-github-basicmachines-co-basic-memory-0-22-1": "mcp-trust-batch4:20260703",
+        "io-github-basicmachines-co-basic-memory-0-22-1": (
+            "mcp-trust-basic-memory:20260823"
+        ),
     }
 
     for slug, image in pinned_images.items():
@@ -130,16 +132,22 @@ def test_reference_scan_shell_plan_is_dry_run_text() -> None:
 
 def test_scan_image_pins_compatible_python_mcp_sdk() -> None:
     dockerfile = (ROOT / "Dockerfile.scan").read_text()
+    requirements = (
+        ROOT / "docker/refresh/locks/reference/requirements.in"
+    ).read_text()
+    lock = (ROOT / "docker/refresh/locks/reference/requirements.lock").read_text()
 
     # mcp-server-time 2026.6.4 imports McpError, which is absent from MCP SDK
-    # 2.x. Every Python reference-tool environment must therefore share the
-    # verified 1.29.0 pin; leaving one unpinned silently recreates the image
-    # failure that blocks the launch corpus.
-    assert dockerfile.count('--with "mcp==1.29.0"') == 4
+    # 2.x. The single offline environment must therefore carry the exact SDK
+    # pin and a hash-locked, network-disabled installation path.
+    assert "mcp==1.29.0" in requirements
+    assert "--require-hashes" in dockerfile
+    assert "--no-index" in dockerfile
     for package in (
         "mcp-server-fetch",
         "mcp-server-git",
         "mcp-server-time",
         "mcp-server-sqlite",
     ):
-        assert package in dockerfile
+        assert package in requirements
+        assert package in lock

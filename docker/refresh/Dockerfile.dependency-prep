@@ -1,0 +1,6 @@
+FROM ghcr.io/astral-sh/uv@sha256:a5727064a0de127bdb7c9d3c1383f3a9ac307d9f2d8a391edc7896c54289ced0 AS uv
+FROM python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91
+
+COPY --from=uv /uv /usr/local/bin/uv
+
+ENTRYPOINT ["uv"]

@@ -20,22 +20,30 @@ schedule (see `Scheduled freshness`), not from Vercel's Git integration.
 - A final public URL for `--base-url` (currently
   `https://mcp-trust.vercel.app`) so badge embeds resolve against the live host.
 
-## 1. Build the static site from real data
+## 1. Build a local review artifact
 
 `DOMAIN` must be the final public URL so README badge-embed snippets point at the
 live host. The build is read-only against `registry.db`; it never scans.
 
 ```bash
 DOMAIN="https://mcp-trust.vercel.app"
-uv run python scripts/build_site.py \
-  --db ./registry.db \
-  --out site \
+uv run --frozen python scripts/build_site_candidate.py \
+  --candidate ./dist/refresh-candidates/<candidate> \
+  --out ./dist/site-candidates/<name> \
   --base-url "$DOMAIN"
-# Expect the current seeded/scanned count, for example:
-# "Built static site for 19 server(s) (19 scanned) ... VERIFY OK"
+uv run --frozen python scripts/build_site_candidate.py \
+  --verify ./dist/site-candidates/<name>
 ```
 
-Ship the deploy config with the rendered output so headers/CSP/clean-URLs apply:
+The current sanitized review produces a deterministic local artifact with both
+publication and deployment authority set to false. Do not copy it into `site/`
+or deploy it. A raw `scripts/build_site.py --db` or `--candidate` build remains a
+development preview and cannot satisfy deployment authorization V3. The
+candidate builder itself requires a clean committed worktree and binds that
+implementation revision and complete Git-tree digest.
+
+Only after a separate approved promotion gate may the deploy config be added to
+an approved, rollback-bound artifact so headers/CSP/clean-URLs apply:
 
 ```bash
 cp deploy/vercel.json site/vercel.json
@@ -53,6 +61,20 @@ shared route receipt:
 ```bash
 python3 scripts/web_release_readback.py \
   --manifest deploy/web-release-readback.json \
+  --target-url "https://preview.example.vercel.app" \
+  --pretty
+```
+
+For a receipt-bound site candidate, also extract its exact all-route manifest
+and require the candidate bytes to match the preview. The sentinel manifest is
+additive and does not substitute for this byte binding:
+
+```bash
+uv run --frozen python scripts/build_site_candidate.py \
+  --readback-manifest ./dist/site-candidates/<name> \
+  > ./dist/site-candidates/<name>-exact-readback.json
+python3 scripts/web_release_readback.py \
+  --manifest ./dist/site-candidates/<name>-exact-readback.json \
   --target-url "https://preview.example.vercel.app" \
   --pretty
 ```
@@ -83,15 +105,19 @@ Production deployment is available only through
 `MCP_TRUST_AUTO_DEPLOY` are unsupported.
 
 The operator must create a mode-`0600`, non-symlinked, short-lived JSON approval
-using schema `McpTrustProductionDeployAuthorizationV2`. It binds its own exact
-absolute path plus repository root, `main` branch, full commit SHA, production
-URL, the repository-pinned Vercel project and organization IDs, canonical
-GitHub origin, Vercel and Node invocation/resolved executable paths and SHA-256
-digests, an exact deterministic digest of every file in `site/`, receipt ID,
-issuance time, and expiry no more than 15 minutes later. Symlinks and special
-files in `site/` are rejected. The ignored output digest, provider link,
-approval, and tool bytes are revalidated after confirmation and immediately
-before the provider call.
+using schema `McpTrustProductionDeployAuthorizationV4`. V4 binds the exact
+`McpTrustPublicationPackageV1`, `McpTrustPublicationApprovalV1`, provider
+prepublication receipt, operator statement digest, retained rollback artifact,
+repository/commit/output, and the Vercel, Node, Python, and publication-verifier
+invocation/resolved paths and SHA-256 digests. Its validity is at most 15
+minutes. V3 and legacy candidate authority booleans are rejected.
+
+The deployment output must be byte-identical to the packaged site candidate;
+the package, content approval, provider/rollback lineage, output, provider
+links, retained rollback bytes, and tool bytes are validated before interactive
+confirmation and again immediately before the provider call. Direct `--db` and
+`--candidate` builds remain development/review primitives, not deployment
+inputs.
 The manual entrypoint separately requires those exact values and requires the
 operator to type `DEPLOY_MCP_TRUST_PRODUCTION` at a live interactive TTY after
 the approval validates; the confirmation cannot be supplied by argument or
@@ -118,6 +144,25 @@ python3 scripts/web_release_readback.py \
   --target-url "https://mcp-trust.vercel.app" \
   --pretty
 ```
+
+Repeat the exact candidate-bound readback against production and retain its
+receipt beside the deployment receipt. A sentinel-only pass does not prove that
+the approved candidate bytes reached production.
+
+Verify a post-deployment `McpTrustProductionPublicationReceiptV1` against all
+four bound inputs:
+
+```bash
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-production-receipt ./dist/production-publication-receipt.json \
+  --candidate ./dist/publication-packages/<name> \
+  --approval ./dist/publication-approval.json \
+  --deployment-authorization ./dist/deployment-authorization-v4.json \
+  --readback-receipt ./dist/production-all-route-readback.json
+```
+
+A provider exit code, sentinel count, route equality without provider/source
+identity, or missing provider artifact digest cannot produce `FRESH`.
 
 The Vercel authorization proves bounded operator intent for one exact rendered
 site tree. It is not a catalog-publisher signature and must not be used as an

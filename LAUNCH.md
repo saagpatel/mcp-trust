@@ -59,12 +59,21 @@ the seed catalog, running real scans, or changing grading bands.
 
    ```bash
    python scripts/build_deploy_bundle.py \
-     --db ./registry.db \
-     --receipts-dir ./receipts
+     --candidate ./dist/refresh-candidate-<timestamp> \
+     --review ./dist/publication-review.json \
+     --disposition ./src/mcp_trust/catalog/refresh_disposition_policy.json \
+     --policy ./src/mcp_trust/catalog/refresh_policy.json
    ```
 
-   The bundle contains a pruned `registry.db` with only latest scan rows, only
-   referenced receipt files, and a `MANIFEST.json` with hashes.
+   The builder independently verifies the candidate and exact review bindings,
+   and refuses incomplete, stale, pending, non-deployable, or rollback-unbound
+   input. No supported promotion path exists in the current review-only lane,
+   so the sanitized pending review intentionally blocks this command. A future
+   successful bundle would still not authorize upload or deployment.
+
+   `McpTrustPublicationApprovalV1` is specific to the static Vercel content
+   lane and is explicitly rejected by this VM bundle builder. A future VM
+   publication requires its own provider, rollback, and operator contract.
 
 5. Calibrate the bands against the observed distribution. Re-run the corpus
    helper, then tune `_DIM_WEIGHTS` / `_BANDS` in `src/mcp_trust/core/grading.py`

@@ -94,7 +94,7 @@ def test_valid_snapshot_payload_bytes_remain_compatible() -> None:
     }
     assert payload_hashes == {
         "list": "7f6d514f26e144631afcd04286f91af29e467fb2dbd5e435c73774a87431c61e",
-        "known": "309514eed9f5fafe994420f0a70acd5a5e61afd93ef448e248bdfa9cbf1cf808",
+        "known": "f1223337047596baac975e55876bc42ee38cc1690033765fb554358e9af22f06",
         "unknown": "da2aa20cb35aa3339f459668f339c7e14d1727239c37014152498dfdb9c482a6",
     }
 

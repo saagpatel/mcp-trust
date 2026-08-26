@@ -42,6 +42,7 @@ from scripts import refresh_candidate as refresh_cli
 
 FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[1]
+IMAGE_DIGEST = "sha256:" + ("a" * 64)
 
 
 def _server(slug: str) -> Server:
@@ -55,6 +56,52 @@ def _server(slug: str) -> Server:
         ),
         added_at=FIXED_NOW,
     )
+
+
+def _write_refresh_policy(
+    seed_path: Path,
+    masked_path: Path,
+    *,
+    blocked: tuple[str, ...] = (),
+) -> Path:
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    slugs = [row["slug"] for row in seed]
+    blocked_set = set(blocked)
+    default_image = "required:image"
+    image_refs = {
+        source.get("sandbox_image") or default_image
+        for row in seed
+        if isinstance((source := row.get("source")), dict)
+        and source.get("command") is not None
+    }
+    policy = {
+        "schema": "McpTrustRefreshPolicyV2",
+        "catalog_denominator": len(slugs),
+        "default_sandbox_image": default_image,
+        "image_build_sources": {
+            image: {
+                "path": "Dockerfile.scan",
+                "provenance_status": "SOURCE_CONTROLLED",
+                "reproducibility_status": "VERIFIED",
+                "qualification_receipt": "qualification.json",
+            }
+            for image in image_refs
+        },
+        "scannable": [slug for slug in slugs if slug not in blocked_set],
+        "blocked": [slug for slug in slugs if slug in blocked_set],
+        "intentionally_masked": json.loads(masked_path.read_text(encoding="utf-8")),
+        "unsupported_upstream": [],
+        "credential_dependent": [],
+        "backing_service_dependent": [],
+        "unsafe_to_execute_unsandboxed": "all-local-process-entries",
+        "credential_policy": "dummy-values-network-off-only",
+        "network_policy": "none",
+        "freshness_objective_hours": 24,
+        "publication_review_required": True,
+    }
+    path = seed_path.with_name("refresh_policy.json")
+    path.write_text(json.dumps(policy), encoding="utf-8")
+    return path
 
 
 def _inputs(
@@ -90,6 +137,7 @@ def _inputs(
     )
     masked_path = tmp_path / "masked.json"
     masked_path.write_text(json.dumps(list(masked)), encoding="utf-8")
+    _write_refresh_policy(seed_path, masked_path)
     return db_path, seed_path, masked_path
 
 
@@ -103,6 +151,164 @@ def _stub_scanner(server: Server) -> EngineResult:
             }
         )
     )
+
+
+def _qualification_receipt(
+    seed_path: Path,
+    masked_path: Path,
+    *,
+    profiles: list[dict[str, object]],
+) -> dict[str, object]:
+    image_bindings = [
+        {
+            "reference": profile["image"],
+            "state": "BOUND",
+            "image_id": profile["image_digest"],
+            "repo_digests": [],
+            "platform": "linux/arm64",
+            "sandbox_controls": {"all_required_controls": True},
+        }
+        for profile in profiles
+    ]
+    build_sources = {
+        str(profile["image"]): {
+            "path": "Dockerfile.scan",
+            "sha256": "sha256:" + ("b" * 64),
+            "state": "BOUND",
+        }
+        for profile in profiles
+    }
+    policy_path = seed_path.with_name("refresh_policy.json")
+    if not policy_path.exists():
+        _write_refresh_policy(seed_path, masked_path)
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy_digest = "sha256:" + hashlib.sha256(policy_path.read_bytes()).hexdigest()
+    source_files = {
+        "src/mcp_trust/catalog/refresh_policy.json": policy_digest,
+        **{
+            str(binding["path"]): str(binding["sha256"])
+            for binding in build_sources.values()
+        },
+    }
+    payload: dict[str, object] = {
+        "schema": "McpTrustGradeRefreshPreflightV1",
+        "observed_at": FIXED_NOW.isoformat(),
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "exit_classification": "ready",
+        "source_binding": {
+            "revision": "a" * 40,
+            "worktree_state": "clean",
+            "source_tree_digest": "sha256:" + ("c" * 64),
+            "repository": "https://example.test/mcp-trust.git",
+            "file_digests": source_files,
+        },
+        "catalog": {
+            "denominator": policy["catalog_denominator"],
+            "counts": {
+                "scannable": len(policy["scannable"]),
+                "blocked": len(policy["blocked"]),
+            },
+            "seed_digest": "sha256:" + hashlib.sha256(seed_path.read_bytes()).hexdigest(),
+            "masking_digest": "sha256:"
+            + hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            "policy_digest": policy_digest,
+            "image_build_sources": build_sources,
+        },
+        "sandbox": {"image_bindings": image_bindings},
+        "tool_versions": {
+            "python": "3.11.15",
+            "python_executable": "/fixture/python",
+            "mcp_audits": "2.7.0",
+            "mcp_trust": "0.1.1",
+            "docker_client": "29.7.2",
+            "docker_server": "29.5.2",
+        },
+        "scheduler": {"state": "NOT_READ", "mutation_performed": False},
+        "reasons": [],
+        "authority": {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        },
+    }
+    payload["receipt_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(payload)
+    ).hexdigest()
+    return payload
+
+
+def _qualification_source_provider(receipt: dict[str, object]):
+    source = receipt["source_binding"]
+    assert isinstance(source, dict)
+    return lambda _repo_root: source
+
+
+def test_qualification_rejects_build_digest_not_bound_to_source_tree(
+    tmp_path: Path,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    profile = refresh_module._sandbox_profile(
+        "required:image",
+        image_digest=IMAGE_DIGEST,
+    )
+    receipt = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[profile],
+    )
+    source = receipt["source_binding"]
+    assert isinstance(source, dict)
+    source_files = source["file_digests"]
+    assert isinstance(source_files, dict)
+    source_files["Dockerfile.scan"] = "sha256:" + ("e" * 64)
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest")
+    receipt["receipt_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(unsigned)
+    ).hexdigest()
+
+    with pytest.raises(RefreshCandidateError, match="not source-bound"):
+        refresh_module._qualification_metadata(
+            receipt,
+            seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
+            masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            sandbox_evidence={"profiles": [profile]},
+            now=FIXED_NOW,
+        )
+
+
+def test_qualification_requires_exact_build_source_image_coverage(
+    tmp_path: Path,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    profile = refresh_module._sandbox_profile(
+        "required:image",
+        image_digest=IMAGE_DIGEST,
+    )
+    receipt = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[profile],
+    )
+    catalog = receipt["catalog"]
+    assert isinstance(catalog, dict)
+    catalog["image_build_sources"] = {}
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest")
+    receipt["receipt_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(unsigned)
+    ).hexdigest()
+
+    with pytest.raises(RefreshCandidateError, match="provenance is incomplete"):
+        refresh_module._qualification_metadata(
+            receipt,
+            seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
+            masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            sandbox_evidence={"profiles": [profile]},
+            now=FIXED_NOW,
+        )
 
 
 def _candidate(
@@ -138,6 +344,7 @@ def _complete_remote_candidate(
     *,
     masked: tuple[str, ...] = (),
     slug: str = "alpha",
+    source_mutates: bool = False,
 ) -> tuple[Path, Path, Path]:
     db_path = tmp_path / "registry.db"
     remote = _server(slug).model_copy(
@@ -159,6 +366,7 @@ def _complete_remote_candidate(
     )
     masked_path = tmp_path / "masked.json"
     masked_path.write_text(json.dumps(list(masked)), encoding="utf-8")
+    _write_refresh_policy(seed_path, masked_path)
 
     class RemoteMCPAuditEngine:
         def __init__(self, timeout: float) -> None:
@@ -178,21 +386,53 @@ def _complete_remote_candidate(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "not_required",
+            "default_image": default_image,
             "profiles": [],
             "remote_transport_count": len(servers),
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", RemoteMCPAuditEngine)
+    qualification = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[],
+    )
+    source_provider = _qualification_source_provider(qualification)
+    if source_mutates:
+        source = qualification["source_binding"]
+        assert isinstance(source, dict)
+        calls = 0
+
+        def source_provider(_repo_root):
+            nonlocal calls
+            calls += 1
+            return source if calls == 1 else {**source, "revision": "b" * 40}
+
     candidate = create_refresh_candidate(
         source_db=db_path,
         seed_path=seed_path,
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="not-needed:image",
+        qualification_receipt=qualification,
+        repo_root=ROOT,
+        _source_binding_provider=source_provider,
         now=FIXED_NOW,
         candidate_name="candidate",
     )
     return candidate, seed_path, masked_path
+
+
+def test_real_candidate_rejects_source_change_after_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(RefreshCandidateError, match="source changed during refresh"):
+        _complete_remote_candidate(
+            tmp_path,
+            monkeypatch,
+            source_mutates=True,
+        )
 
 
 def _results(candidate: Path) -> list[dict[str, object]]:
@@ -391,9 +631,30 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     manifest = json.loads((candidate / "MANIFEST.json").read_text())
 
     assert verification["structural_valid"] is True
+    assert verification["schema"] == "RefreshCandidateV2"
+    assert verification["publication_eligible_schema"] is True
     assert verification["state"] == "fixture"
     assert verification["publication_ready"] is False
     assert manifest["scan_mode"] == "deterministic-fixture"
+    assert manifest["freshness"] == {
+        "mode": "STATIC_HISTORICAL_ONLY",
+        "horizon_days": 90,
+        "evaluated_at": FIXED_NOW.isoformat(),
+        "earliest_stale_after": (FIXED_NOW + timedelta(days=90)).isoformat(),
+        "publication_not_after": (FIXED_NOW + timedelta(hours=24)).isoformat(),
+        "state_counts": {
+            "FRESH": 1,
+            "STALE": 0,
+            "UNKNOWN": 0,
+            "NOT_APPLICABLE": 0,
+        },
+    }
+    assert set(manifest["semantic_digests"]) == {
+        "scan_results",
+        "static_snapshot",
+        "masking",
+    }
+    assert manifest["tool_versions"]["mcp_trust_candidate_schema"] == "RefreshCandidateV2"
     assert manifest["authority"] == {
         "candidate_creation": True,
         "publication": False,
@@ -403,6 +664,54 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     assert _results(candidate)[0]["state"] == "fresh"
     assert (candidate / "MANIFEST.json").stat().st_mode & 0o222 == 0
     assert candidate.stat().st_mode & 0o222 == 0
+
+
+def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+    candidate.chmod(0o700)
+    results_path = candidate / "scan_results.json"
+    snapshot_path = candidate / "static_snapshot.json"
+    for path in (results_path, snapshot_path):
+        path.chmod(0o600)
+
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    for result in results["results"]:
+        result.pop("freshness_state")
+        result.pop("freshness_reason")
+        result.pop("stale_after")
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    for server in snapshot["servers"]:
+        server.pop("stale_after", None)
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    _rebind_candidate_artifacts(candidate, "scan_results.json", "static_snapshot.json")
+
+    manifest_path = candidate / "MANIFEST.json"
+    manifest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema"] = "RefreshCandidateV1"
+    for field in ("freshness", "semantic_digests", "source_tree_digest", "tool_versions"):
+        manifest.pop(field)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest_path = candidate / "MANIFEST.sha256"
+    digest_path.chmod(0o600)
+    digest_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    manifest_path.chmod(0o400)
+    digest_path.chmod(0o400)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is True
+    assert verification["schema"] == "RefreshCandidateV1"
+    assert verification["publication_eligible_schema"] is False
+    assert verification["publication_ready"] is False
 
 
 def test_empty_reviewed_catalog_is_refused_before_candidate_creation(
@@ -503,8 +812,12 @@ def test_create_cli_returns_failure_for_partial_candidate(
             "errors": [],
         },
     )
+    qualification = tmp_path / "qualification.json"
+    qualification.write_text("{}", encoding="utf-8")
 
-    result = refresh_cli.main(["create"])
+    result = refresh_cli.main(
+        ["create", "--qualification-receipt", str(qualification)]
+    )
     output = json.loads(capsys.readouterr().out)
 
     assert result == 1
@@ -996,18 +1309,38 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "available",
-            "profiles": [refresh_module._sandbox_profile(default_image)],
+            "default_image": default_image,
+            "profiles": [
+                refresh_module._sandbox_profile(
+                    default_image,
+                    image_digest=IMAGE_DIGEST,
+                )
+            ],
             "remote_transport_count": 0,
+            "_execution_image_bindings": {default_image: IMAGE_DIGEST},
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", FailingMCPAuditEngine)
 
+    qualification = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[
+            refresh_module._sandbox_profile(
+                "required:image",
+                image_digest=IMAGE_DIGEST,
+            )
+        ],
+    )
     candidate = create_refresh_candidate(
         source_db=db_path,
         seed_path=seed_path,
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="required:image",
+        qualification_receipt=qualification,
+        repo_root=ROOT,
+        _source_binding_provider=_qualification_source_provider(qualification),
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -1023,6 +1356,116 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
     assert verification["state"] == "partial"
     assert verification["publication_ready"] is False
     assert verification["errors"] == []
+
+
+def test_policy_blocked_server_is_never_preflighted_or_scanned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(
+        tmp_path,
+        slugs=("alpha", "beta"),
+    )
+    policy_path = _write_refresh_policy(
+        seed_path,
+        masked_path,
+        blocked=("beta",),
+    )
+    conn = connect(db_path)
+    ScanRepository(conn).record(
+        ScanRecord(
+            id="old-beta",
+            server_slug="beta",
+            engine_name="mcpaudit",
+            engine_version="2.3.0",
+            grade=TrustGrade.D,
+            risk=RiskSummary(composite=6.0),
+            evidence=ScanEvidence(tools=[ToolEvidence(name="historical-tool")]),
+            scanned_at=FIXED_NOW - timedelta(days=30),
+        )
+    )
+    conn.close()
+    preflighted: list[str] = []
+    scanned: list[str] = []
+
+    def preflight(servers: list[Server], *, default_image: str) -> dict[str, object]:
+        preflighted.extend(server.slug for server in servers)
+        return {
+            "docker_daemon": "available",
+            "default_image": default_image,
+            "profiles": [
+                refresh_module._sandbox_profile(
+                    default_image,
+                    image_digest=IMAGE_DIGEST,
+                )
+            ],
+            "remote_transport_count": 0,
+            "_execution_image_bindings": {default_image: IMAGE_DIGEST},
+        }
+
+    class LocalMCPAuditEngine:
+        def __init__(self, timeout: float) -> None:
+            assert timeout == 90.0
+
+        def scan(self, source: ServerSource) -> EngineResult:
+            scanned.append(source.reference)
+            return _stub_scanner(_server("alpha")).model_copy(
+                update={
+                    "engine_name": "mcpaudit",
+                    "engine_version": "2.7.0",
+                    "sandbox_image": IMAGE_DIGEST,
+                }
+            )
+
+    monkeypatch.setattr("mcp_trust.refresh.preflight_real_refresh", preflight)
+    monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", LocalMCPAuditEngine)
+    qualification = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[
+            refresh_module._sandbox_profile(
+                "required:image",
+                image_digest=IMAGE_DIGEST,
+            )
+        ],
+    )
+
+    candidate = create_refresh_candidate(
+        source_db=db_path,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        output_parent=tmp_path / "candidates",
+        default_image="required:image",
+        qualification_receipt=qualification,
+        repo_root=ROOT,
+        policy_path=policy_path,
+        _source_binding_provider=_qualification_source_provider(qualification),
+        now=FIXED_NOW,
+        candidate_name="candidate",
+    )
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+    by_slug = {row["server_slug"]: row for row in _results(candidate)}
+
+    assert preflighted == ["alpha"]
+    assert scanned == ["@example/alpha"]
+    assert by_slug["beta"] == {
+        "server_slug": "beta",
+        "state": "blocked-policy",
+        "fresh_grade": None,
+        "execution_disposition": "do-not-execute",
+        "reason": "sandbox_image_qualification_unknown",
+        "previous_grade": "D",
+        "previous_scanned_at": (FIXED_NOW - timedelta(days=30)).isoformat(),
+        "previous_scan_age_days": 30.0,
+    }
+    assert verification["structural_valid"] is True
+    assert verification["state"] == "partial"
+    assert verification["publication_ready"] is False
 
 
 def test_failed_rescan_excludes_the_previous_grade_from_static_snapshot(
@@ -1761,7 +2204,12 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
     monkeypatch.setattr("mcp_trust.refresh.importlib.util.find_spec", lambda _name: None)
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, "", "")
+        stdout = (
+            json.dumps([{"Id": IMAGE_DIGEST}])
+            if command[-3:-1] == ["image", "inspect"]
+            else ""
+        )
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
     with pytest.raises(RefreshCandidateError, match="MCPAudit engine"):
         preflight_real_refresh(
@@ -1785,7 +2233,12 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         commands.append(command)
-        return subprocess.CompletedProcess(command, 0, "", "")
+        stdout = (
+            json.dumps([{"Id": IMAGE_DIGEST}])
+            if command[-3:-1] == ["image", "inspect"]
+            else ""
+        )
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
     evidence = preflight_real_refresh(
         [_server("alpha")],
@@ -1798,6 +2251,9 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
         ["docker", "--host", host, "image", "inspect", "required:image"],
     ]
     assert evidence["_execution_docker_host"] == host
+    assert evidence["_execution_image_bindings"] == {
+        "required:image": IMAGE_DIGEST,
+    }
 
 
 def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
@@ -1814,7 +2270,12 @@ def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         commands.append(command)
-        stdout = json.dumps(host) if command[1:3] == ["context", "inspect"] else ""
+        if command[1:3] == ["context", "inspect"]:
+            stdout = json.dumps(host)
+        elif command[-3:-1] == ["image", "inspect"]:
+            stdout = json.dumps([{"Id": IMAGE_DIGEST}])
+        else:
+            stdout = ""
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
     evidence = preflight_real_refresh(
@@ -1835,6 +2296,9 @@ def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
         ["docker", "--host", host, "image", "inspect", "required:image"],
     ]
     assert evidence["_execution_docker_host"] == host
+    assert evidence["_execution_image_bindings"] == {
+        "required:image": IMAGE_DIGEST,
+    }
 
 
 def test_real_preflight_rejects_remote_docker_daemon_authority(
@@ -1878,6 +2342,7 @@ def test_remote_only_preflight_does_not_require_docker(
 
     assert evidence == {
         "docker_daemon": "not_required",
+        "default_image": "not-needed:image",
         "profiles": [],
         "remote_transport_count": 1,
     }
@@ -1930,18 +2395,27 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "not_required",
+            "default_image": default_image,
             "profiles": [],
             "remote_transport_count": len(servers),
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", RemoteMCPAuditEngine)
 
+    qualification = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[],
+    )
     candidate = create_refresh_candidate(
         source_db=db_path,
         seed_path=seed_path,
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="not-needed:image",
+        qualification_receipt=qualification,
+        repo_root=ROOT,
+        _source_binding_provider=_qualification_source_provider(qualification),
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -2206,7 +2680,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
                         "engine_name": "mcpaudit",
                         "engine_version": "2.4.0",
                         "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
-                        "sandbox_image": "required:image",
+                        "sandbox_image": IMAGE_DIGEST,
                     }
                 )
             )
@@ -2215,10 +2689,12 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
             "docker_daemon": "available",
+            "default_image": default_image,
             "profiles": [
                 {
                     "kind": "docker",
                     "image": default_image,
+                    "image_digest": IMAGE_DIGEST,
                     "network": "none",
                     "read_only_root": True,
                     "capabilities": "dropped-all",
@@ -2231,15 +2707,29 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
                 }
             ],
             "remote_transport_count": 0,
+            "_execution_image_bindings": {default_image: IMAGE_DIGEST},
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", LocalMCPAuditEngine)
+    qualification = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[
+            refresh_module._sandbox_profile(
+                "required:image",
+                image_digest=IMAGE_DIGEST,
+            )
+        ],
+    )
     candidate = create_refresh_candidate(
         source_db=db_path,
         seed_path=seed_path,
         masked_path=masked_path,
         output_parent=tmp_path / "candidates",
         default_image="required:image",
+        qualification_receipt=qualification,
+        repo_root=ROOT,
+        _source_binding_provider=_qualification_source_provider(qualification),
         now=FIXED_NOW,
         candidate_name="candidate",
     )

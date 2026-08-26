@@ -168,6 +168,15 @@ An unreadable older row leaves a readable latest grade intact but makes scan
 history and grade-change claims explicitly `UNKNOWN`. Snapshot construction
 stops until unreadable history is repaired or dispositioned.
 
+All public surfaces use one fail-closed freshness projection. Exactly 90 days
+after a scan is still `FRESH`; any later instant is `STALE`. Missing, malformed,
+or future scan times are `UNKNOWN`, with verdict fields withheld. Unscanned
+entries are `NOT_APPLICABLE`. Operator masking applies even when no scan exists
+and is never inferred from scan state. Static pages and badges are immutable
+historical evidence with a scan date or validity boundary; they do not promise
+request-time freshness. Danger, transparency, and evidence quality remain
+separate signals, and a grade is never an endorsement.
+
 Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
@@ -262,29 +271,85 @@ the catalog, publish or withdraw records, run scans, or change deployment state.
 
 ## Manual refresh candidates
 
+First emit the no-execution inventory, exact source/tool/image preflight, and
+deterministic repeated fixture receipt:
+
+```bash
+uv run --frozen --extra engine python scripts/grade_refresh.py inventory \
+  --out ./dist/grade-refresh/inventory.json
+uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
+  --repo-root "$PWD" --out ./dist/grade-refresh/preflight.json
+uv run --frozen --extra dev python scripts/grade_refresh.py fixture-repeat \
+  --out ./dist/grade-refresh/fixture-repeatability.json
+```
+
+Do not execute a catalog server unless preflight returns `READY`. The receipt
+binds the 31-entry classification, source and policy digests, tool versions,
+local Docker authority, immutable image IDs, and explicit network, filesystem,
+resource, and secret controls. See
+[`docs/GRADE-REFRESH-PROGRAM.md`](docs/GRADE-REFRESH-PROGRAM.md) and the
+[`operator runbook`](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md).
+
 Create a review candidate without mutating the canonical registry, baked
 snapshot, static site, schedule, or deployment:
 
 ```bash
 uv run --frozen --extra engine python scripts/refresh_candidate.py create \
   --db ./registry.db \
-  --out-dir ./dist/refresh-candidates
+  --out-dir ./dist/refresh-candidates \
+  --qualification-receipt ./dist/grade-refresh/preflight.json
 ```
 
-The command refuses local-process scans unless Docker and every catalog-pinned
-image are already available locally. Those sources run through the existing
+The command refuses local-process scans unless the bound preflight receipt is
+current and READY, and Docker and every catalog-pinned image are available
+locally at the recorded immutable IDs. Those sources run through the existing
 network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
 endpoints are probed over their live network transport without a local process
-sandbox and are labeled accordingly. The immutable bundle contains receipts,
-catalog identity, scan times and ages, masked/failed/unknown evidence states,
-attributed scan drift, an honest static snapshot, and a content-bound manifest.
+sandbox and are labeled accordingly. New immutable bundles use
+`RefreshCandidateV2` and contain receipts, catalog identity, scan times and
+ages, masked/failed/unknown evidence states, attributed scan drift, an honest
+static snapshot, source/tool bindings, freshness counts and earliest expiry,
+semantic projection digests, and a content-bound manifest. Legacy V1 bundles
+remain structurally inspectable but are publication-ineligible.
 
-Candidate creation has no publication or deployment authority. A structurally
-valid candidate must first pass `verify`, then receive a separate digest-bound,
-short-lived `approve` receipt before `publish` may stage it in a local output
-directory. `verify` exits successfully only for a current, complete,
-reviewed-input-bound candidate that is eligible for publication. Eligibility
-never grants approval, publication, deployment, or scheduling authority.
+Candidate creation has no publication or deployment authority. Structural
+verification reports schema and publication eligibility separately; a valid V1
+artifact cannot acquire V2 authority by self-assertion. A current, complete,
+reviewed-input-bound V2 candidate is only an input to later local admission.
+Eligibility never grants approval, publication, deployment, rollback,
+scheduling, or outreach authority.
+
+A separately supplied `McpTrustPublicationApprovalV1` can be verified and used
+to build a deterministic local copy-only package:
+
+```bash
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-approval ./dist/publication-approval.json \
+  --candidate ./dist/site-candidates/<name>
+uv run --frozen python scripts/build_publication_package.py --build \
+  --candidate ./dist/site-candidates/<name> \
+  --approval ./dist/publication-approval.json \
+  --out ./dist/publication-packages/<name>
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-package ./dist/publication-packages/<name> \
+  --approval ./dist/publication-approval.json
+```
+
+This admission is provider-free and local-only. It binds the V2 candidate,
+repeatability and triage lineage, exact V38 review, current provider evidence,
+rollback target, operator statement digest, and the minimum freshness expiry.
+Every mutation authority remains false. A package is not deployment authority,
+publication proof, rollback authority, scheduler authority, endorsement, or
+production-freshness evidence.
+
+The manual static deploy lane requires a separate short-lived
+`McpTrustProductionDeployAuthorizationV4` binding that exact package, content
+approval, provider and operator receipts, retained rollback bytes, source
+revision, output, and tool digests. It revalidates before and after live TTY
+confirmation. After any provider call, freshness remains `UNKNOWN` until a
+provider/source-bound `McpTrustProductionPublicationReceiptV1` verifies the
+exact all-route readback receipt. A missing provider artifact digest can never
+be promoted to `FRESH`.
 
 Snapshot signing is a separate authority after candidate approval/staging. The
 refresh process never receives a signing or recovery key, and its SHA-256
@@ -309,9 +374,12 @@ lane was disabled and its deploy authority removed (see
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
-[`deploy/launchd/`](deploy/launchd/) remains installed but disabled. Its
-compatibility entrypoint can create a local review candidate only; it cannot
-publish or deploy. The live FastAPI service + VM path remains
+[`deploy/launchd/`](deploy/launchd/) is persistently disabled and current host
+readback shows it unloaded. A dormant installed plist remains and differs from
+the repository template; treat it as configuration drift and do not load or
+enable it. The compatibility entrypoint can create a local review candidate
+only, after no-execution preflight; it cannot publish or deploy. The live FastAPI
+service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
 for launch history. The deployed catalog reports scan timestamps as its

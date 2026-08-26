@@ -10,6 +10,7 @@ Group=mcp-trust
 WorkingDirectory=/opt/mcp-trust/app
 EnvironmentFile=/etc/mcp-trust/mcp-trust.env
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MCP_TRUST_MASKED_GRADES=/data/mcp-trust/masked-grades.json
 ExecStart=/opt/mcp-trust/app/.venv/bin/uvicorn mcp_trust.api.app:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5

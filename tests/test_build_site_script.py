@@ -108,8 +108,9 @@ def test_load_corrections_malformed_shape_fails_loudly(tmp_path: Path) -> None:
         raise AssertionError("malformed corrections log must fail the build, not pass silently")
 
 
-def test_load_masked_slugs_missing_file_means_no_masking(tmp_path: Path) -> None:
-    assert build_site._load_masked_slugs(str(tmp_path / "nope.json")) == set()
+def test_load_masked_slugs_missing_file_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="masked-grades input is missing"):
+        build_site._load_masked_slugs(str(tmp_path / "nope.json"))
 
 
 def test_default_masked_grades_path_is_repo_relative(

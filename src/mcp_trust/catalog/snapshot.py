@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from mcp_trust.core import grading
 from mcp_trust.core.drift import latest_grade_change
+from mcp_trust.core.governance import FreshnessState, assess_scan_freshness
 from mcp_trust.core.models import SourceKind
 from mcp_trust.core.provenance import is_real_engine
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -85,11 +86,12 @@ def build_snapshot_from_connection(
         scanned_at = scan.scanned_at
         if scanned_at.tzinfo is None:
             scanned_at = scanned_at.replace(tzinfo=UTC)
-        scan_age_days = max(
-            0.0,
-            (fixed_now.astimezone(UTC) - scanned_at.astimezone(UTC)).total_seconds()
-            / 86400,
-        )
+        freshness = assess_scan_freshness(scanned_at, fixed_now)
+        if freshness.state is FreshnessState.UNKNOWN:
+            raise ValueError(f"scan freshness unknown for {server.slug}: {freshness.reason}")
+        assert freshness.scan_age_days is not None
+        assert freshness.stale_after is not None
+        scan_age_days = freshness.scan_age_days
         scanned_at_text = scan.scanned_at.isoformat()
         newest = max(newest, scanned_at_text)
         remote_live = server.source.kind == SourceKind.REMOTE and server.source.command is None
@@ -162,6 +164,7 @@ def build_snapshot_from_connection(
                 "sandbox": sandbox,
                 "scanned_at": scanned_at_text,
                 "scan_age_days": round(scan_age_days, 6),
+                "stale_after": freshness.stale_after.isoformat(),
                 "grade_change": (
                     grade_change.model_dump(mode="json") if grade_change else None
                 ),

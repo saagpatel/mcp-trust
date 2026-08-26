@@ -515,9 +515,9 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
     ),
     # Batch-4 Registry-derived cohort, integrated 2026-07-03 after operator
     # approval (promotion ref batch4-live-corpus-promotion-20260703; review
-    # evidence tmp/batch4-promotion-review-20260703.md). All six are baked only
-    # into the batch-4 image (node:24-slim base with HOME=/scan), hence the
-    # per-server sandbox_image pins.
+    # evidence tmp/batch4-promotion-review-20260703.md). Five remain in the
+    # qualified batch-4 image. basic-memory is isolated because its pinned
+    # dependency path requires an unqualified source build; policy blocks it.
     ReferenceScanCandidate(
         slug="io-github-microsoft-playwright-mcp-0-0-77",
         name="io.github.microsoft/playwright-mcp",
@@ -644,7 +644,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
             "first-pass B/high-transparency evidence was explicitly "
             "operator-approved."
         ),
-        sandbox_image="mcp-trust-batch4:20260703",
+        sandbox_image="mcp-trust-basic-memory:20260823",
     ),
 )
 

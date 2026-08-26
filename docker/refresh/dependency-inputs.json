@@ -1,0 +1,105 @@
+{
+  "schema": "McpTrustDependencyPreparationInputsV1",
+  "platform": "linux/arm64",
+  "source_date_epoch": 1710000000,
+  "registry_endpoints": {
+    "npm": [
+      "https://registry.npmjs.org"
+    ],
+    "python": [
+      "https://files.pythonhosted.org",
+      "https://pypi.org/simple"
+    ]
+  },
+  "preparation_images": {
+    "uv_python_dockerfile": "docker/refresh/Dockerfile.dependency-prep",
+    "uv_python_reference": "mcp-trust-dependency-prep:20260823"
+  },
+  "cohorts": {
+    "reference": {
+      "image_reference": "mcp-trust-scan:corpus-2026-07-03",
+      "dockerfile": "Dockerfile.scan",
+      "node_base": "node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436",
+      "python_base": "python@sha256:c17b9ca6def1a936e55c77f086aaaf5f6a6c5f4d2fb4b7ac8c0113ba94e8b6ab",
+      "python_version": "3.11",
+      "npm": {
+        "@modelcontextprotocol/server-aws-kb-retrieval": "0.6.2",
+        "@modelcontextprotocol/server-brave-search": "0.6.2",
+        "@modelcontextprotocol/server-everart": "0.6.2",
+        "@modelcontextprotocol/server-everything": "2026.1.26",
+        "@modelcontextprotocol/server-filesystem": "2026.1.14",
+        "@modelcontextprotocol/server-github": "2025.4.8",
+        "@modelcontextprotocol/server-gitlab": "2025.4.25",
+        "@modelcontextprotocol/server-google-maps": "0.6.2",
+        "@modelcontextprotocol/server-memory": "2026.1.26",
+        "@modelcontextprotocol/server-sequential-thinking": "2025.12.18",
+        "@modelcontextprotocol/server-slack": "2025.4.25"
+      },
+      "python": [
+        "mcp==1.29.0",
+        "mcp-server-fetch==2026.6.4",
+        "mcp-server-git==2026.6.16",
+        "mcp-server-sqlite==2025.4.25",
+        "mcp-server-time==2026.6.4"
+      ]
+    },
+    "live-batch": {
+      "image_reference": "mcp-trust-live-batch:20260628",
+      "dockerfile": "docker/refresh/Dockerfile.live-batch-20260628",
+      "node_base": "node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436",
+      "python_base": "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91",
+      "python_version": "3.11",
+      "npm": {
+        "@adeu/mcp-server": "1.7.1",
+        "@kage-core/kage-graph-mcp": "2.3.0",
+        "@pulsemcp/image-diff-mcp-server": "0.1.3",
+        "@swins/intent-engineering-mcp": "0.2.0",
+        "mythsensus-mcp": "0.2.1",
+        "raven-mcp": "1.3.3",
+        "sovereign-ai-act-mcp": "1.2.0"
+      },
+      "python": [
+        "kogcat-mcp==0.46.2"
+      ]
+    },
+    "batch3": {
+      "image_reference": "mcp-trust-batch3:20260703",
+      "dockerfile": "docker/refresh/Dockerfile.batch3-20260703",
+      "node_base": "node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03",
+      "python_base": "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91",
+      "python_version": "3.11",
+      "npm": {
+        "@microsoft/powerbi-modeling-mcp": "0.5.0-beta.11",
+        "redacta-mcp": "1.2.1"
+      },
+      "python": []
+    },
+    "batch4": {
+      "image_reference": "mcp-trust-batch4:20260703",
+      "dockerfile": "docker/refresh/Dockerfile.batch4-20260703",
+      "node_base": "node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03",
+      "python_base": "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91",
+      "python_version": "3.11",
+      "npm": {
+        "@discourse/mcp": "0.2.9",
+        "@nvidia-elements/cli": "2.1.4",
+        "@playwright/mcp": "0.0.77",
+        "@ui5/webcomponents-react-mcp": "2.23.2",
+        "chrome-devtools-mcp": "1.5.0"
+      },
+      "python": []
+    },
+    "basic-memory": {
+      "image_reference": "mcp-trust-basic-memory:20260823",
+      "dockerfile": "docker/refresh/Dockerfile.basic-memory-20260823",
+      "node_base": "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134",
+      "python_base": "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134",
+      "python_version": "3.12",
+      "npm": {},
+      "python": [
+        "basic-memory==0.22.1"
+      ],
+      "source_build_preparer": "scripts/prepare_basic_memory_dependencies.py"
+    }
+  }
+}

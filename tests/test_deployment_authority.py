@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import plistlib
@@ -10,6 +11,7 @@ import select
 import shutil
 import stat
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -28,6 +30,15 @@ PROJECT_ID = "prj_ugC28dxX9xAGYnYjIkQXigxZB672"
 ORG_ID = "team_nZORCFEbaw3I8iSUrA2cWMJB"
 ORIGIN_URL = "https://github.com/saagpatel/mcp-trust.git"
 NODE_BIN = Path("/bin/sh")
+PYTHON_BIN = Path(sys.executable)
+
+_PUBLICATION_TEST_SPEC = importlib.util.spec_from_file_location(
+    "publication_test_helpers",
+    ROOT / "tests/test_publication_admission.py",
+)
+assert _PUBLICATION_TEST_SPEC is not None and _PUBLICATION_TEST_SPEC.loader is not None
+PUBLICATION_TEST_HELPERS = importlib.util.module_from_spec(_PUBLICATION_TEST_SPEC)
+_PUBLICATION_TEST_SPEC.loader.exec_module(PUBLICATION_TEST_HELPERS)
 
 
 def _run(
@@ -159,6 +170,203 @@ def _tree_sha256(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _canonical_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode() + b"\n"
+    )
+
+
+def _public_readback_manifest(files: list[dict[str, object]]) -> dict[str, object]:
+    public_files = [item for item in files if item["path"] != "vercel.json"]
+    routes = []
+    largest_body = 1
+    for index, item in enumerate(public_files):
+        relative = item["path"]
+        if relative == "index.html":
+            route, expected_status = "/", 200
+        elif relative == "404.html":
+            route, expected_status = "/__mcp_trust_candidate_missing__", 404
+        elif (
+            isinstance(relative, str)
+            and relative.startswith("ui/")
+            and relative.endswith("/index.html")
+        ):
+            route, expected_status = "/" + relative[: -len("/index.html")], 200
+        elif (
+            isinstance(relative, str)
+            and relative.startswith("servers/")
+            and relative.endswith("/badge.json")
+        ):
+            route, expected_status = "/" + relative, 200
+        else:
+            raise AssertionError(f"unmapped fixture route: {relative}")
+        body_bytes = item["bytes"]
+        body_digest = item["sha256"]
+        assert isinstance(body_bytes, int)
+        assert isinstance(body_digest, str)
+        largest_body = max(largest_body, body_bytes)
+        routes.append(
+            {
+                "id": f"route-{index:03d}",
+                "method": "GET",
+                "route": route,
+                "expected_status": expected_status,
+                "body_sha256": body_digest[len("sha256:") :],
+            }
+        )
+    return {
+        "schema": "WebReleaseSentinelManifestV1",
+        "contract_version": "1.0.0",
+        "name": "mcp-trust-site-candidate-exact",
+        "defaults": {
+            "timeout_seconds": 10,
+            "max_body_bytes": largest_body,
+            "follow_same_origin_redirects": False,
+        },
+        "denied_methods": ["POST", "PUT", "PATCH", "DELETE", "CONNECT", "TRACE"],
+        "routes": routes,
+    }
+
+
+def _write_deployable_site_candidate(
+    site: Path,
+    *,
+    rollback_identity: dict[str, object] | None = None,
+    implementation_revision: str = "d" * 40,
+    implementation_tree_digest: str = "sha256:" + "e" * 64,
+) -> dict[str, object]:
+    files = []
+    for path in sorted(site.rglob("*"), key=lambda item: item.relative_to(site).as_posix()):
+        relative = path.relative_to(site).as_posix()
+        if not path.is_file() or relative in {"SITE_CANDIDATE.json", ".vercel/project.json"}:
+            continue
+        files.append(
+            {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
+    content_digest = "sha256:" + hashlib.sha256(_canonical_bytes(files)).hexdigest()
+    digest = lambda value: "sha256:" + hashlib.sha256(value.encode()).hexdigest()  # noqa: E731
+    bindings = {
+        "candidate_manifest_digest": digest("candidate"),
+        "review_artifact_sha256": digest("review-artifact"),
+        "review_receipt_digest": digest("review-receipt"),
+        "disposition_policy_sha256": digest("disposition"),
+        "seed_digest": digest("seed"),
+        "masking_digest": digest("masking"),
+        "policy_digest": digest("policy"),
+        "source_revision": "8" * 40,
+        "source_tree_digest": digest("source-tree"),
+        "state": "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW",
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "rollback_state": "PROVIDER_NATIVE_FIRST_PUBLICATION_REVIEW_BOUND",
+    }
+    observed = datetime.now(tz=UTC) - timedelta(seconds=5)
+    rollback: dict[str, object] = {
+        "schema": "McpTrustProviderNativeRollbackBindingV1",
+        "state": "PROVIDER_NATIVE_FIRST_PUBLICATION_REVIEW_BOUND",
+        "provider": "vercel",
+        "observed_at": observed.isoformat(),
+        "freshness_seconds": 3600,
+        "production_target": {
+            "alias": "mcp-trust.vercel.app",
+            "deployment_id": "dpl_previous",
+            "immutable_deployment_url": "previous.vercel.app",
+            "project_id": PROJECT_ID,
+            "team_id": ORG_ID,
+            "target": "production",
+            "deployment_state": "READY_PROMOTED",
+            "source_revision": "1" * 40,
+            "source_tree": "2" * 40,
+            "public_tree_digest": digest("public-tree"),
+        },
+        "provenance": {
+            "provider_metadata_receipt": digest("provider-metadata"),
+            "provider_binding_decision_receipt": digest("provider-decision"),
+        },
+        "conditions": {
+            "first_following_same_project_publication": True,
+            "no_intervening_production_deployment": True,
+            "target_must_remain_retained": True,
+            "prepublication_provider_readback_required": True,
+            "immediate_previous_rollback_only": True,
+        },
+        "authority": {
+            "publication_allowed": False,
+            "deployment_allowed": False,
+            "rollback_execution_allowed": False,
+            "scheduler_activation_allowed": False,
+        },
+        "unknown": [
+            "provider_artifact_digest",
+            "exercised_rollback_routing",
+            "future_prepublication_binding",
+        ],
+        "claim_ceiling": (
+            "Review-only target binding; not publication authority, not deployment "
+            "authority, and not exercised rollback proof."
+        ),
+    }
+    rollback["receipt_digest"] = "sha256:" + hashlib.sha256(
+        _canonical_bytes(rollback)
+    ).hexdigest()
+    manifest: dict[str, object] = {
+        "schema": "McpTrustSiteCandidateV2",
+        "state": "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW",
+        "created_at": observed.isoformat(),
+        "base_url": "https://mcp-trust.vercel.app",
+        "publication_allowed": False,
+        "deployment_allowed": False,
+        "claim_ceiling": "Review-only historical artifact; not publication or deployment.",
+        "implementation_binding": {
+            "state": "CLEAN_COMMITTED",
+            "revision": implementation_revision,
+            "source_tree_digest": implementation_tree_digest,
+        },
+        "bindings": bindings,
+        "corrections_digest": digest("corrections"),
+        "site_counts": {
+            "servers": 1,
+            "scanned": 1,
+            "masked": 1,
+            "stale": 0,
+            "demo": 0,
+        },
+        "freshness": {
+            "mode": "STATIC_HISTORICAL_ONLY",
+            "horizon_days": 90,
+            "evaluated_at": observed.isoformat(),
+            "earliest_stale_after": (observed + timedelta(days=90)).isoformat(),
+            "publication_not_after": (observed + timedelta(hours=1)).isoformat(),
+            "state_counts": {
+                "FRESH": 1,
+                "STALE": 0,
+                "UNKNOWN": 0,
+                "NOT_APPLICABLE": 0,
+            },
+        },
+        "projection_digests": {
+            "refresh_scan_results": digest("scan-results"),
+            "refresh_static_snapshot": digest("snapshot"),
+            "masking": digest("mask-projection"),
+            "site_content": content_digest,
+        },
+        "content": {"digest": content_digest, "files": files},
+        "public_readback": _public_readback_manifest(files),
+        "rollback": rollback,
+        "blocking_gates": [
+            "explicit_publication_authority_required",
+            "provider_native_rollback_revalidation_and_publication_approval_required",
+        ],
+    }
+    manifest["receipt_digest"] = "sha256:" + hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+    (site / "SITE_CANDIDATE.json").write_bytes(_canonical_bytes(manifest))
+    return manifest
+
+
 def _make_deploy_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     upstream = tmp_path / "upstream.git"
     repo = tmp_path / "repo"
@@ -169,16 +377,46 @@ def _make_deploy_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     (repo / "scripts").mkdir()
     shutil.copy2(DEPLOY, repo / "scripts/deploy_production.sh")
     shutil.copy2(VALIDATOR, repo / "scripts/validate_deploy_authorization.py")
+    shutil.copy2(
+        ROOT / "scripts/build_publication_package.py",
+        repo / "scripts/build_publication_package.py",
+    )
+    shutil.copytree(
+        ROOT / "src",
+        repo / "src",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     (repo / "site").mkdir()
+    (repo / "site/index.html").write_text("current deployment\n", encoding="utf-8")
     (repo / "site/vercel.json").write_text("{}\n", encoding="utf-8")
-    (repo / ".gitignore").write_text("site/\n.vercel/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(
+        "site/\n.vercel/\n__pycache__/\n*.pyc\n",
+        encoding="utf-8",
+    )
     (repo / ".vercel").mkdir()
     (repo / "site/.vercel").mkdir()
     link = json.dumps({"projectId": PROJECT_ID, "orgId": ORG_ID, "projectName": "mcp-trust"})
     (repo / ".vercel/project.json").write_text(link, encoding="utf-8")
     (repo / "site/.vercel/project.json").write_text(link, encoding="utf-8")
+    rollback_site = repo.parent / "prior-site"
+    rollback_site.mkdir()
+    (rollback_site / "index.html").write_text("prior deployment\n", encoding="utf-8")
+    rollback_manifest = _write_deployable_site_candidate(rollback_site)
+    rollback_identity = {
+        "receipt_digest": rollback_manifest["receipt_digest"],
+        "content_digest": rollback_manifest["content"]["digest"],
+    }
+    _write_deployable_site_candidate(repo / "site", rollback_identity=rollback_identity)
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "fixture")
+    commit = _git(repo, "rev-parse", "HEAD")
+    tree_output = _run(["git", "ls-tree", "-r", "--full-tree", commit], cwd=repo).stdout.encode()
+    _write_deployable_site_candidate(
+        repo / "site",
+        rollback_identity=rollback_identity,
+        implementation_revision=commit,
+        implementation_tree_digest="sha256:" + hashlib.sha256(tree_output).hexdigest(),
+    )
     _git(repo, "remote", "add", "origin", str(upstream))
     _git(repo, "push", "-u", "origin", "main")
     _git(repo, "remote", "set-url", "origin", ORIGIN_URL)
@@ -221,8 +459,70 @@ def _write_approval(
     now = datetime.now(tz=UTC)
     issued_at = issued_at or now - timedelta(seconds=5)
     expires_at = expires_at or now + timedelta(minutes=5)
+    candidate_copy = path.parent / f"{path.stem}-candidate"
+    package_path = path.parent / f"{path.stem}-package"
+    for old in (candidate_copy, package_path):
+        if old.exists():
+            for item in old.rglob("*"):
+                item.chmod(0o700 if item.is_dir() else 0o600)
+            old.chmod(0o700)
+            shutil.rmtree(old)
+    shutil.copytree(
+        repo / "site",
+        candidate_copy,
+        ignore=shutil.ignore_patterns(".vercel"),
+    )
+    publication_payload = PUBLICATION_TEST_HELPERS._approval_payload(candidate_copy)
+    publication_issued = now - timedelta(seconds=10)
+    provider = publication_payload["provider_prepublication"]
+    rollback = json.loads((candidate_copy / "SITE_CANDIDATE.json").read_text())["rollback"]
+    target = rollback["production_target"]
+    provider.update(
+        {
+            "observed_at": (now - timedelta(seconds=15)).isoformat(),
+            "alias": target["alias"],
+            "deployment_id": target["deployment_id"],
+            "immutable_deployment_url": target["immutable_deployment_url"],
+            "project_id": target["project_id"],
+            "team_id": target["team_id"],
+            "source_revision": target["source_revision"],
+            "source_tree": target["source_tree"],
+            "public_tree_digest": target["public_tree_digest"],
+        }
+    )
+    provider.pop("receipt_digest", None)
+    provider["receipt_digest"] = "sha256:" + hashlib.sha256(
+        _canonical_bytes(provider)
+    ).hexdigest()
+    publication_payload["issued_at"] = publication_issued.isoformat()
+    publication_payload["expires_at"] = (publication_issued + timedelta(minutes=45)).isoformat()
+    publication_payload["operator_acceptance"]["accepted_at"] = (
+        publication_issued - timedelta(seconds=1)
+    ).isoformat()
+    publication_payload["rollback"].update(
+        {
+            "embedded_candidate_rollback_receipt": rollback["receipt_digest"],
+            "prepublication_revalidation_receipt": provider["receipt_digest"],
+            "immediate_previous_deployment_id": target["deployment_id"],
+        }
+    )
+    publication_approval = path.parent / f"{path.stem}-content.json"
+    PUBLICATION_TEST_HELPERS._resign(publication_payload, publication_approval)
+    PUBLICATION_TEST_HELPERS.build_publication_package(
+        candidate_path=candidate_copy,
+        approval_path=publication_approval,
+        output_path=package_path,
+        now=now,
+    )
+    # Production output is deliberately read-only. Restore fixture ownership
+    # permissions so pytest can remove its task-owned temporary directory.
+    for item in package_path.rglob("*"):
+        item.chmod(0o700 if item.is_dir() else 0o600)
+    package_path.chmod(0o700)
+    package_manifest_path = package_path / "PUBLICATION_PACKAGE.json"
+    package_manifest = json.loads(package_manifest_path.read_text())
     payload = {
-        "schema": "McpTrustProductionDeployAuthorizationV2",
+        "schema": "McpTrustProductionDeployAuthorizationV4",
         "receipt_id": "security-test-receipt",
         "repository": str(repo.resolve()),
         "branch": branch,
@@ -236,13 +536,49 @@ def _write_approval(
         "node_invocation_path": str(node_bin.absolute()),
         "node_bin": str(node_bin.resolve()),
         "node_sha256": hashlib.sha256(node_bin.read_bytes()).hexdigest(),
+        "python_invocation_path": str(PYTHON_BIN.absolute()),
+        "python_bin": str(PYTHON_BIN.resolve()),
+        "python_sha256": hashlib.sha256(PYTHON_BIN.read_bytes()).hexdigest(),
+        "publication_verifier_path": str(
+            (repo / "scripts/build_publication_package.py").resolve()
+        ),
+        "publication_verifier_sha256": hashlib.sha256(
+            (repo / "scripts/build_publication_package.py").read_bytes()
+        ).hexdigest(),
         "approval_path": str((approval_path or path).resolve()),
         "output_path": str((repo / "site").resolve()),
         "output_sha256": _tree_sha256(repo / "site"),
         "issued_at": issued_at.isoformat().replace("+00:00", "Z"),
         "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+        "publication_package_path": str(package_path.resolve()),
+        "publication_package_manifest_sha256": "sha256:"
+        + hashlib.sha256(package_manifest_path.read_bytes()).hexdigest(),
+        "publication_package_receipt_digest": package_manifest["receipt_digest"],
+        "publication_approval_path": str(publication_approval.resolve()),
+        "publication_approval_sha256": "sha256:"
+        + hashlib.sha256(publication_approval.read_bytes()).hexdigest(),
+        "publication_approval_receipt_digest": publication_payload["receipt_digest"],
+        "provider_prepublication_receipt_digest": provider["receipt_digest"],
+        "operator_acceptance_statement_sha256": publication_payload[
+            "operator_acceptance"
+        ]["statement_sha256"],
     }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    site_manifest = json.loads((repo / "site/SITE_CANDIDATE.json").read_text())
+    rollback_path = repo.parent / "prior-site"
+    rollback_manifest = json.loads((rollback_path / "SITE_CANDIDATE.json").read_text())
+    payload["site_candidate_receipt_digest"] = site_manifest["receipt_digest"]
+    payload["site_candidate_content_digest"] = site_manifest["content"]["digest"]
+    payload["implementation_revision"] = site_manifest["implementation_binding"]["revision"]
+    payload["implementation_source_tree_digest"] = site_manifest["implementation_binding"][
+        "source_tree_digest"
+    ]
+    payload["rollback_artifact_path"] = str(rollback_path.resolve())
+    payload["rollback_site_candidate_receipt_digest"] = rollback_manifest["receipt_digest"]
+    payload["rollback_site_candidate_content_digest"] = rollback_manifest["content"]["digest"]
+    payload["approval_receipt_digest"] = "sha256:" + hashlib.sha256(
+        _canonical_bytes(payload)
+    ).hexdigest()
+    path.write_bytes(_canonical_bytes(payload))
     path.chmod(0o600)
 
 
@@ -274,8 +610,16 @@ def _deploy_command(
         str(vercel_bin),
         "--node-bin",
         str(node_bin),
+        "--python-bin",
+        str(PYTHON_BIN),
         "--expected-output-sha256",
         _tree_sha256(repo / "site"),
+        "--rollback-artifact",
+        str((repo.parent / "prior-site").resolve()),
+        "--publication-package",
+        str((approval.parent / f"{approval.stem}-package").resolve()),
+        "--publication-approval",
+        str((approval.parent / f"{approval.stem}-content.json").resolve()),
     ]
 
 
@@ -334,7 +678,7 @@ def test_deploy_doc_names_current_authorization_schema_and_bound_tools() -> None
 
     documentation = DEPLOY_DOC.read_text(encoding="utf-8")
     assert f"`{schema_match.group(1)}`" in documentation
-    assert "Vercel and Node invocation/resolved executable paths and SHA-256" in documentation
+    assert "Vercel, Node, Python, and publication-verifier" in documentation
 
 
 def test_refresh_rejects_legacy_auto_deploy_before_prerequisites(tmp_path: Path) -> None:
@@ -422,6 +766,93 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [
+        ("missing", "exact publication package"),
+        ("pending", "exact publication package"),
+        ("rollback_unknown", "exact publication package"),
+        ("rollback_mismatch", "exact publication package"),
+        ("retained_tamper", "rollback artifact content digest mismatch"),
+        ("duplicate_key", "exact publication package"),
+        ("implementation_missing", "exact publication package"),
+        ("implementation_revision", "exact publication package"),
+        ("implementation_tree", "exact publication package"),
+        ("readback_missing", "exact publication package"),
+        ("readback_invalid_route", "exact publication package"),
+    ],
+)
+def test_deploy_rejects_unqualified_site_candidate(
+    tmp_path: Path, mutation: str, expected: str
+) -> None:
+    repo, vercel_bin, record = _make_deploy_repo(tmp_path)
+    commit = _git(repo, "rev-parse", "HEAD")
+    approval = tmp_path / "approval.json"
+    _write_approval(approval, repo=repo, commit=commit, vercel_bin=vercel_bin)
+    manifest_path = repo / "site/SITE_CANDIDATE.json"
+    if mutation == "missing":
+        manifest_path.unlink()
+    elif mutation == "retained_tamper":
+        (repo.parent / "prior-site/index.html").write_text("tampered\n", encoding="utf-8")
+    elif mutation == "duplicate_key":
+        manifest_path.write_text(
+            manifest_path.read_text().replace(
+                '"schema":"McpTrustSiteCandidateV2"',
+                '"schema":"McpTrustSiteCandidateV2","schema":"McpTrustSiteCandidateV2"',
+                1,
+            ),
+            encoding="utf-8",
+        )
+    elif mutation == "readback_invalid_route":
+        invalid_page = repo / "site/ui/bad slug/index.html"
+        invalid_page.parent.mkdir(parents=True)
+        invalid_page.write_text("invalid route\n", encoding="utf-8")
+        _write_deployable_site_candidate(
+            repo / "site",
+            implementation_revision=json.loads(manifest_path.read_text())["implementation_binding"][
+                "revision"
+            ],
+            implementation_tree_digest=json.loads(manifest_path.read_text())[
+                "implementation_binding"
+            ]["source_tree_digest"],
+        )
+    else:
+        manifest = json.loads(manifest_path.read_text())
+        if mutation == "pending":
+            manifest["state"] = "REVIEW_ONLY_PENDING_SANITIZED_REACCEPTANCE"
+            manifest["publication_allowed"] = False
+            manifest["deployment_allowed"] = False
+        elif mutation == "rollback_unknown":
+            manifest["rollback"] = {
+                "state": "UNKNOWN",
+                "reason": "no-prior-immutable-site-candidate-bound",
+            }
+        elif mutation == "implementation_missing":
+            manifest.pop("implementation_binding")
+        elif mutation == "implementation_revision":
+            manifest["implementation_binding"]["revision"] = "f" * 40
+        elif mutation == "implementation_tree":
+            manifest["implementation_binding"]["source_tree_digest"] = "sha256:" + "f" * 64
+        elif mutation == "readback_missing":
+            manifest.pop("public_readback")
+        else:
+            manifest["rollback"]["production_target"]["deployment_id"] = "dpl_substituted"
+        manifest.pop("receipt_digest")
+        manifest["receipt_digest"] = (
+            "sha256:" + hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+        )
+        manifest_path.write_bytes(_canonical_bytes(manifest))
+    result = _run(
+        _deploy_command(repo, approval, vercel_bin),
+        cwd=repo,
+        env=_deploy_env(tmp_path, record),
+        check=False,
+    )
+    assert result.returncode != 0
+    assert expected in result.stdout + result.stderr
+    assert not record.exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
         ("scheduler", "scheduler context"),
         ("detached", "detached HEAD"),
         ("feature_branch", "approved branch"),
@@ -433,14 +864,17 @@ def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
         ("org_substitution", "approved production organization"),
         ("remote_substitution", "origin fetch URL"),
         ("expected_repo_substitution", "repository root"),
-        ("output_substitution", "output tree SHA-256 mismatch"),
-        ("output_symlink", "deployment output contains a symlink"),
+        ("output_substitution", "exact publication package"),
+        ("output_symlink", "publication candidate contains a symlink"),
         ("output_root_symlink", "output root must not be a symlink"),
+        ("rollback_same_as_output", "distinct from and outside current output"),
+        ("rollback_contains_output", "distinct from and outside current output"),
+        ("rollback_symlink", "rollback artifact path must not contain a symlink"),
         ("project_link_substitution", "project link does not match"),
         ("tool_digest_substitution", "vercel_sha256 mismatch"),
         ("stale_approval", "expired"),
         ("missing_approval", "approval file is missing"),
-        ("copied_approval", "approval_path"),
+        ("copied_approval", "publication_package_path"),
         ("mismatched_approval", "approval branch mismatch"),
         ("missing_upstream", "upstream"),
         ("ahead", "ahead/behind"),
@@ -487,6 +921,14 @@ def test_manual_deploy_fails_closed(tmp_path: Path, mutation: str, expected: str
         with (repo / ".git/info/exclude").open("a", encoding="utf-8") as handle:
             handle.write("site\n")
         (repo / "site").symlink_to(real_site)
+    elif mutation == "rollback_same_as_output":
+        command[command.index("--rollback-artifact") + 1] = str((repo / "site").resolve())
+    elif mutation == "rollback_contains_output":
+        command[command.index("--rollback-artifact") + 1] = str(repo.resolve())
+    elif mutation == "rollback_symlink":
+        rollback_link = tmp_path / "prior-site-link"
+        rollback_link.symlink_to(repo.parent / "prior-site", target_is_directory=True)
+        command[command.index("--rollback-artifact") + 1] = str(rollback_link)
     elif mutation == "project_link_substitution":
         (repo / ".vercel/project.json").write_text(
             json.dumps(
@@ -672,17 +1114,17 @@ def test_post_confirmation_revalidation_catches_output_change(tmp_path: Path) ->
         before_confirmation=mutate_output,
     )
     assert result.returncode != 0
-    assert "output tree SHA-256 mismatch" in result.stdout
+    assert "exact publication package" in result.stdout
     assert not record.exists()
 
 
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     [
-        ("missing_output_link", "output Vercel project link is missing"),
-        ("wrong_output_link", "output Vercel project link does not match"),
-        ("symlinked_output_link", "deployment output contains a symlink"),
-        ("legacy_output_link", "unexpected ambient Vercel binding source"),
+        ("missing_output_link", "approval output_sha256 mismatch"),
+        ("wrong_output_link", "approval output_sha256 mismatch"),
+        ("symlinked_output_link", "publication candidate contains a symlink"),
+        ("legacy_output_link", "exact publication package"),
         ("ancestor_link", "unexpected ambient Vercel binding source"),
     ],
 )
@@ -692,6 +1134,7 @@ def test_deployment_binding_sources_fail_closed(
     repo, vercel_bin, record = _make_deploy_repo(tmp_path)
     commit = _git(repo, "rev-parse", "HEAD")
     approval = tmp_path / "approval.json"
+    _write_approval(approval, repo=repo, commit=commit, vercel_bin=vercel_bin)
     output_link = repo / "site/.vercel/project.json"
     if mutation == "missing_output_link":
         output_link.unlink()
@@ -711,7 +1154,6 @@ def test_deployment_binding_sources_fail_closed(
         ancestor = tmp_path / ".vercel"
         ancestor.mkdir(exist_ok=True)
         (ancestor / "project.json").write_text("{}\n", encoding="utf-8")
-    _write_approval(approval, repo=repo, commit=commit, vercel_bin=vercel_bin)
     result = _run(
         _deploy_command(repo, approval, vercel_bin),
         cwd=repo,
