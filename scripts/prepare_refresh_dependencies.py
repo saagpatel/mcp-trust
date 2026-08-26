@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mcp_trust import dependency_boundary
+
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / "docker/refresh/dependency-inputs.json"
 LOCK_ROOT = ROOT / "docker/refresh/locks"
@@ -133,11 +135,15 @@ def _build_uv_python_image(payload: dict[str, Any]) -> str:
         "uv_python_reference",
     }:
         raise PreparationError("uv preparation image descriptor is invalid")
-    dockerfile = str(preparation["uv_python_dockerfile"])
-    reference = str(preparation["uv_python_reference"])
-    path = ROOT / dockerfile
-    if not path.is_file() or not reference.startswith("mcp-trust-dependency-prep:"):
-        raise PreparationError("uv preparation image source is invalid")
+    try:
+        dockerfile = dependency_boundary.repository_file(
+            ROOT, preparation["uv_python_dockerfile"]
+        )
+        reference = dependency_boundary.local_image_tag(
+            preparation["uv_python_reference"], prefix="mcp-trust-dependency-prep:"
+        )
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError("uv preparation image source is invalid") from exc
     buildx = shutil.which("docker-buildx")
     if buildx is None:
         raise PreparationError("docker-buildx executable is unavailable")
@@ -163,7 +169,15 @@ def _build_uv_python_image(payload: dict[str, Any]) -> str:
             ".",
         ]
     )
-    return reference
+    try:
+        return dependency_boundary.immutable_image_id(
+            _run(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                capture=True,
+            )
+        )
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError("uv preparation image id is invalid") from exc
 
 
 def _bundle_tree(source: Path, target: Path) -> dict[str, Any]:
@@ -287,6 +301,10 @@ def _prepare_npm(
             "--no-fund",
         ]
     )
+    try:
+        dependency_boundary.validate_npm_lock(package_json, package_lock)
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError("generated npm lock escapes the source policy") from exc
     _run(
         [
             *prefix,
@@ -374,6 +392,10 @@ def _prepare_python(
             "--no-progress",
         ]
     )
+    try:
+        dependency_boundary.validate_python_lock(requirements_in, requirements_lock)
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError("generated python lock escapes the source policy") from exc
     _run(
         [
             *_container_prefix(image=python_base, work=work, network="bridge"),
@@ -422,47 +444,38 @@ def _prepare_python(
 
 
 def _validate_inputs(payload: object) -> dict[str, Any]:
-    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
-        raise PreparationError("dependency preparation input schema is invalid")
-    if payload.get("platform") not in {"linux/arm64", "linux/amd64"}:
-        raise PreparationError("dependency preparation platform is unsupported")
-    if type(payload.get("source_date_epoch")) is not int or payload["source_date_epoch"] <= 0:
-        raise PreparationError("dependency source date epoch is invalid")
-    if payload.get("registry_endpoints") != {
-        "npm": ["https://registry.npmjs.org"],
-        "python": ["https://files.pythonhosted.org", "https://pypi.org/simple"],
-    }:
-        raise PreparationError("dependency registry allowlist is invalid")
-    cohorts = payload.get("cohorts")
-    if not isinstance(cohorts, dict) or not cohorts:
-        raise PreparationError("dependency cohorts are missing")
-    for name, cohort in cohorts.items():
-        expected = {
-            "image_reference",
-            "dockerfile",
-            "node_base",
-            "python_base",
-            "python_version",
-            "npm",
-            "python",
-        }
-        if isinstance(cohort, dict) and "source_build_preparer" in cohort:
-            expected.add("source_build_preparer")
-        if (
-            not isinstance(name, str)
-            or not isinstance(cohort, dict)
-            or set(cohort) != expected
-            or not isinstance(cohort["npm"], dict)
-            or not isinstance(cohort["python"], list)
-            or not (cohort["npm"] or cohort["python"])
-            or (
-                "source_build_preparer" in cohort
-                and cohort["source_build_preparer"]
-                != "scripts/prepare_basic_memory_dependencies.py"
+    try:
+        return dependency_boundary.validate_preparation_inputs(payload, repo_root=ROOT)
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError(str(exc)) from exc
+
+
+def _validate_tracked_dependency_inputs(cohort: str, config: dict[str, Any]) -> None:
+    try:
+        if config["npm"]:
+            manifest = dependency_boundary.repository_file(
+                ROOT, f"docker/refresh/locks/{cohort}/package.json"
             )
-        ):
-            raise PreparationError("dependency cohort is invalid")
-    return payload
+            lock = dependency_boundary.repository_file(
+                ROOT, f"docker/refresh/locks/{cohort}/package-lock.json"
+            )
+            dependency_boundary.validate_npm_lock(
+                ROOT / manifest,
+                ROOT / lock,
+            )
+        if config["python"]:
+            manifest = dependency_boundary.repository_file(
+                ROOT, f"docker/refresh/locks/{cohort}/requirements.in"
+            )
+            lock = dependency_boundary.repository_file(
+                ROOT, f"docker/refresh/locks/{cohort}/requirements.lock"
+            )
+            dependency_boundary.validate_python_lock(
+                ROOT / manifest,
+                ROOT / lock,
+            )
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError(f"dependency source policy failed: {cohort}") from exc
 
 
 def _verify_materialized_bundle(
@@ -507,6 +520,7 @@ def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[
         temporary = Path(temp)
         for name in selected:
             config = payload["cohorts"][name]
+            _validate_tracked_dependency_inputs(name, config)
             work = temporary / name
             work.mkdir()
             package_json = LOCK_ROOT / name / "package.json"

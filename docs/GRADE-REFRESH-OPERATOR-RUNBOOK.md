@@ -14,7 +14,10 @@ The standard preparer executes registry clients only and disables package
 lifecycle code. The dedicated `basic-memory` preparer rebuilds its two exact
 source-only dependencies twice in network-none sandboxes, then downloads only
 hash-locked binary wheels. Both refuse a bundle whose digest differs from its
-tracked descriptor. Then run the exact network-none, no-cache double builds:
+tracked descriptor. Descriptor, Dockerfile, manifest, and lock containment and
+source-policy validation happens before any Docker or package-manager command;
+the locally built preparation image is executed only by its inspected immutable
+image ID. Then run the exact network-none, no-cache double builds:
 
 ```bash
 uv run --frozen python scripts/qualify_refresh_images.py

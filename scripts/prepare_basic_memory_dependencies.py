@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from mcp_trust import dependency_boundary
+
 ROOT = Path(__file__).resolve().parents[1]
 INPUT = ROOT / "docker/refresh/source-build-inputs/basic-memory.json"
 LOCK_ROOT = ROOT / "docker/refresh/locks/basic-memory"
@@ -69,27 +71,10 @@ def _run(command: list[str], *, capture: bool = False) -> str:
 
 def _load_input() -> dict[str, Any]:
     payload = json.loads(INPUT.read_text(encoding="utf-8"))
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema") != "McpTrustPythonSourceBuildInputsV1"
-        or payload.get("platform") != "linux/arm64"
-        or payload.get("source_date_epoch") != 1710000000
-        or not isinstance(payload.get("inputs"), list)
-        or len(payload["inputs"]) != 4
-        or not isinstance(payload.get("expected_wheels"), dict)
-        or len(payload["expected_wheels"]) != 2
-    ):
-        raise PreparationError("source-build input descriptor is invalid")
-    for item in payload["inputs"]:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"filename", "role", "sha256", "url"}
-            or not str(item["url"]).startswith("https://files.pythonhosted.org/")
-            or len(str(item["sha256"])) != 64
-            or "/" in str(item["filename"])
-        ):
-            raise PreparationError("source-build input row is invalid")
-    return payload
+    try:
+        return dependency_boundary.validate_source_build_inputs(payload)
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise PreparationError(str(exc)) from exc
 
 
 def _fetch_inputs(payload: dict[str, Any], destination: Path) -> None:
@@ -224,7 +209,19 @@ def prepare(*, create_receipts: bool) -> dict[str, Any]:
             raise PreparationError("source wheel repeatability mismatch")
         wheelhouse = root / "wheelhouse"
         wheelhouse.mkdir()
-        shutil.copyfile(LOCK_ROOT / "requirements.lock", root / "requirements.lock")
+        requirements_in = LOCK_ROOT / "requirements.in"
+        requirements_lock = LOCK_ROOT / "requirements.lock"
+        try:
+            manifest = dependency_boundary.repository_file(
+                ROOT, requirements_in.relative_to(ROOT).as_posix()
+            )
+            lock = dependency_boundary.repository_file(
+                ROOT, requirements_lock.relative_to(ROOT).as_posix()
+            )
+            dependency_boundary.validate_python_lock(ROOT / manifest, ROOT / lock)
+        except dependency_boundary.DependencyBoundaryError as exc:
+            raise PreparationError("basic-memory lock escapes the source policy") from exc
+        shutil.copyfile(requirements_lock, root / "requirements.lock")
         for path in (second / "out").glob("*.whl"):
             shutil.copyfile(path, wheelhouse / path.name)
         _run([

@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from mcp_trust import grade_refresh
+from mcp_trust import dependency_boundary, grade_refresh
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / "docker/refresh/dependency-inputs.json"
@@ -68,10 +68,14 @@ def _write_new(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _reference(path: str) -> dict[str, str]:
-    absolute = ROOT / path
-    if not absolute.is_file():
-        raise QualificationError(f"required qualification input is absent: {path}")
-    return {"path": path, "sha256": grade_refresh.digest_file(absolute)}
+    try:
+        normalized = dependency_boundary.repository_file(ROOT, path)
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise QualificationError(f"required qualification input is unsafe: {path}") from exc
+    return {
+        "path": normalized,
+        "sha256": grade_refresh.digest_file(ROOT / normalized),
+    }
 
 
 def _tool_versions(buildx: str) -> dict[str, str]:
@@ -114,6 +118,19 @@ def _dependency_inputs(
         descriptor_path = f"docker/refresh/artifact-manifests/{cohort}/{kind}.json"
         manifest_ref = _reference(manifest_path)
         lock_ref = _reference(lock_path)
+        try:
+            if kind == "npm":
+                dependency_boundary.validate_npm_lock(
+                    ROOT / manifest_ref["path"], ROOT / lock_ref["path"]
+                )
+            else:
+                dependency_boundary.validate_python_lock(
+                    ROOT / manifest_ref["path"], ROOT / lock_ref["path"]
+                )
+        except dependency_boundary.DependencyBoundaryError as exc:
+            raise QualificationError(
+                f"dependency source policy failed: {cohort}/{kind}"
+            ) from exc
         artifact_ref = _reference(descriptor_path)
         normalized = grade_refresh._dependency_artifact(
             repo_root=ROOT,
@@ -142,11 +159,20 @@ def _image_id(reference: str) -> str:
 
 
 def qualify(cohort: str, config: dict[str, Any], *, buildx: str) -> Path:
+    try:
+        dependency_boundary.validate_cohort(
+            cohort,
+            config,
+            repo_root=ROOT,
+            platform=config.get("platform") if isinstance(config, dict) else None,
+        )
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise QualificationError(str(exc)) from exc
     receipt = RECEIPT_ROOT / f"{cohort}.json"
     if receipt.exists():
         raise QualificationError(f"qualification receipt already exists: {receipt.name}")
-    image_reference = str(config["image_reference"])
-    dockerfile = str(config["dockerfile"])
+    image_reference = dependency_boundary.local_image_tag(config["image_reference"])
+    dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
     build_source_sha256 = grade_refresh.digest_file(ROOT / dockerfile)
     base_images = sorted({str(config["node_base"]), str(config["python_base"])})
     manifests, locks, artifacts, normalized_locks, normalized_artifacts = (
@@ -264,14 +290,13 @@ def main() -> int:
         help="qualify only the named cohort; may be repeated",
     )
     args = parser.parse_args()
-    payload = grade_refresh.load_json(INPUTS)
-    if not isinstance(payload, dict) or payload.get("schema") != (
-        "McpTrustDependencyPreparationInputsV1"
-    ):
-        raise QualificationError("dependency preparation input schema is invalid")
-    cohorts = payload.get("cohorts")
-    if not isinstance(cohorts, dict):
-        raise QualificationError("dependency cohort input is invalid")
+    try:
+        payload = dependency_boundary.validate_preparation_inputs(
+            grade_refresh.load_json(INPUTS), repo_root=ROOT
+        )
+    except dependency_boundary.DependencyBoundaryError as exc:
+        raise QualificationError(str(exc)) from exc
+    cohorts = payload["cohorts"]
     buildx = shutil.which("docker-buildx")
     if buildx is None:
         raise QualificationError("docker-buildx executable is unavailable")
