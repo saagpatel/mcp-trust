@@ -201,6 +201,81 @@ def test_qualify_rejects_unsafe_descriptor_before_any_subprocess(
         module.qualify("../escape", config, buildx="docker-buildx")
 
 
+def test_qualify_validates_platform_separately_before_dependency_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    payload = _inputs()
+    config = copy.deepcopy(payload["cohorts"]["reference"])
+    config["platform"] = payload["platform"]
+    observed: dict[str, object] = {}
+
+    class ValidationPassed(RuntimeError):
+        pass
+
+    def stop_after_validation(
+        cohort: str, validated: dict[str, object]
+    ) -> tuple[object, ...]:
+        observed["cohort"] = cohort
+        observed["config"] = validated
+        raise ValidationPassed
+
+    monkeypatch.setattr(module, "RECEIPT_ROOT", tmp_path)
+    monkeypatch.setattr(module, "_dependency_inputs", stop_after_validation)
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("subprocess ran during validation"),
+    )
+
+    with pytest.raises(ValidationPassed):
+        module.qualify("reference", config, buildx="docker-buildx")
+
+    assert observed == {
+        "cohort": "reference",
+        "config": payload["cohorts"]["reference"],
+    }
+    assert config["platform"] == "linux/arm64"
+
+
+@pytest.mark.parametrize("field", ["command", "extra", "source_date_epoch"])
+def test_qualify_rejects_unexpected_cohort_keys_before_any_subprocess(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    payload = _inputs()
+    config = copy.deepcopy(payload["cohorts"]["reference"])
+    config["platform"] = payload["platform"]
+    config[field] = "unexpected"
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("subprocess crossed failed preflight"),
+    )
+
+    with pytest.raises(module.QualificationError, match="descriptor is invalid"):
+        module.qualify("reference", config, buildx="docker-buildx")
+
+
+@pytest.mark.parametrize("platform", [None, "linux/s390x"])
+def test_qualify_rejects_missing_or_unsupported_platform_before_any_subprocess(
+    monkeypatch: pytest.MonkeyPatch, platform: str | None
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    payload = _inputs()
+    config = copy.deepcopy(payload["cohorts"]["reference"])
+    if platform is not None:
+        config["platform"] = platform
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("subprocess crossed failed preflight"),
+    )
+
+    with pytest.raises(module.QualificationError, match="platform is unsupported"):
+        module.qualify("reference", config, buildx="docker-buildx")
+
+
 def test_qualification_checks_lock_source_policy_before_buildkit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
