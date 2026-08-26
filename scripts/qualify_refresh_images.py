@@ -159,12 +159,15 @@ def _image_id(reference: str) -> str:
 
 
 def qualify(cohort: str, config: dict[str, Any], *, buildx: str) -> Path:
+    platform = config.get("platform")
+    cohort_config = dict(config)
+    cohort_config.pop("platform", None)
     try:
-        dependency_boundary.validate_cohort(
+        config = dependency_boundary.validate_cohort(
             cohort,
-            config,
+            cohort_config,
             repo_root=ROOT,
-            platform=config.get("platform") if isinstance(config, dict) else None,
+            platform=platform,
         )
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
@@ -178,7 +181,7 @@ def qualify(cohort: str, config: dict[str, Any], *, buildx: str) -> Path:
     manifests, locks, artifacts, normalized_locks, normalized_artifacts = (
         _dependency_inputs(cohort, config)
     )
-    platform_name = str(config["platform"])
+    platform_name = str(platform)
     build_input = {
         "build_source_sha256": build_source_sha256,
         "base_images": base_images,
