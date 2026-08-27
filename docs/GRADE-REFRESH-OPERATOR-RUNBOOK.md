@@ -45,11 +45,22 @@ closed. The legacy top-level receipts are historical only.
 
 Dependency materialization is a separate, explicitly approved lane. Runtime
 commands never invoke a package manager or hydrate missing packages. Prepare the
-frozen `[engine]` environment first, then use its exact interpreter:
+frozen `[engine]` environment first under its own exact registry authority. The
+receipt commands below are observation-only: they do not run `uv sync`, install
+packages, contact PyPI, invoke Docker, or start an MCP server. After the separately
+approved materialization action, bind and independently reproduce the environment:
 
 ```bash
 PYTHON=./.venv/bin/python
 test -x "$PYTHON"
+
+"$PYTHON" scripts/grade_refresh.py engine-materialization \
+  --repo-root "$PWD" \
+  --out dist/grade-refresh/engine-materialization.json
+
+"$PYTHON" scripts/grade_refresh.py verify-engine-materialization \
+  dist/grade-refresh/engine-materialization.json \
+  --repo-root "$PWD"
 
 "$PYTHON" scripts/grade_refresh.py inventory \
   --out dist/grade-refresh/inventory.json
@@ -59,7 +70,18 @@ test -x "$PYTHON"
   --out dist/grade-refresh/preflight.json
 ```
 
-Stop unless the receipt says `status: READY` and
+Stop unless the engine receipt says `status: READY` and `safe_to_execute: true`.
+`UNKNOWN` means provenance or runtime evidence is missing; `BLOCKED` means a
+known binding or policy mismatch. Neither state authorizes repair or execution.
+The receipt binds the complete frozen lock digest and its PyPI-only source
+policy, exact `mcp-audits==2.7.0` sdist and universal-wheel hashes, project
+Python pin and executable, `uv` version and executable digest, and every required
+scanner module to its independently resolved relative origin and exact owning
+distribution RECORD hash. The installed distribution name, version, metadata
+version, `uv` installer marker, and RECORD path/digest are also bound. It contains
+no host path.
+
+Then stop unless the preflight receipt says `status: READY` and
 `safe_to_execute_catalog: true`. Missing image tags, missing immutable IDs,
 missing deterministic build source, remote Docker authority, missing engine
 runtime, required scanner module files not owned and hash-bound by the installed
