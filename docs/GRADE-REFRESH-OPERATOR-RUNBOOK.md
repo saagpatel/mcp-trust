@@ -20,7 +20,8 @@ the locally built preparation image is executed only by its inspected immutable
 image ID. Then run the exact network-none, no-cache double builds:
 
 ```bash
-uv run --frozen python scripts/qualify_refresh_images.py
+uv run --frozen python scripts/qualify_refresh_images.py \
+  --receipt-set v65
 ```
 
 Every cohort must produce two identical image IDs and a receipt that passes
@@ -31,8 +32,13 @@ tokens. Raw builder inspection output, host paths, endpoints, UUIDs, addresses,
 and other machine-specific metadata are rejected and must never be landed.
 Legacy receipts containing raw builder output are invalid under this contract;
 do not rewrite their digests or describe them as sanitized. Replace them only
-with newly generated, reviewed receipts and update policy references in the
-same local source revision.
+with newly generated, reviewed receipts in a new safe single-component receipt
+set and update policy references in the same later reviewed source revision.
+Absolute, traversal, existing, or symlinked receipt-set paths are refused
+before Docker or Buildx is invoked.
+The current policy points at the absent `docker/refresh/qualification/v65/`
+set, so preflight fails closed until all five fresh V65 receipts are generated
+and locally reviewed. The legacy top-level receipts are historical only.
 
 ## 1. Inventory and preflight (no server execution)
 
@@ -89,14 +95,22 @@ uv run --frozen --extra engine python scripts/refresh_candidate.py verify \
 
 Candidate creation loads the source-bound policy before Docker preflight. Only
 `scannable` rows enter preflight or the scanner. A `blocked` row is emitted as
-`blocked-policy`, exposes no fresh grade, preserves any prior timestamp only as
-historical context, and keeps the candidate partial/non-publishable. A nonzero
-verify exit is therefore the expected honest result while any row is blocked.
+`blocked-policy`, exposes no fresh grade, and preserves any prior timestamp only
+as historical context. The accepted 13-row blocked disposition is a controlled
+catalog outcome, so it does not by itself make an otherwise complete candidate
+partial; any unexpected failure or timeout does. The current policy derives
+the exact 18 scannable rows as the complement of the 13-entry union of masked,
+unsupported, credential-dependent, and backing-service-dependent rows.
 
 The candidate is local and immutable. Its manifest binds the exact READY
 preflight receipt, source and policy digests, tool versions, image build
-provenance, and execution-time image IDs. Creation or verification does not
-approve, publish, deploy, or schedule it.
+provenance, and execution-time image IDs. Every successful scan receipt also
+self-binds its target, source revision/tree, policy and preflight digests,
+immutable image ID, configured launch controls, and 90-second timeout contract.
+Per-process runtime control readback remains `UNKNOWN` until separately
+captured. A timeout emits no receipt or fresh grade, and hard termination proof
+remains `UNKNOWN`. Creation or verification does not approve, publish, deploy,
+or schedule it.
 
 ## 5. Triage and operator package
 

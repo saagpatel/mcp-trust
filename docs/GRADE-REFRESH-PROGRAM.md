@@ -48,7 +48,8 @@ claim that a server is benign or malicious.
   hours; an expired receipt returns the cohort to `UNKNOWN`.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
-  remain UNKNOWN until all 31 qualified entries are safely rescanned.
+  remain UNKNOWN until all 18 policy-eligible entries are safely rescanned and
+  all 13 excluded entries retain their reviewed fail-closed dispositions.
 ### Medium
 
 - The host LaunchAgent is persistently disabled and unloaded, but a dormant
@@ -112,7 +113,9 @@ network-off sandbox. Ten depend on external or local backing services; a tool
 surface observed without that service does not prove functional behavior.
 Eight are upstream-archived/unsupported and eight are intentionally masked.
 Build-source paths exist for every entry. All 31 entries map to five qualified
-images; the current policy has no blocked entry.
+images. The current policy derives 13 blocked entries as the exact union of the
+masked, unsupported, credential-dependent, and backing-service-dependent
+categories; the remaining 18 are scannable.
 Candidate execution derives its scan set from this exact source-bound policy:
 blocked rows never enter Docker preflight or scanner invocation and cannot
 retain a fresh-looking grade.

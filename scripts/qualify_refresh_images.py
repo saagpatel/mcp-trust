@@ -22,6 +22,9 @@ from mcp_trust import dependency_boundary, grade_refresh
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / "docker/refresh/dependency-inputs.json"
 RECEIPT_ROOT = ROOT / "docker/refresh/qualification"
+_SAFE_RECEIPT_SET = re.compile(
+    r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$"
+)
 BUILD_OPTIONS = {
     "builder": "buildx",
     "cache": "disabled",
@@ -67,7 +70,6 @@ def _run(command: list[str], *, capture: bool = False) -> str:
 
 
 def _write_new(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(payload, indent=2, sort_keys=True).encode() + b"\n"
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -77,6 +79,62 @@ def _write_new(path: Path, payload: dict[str, Any]) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _lstat(path: Path) -> os.stat_result | None:
+    try:
+        return path.lstat()
+    except FileNotFoundError:
+        return None
+
+
+def _require_safe_directory(path: Path, *, label: str) -> None:
+    try:
+        relative = path.relative_to(ROOT)
+    except ValueError as exc:
+        raise QualificationError(f"{label} escapes the repository") from exc
+    current = ROOT
+    for part in relative.parts:
+        current /= part
+        metadata = _lstat(current)
+        if metadata is None:
+            raise QualificationError(f"{label} parent is missing: {current.relative_to(ROOT)}")
+        if current.is_symlink():
+            raise QualificationError(f"{label} contains a symlink: {current.relative_to(ROOT)}")
+        if not current.is_dir():
+            raise QualificationError(f"{label} is not a directory: {current.relative_to(ROOT)}")
+
+
+def _ensure_safe_directory(path: Path, *, label: str) -> None:
+    try:
+        relative = path.relative_to(ROOT)
+    except ValueError as exc:
+        raise QualificationError(f"{label} escapes the repository") from exc
+    current = ROOT
+    for part in relative.parts:
+        current /= part
+        metadata = _lstat(current)
+        if metadata is None:
+            current.mkdir(mode=0o700)
+            metadata = _lstat(current)
+        if current.is_symlink():
+            raise QualificationError(f"{label} contains a symlink: {current.relative_to(ROOT)}")
+        if metadata is None or not current.is_dir():
+            raise QualificationError(f"{label} is not a directory: {current.relative_to(ROOT)}")
+
+
+def _new_receipt_set_root(receipt_set: str) -> Path:
+    if (
+        _SAFE_RECEIPT_SET.fullmatch(receipt_set) is None
+        or receipt_set in {".", ".."}
+        or "\\" in receipt_set
+    ):
+        raise QualificationError("receipt set must be one safe versioned path component")
+    _require_safe_directory(RECEIPT_ROOT, label="qualification receipt root")
+    target = RECEIPT_ROOT / receipt_set
+    if _lstat(target) is not None:
+        raise QualificationError(f"qualification receipt set already exists: {receipt_set}")
+    return target
 
 
 def _reference(path: str) -> dict[str, str]:
@@ -202,7 +260,13 @@ def _image_id(reference: str) -> str:
     return image_id
 
 
-def qualify(cohort: str, config: dict[str, Any], *, buildx: str) -> Path:
+def qualify(
+    cohort: str,
+    config: dict[str, Any],
+    *,
+    buildx: str,
+    receipt_root: Path,
+) -> Path:
     platform = config.get("platform")
     cohort_config = dict(config)
     cohort_config.pop("platform", None)
@@ -215,8 +279,9 @@ def qualify(cohort: str, config: dict[str, Any], *, buildx: str) -> Path:
         )
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
-    receipt = RECEIPT_ROOT / f"{cohort}.json"
-    if receipt.exists():
+    _require_safe_directory(receipt_root, label="qualification receipt set")
+    receipt = receipt_root / f"{cohort}.json"
+    if _lstat(receipt) is not None:
         raise QualificationError(f"qualification receipt already exists: {receipt.name}")
     image_reference = dependency_boundary.local_image_tag(config["image_reference"])
     dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
@@ -254,10 +319,10 @@ def qualify(cohort: str, config: dict[str, Any], *, buildx: str) -> Path:
         dockerfile,
     ]
     output_root = ROOT / "tmp/qualification"
-    output_root.mkdir(parents=True, exist_ok=True)
+    _ensure_safe_directory(output_root, label="qualification OCI output root")
     first_output = f"tmp/qualification/{cohort}-first.oci.tar"
     second_output = f"tmp/qualification/{cohort}-second.oci.tar"
-    if (ROOT / first_output).exists() or (ROOT / second_output).exists():
+    if _lstat(ROOT / first_output) is not None or _lstat(ROOT / second_output) is not None:
         raise QualificationError(f"qualification output already exists: {cohort}")
     first_reference = f"mcp-trust-qualification:{cohort}-first"
     first_command = [
@@ -336,7 +401,13 @@ def main() -> int:
         choices=("reference", "live-batch", "batch3", "batch4", "basic-memory"),
         help="qualify only the named cohort; may be repeated",
     )
+    parser.add_argument(
+        "--receipt-set",
+        required=True,
+        help="new versioned receipt-set directory below docker/refresh/qualification",
+    )
     args = parser.parse_args()
+    receipt_root = _new_receipt_set_root(args.receipt_set)
     try:
         payload = dependency_boundary.validate_preparation_inputs(
             grade_refresh.load_json(INPUTS), repo_root=ROOT
@@ -353,12 +424,18 @@ def main() -> int:
         "batch4",
         "basic-memory",
     ]
+    receipt_root.mkdir(mode=0o700)
     for name in names:
         config = cohorts.get(name)
         if not isinstance(config, dict):
             raise QualificationError(f"dependency cohort is unavailable: {name}")
         config = {**config, "platform": payload.get("platform")}
-        receipt = qualify(name, config, buildx="docker-buildx")
+        receipt = qualify(
+            name,
+            config,
+            buildx="docker-buildx",
+            receipt_root=receipt_root,
+        )
         print(f"QUALIFIED {name} {receipt.relative_to(ROOT)}")
     print("NO_PUBLICATION NO_DEPLOYMENT NO_SCHEDULER_MUTATION")
     return 0

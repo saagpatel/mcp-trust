@@ -23,6 +23,10 @@ class ScanError(RuntimeError):
     """Raised when an engine cannot complete a scan (unreachable server, bad spec)."""
 
 
+class ScanTimeoutError(ScanError):
+    """Raised when the engine reports that a configured scan deadline expired."""
+
+
 class EngineResult(BaseModel):
     """What every ``ScanEngine.scan`` returns. Built from core models so the
     registry's mapping to a ``ScanRecord`` is trivial and engine-agnostic."""

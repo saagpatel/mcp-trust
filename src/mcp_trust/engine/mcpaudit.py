@@ -44,7 +44,7 @@ from mcp_trust.core.models import (
     SourceKind,
     ToolEvidence,
 )
-from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
+from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError, ScanTimeoutError
 from mcp_trust.engine.credentials import build_dummy_env
 from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
 
@@ -256,12 +256,22 @@ class MCPAuditEngine:
 
         try:
             audit = _run_sync(lambda: connector.connect(cfg))
+        except TimeoutError as exc:
+            logger.warning("mcp-audits connect timed out for %r: %s", source.reference, exc)
+            raise ScanTimeoutError(
+                f"Could not scan {source.reference!r}: configured connection timeout expired."
+            ) from exc
         except Exception as exc:
             logger.warning("mcp-audits connect failed for %r: %s", source.reference, exc)
             raise ScanError(f"Failed to connect to {source.reference!r}: {exc}") from exc
 
         status = (audit.connection_status or "").lower()
-        if status in {"failed", "timeout"}:
+        if status == "timeout":
+            raise ScanTimeoutError(
+                f"Could not scan {source.reference!r}: connection timeout. "
+                "A trust grade requires a successful connection to enumerate tools."
+            )
+        if status == "failed":
             raise ScanError(
                 f"Could not scan {source.reference!r}: connection {status}. "
                 "A trust grade requires a successful connection to enumerate tools."
