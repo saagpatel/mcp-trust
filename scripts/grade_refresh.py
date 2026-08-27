@@ -16,6 +16,7 @@ from pathlib import Path
 
 from mcp_trust.grade_refresh import (
     GradeRefreshError,
+    build_engine_materialization_receipt,
     build_fixture_repeatability_receipt,
     build_preflight_receipt,
     build_publication_review_decision,
@@ -25,6 +26,7 @@ from mcp_trust.grade_refresh import (
     load_json,
     publication_review_markdown,
     triage_candidate,
+    verify_engine_materialization_receipt,
 )
 from mcp_trust.operator_package import (
     build_operator_review_package,
@@ -87,6 +89,7 @@ def _parser() -> argparse.ArgumentParser:
 
     inventory = subcommands.add_parser("inventory", help="Emit the exact 31-entry inventory.")
     _common_inputs(inventory)
+    inventory.add_argument("--repo-root", type=Path, default=_ROOT)
     inventory.add_argument("--out", type=Path)
 
     preflight = subcommands.add_parser(
@@ -95,6 +98,20 @@ def _parser() -> argparse.ArgumentParser:
     _common_inputs(preflight)
     preflight.add_argument("--repo-root", type=Path, default=_ROOT)
     preflight.add_argument("--out", type=Path)
+
+    materialization = subcommands.add_parser(
+        "engine-materialization",
+        help="Observe the frozen engine environment; never install or contact a registry.",
+    )
+    materialization.add_argument("--repo-root", type=Path, default=_ROOT)
+    materialization.add_argument("--out", type=Path)
+
+    verify_materialization = subcommands.add_parser(
+        "verify-engine-materialization",
+        help="Recompute one engine receipt against current local state.",
+    )
+    verify_materialization.add_argument("receipt", type=Path)
+    verify_materialization.add_argument("--repo-root", type=Path, default=_ROOT)
 
     repeat = subcommands.add_parser(
         "fixture-repeat", help="Run the deterministic in-process fixture corpus twice."
@@ -190,6 +207,21 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit(payload, args.out)
             return 0 if payload["status"] == "READY" else 2
+        if args.command == "engine-materialization":
+            payload = build_engine_materialization_receipt(
+                repo_root=args.repo_root,
+                now=now,
+            )
+            _emit(payload, args.out)
+            return 0 if payload["safe_to_execute"] else 2
+        if args.command == "verify-engine-materialization":
+            payload = verify_engine_materialization_receipt(
+                load_json(args.receipt),
+                repo_root=args.repo_root,
+                now=now,
+            )
+            _emit(payload, None)
+            return 0 if payload["materialization_ready"] else 2
         if args.command == "fixture-repeat":
             payload = build_fixture_repeatability_receipt(
                 seed_path=args.seed,

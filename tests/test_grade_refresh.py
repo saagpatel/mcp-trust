@@ -199,6 +199,398 @@ def _completed(args: list[str], *, stdout: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(args, returncode, stdout=stdout, stderr="")
 
 
+def _clean_source_binding() -> dict[str, object]:
+    return {
+        "repository": "https://github.com/saagpatel/mcp-trust.git",
+        "revision": "a" * 40,
+        "worktree_state": "clean",
+        "source_tree_digest": "sha256:" + "b" * 64,
+        "file_digests": {},
+    }
+
+
+def _engine_distribution_binding() -> dict[str, object]:
+    return {
+        "distribution": {
+            "name": "mcp-audits",
+            "version": "2.7.0",
+            "metadata_version": "2.4",
+            "installer": "uv",
+            "record_path": "mcp_audits-2.7.0.dist-info/RECORD",
+            "record_sha256": "sha256:" + "d" * 64,
+            "record_size": 100,
+        },
+        "modules": [
+            {
+                "module": module,
+                "path": module.replace(".", "/") + ".py",
+                "origin": module.replace(".", "/") + ".py",
+                "record_hash": "sha256=" + "A" * 43,
+                "sha256": "sha256:" + f"{index:064x}",
+                "size": index,
+            }
+            for index, module in enumerate(
+                engine_runtime.MCP_AUDIT_RUNTIME_MODULES, start=1
+            )
+        ],
+    }
+
+
+def _ready_engine_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
+    monkeypatch.setattr(
+        grade_refresh,
+        "distribution_runtime_binding",
+        lambda _name, _modules: _engine_distribution_binding(),
+    )
+    monkeypatch.setattr(
+        grade_refresh,
+        "_uv_binding",
+        lambda _runner: {
+            "version": "0.12.5",
+            "executable": "uv",
+            "executable_sha256": "sha256:" + "c" * 64,
+        },
+    )
+    return grade_refresh.build_engine_materialization_receipt(
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+
+def test_engine_lock_binding_is_exact_and_pypi_only() -> None:
+    binding = grade_refresh._locked_engine_binding(ROOT)
+
+    assert binding is not None
+    assert binding["package"] == "mcp-audits"
+    assert binding["version"] == "2.7.0"
+    assert binding["registry"] == "https://pypi.org/simple"
+    assert binding["source_policy"]["editable_project"] == "mcp-trust:."
+    assert binding["source_policy"]["registry_packages"] > 1
+    assert binding["source_policy"]["registry_artifacts"] > 1
+    assert binding["artifacts"]["wheel"]["url"].endswith("-py3-none-any.whl")
+    assert binding["artifacts"]["sdist"]["url"].endswith(".tar.gz")
+
+
+def test_engine_lock_binding_rejects_non_pypi_dependency_source(tmp_path: Path) -> None:
+    lock = (
+        (ROOT / "uv.lock")
+        .read_text(encoding="utf-8")
+        .replace(
+            'source = { registry = "https://pypi.org/simple" }',
+            'source = { registry = "https://example.invalid/simple" }',
+            1,
+        )
+    )
+    (tmp_path / "uv.lock").write_text(lock, encoding="utf-8")
+
+    assert grade_refresh._locked_engine_binding(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [
+        ('version = 1\n', 'version = 2\n'),
+        ('.whl", hash', '.whl?download=1", hash'),
+        ('.tar.gz", hash', '.tar.gz#fragment", hash'),
+        ("/packages/57/ba/", "/packages/57/../ba/"),
+        ("/packages/57/ba/", "/packages/57%2f..%2fba/"),
+    ],
+)
+def test_engine_lock_binding_rejects_format_and_noncanonical_urls(
+    original: str,
+    replacement: str,
+    tmp_path: Path,
+) -> None:
+    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    assert original in lock
+    (tmp_path / "uv.lock").write_text(
+        lock.replace(original, replacement, 1),
+        encoding="utf-8",
+    )
+
+    assert grade_refresh._locked_engine_binding(tmp_path) is None
+
+
+def test_uv_binding_is_digest_bound_and_timeout_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "uv"
+    executable.write_bytes(b"controlled-uv-fixture")
+    monkeypatch.setattr(grade_refresh.shutil, "which", lambda _name: str(executable))
+
+    def runner(args, **kwargs):
+        assert args == [str(executable), "--version"]
+        assert kwargs["timeout"] == 10
+        return _completed(args, stdout="uv 0.12.5\n")
+
+    binding = grade_refresh._uv_binding(runner)
+
+    assert binding == {
+        "version": "0.12.5",
+        "executable": "uv",
+        "executable_sha256": grade_refresh.digest_file(executable),
+    }
+
+    def timeout_runner(args, **_kwargs):
+        raise subprocess.TimeoutExpired(args, 10)
+
+    assert grade_refresh._uv_binding(timeout_runner) is None
+
+
+def test_engine_materialization_missing_runtime_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "UNKNOWN")
+    monkeypatch.setattr(
+        grade_refresh,
+        "distribution_runtime_binding",
+        lambda _name, _modules: None,
+    )
+    monkeypatch.setattr(grade_refresh, "_uv_binding", lambda _runner: None)
+
+    receipt = grade_refresh.build_engine_materialization_receipt(
+        repo_root=ROOT,
+        now=NOW,
+    )
+    verification = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["safe_to_execute"] is False
+    assert receipt["exit_classification"] == "materialization-unknown"
+    assert "mcp_audits_runtime_unavailable" in receipt["reasons"]
+    assert verification["state"] == "UNKNOWN"
+    assert verification["receipt_valid"] is True
+    assert verification["materialization_ready"] is False
+    assert receipt["authority"] == {
+        "observation_only": True,
+        "package_install_performed": False,
+        "registry_request_performed": False,
+        "docker_invoked": False,
+        "mcp_execution": False,
+        "publication_performed": False,
+        "deployment_performed": False,
+        "scheduler_change_performed": False,
+    }
+
+
+def test_engine_materialization_runner_is_observation_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "uv"
+    executable.write_bytes(b"controlled-uv-fixture")
+    monkeypatch.setattr(grade_refresh.shutil, "which", lambda _name: str(executable))
+    monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
+    monkeypatch.setattr(
+        grade_refresh,
+        "distribution_runtime_binding",
+        lambda _name, _modules: _engine_distribution_binding(),
+    )
+    calls: list[list[str]] = []
+
+    def runner(args, **_kwargs):
+        calls.append(args)
+        return _completed(args, stdout="uv 0.12.5\n")
+
+    receipt = grade_refresh.build_engine_materialization_receipt(
+        repo_root=ROOT,
+        now=NOW,
+        runner=runner,
+    )
+
+    assert calls == [[str(executable), "--version"]]
+    assert receipt["status"] == "READY"
+    assert receipt["authority"] == grade_refresh._ENGINE_MATERIALIZATION_AUTHORITY
+
+
+def test_engine_materialization_integrity_mismatch_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
+    monkeypatch.setattr(
+        grade_refresh,
+        "distribution_runtime_binding",
+        lambda _name, _modules: None,
+    )
+    monkeypatch.setattr(
+        grade_refresh,
+        "_uv_binding",
+        lambda _runner: {
+            "version": "0.12.5",
+            "executable": "uv",
+            "executable_sha256": "sha256:" + "c" * 64,
+        },
+    )
+
+    receipt = grade_refresh.build_engine_materialization_receipt(
+        repo_root=ROOT,
+        now=NOW,
+    )
+    verification = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+    assert receipt["status"] == "BLOCKED"
+    assert receipt["safe_to_execute"] is False
+    assert receipt["reasons"] == ["mcp_audits_module_distribution_mismatch"]
+    assert verification["state"] == "BLOCKED"
+    assert verification["receipt_valid"] is True
+    assert verification["materialization_ready"] is False
+
+
+def test_engine_materialization_ready_receipt_repeats_and_is_private(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = _ready_engine_receipt(monkeypatch)
+    verification = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+    assert receipt["status"] == "READY"
+    assert receipt["safe_to_execute"] is True
+    assert len(receipt["distribution_binding"]["modules"]) == 5
+    assert verification["state"] == "READY"
+    assert verification["receipt_valid"] is True
+    assert verification["materialization_ready"] is True
+    serialized = grade_refresh.canonical_bytes(receipt).decode("ascii")
+    assert str(ROOT) not in serialized
+    assert "/Users/" not in serialized
+
+
+def test_engine_materialization_verifier_rejects_tamper_and_stale_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = _ready_engine_receipt(monkeypatch)
+    tampered = json.loads(json.dumps(receipt))
+    tampered["distribution_binding"]["modules"][0]["sha256"] = (
+        "sha256:" + "f" * 64
+    )
+    tampered_unsigned = dict(tampered)
+    tampered_unsigned.pop("receipt_digest")
+    tampered["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(tampered_unsigned)
+    )
+
+    tampered_result = grade_refresh.verify_engine_materialization_receipt(
+        tampered,
+        repo_root=ROOT,
+        now=NOW,
+    )
+    stale_result = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW + grade_refresh.timedelta(seconds=901),
+    )
+
+    assert tampered_result["materialization_ready"] is False
+    assert tampered_result["reasons"] == ["current_environment_mismatch"]
+    assert stale_result["materialization_ready"] is False
+    assert stale_result["reasons"] == ["receipt_stale"]
+
+
+def test_engine_materialization_verifier_rejects_rehashed_schema_or_authority_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = _ready_engine_receipt(monkeypatch)
+    receipt["authority"]["registry_request_performed"] = True
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest")
+    receipt["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(unsigned)
+    )
+
+    verification = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+    assert verification["state"] == "UNKNOWN"
+    assert verification["receipt_valid"] is False
+    assert verification["reasons"] == ["receipt_schema_invalid"]
+
+
+def test_engine_materialization_verifier_fails_closed_for_non_json_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = _ready_engine_receipt(monkeypatch)
+    receipt["reasons"] = [{"not-json-serializable"}]
+
+    verification = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+    assert verification["state"] == "UNKNOWN"
+    assert verification["receipt_valid"] is False
+    assert verification["reasons"] == [
+        "receipt_digest_invalid",
+        "receipt_schema_invalid",
+    ]
+
+
+@pytest.mark.parametrize(("ready", "expected"), [(True, 0), (False, 2)])
+def test_engine_materialization_cli_is_fail_closed(
+    ready: bool,
+    expected: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        grade_refresh_cli,
+        "build_engine_materialization_receipt",
+        lambda **_kwargs: {"safe_to_execute": ready},
+    )
+    monkeypatch.setattr(grade_refresh_cli, "_emit", lambda _payload, _out: None)
+
+    assert grade_refresh_cli.main(["engine-materialization"]) == expected
+
+
+@pytest.mark.parametrize(("ready", "expected"), [(True, 0), (False, 2)])
+def test_engine_materialization_verifier_cli_is_fail_closed(
+    ready: bool,
+    expected: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        grade_refresh_cli,
+        "verify_engine_materialization_receipt",
+        lambda *_args, **_kwargs: {"materialization_ready": ready},
+    )
+    monkeypatch.setattr(grade_refresh_cli, "_emit", lambda _payload, _out: None)
+
+    assert (
+        grade_refresh_cli.main(
+            ["verify-engine-materialization", str(receipt)]
+        )
+        == expected
+    )
+
+
+def test_inventory_cli_has_explicit_repo_root() -> None:
+    args = grade_refresh_cli._parser().parse_args(["inventory"])
+
+    assert args.repo_root == ROOT
+
+
 def test_preflight_reports_every_missing_catalog_image(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -291,15 +683,15 @@ def test_module_binding_requires_all_distribution_owned_module_files(
 ) -> None:
     module_paths = {
         name: tmp_path
-        / (
-            name.replace(".", "/")
-            + ("/__init__.py" if name == "mcp_audit" else ".py")
-        )
+        / (name.replace(".", "/") + ("/__init__.py" if name == "mcp_audit" else ".py"))
         for name in engine_runtime.MCP_AUDIT_RUNTIME_MODULES
     }
     for module in module_paths.values():
         module.parent.mkdir(parents=True, exist_ok=True)
         module.write_text("", encoding="utf-8")
+    record_path = tmp_path / "mcp_audits-2.7.0.dist-info/RECORD"
+    record_path.parent.mkdir()
+    record_path.write_text("fixture-record\n", encoding="utf-8")
 
     class FileHash:
         mode = "sha256"
@@ -310,14 +702,23 @@ def test_module_binding_requires_all_distribution_owned_module_files(
         size = 0
 
     class Distribution:
+        metadata = {"Name": "mcp-audits", "Metadata-Version": "2.4"}
+        version = "2.7.0"
         files = [
-            RecordedFile(path.relative_to(tmp_path).as_posix())
-            for path in module_paths.values()
+            RecordedFile("mcp_audits-2.7.0.dist-info/RECORD"),
+            *(
+                RecordedFile(path.relative_to(tmp_path).as_posix())
+                for path in module_paths.values()
+            ),
         ]
 
         @staticmethod
         def locate_file(item: str) -> Path:
             return tmp_path / item
+
+        @staticmethod
+        def read_text(name: str) -> str | None:
+            return "uv" if name == "INSTALLER" else None
 
     class Spec:
         origin = str(module_paths["mcp_audit"])
@@ -328,6 +729,32 @@ def test_module_binding_requires_all_distribution_owned_module_files(
     assert engine_runtime.modules_belong_to_distribution(
         "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
     )
+    assert engine_runtime.distribution_module_bindings(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    ) == [
+        {
+            "module": module,
+            "path": path.relative_to(tmp_path).as_posix(),
+            "origin": path.relative_to(tmp_path).as_posix(),
+            "record_hash": "sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size": 0,
+        }
+        for module, path in module_paths.items()
+    ]
+    binding = engine_runtime.distribution_runtime_binding(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    assert binding is not None
+    assert binding["distribution"] == {
+        "name": "mcp-audits",
+        "version": "2.7.0",
+        "metadata_version": "2.4",
+        "installer": "uv",
+        "record_path": "mcp_audits-2.7.0.dist-info/RECORD",
+        "record_sha256": grade_refresh.digest_file(record_path),
+        "record_size": len(b"fixture-record\n"),
+    }
 
     class ShadowedSpec:
         origin = str(tmp_path / "shadowed" / "analyzer.py")
@@ -358,7 +785,7 @@ def test_module_binding_requires_all_distribution_owned_module_files(
     )
     monkeypatch.setattr(engine_runtime, "_has_symlink_component", original_symlink_check)
 
-    duplicate = Distribution.files[0]
+    duplicate = Distribution.files[1]
     Distribution.files.append(duplicate)
     assert not engine_runtime.modules_belong_to_distribution(
         "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
@@ -370,6 +797,18 @@ def test_module_binding_requires_all_distribution_owned_module_files(
         "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
     )
     RecordedFile.size = 0
+
+    RecordedFile.size = True
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    RecordedFile.size = 0
+
+    Distribution.metadata = {"Name": "different-project", "Metadata-Version": "2.4"}
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    Distribution.metadata = {"Name": "mcp-audits", "Metadata-Version": "2.4"}
 
     missing = Distribution.files.pop()
     assert not engine_runtime.modules_belong_to_distribution(
@@ -399,6 +838,9 @@ def test_module_binding_rejects_symlinked_package_ancestor(
     for path in paths:
         path.write_text("", encoding="utf-8")
     (tmp_path / "mcp_audit").symlink_to(package, target_is_directory=True)
+    record_path = tmp_path / "mcp_audits-2.7.0.dist-info/RECORD"
+    record_path.parent.mkdir()
+    record_path.write_text("fixture-record\n", encoding="utf-8")
 
     class FileHash:
         mode = "sha256"
@@ -409,7 +851,10 @@ def test_module_binding_rejects_symlinked_package_ancestor(
         size = 0
 
     class Distribution:
+        metadata = {"Name": "mcp-audits", "Metadata-Version": "2.4"}
+        version = "2.7.0"
         files = [
+            RecordedFile("mcp_audits-2.7.0.dist-info/RECORD"),
             RecordedFile("mcp_audit/__init__.py"),
             *(
                 RecordedFile(f"mcp_audit/{name.rsplit('.', maxsplit=1)[1]}.py")
@@ -420,6 +865,10 @@ def test_module_binding_rejects_symlinked_package_ancestor(
         @staticmethod
         def locate_file(item: str) -> Path:
             return tmp_path / item
+
+        @staticmethod
+        def read_text(name: str) -> str | None:
+            return "uv" if name == "INSTALLER" else None
 
     class Spec:
         origin = str(tmp_path / "mcp_audit" / "__init__.py")
@@ -459,6 +908,8 @@ def test_module_binding_rejects_symlinked_install_root(
         size = 0
 
     class Distribution:
+        metadata = {"Name": "mcp-audits", "Metadata-Version": "2.4"}
+        version = "2.7.0"
         files = [
             RecordedFile("mcp_audit/__init__.py"),
             *(
@@ -470,6 +921,10 @@ def test_module_binding_rejects_symlinked_install_root(
         @staticmethod
         def locate_file(item: str) -> Path:
             return alias / item
+
+        @staticmethod
+        def read_text(name: str) -> str | None:
+            return "uv" if name == "INSTALLER" else None
 
     class Spec:
         origin = str(alias / "mcp_audit" / "__init__.py")

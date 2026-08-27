@@ -25,11 +25,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ServerSource
 from mcp_trust.engine.runtime import (
     MCP_AUDIT_RUNTIME_MODULES,
+    distribution_runtime_binding,
     modules_belong_to_distribution,
 )
 from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
@@ -46,6 +48,37 @@ PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
 PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
 IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
+ENGINE_MATERIALIZATION_SCHEMA = "McpTrustEngineMaterializationReceiptV1"
+ENGINE_MATERIALIZATION_VERIFICATION_SCHEMA = "McpTrustEngineMaterializationVerificationV1"
+EXPECTED_MCP_AUDITS_VERSION = "2.7.0"
+ENGINE_MATERIALIZATION_MAX_AGE_SECONDS = 900
+_ENGINE_MATERIALIZATION_AUTHORITY = {
+    "observation_only": True,
+    "package_install_performed": False,
+    "registry_request_performed": False,
+    "docker_invoked": False,
+    "mcp_execution": False,
+    "publication_performed": False,
+    "deployment_performed": False,
+    "scheduler_change_performed": False,
+}
+_ENGINE_MATERIALIZATION_KEYS = frozenset(
+    {
+        "schema",
+        "observed_at",
+        "status",
+        "safe_to_execute",
+        "exit_classification",
+        "source_binding",
+        "lock_binding",
+        "environment",
+        "distribution_binding",
+        "reasons",
+        "authority",
+        "claim_ceiling",
+        "receipt_digest",
+    }
+)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _STABLE_VERSION = re.compile(r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?")
@@ -468,6 +501,571 @@ def _locked_package_version(repo_root: Path, distribution: str) -> str:
     ):
         return "UNKNOWN"
     return versions[0]
+
+
+def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
+    """Return the exact PyPI lock binding for the approved scan engine."""
+    lock_path = repo_root / "uv.lock"
+    try:
+        lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+        lock_digest = digest_file(lock_path)
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        return None
+    if (
+        not isinstance(lock, dict)
+        or lock.get("version") != 1
+        or lock.get("revision") != 3
+        or lock.get("requires-python") != ">=3.11"
+    ):
+        return None
+    packages = lock.get("package")
+    if not isinstance(packages, list):
+        return None
+    registry_packages = 0
+    registry_artifacts = 0
+    for locked_package in packages:
+        if not isinstance(locked_package, dict):
+            return None
+        locked_source = locked_package.get("source")
+        if locked_source == {"editable": "."}:
+            if locked_package.get("name") != "mcp-trust":
+                return None
+            continue
+        if locked_source != {"registry": "https://pypi.org/simple"}:
+            return None
+        registry_packages += 1
+        locked_artifacts = []
+        locked_sdist = locked_package.get("sdist")
+        locked_wheels = locked_package.get("wheels")
+        if locked_sdist is not None:
+            locked_artifacts.append(locked_sdist)
+        if not isinstance(locked_wheels, list):
+            return None
+        locked_artifacts.extend(locked_wheels)
+        if not locked_artifacts:
+            return None
+        for locked_artifact in locked_artifacts:
+            if not isinstance(locked_artifact, dict):
+                return None
+            artifact_url = locked_artifact.get("url")
+            artifact_hash = locked_artifact.get("hash")
+            artifact_size = locked_artifact.get("size")
+            if (
+                not isinstance(artifact_url, str)
+                or not _canonical_pypi_artifact_url(artifact_url)
+                or not isinstance(artifact_hash, str)
+                or _SHA256.fullmatch(artifact_hash) is None
+                or not isinstance(artifact_size, int)
+                or isinstance(artifact_size, bool)
+                or artifact_size <= 0
+            ):
+                return None
+            registry_artifacts += 1
+    matches = [
+        package
+        for package in packages
+        if isinstance(package, dict)
+        and isinstance(package.get("name"), str)
+        and _normalized_project_name(package["name"]) == "mcp-audits"
+    ]
+    if len(matches) != 1:
+        return None
+    package = matches[0]
+    source = package.get("source")
+    sdist = package.get("sdist")
+    wheels = package.get("wheels")
+    if (
+        package.get("version") != EXPECTED_MCP_AUDITS_VERSION
+        or source != {"registry": "https://pypi.org/simple"}
+        or not isinstance(sdist, dict)
+        or not isinstance(wheels, list)
+        or len(wheels) != 1
+        or not isinstance(wheels[0], dict)
+    ):
+        return None
+
+    def artifact(value: dict[str, Any], *, suffix: str) -> dict[str, Any] | None:
+        url = value.get("url")
+        digest = value.get("hash")
+        size = value.get("size")
+        if (
+            not isinstance(url, str)
+            or not _canonical_pypi_artifact_url(url)
+            or not url.endswith(suffix)
+            or not isinstance(digest, str)
+            or _SHA256.fullmatch(digest) is None
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size <= 0
+        ):
+            return None
+        return {"url": url, "sha256": digest, "size": size}
+
+    sdist_binding = artifact(sdist, suffix=".tar.gz")
+    wheel_binding = artifact(wheels[0], suffix="-py3-none-any.whl")
+    if sdist_binding is None or wheel_binding is None:
+        return None
+    return {
+        "path": "uv.lock",
+        "sha256": lock_digest,
+        "registry": "https://pypi.org/simple",
+        "source_policy": {
+            "editable_project": "mcp-trust:.",
+            "external_sources": [
+                "https://files.pythonhosted.org",
+                "https://pypi.org/simple",
+            ],
+            "registry_packages": registry_packages,
+            "registry_artifacts": registry_artifacts,
+        },
+        "package": "mcp-audits",
+        "version": EXPECTED_MCP_AUDITS_VERSION,
+        "artifacts": {"sdist": sdist_binding, "wheel": wheel_binding},
+    }
+
+
+def _canonical_pypi_artifact_url(value: str) -> bool:
+    if any(ord(character) < 0x21 or ord(character) > 0x7E for character in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return (
+            parsed.scheme == "https"
+            and parsed.netloc == "files.pythonhosted.org"
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port is None
+            and parsed.path.startswith("/packages/")
+            and "\\" not in parsed.path
+            and "%" not in parsed.path
+            and "//" not in parsed.path
+            and not {".", ".."}.intersection(parsed.path.split("/"))
+            and parsed.query == ""
+            and parsed.fragment == ""
+            and parsed.geturl() == value
+        )
+    except ValueError:
+        return False
+
+
+def _uv_binding(
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, str] | None:
+    executable = shutil.which("uv")
+    if executable is None:
+        return None
+    try:
+        executable_path = Path(executable).resolve(strict=True)
+    except OSError:
+        return None
+    if not executable_path.is_file() or executable_path.is_symlink():
+        return None
+    try:
+        result = runner(
+            [str(executable_path), "--version"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    match = re.fullmatch(r"uv (\d+\.\d+\.\d+)(?: \([^\n]+\))?\n?", result.stdout)
+    if match is None:
+        return None
+    try:
+        executable_sha256 = digest_file(executable_path)
+    except OSError:
+        return None
+    return {
+        "version": match.group(1),
+        "executable": executable_path.name,
+        "executable_sha256": executable_sha256,
+    }
+
+
+def build_engine_materialization_receipt(
+    *,
+    repo_root: Path,
+    now: datetime | None = None,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    """Observe an exact frozen engine environment without installing anything."""
+    observed_at = (now or datetime.now(tz=UTC)).astimezone(UTC)
+    try:
+        source = source_binding(repo_root)
+    except (GradeRefreshError, OSError, UnicodeError):
+        source = {
+            "repository": "https://github.com/saagpatel/mcp-trust.git",
+            "revision": "UNKNOWN",
+            "worktree_state": "UNKNOWN",
+            "source_tree_digest": "UNKNOWN",
+            "file_digests": {},
+        }
+    lock = _locked_engine_binding(repo_root)
+    try:
+        runtime_version = _package_version("mcp-audits")
+    except (AttributeError, OSError, UnicodeError, ValueError):
+        runtime_version = "UNKNOWN"
+    distribution_binding = distribution_runtime_binding(
+        "mcp-audits", MCP_AUDIT_RUNTIME_MODULES
+    )
+    uv_binding = _uv_binding(runner)
+    project_environment = repo_root / ".venv"
+    python_pin_path = repo_root / ".python-version"
+    try:
+        required_python = python_pin_path.read_text(encoding="utf-8").strip()
+        python_pin_sha256 = digest_file(python_pin_path)
+    except (OSError, UnicodeError):
+        required_python = "UNKNOWN"
+        python_pin_sha256 = None
+    if _STABLE_VERSION.fullmatch(required_python) is None:
+        required_python = "UNKNOWN"
+        python_pin_sha256 = None
+    environment_bound = (
+        project_environment.is_dir()
+        and not project_environment.is_symlink()
+        and Path(sys.prefix).resolve() == project_environment.resolve()
+    )
+    try:
+        python_executable_sha256 = digest_file(Path(sys.executable))
+    except OSError:
+        python_executable_sha256 = "UNKNOWN"
+    reasons: list[str] = []
+    if source.get("revision") == "UNKNOWN":
+        reasons.append("source_binding_unavailable")
+    elif source.get("worktree_state") != "clean":
+        reasons.append("source_binding_not_clean")
+    if lock is None:
+        reasons.append("mcp_audits_lock_unknown")
+    if uv_binding is None:
+        reasons.append("uv_runtime_unavailable")
+    if required_python == "UNKNOWN":
+        reasons.append("python_pin_unavailable")
+    elif platform.python_version() != required_python:
+        reasons.append("python_runtime_mismatch")
+    if not environment_bound:
+        reasons.append("project_python_environment_unbound")
+    if python_executable_sha256 == "UNKNOWN":
+        reasons.append("python_runtime_unavailable")
+    if runtime_version == "UNKNOWN":
+        reasons.append("mcp_audits_runtime_unavailable")
+    elif runtime_version != EXPECTED_MCP_AUDITS_VERSION:
+        reasons.append("mcp_audits_runtime_lock_mismatch")
+    if distribution_binding is None:
+        reasons.append("mcp_audits_module_distribution_mismatch")
+    unknown_reason_codes = {
+        "source_binding_unavailable",
+        "mcp_audits_lock_unknown",
+        "uv_runtime_unavailable",
+        "python_pin_unavailable",
+        "python_runtime_unavailable",
+        "mcp_audits_runtime_unavailable",
+    }
+    ready = not reasons
+    status = (
+        "READY" if ready else "UNKNOWN" if unknown_reason_codes.intersection(reasons) else "BLOCKED"
+    )
+    payload: dict[str, Any] = {
+        "schema": ENGINE_MATERIALIZATION_SCHEMA,
+        "observed_at": observed_at.isoformat(),
+        "status": status,
+        "safe_to_execute": ready,
+        "exit_classification": (
+            "ready"
+            if ready
+            else "materialization-unknown"
+            if status == "UNKNOWN"
+            else "materialization-blocked"
+        ),
+        "source_binding": source,
+        "lock_binding": lock,
+        "environment": {
+            "project_environment": ".venv",
+            "project_environment_bound": environment_bound,
+            "python": platform.python_version(),
+            "required_python": required_python,
+            "python_pin_sha256": python_pin_sha256,
+            "python_implementation": platform.python_implementation(),
+            "python_executable": Path(sys.executable).name,
+            "python_executable_sha256": python_executable_sha256,
+            "uv": uv_binding,
+            "mcp_audits": runtime_version,
+        },
+        "distribution_binding": distribution_binding,
+        "reasons": sorted(set(reasons)),
+        "authority": dict(_ENGINE_MATERIALIZATION_AUTHORITY),
+        "claim_ceiling": (
+            "Current local frozen engine-environment integrity only; the receipt does not "
+            "prove registry egress, Docker or MCP execution, publication, deployment, "
+            "scheduler operation, production freshness, safety, or endorsement."
+        ),
+    }
+    payload["receipt_digest"] = digest_bytes(canonical_bytes(payload))
+    return payload
+
+
+def _valid_engine_materialization_receipt_shape(receipt: dict[str, Any]) -> bool:
+    if set(receipt) != _ENGINE_MATERIALIZATION_KEYS:
+        return False
+    status = receipt.get("status")
+    safe_to_execute = receipt.get("safe_to_execute")
+    exit_classification = receipt.get("exit_classification")
+    reasons = receipt.get("reasons")
+    if (
+        receipt.get("schema") != ENGINE_MATERIALIZATION_SCHEMA
+        or status not in {"READY", "BLOCKED", "UNKNOWN"}
+        or not isinstance(safe_to_execute, bool)
+        or not isinstance(reasons, list)
+        or any(not isinstance(reason, str) or not reason for reason in reasons)
+        or reasons != sorted(set(reasons))
+        or receipt.get("authority") != _ENGINE_MATERIALIZATION_AUTHORITY
+        or not isinstance(receipt.get("claim_ceiling"), str)
+        or not isinstance(receipt.get("source_binding"), dict)
+        or _SHA256.fullmatch(str(receipt.get("receipt_digest"))) is None
+    ):
+        return False
+    expected_exit = {
+        "READY": "ready",
+        "BLOCKED": "materialization-blocked",
+        "UNKNOWN": "materialization-unknown",
+    }[status]
+    if (
+        exit_classification != expected_exit
+        or safe_to_execute != (status == "READY")
+        or (status == "READY") != (not reasons)
+    ):
+        return False
+    environment = receipt.get("environment")
+    if not isinstance(environment, dict) or set(environment) != {
+        "project_environment",
+        "project_environment_bound",
+        "python",
+        "required_python",
+        "python_pin_sha256",
+        "python_implementation",
+        "python_executable",
+        "python_executable_sha256",
+        "uv",
+        "mcp_audits",
+    }:
+        return False
+    uv = environment.get("uv")
+    if uv is not None and (
+        not isinstance(uv, dict)
+        or set(uv) != {"version", "executable", "executable_sha256"}
+        or _STABLE_VERSION.fullmatch(str(uv.get("version"))) is None
+        or uv.get("executable") != "uv"
+        or _SHA256.fullmatch(str(uv.get("executable_sha256"))) is None
+    ):
+        return False
+    if status == "READY" and (
+        environment.get("project_environment") != ".venv"
+        or environment.get("project_environment_bound") is not True
+        or environment.get("python") != environment.get("required_python")
+        or _STABLE_VERSION.fullmatch(str(environment.get("python"))) is None
+        or _SHA256.fullmatch(str(environment.get("python_pin_sha256"))) is None
+        or _SHA256.fullmatch(str(environment.get("python_executable_sha256"))) is None
+        or not isinstance(environment.get("python_executable"), str)
+        or "/" in environment["python_executable"]
+        or "\\" in environment["python_executable"]
+        or uv is None
+        or environment.get("mcp_audits") != EXPECTED_MCP_AUDITS_VERSION
+    ):
+        return False
+    if status == "READY" and not _valid_engine_lock_receipt_binding(
+        receipt.get("lock_binding")
+    ):
+        return False
+    distribution_binding = receipt.get("distribution_binding")
+    if distribution_binding is None:
+        return status != "READY"
+    if not isinstance(distribution_binding, dict) or set(distribution_binding) != {
+        "distribution",
+        "modules",
+    }:
+        return False
+    distribution = distribution_binding.get("distribution")
+    modules = distribution_binding.get("modules")
+    if not isinstance(distribution, dict) or set(distribution) != {
+        "name",
+        "version",
+        "metadata_version",
+        "installer",
+        "record_path",
+        "record_sha256",
+        "record_size",
+    }:
+        return False
+    distribution_version = distribution.get("version")
+    if (
+        distribution.get("name") != "mcp-audits"
+        or _STABLE_VERSION.fullmatch(str(distribution_version)) is None
+        or (status == "READY" and distribution_version != EXPECTED_MCP_AUDITS_VERSION)
+        or re.fullmatch(r"\d+\.\d+", str(distribution.get("metadata_version")))
+        is None
+        or distribution.get("installer") != "uv"
+        or distribution.get("record_path")
+        != f"mcp_audits-{distribution_version}.dist-info/RECORD"
+        or _SHA256.fullmatch(str(distribution.get("record_sha256"))) is None
+        or not isinstance(distribution.get("record_size"), int)
+        or isinstance(distribution.get("record_size"), bool)
+        or distribution["record_size"] <= 0
+    ):
+        return False
+    if not isinstance(modules, list) or len(modules) != len(MCP_AUDIT_RUNTIME_MODULES):
+        return False
+    for expected_module, module in zip(MCP_AUDIT_RUNTIME_MODULES, modules, strict=True):
+        if not isinstance(module, dict) or set(module) != {
+            "module",
+            "path",
+            "origin",
+            "record_hash",
+            "sha256",
+            "size",
+        }:
+            return False
+        path = module.get("path")
+        origin = module.get("origin")
+        if (
+            module.get("module") != expected_module
+            or not isinstance(path, str)
+            or Path(path).is_absolute()
+            or ".." in Path(path).parts
+            or origin != path
+            or re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", str(module.get("record_hash")))
+            is None
+            or _SHA256.fullmatch(str(module.get("sha256"))) is None
+            or not isinstance(module.get("size"), int)
+            or isinstance(module.get("size"), bool)
+            or module["size"] < 0
+        ):
+            return False
+    return True
+
+
+def _valid_engine_lock_receipt_binding(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "path",
+        "sha256",
+        "registry",
+        "source_policy",
+        "package",
+        "version",
+        "artifacts",
+    }:
+        return False
+    if (
+        value.get("path") != "uv.lock"
+        or _SHA256.fullmatch(str(value.get("sha256"))) is None
+        or value.get("registry") != "https://pypi.org/simple"
+        or value.get("package") != "mcp-audits"
+        or value.get("version") != EXPECTED_MCP_AUDITS_VERSION
+    ):
+        return False
+    source_policy = value.get("source_policy")
+    if not isinstance(source_policy, dict) or set(source_policy) != {
+        "editable_project",
+        "external_sources",
+        "registry_packages",
+        "registry_artifacts",
+    }:
+        return False
+    if (
+        source_policy.get("editable_project") != "mcp-trust:."
+        or source_policy.get("external_sources")
+        != ["https://files.pythonhosted.org", "https://pypi.org/simple"]
+        or type(source_policy.get("registry_packages")) is not int
+        or source_policy["registry_packages"] <= 0
+        or type(source_policy.get("registry_artifacts")) is not int
+        or source_policy["registry_artifacts"] <= 0
+    ):
+        return False
+    artifacts = value.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != {"sdist", "wheel"}:
+        return False
+    for kind, suffix in {"sdist": ".tar.gz", "wheel": "-py3-none-any.whl"}.items():
+        artifact = artifacts.get(kind)
+        if (
+            not isinstance(artifact, dict)
+            or set(artifact) != {"url", "sha256", "size"}
+            or not isinstance(artifact.get("url"), str)
+            or not _canonical_pypi_artifact_url(artifact["url"])
+            or not artifact["url"].endswith(suffix)
+            or _SHA256.fullmatch(str(artifact.get("sha256"))) is None
+            or type(artifact.get("size")) is not int
+            or artifact["size"] <= 0
+        ):
+            return False
+    return True
+
+
+def verify_engine_materialization_receipt(
+    receipt: object,
+    *,
+    repo_root: Path,
+    now: datetime | None = None,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    """Recompute a materialization receipt against the current local state."""
+    current = (now or datetime.now(tz=UTC)).astimezone(UTC)
+    reasons: list[str] = []
+    if not isinstance(receipt, dict):
+        reasons.append("receipt_root_invalid")
+    else:
+        if not _valid_engine_materialization_receipt_shape(receipt):
+            reasons.append("receipt_schema_invalid")
+        unsigned = dict(receipt)
+        claimed_digest = unsigned.pop("receipt_digest", None)
+        try:
+            digest_valid = claimed_digest == digest_bytes(canonical_bytes(unsigned))
+        except (TypeError, ValueError):
+            digest_valid = False
+        if not digest_valid:
+            reasons.append("receipt_digest_invalid")
+        try:
+            observed_at = datetime.fromisoformat(str(receipt.get("observed_at")))
+            if observed_at.tzinfo is None:
+                raise ValueError("timezone required")
+            observed_at = observed_at.astimezone(UTC)
+        except (TypeError, ValueError):
+            observed_at = None
+            reasons.append("observed_at_invalid")
+        if observed_at is not None and (
+            observed_at > current + timedelta(minutes=5)
+            or current - observed_at > timedelta(seconds=ENGINE_MATERIALIZATION_MAX_AGE_SECONDS)
+        ):
+            reasons.append("receipt_stale")
+        if observed_at is not None and not reasons:
+            expected = build_engine_materialization_receipt(
+                repo_root=repo_root,
+                now=observed_at,
+                runner=runner,
+            )
+            if canonical_bytes(receipt) != canonical_bytes(expected):
+                reasons.append("current_environment_mismatch")
+    verified = not reasons
+    receipt_status = receipt.get("status") if isinstance(receipt, dict) else "UNKNOWN"
+    return {
+        "schema": ENGINE_MATERIALIZATION_VERIFICATION_SCHEMA,
+        "state": (
+            receipt_status
+            if verified and receipt_status in {"READY", "BLOCKED", "UNKNOWN"}
+            else "UNKNOWN"
+        ),
+        "receipt_valid": verified,
+        "materialization_ready": verified and receipt_status == "READY",
+        "receipt_digest": (
+            receipt.get("receipt_digest") if verified and isinstance(receipt, dict) else None
+        ),
+        "reasons": sorted(set(reasons)),
+        "claim_ceiling": (
+            "Current local receipt reproduction only; no Docker, MCP, registry-egress, "
+            "publication, deployment, scheduler, production, safety, or endorsement proof."
+        ),
+    }
 
 
 def _run(
