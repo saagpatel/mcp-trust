@@ -79,7 +79,11 @@ The engine receipt is a required preflight input and is embedded in the
 and exact source binding therefore flow into candidate and operator-package
 evidence instead of remaining a standalone observation. The receipt binds the
 complete frozen lock digest and its PyPI-only source
-policy, exact `mcp-audits==2.7.0` sdist and universal-wheel hashes, project
+policy. Lock admission also requires exactly one editable `mcp-trust` root, the
+committed `[engine]` requirement, and the matching optional-dependency and
+`requires-dist` edges; an orphaned `mcp-audits` lock record cannot qualify a
+stale installed engine. The receipt also binds the exact `mcp-audits==2.7.0`
+sdist and universal-wheel hashes, project
 Python pin and executable, `uv` version and executable digest, and every required
 scanner module to its independently resolved relative origin and exact owning
 distribution RECORD hash. The installed distribution name, version, metadata
