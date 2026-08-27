@@ -3634,6 +3634,12 @@ def build_state_card(
     source = preflight.get("source_binding", {})
     catalog = preflight.get("catalog", {})
     scheduler = preflight.get("scheduler", {})
+    engine_materialization_blocked = _engine_materialization_gate_required(
+        preflight.get("reasons")
+    )
+    image_reconstruction_blocked = _image_reconstruction_gate_required(
+        preflight.get("reasons")
+    )
     if triage_valid:
         assert triage is not None
         findings = list(triage.get("findings", []))
@@ -3670,6 +3676,14 @@ def build_state_card(
                     "severity": "High",
                     "code": "deterministic_image_reproduction_unknown",
                     "scope": "catalog-images",
+                }
+            )
+        if engine_materialization_blocked:
+            findings.append(
+                {
+                    "severity": "High",
+                    "code": "engine_materialization_not_ready",
+                    "scope": "engine-runtime",
                 }
             )
         if repeatability.get("status") != "PASS":
@@ -3756,10 +3770,19 @@ def build_state_card(
         "publication_state": "WAITING_FOR_EXPLICIT_APPROVAL",
         "production_freshness": "UNKNOWN",
         "next_action": (
-            "Approve deterministic reconstruction of all five image cohorts from the "
+            "Approve exact frozen mcp-audits==2.7.0 materialization from the complete "
+            "uv.lock PyPI-only source boundary, generate and independently verify "
+            "engine-materialization.json, then feed that exact receipt into V2 preflight. "
+            "Docker, MCP scans, publication, deployment, and scheduling remain separate."
+            if engine_materialization_blocked
+            else "Approve deterministic reconstruction of all five image cohorts from the "
             "tracked recipes, including immutable base digests, complete dependency locks, "
             "narrow dependency-preparation egress, network-none repeat builds, qualification "
             "receipts, and exact image IDs; then rerun preflight."
+            if image_reconstruction_blocked
+            else "Review and resolve the recorded preflight blockers under an exact scoped "
+            "approval; do not infer package, registry, Docker, MCP, publication, deployment, "
+            "or scheduler authority."
             if not preflight.get("safe_to_execute_catalog")
             else (
                 (
@@ -3775,6 +3798,27 @@ def build_state_card(
             )
         ),
     }
+
+
+def _engine_materialization_gate_required(reasons: object) -> bool:
+    prefixes = (
+        "engine_materialization_",
+        "mcp_audits_",
+        "project_python_environment_",
+        "python_pin_",
+        "python_runtime_",
+        "uv_runtime_",
+    )
+    return isinstance(reasons, list) and any(
+        isinstance(reason, str) and reason.startswith(prefixes) for reason in reasons
+    )
+
+
+def _image_reconstruction_gate_required(reasons: object) -> bool:
+    prefixes = ("catalog_image_", "image_build_")
+    return isinstance(reasons, list) and any(
+        isinstance(reason, str) and reason.startswith(prefixes) for reason in reasons
+    )
 
 
 def validate_ready_preflight_contract(
@@ -4281,21 +4325,31 @@ def build_resume_capsule(
     created = (now or datetime.now(tz=UTC)).astimezone(UTC)
     target_digest = digest_bytes(canonical_bytes(state_card))
     authority_boundary = (
-        "Read this Codex task status only; no publication, deployment, scheduler change, "
-        "third-party execution, credentials, or outreach."
+        "Read task status only until exact V68 approval; no package install, registry or "
+        "other network access, Docker or Colima, MCP execution, push, publication, deployment, "
+        "public-route access, credentials, backing services, or scheduler effects."
     )
     authority_digest = digest_bytes(authority_boundary.encode())
     execution_blocked = state_card.get("safe_to_execute_catalog") is not True
-    waiting_code = (
-        "deterministic-image-build-approval-required"
-        if execution_blocked
-        else "publication-approval-required"
+    outstanding_gates = state_card.get("outstanding_gates")
+    engine_materialization_blocked = _engine_materialization_gate_required(
+        outstanding_gates
     )
-    capsule_id = (
-        "mcp-trust-grade-refresh-deterministic-build-gate"
-        if execution_blocked
-        else "mcp-trust-grade-refresh-publication-gate"
+    image_reconstruction_blocked = _image_reconstruction_gate_required(
+        outstanding_gates
     )
+    if engine_materialization_blocked:
+        waiting_code = "exact-mcp-audits-materialization-approval-required"
+        capsule_id = "mcp-trust-grade-refresh-engine-materialization-gate"
+    elif execution_blocked and image_reconstruction_blocked:
+        waiting_code = "deterministic-image-build-approval-required"
+        capsule_id = "mcp-trust-grade-refresh-deterministic-build-gate"
+    elif execution_blocked:
+        waiting_code = "preflight-remediation-review-required"
+        capsule_id = "mcp-trust-grade-refresh-preflight-remediation-gate"
+    else:
+        waiting_code = "publication-approval-required"
+        capsule_id = "mcp-trust-grade-refresh-publication-gate"
     waiting_digest = digest_bytes(
         canonical_bytes({"code": waiting_code, "target_digest": target_digest})
     )
@@ -4306,27 +4360,38 @@ def build_resume_capsule(
         "digest": target_digest,
     }
     requested = {"kind": "codex-task-status", "target": target}
-    resume_claim_ceiling = (
-        "Resume deterministic image reconstruction only after explicit approval. Use "
-        "approved registry egress only to prepare locked inputs, then run two network-none "
-        "builds and a fresh READY preflight. Publication, deployment, and scheduling remain "
-        "separately gated."
-        if execution_blocked
-        else (
-            "Resume local review-only qualification after explicit chat approval; "
-            "publication and deployment remain separately gated."
+    if engine_materialization_blocked:
+        resume_claim_ceiling = (
+            "Resume only exact lock-bound mcp-audits==2.7.0 PyPI materialization and engine "
+            "receipt capture after explicit approval. Docker, MCP scans, push, publication, "
+            "deployment, public-route access, and scheduling remain prohibited."
         )
-    )
-    resume_states = (
-        ["deterministic-image-build-authorized"]
-        if execution_blocked
-        else ["publication-authorized"]
-    )
-    terminal_states = (
-        ["deterministic-image-build-declined", "program-withdrawn"]
-        if execution_blocked
-        else ["publication-declined", "program-withdrawn"]
-    )
+        resume_states = ["exact-mcp-audits-materialization-authorized"]
+        terminal_states = ["exact-mcp-audits-materialization-declined", "program-withdrawn"]
+    elif execution_blocked and image_reconstruction_blocked:
+        resume_claim_ceiling = (
+            "Resume deterministic image reconstruction only after explicit approval. Use "
+            "approved registry egress only to prepare locked inputs, then run two network-none "
+            "builds and a fresh READY preflight. Publication, deployment, and scheduling remain "
+            "separately gated."
+        )
+        resume_states = ["deterministic-image-build-authorized"]
+        terminal_states = ["deterministic-image-build-declined", "program-withdrawn"]
+    elif execution_blocked:
+        resume_claim_ceiling = (
+            "Resume only review of the recorded preflight blockers after explicit approval; "
+            "this capsule grants no package, registry, Docker, MCP, publication, deployment, "
+            "or scheduler authority."
+        )
+        resume_states = ["preflight-remediation-authorized"]
+        terminal_states = ["preflight-remediation-declined", "program-withdrawn"]
+    else:
+        resume_claim_ceiling = (
+            "Resume local review-only qualification after explicit chat approval; publication "
+            "and deployment remain separately gated."
+        )
+        resume_states = ["publication-authorized"]
+        terminal_states = ["publication-declined", "program-withdrawn"]
     return {
         "schema": "HumanGateResumeCapsuleV1",
         "as_of": created.isoformat(),
