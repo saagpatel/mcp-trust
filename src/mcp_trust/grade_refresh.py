@@ -1632,9 +1632,13 @@ def build_fixture_repeatability_receipt(
 
 
 def _receipt_integrity_valid(
-    payload: dict[str, Any], *, schema: str, expected_keys: frozenset[str]
+    payload: object, *, schema: str, expected_keys: frozenset[str]
 ) -> bool:
-    if set(payload) != expected_keys or payload.get("schema") != schema:
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != expected_keys
+        or payload.get("schema") != schema
+    ):
         return False
     claimed = payload.get("receipt_digest")
     if not isinstance(claimed, str) or _SHA256.fullmatch(claimed) is None:
@@ -1729,21 +1733,41 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
     return projected
 
 
+def _require_independent_candidate_paths(candidate: Path, repeat_candidate: Path) -> None:
+    try:
+        candidate_path = candidate.resolve()
+        repeat_path = repeat_candidate.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise GradeRefreshError("controlled candidate paths cannot be resolved") from exc
+    if candidate_path == repeat_path:
+        raise GradeRefreshError(
+            "controlled repeat candidate must be an independent path"
+        )
+
+
 def triage_candidate(
     *,
     candidate: Path,
-    preflight: dict[str, Any],
-    repeatability: dict[str, Any],
+    preflight: object,
+    repeatability: object,
     seed_path: Path,
     masked_path: Path,
     repeat_candidate: Path | None = None,
     candidate_verifier: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    if not isinstance(preflight, dict):
+        raise GradeRefreshError("preflight receipt root must be a JSON object")
+    if not isinstance(repeatability, dict):
+        raise GradeRefreshError("repeatability receipt root must be a JSON object")
+    if repeat_candidate is not None:
+        _require_independent_candidate_paths(candidate, repeat_candidate)
     results_payload = load_json(candidate / "scan_results.json")
     manifest = load_json(candidate / "MANIFEST.json")
     results = results_payload.get("results") if isinstance(results_payload, dict) else None
     if not isinstance(results, list):
         raise GradeRefreshError("candidate scan results are invalid")
+    if not isinstance(manifest, dict):
+        raise GradeRefreshError("candidate manifest root must be a JSON object")
     findings: list[dict[str, str]] = []
 
     def add(severity: str, code: str, slug: str = "catalog") -> None:
@@ -1847,6 +1871,8 @@ def triage_candidate(
                 add("High", "controlled_repeat_inconsistent", slug)
         except GradeRefreshError:
             add("Critical", "controlled_repeat_evidence_invalid")
+    else:
+        add("High", "controlled_repeat_evidence_missing")
     for result in results:
         if not isinstance(result, dict):
             add("Critical", "invalid_result_shape")
@@ -1924,11 +1950,13 @@ def triage_candidate(
 
 
 def _triage_integrity_valid(
-    triage: dict[str, Any],
+    triage: object,
     *,
     preflight_digest: object,
     repeatability_digest: object,
 ) -> bool:
+    if not isinstance(triage, dict):
+        return False
     findings = triage.get("findings")
     counts = triage.get("counts")
     verification = triage.get("candidate_verification")
@@ -1950,9 +1978,22 @@ def _triage_integrity_valid(
         )
         and triage.get("preflight_receipt_digest") == preflight_digest
         and triage.get("repeatability_receipt_digest") == repeatability_digest
-        and type(triage.get("review_required")) is bool
-        and triage.get("publication_allowed") is False
         and isinstance(findings, list)
+        and type(triage.get("review_required")) is bool
+        and (
+            triage.get("repeat_candidate_manifest_digest") is not None
+            or (
+                triage.get("review_required") is True
+                and any(
+                    finding.get("severity") == "High"
+                    and finding.get("code") == "controlled_repeat_evidence_missing"
+                    and finding.get("slug") == "catalog"
+                    for finding in findings
+                    if isinstance(finding, dict)
+                )
+            )
+        )
+        and triage.get("publication_allowed") is False
         and all(
             isinstance(finding, dict)
             and finding.get("severity") in {"Critical", "High", "Medium", "Low"}
@@ -2486,6 +2527,7 @@ def build_publication_review_decision(
     projection_builder: Callable[[Path], dict[str, dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic, non-publishing disposition and decision receipt."""
+    _require_independent_candidate_paths(candidate, repeat_candidate)
     inventory = catalog_inventory(
         seed_path=seed_path,
         masked_path=masked_path,
@@ -3051,9 +3093,20 @@ readback bindings exist.
 
 
 def build_state_card(
-    *, preflight: dict[str, Any], repeatability: dict[str, Any], triage: dict[str, Any] | None
+    *, preflight: object, repeatability: object, triage: object | None
 ) -> dict[str, Any]:
+    preflight_root_valid = isinstance(preflight, dict)
+    repeatability_root_valid = isinstance(repeatability, dict)
+    triage_supplied = triage is not None
+    triage_root_valid = triage is None or isinstance(triage, dict)
+    preflight = preflight if preflight_root_valid else {}
+    repeatability = repeatability if repeatability_root_valid else {}
+    triage = triage if isinstance(triage, dict) else None
     blockers = list(preflight.get("reasons", []))
+    if not preflight_root_valid:
+        blockers.append("preflight_receipt_root_invalid")
+    if not repeatability_root_valid:
+        blockers.append("repeatability_receipt_root_invalid")
     if repeatability.get("status") != "PASS":
         blockers.append("fixture_repeatability_failed")
     triage_valid = bool(
@@ -3064,12 +3117,22 @@ def build_state_card(
             repeatability_digest=repeatability.get("receipt_digest"),
         )
     )
-    if triage is None:
+    if not triage_root_valid:
+        blockers.append("triage_receipt_invalid_or_unbound")
+    elif triage is None:
         blockers.append("candidate_not_built_or_triaged")
     elif not triage_valid:
         blockers.append("triage_receipt_invalid_or_unbound")
     elif triage.get("review_required"):
         blockers.append("candidate_review_required")
+    repeat_evidence_present = bool(
+        triage_valid
+        and triage is not None
+        and isinstance(triage.get("repeat_candidate_manifest_digest"), str)
+        and _SHA256.fullmatch(triage["repeat_candidate_manifest_digest"]) is not None
+    )
+    if triage_valid and not repeat_evidence_present:
+        blockers.append("controlled_repeat_evidence_missing")
     source = preflight.get("source_binding", {})
     catalog = preflight.get("catalog", {})
     scheduler = preflight.get("scheduler", {})
@@ -3078,7 +3141,7 @@ def build_state_card(
         findings = list(triage.get("findings", []))
     else:
         findings = []
-        if triage is not None:
+        if triage_supplied:
             findings.append(
                 {
                     "severity": "Critical",
@@ -3174,6 +3237,7 @@ def build_state_card(
         completed_controls.append("deterministic-fixture-repeatability")
     if triage_valid:
         completed_controls.append("grade-diff-review-triage-run")
+    if repeat_evidence_present:
         completed_controls.append("controlled-sandbox-candidate-repeat")
     if scheduler.get("state") != "NOT_READ":
         completed_controls.append("scheduler-readback-no-mutation")
