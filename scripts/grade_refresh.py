@@ -96,6 +96,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     _common_inputs(preflight)
     preflight.add_argument("--repo-root", type=Path, default=_ROOT)
+    preflight.add_argument(
+        "--engine-materialization",
+        type=Path,
+        required=True,
+        help="Verified current engine-materialization receipt to bind into preflight.",
+    )
     preflight.add_argument("--out", type=Path)
 
     materialization = subcommands.add_parser(
@@ -200,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
                 policy_path=args.policy,
+                engine_materialization_receipt=load_json(args.engine_materialization),
                 now=now,
                 include_scheduler_readback=True,
             )

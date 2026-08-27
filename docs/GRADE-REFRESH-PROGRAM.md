@@ -50,6 +50,11 @@ claim that a server is benign or malicious.
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
   remain UNKNOWN until all 18 policy-eligible entries are safely rescanned and
   all 13 excluded entries retain their reviewed fail-closed dispositions.
+- A READY preflight now consumes and embeds the independently reproducible
+  engine-materialization receipt. Candidate creation and verification revalidate
+  that receipt against current installed distribution bytes, closing the former
+  standalone-receipt provenance seam without installing or executing anything.
+
 ### Medium
 
 - The host LaunchAgent is persistently disabled and unloaded, but a dormant

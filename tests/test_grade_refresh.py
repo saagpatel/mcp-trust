@@ -80,9 +80,7 @@ def test_triage_rejects_malformed_receipt_roots(
 def test_triage_rejects_malformed_candidate_manifest_root(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
-    (candidate / "scan_results.json").write_text(
-        json.dumps({"results": []}), encoding="utf-8"
-    )
+    (candidate / "scan_results.json").write_text(json.dumps({"results": []}), encoding="utf-8")
     (candidate / "MANIFEST.json").write_text("[]\n", encoding="utf-8")
 
     with pytest.raises(GradeRefreshError, match="manifest root must be a JSON object"):
@@ -100,12 +98,8 @@ def test_triage_converts_deep_candidate_manifest_to_structured_error(
 ) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
-    (candidate / "scan_results.json").write_text(
-        json.dumps({"results": []}), encoding="utf-8"
-    )
-    (candidate / "MANIFEST.json").write_text(
-        "[" * 1_100 + "0" + "]" * 1_100, encoding="utf-8"
-    )
+    (candidate / "scan_results.json").write_text(json.dumps({"results": []}), encoding="utf-8")
+    (candidate / "MANIFEST.json").write_text("[" * 1_100 + "0" + "]" * 1_100, encoding="utf-8")
 
     with pytest.raises(GradeRefreshError, match="unreadable JSON input"):
         triage_candidate(
@@ -229,9 +223,7 @@ def _engine_distribution_binding() -> dict[str, object]:
                 "sha256": "sha256:" + f"{index:064x}",
                 "size": index,
             }
-            for index, module in enumerate(
-                engine_runtime.MCP_AUDIT_RUNTIME_MODULES, start=1
-            )
+            for index, module in enumerate(engine_runtime.MCP_AUDIT_RUNTIME_MODULES, start=1)
         ],
     }
 
@@ -293,7 +285,7 @@ def test_engine_lock_binding_rejects_non_pypi_dependency_source(tmp_path: Path) 
 @pytest.mark.parametrize(
     ("original", "replacement"),
     [
-        ('version = 1\n', 'version = 2\n'),
+        ("version = 1\n", "version = 2\n"),
         ('.whl", hash', '.whl?download=1", hash'),
         ('.tar.gz", hash', '.tar.gz#fragment", hash'),
         ("/packages/57/ba/", "/packages/57/../ba/"),
@@ -477,9 +469,7 @@ def test_engine_materialization_verifier_rejects_tamper_and_stale_receipt(
 ) -> None:
     receipt = _ready_engine_receipt(monkeypatch)
     tampered = json.loads(json.dumps(receipt))
-    tampered["distribution_binding"]["modules"][0]["sha256"] = (
-        "sha256:" + "f" * 64
-    )
+    tampered["distribution_binding"]["modules"][0]["sha256"] = "sha256:" + "f" * 64
     tampered_unsigned = dict(tampered)
     tampered_unsigned.pop("receipt_digest")
     tampered["receipt_digest"] = grade_refresh.digest_bytes(
@@ -510,9 +500,7 @@ def test_engine_materialization_verifier_rejects_rehashed_schema_or_authority_dr
     receipt["authority"]["registry_request_performed"] = True
     unsigned = dict(receipt)
     unsigned.pop("receipt_digest")
-    receipt["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(unsigned)
-    )
+    receipt["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(unsigned))
 
     verification = grade_refresh.verify_engine_materialization_receipt(
         receipt,
@@ -577,12 +565,7 @@ def test_engine_materialization_verifier_cli_is_fail_closed(
     )
     monkeypatch.setattr(grade_refresh_cli, "_emit", lambda _payload, _out: None)
 
-    assert (
-        grade_refresh_cli.main(
-            ["verify-engine-materialization", str(receipt)]
-        )
-        == expected
-    )
+    assert grade_refresh_cli.main(["verify-engine-materialization", str(receipt)]) == expected
 
 
 def test_inventory_cli_executes_without_unowned_repo_root_argument(
@@ -597,6 +580,48 @@ def test_inventory_cli_executes_without_unowned_repo_root_argument(
 
     assert grade_refresh_cli.main(["inventory"]) == 0
     assert emitted[0]["catalog_denominator"] == 31
+
+
+def test_preflight_cli_requires_engine_materialization_receipt() -> None:
+    with pytest.raises(SystemExit):
+        grade_refresh_cli._parser().parse_args(["preflight"])
+
+
+def test_preflight_binds_verified_engine_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialization = _ready_engine_receipt(monkeypatch)
+    monkeypatch.setattr(grade_refresh.shutil, "which", lambda _: None)
+
+    receipt = build_preflight_receipt(
+        repo_root=ROOT,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        engine_materialization_receipt=materialization,
+        now=NOW,
+    )
+
+    assert receipt["engine_materialization"] == materialization
+    assert not any(reason.startswith("engine_materialization") for reason in receipt["reasons"])
+
+
+def test_preflight_fails_closed_without_engine_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grade_refresh.shutil, "which", lambda _: None)
+
+    receipt = build_preflight_receipt(
+        repo_root=ROOT,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        now=NOW,
+    )
+
+    assert receipt["engine_materialization"] is None
+    assert "engine_materialization_receipt_missing" in receipt["reasons"]
+    assert receipt["safe_to_execute_catalog"] is False
 
 
 def test_preflight_reports_every_missing_catalog_image(
@@ -1000,13 +1025,14 @@ def test_preflight_binds_images_by_content_id(
     assert receipt["status"] == "BLOCKED"
     assert receipt["safe_to_execute_catalog"] is False
     assert not any(
-        reason.startswith("image_build_reproducibility_unknown:")
-        for reason in receipt["reasons"]
+        reason.startswith("image_build_reproducibility_unknown:") for reason in receipt["reasons"]
     )
-    assert sum(
-        reason.startswith("image_build_qualification_invalid:")
-        for reason in receipt["reasons"]
-    ) == 5
+    assert (
+        sum(
+            reason.startswith("image_build_qualification_invalid:") for reason in receipt["reasons"]
+        )
+        == 5
+    )
     assert all(
         row["image_id"] == image_id and row["sandbox_controls"]["all_required_controls"]
         for row in receipt["sandbox"]["image_bindings"]
@@ -1195,9 +1221,7 @@ def _qualification_fixture(
         ["docker", "load", "-i", output_paths[0]],
         ["docker", "load", "-i", output_paths[1]],
     ]
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     receipt.write_text(json.dumps(payload), encoding="utf-8")
     return receipt, payload, image_id
 
@@ -1205,9 +1229,7 @@ def _qualification_fixture(
 def _rewrite_receipt(path: Path, payload: dict[str, object]) -> None:
     unsigned = dict(payload)
     unsigned.pop("receipt_digest", None)
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(unsigned)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(unsigned))
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -1272,9 +1294,7 @@ def _source_build_receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, objec
         "exit_classification": "QUALIFIED_REPEATABLE_NETWORK_NONE",
         "tool_versions": {"python": "Python 3.12.14"},
     }
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     receipt_path.write_text(json.dumps(payload), encoding="utf-8")
     return receipt_path, payload
 
@@ -1287,16 +1307,12 @@ def test_source_build_receipt_requires_network_none_and_repeatable_outputs(
         "path": receipt.name,
         "sha256": grade_refresh.digest_file(receipt),
     }
-    assert grade_refresh._python_source_build_receipt(
-        repo_root=tmp_path, value=value
-    ) is not None
+    assert grade_refresh._python_source_build_receipt(repo_root=tmp_path, value=value) is not None
 
     payload["network_policy"] = "bridge"
     _rewrite_receipt(receipt, payload)
     value["sha256"] = grade_refresh.digest_file(receipt)
-    assert grade_refresh._python_source_build_receipt(
-        repo_root=tmp_path, value=value
-    ) is None
+    assert grade_refresh._python_source_build_receipt(repo_root=tmp_path, value=value) is None
 
 
 def test_image_build_qualification_requires_identical_repeat_builds(tmp_path: Path) -> None:
@@ -1493,7 +1509,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
         encoding="utf-8",
     )
     preflight = {
-        "schema": "McpTrustGradeRefreshPreflightV1",
+        "schema": "McpTrustGradeRefreshPreflightV2",
         "observed_at": NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
@@ -1503,6 +1519,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
             "source_tree_digest": "sha256:" + "1" * 64,
             "worktree_state": "clean",
         },
+        "engine_materialization": None,
         "catalog": {
             "policy_digest": "sha256:" + "2" * 64,
             "seed_digest": grade_refresh.digest_file(SEED),
@@ -1544,9 +1561,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
                 "qualification": {
                     "preflight_receipt_digest": preflight["receipt_digest"],
                     "source_revision": preflight["source_binding"]["revision"],
-                    "source_tree_digest": preflight["source_binding"][
-                        "source_tree_digest"
-                    ],
+                    "source_tree_digest": preflight["source_binding"]["source_tree_digest"],
                     "policy_digest": preflight["catalog"]["policy_digest"],
                 },
             }
@@ -1601,7 +1616,7 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
     first.mkdir()
     second.mkdir()
     preflight = {
-        "schema": "McpTrustGradeRefreshPreflightV1",
+        "schema": "McpTrustGradeRefreshPreflightV2",
         "observed_at": NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
@@ -1611,6 +1626,7 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
             "source_tree_digest": "sha256:" + "1" * 64,
             "worktree_state": "clean",
         },
+        "engine_materialization": None,
         "catalog": {
             "policy_digest": "sha256:" + "2" * 64,
             "seed_digest": grade_refresh.digest_file(SEED),
@@ -1715,7 +1731,8 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
     ]
 
     assert any(
-        finding == {
+        finding
+        == {
             "severity": "High",
             "code": "controlled_repeat_inconsistent",
             "slug": "blocked",
@@ -1769,17 +1786,12 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     ]
     assert state["scheduler_state"]["state"] == "DISABLED_UNLOADED"
     assert capsule["schema"] == "HumanGateResumeCapsuleV1"
-    assert (
-        capsule["capsule"]["capsule_id"]
-        == "mcp-trust-grade-refresh-deterministic-build-gate"
-    )
+    assert capsule["capsule"]["capsule_id"] == "mcp-trust-grade-refresh-deterministic-build-gate"
     assert (
         capsule["capsule"]["waiting_condition"]["code"]
         == "deterministic-image-build-approval-required"
     )
-    assert capsule["capsule"]["resume_states"] == [
-        "deterministic-image-build-authorized"
-    ]
+    assert capsule["capsule"]["resume_states"] == ["deterministic-image-build-authorized"]
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"
     assert capsule["capsule"]["authority"]["boundary"].startswith("Read this Codex task")
@@ -1821,9 +1833,7 @@ def test_state_card_rejects_self_digested_but_unbound_triage() -> None:
             "errors": [],
         },
     }
-    triage["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(triage)
-    )
+    triage["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(triage))
 
     state = build_state_card(
         preflight=preflight,
@@ -1871,9 +1881,7 @@ def test_state_card_rejects_triage_that_omits_required_repeat_finding() -> None:
             "errors": [],
         },
     }
-    triage["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(triage)
-    )
+    triage["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(triage))
 
     state = build_state_card(
         preflight=preflight,
@@ -1921,9 +1929,7 @@ def test_state_card_fails_closed_for_malformed_triage_findings() -> None:
             "errors": [],
         },
     }
-    triage["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(triage)
-    )
+    triage["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(triage))
 
     state = build_state_card(
         preflight=preflight,

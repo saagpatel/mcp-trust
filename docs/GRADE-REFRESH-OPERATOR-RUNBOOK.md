@@ -67,13 +67,18 @@ test -x "$PYTHON"
 
 "$PYTHON" scripts/grade_refresh.py preflight \
   --repo-root "$PWD" \
+  --engine-materialization dist/grade-refresh/engine-materialization.json \
   --out dist/grade-refresh/preflight.json
 ```
 
 Stop unless the engine receipt says `status: READY` and `safe_to_execute: true`.
 `UNKNOWN` means provenance or runtime evidence is missing; `BLOCKED` means a
 known binding or policy mismatch. Neither state authorizes repair or execution.
-The receipt binds the complete frozen lock digest and its PyPI-only source
+The engine receipt is a required preflight input and is embedded in the
+`McpTrustGradeRefreshPreflightV2` receipt. Its digest, current reproducibility,
+and exact source binding therefore flow into candidate and operator-package
+evidence instead of remaining a standalone observation. The receipt binds the
+complete frozen lock digest and its PyPI-only source
 policy, exact `mcp-audits==2.7.0` sdist and universal-wheel hashes, project
 Python pin and executable, `uv` version and executable digest, and every required
 scanner module to its independently resolved relative origin and exact owning
@@ -91,10 +96,11 @@ not pull, rebuild, retag, or substitute an image without explicit approval.
 Blocked catalog rows remain excluded; do not widen execution to make the
 preflight green.
 
-Candidate creation does not trust the receipt self-digest alone. Before any
+Candidate creation does not trust either receipt self-digest alone. Before any
 Docker preflight it revalidates the exact network/filesystem/resource/secret
 policies, all ten sandbox controls, every nested verified build qualification
-and image ID, the qualification receipt and tracked-input source bindings, and
+and image ID, the qualification receipt and tracked-input source bindings, the
+embedded engine materialization receipt against current installed bytes, and
 the exact locked/runtime tool set. Candidate verification requires the current
 repository root, recomputes each static image qualification from current
 tracked bytes, and requires the receipt's complete source binding to equal the

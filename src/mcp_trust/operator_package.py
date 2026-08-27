@@ -271,12 +271,12 @@ def _current_preflight_evidence(
     policy_path: Path,
     now: datetime | None,
 ) -> dict[str, Any]:
-    del supplied_preflight
     return build_preflight_receipt(
         repo_root=repo_root,
         seed_path=seed_path,
         masked_path=masked_path,
         policy_path=policy_path,
+        engine_materialization_receipt=supplied_preflight.get("engine_materialization"),
         now=now,
         include_scheduler_readback=True,
     )
@@ -557,6 +557,7 @@ def _inputs(
             "safe_to_execute_catalog",
             "exit_classification",
             "source_binding",
+            "engine_materialization",
             "catalog",
             "sandbox",
             "tool_versions",

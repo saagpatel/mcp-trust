@@ -1111,6 +1111,7 @@ def _qualification_metadata(
         "safe_to_execute_catalog",
         "exit_classification",
         "source_binding",
+        "engine_materialization",
         "catalog",
         "sandbox",
         "tool_versions",
@@ -1119,7 +1120,7 @@ def _qualification_metadata(
         "authority",
         "receipt_digest",
     }
-    if set(receipt) != required_keys or receipt.get("schema") != "McpTrustGradeRefreshPreflightV1":
+    if set(receipt) != required_keys or receipt.get("schema") != "McpTrustGradeRefreshPreflightV2":
         raise RefreshCandidateError("qualification receipt schema is invalid")
     claimed_digest = receipt.get("receipt_digest")
     unsigned = dict(receipt)
