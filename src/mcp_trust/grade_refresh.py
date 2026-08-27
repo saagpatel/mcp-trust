@@ -42,10 +42,9 @@ PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
 PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
 IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
-_STABLE_VERSION = re.compile(
-    r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?"
-)
+_STABLE_VERSION = re.compile(r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?")
 _IMAGE_BUILD_TOOL_VERSION_KEYS = frozenset(
     {"docker_client", "docker_server", "docker_buildx", "buildkit_colima"}
 )
@@ -122,6 +121,8 @@ _IMAGE_BUILD_QUALIFICATION_KEYS = frozenset(
         "receipt_digest",
     }
 )
+
+
 class GradeRefreshError(RuntimeError):
     """The review-only qualification contract is invalid or incomplete."""
 
@@ -268,8 +269,7 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
     image_refs = {
         source.get("sandbox_image") or policy.get("default_sandbox_image")
         for row in seed
-        if isinstance((source := row.get("source")), dict)
-        and source.get("command") is not None
+        if isinstance((source := row.get("source")), dict) and source.get("command") is not None
     }
     image_build_sources = policy.get("image_build_sources")
     if (
@@ -309,18 +309,17 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
         raise GradeRefreshError("catalog refresh network policy must be none")
     if policy.get("credential_policy") != "dummy-values-network-off-only":
         raise GradeRefreshError("catalog refresh credential policy is unsafe")
-    if type(policy.get("freshness_objective_hours")) is not int or int(
-        policy["freshness_objective_hours"]
-    ) <= 0:
+    if (
+        type(policy.get("freshness_objective_hours")) is not int
+        or int(policy["freshness_objective_hours"]) <= 0
+    ):
         raise GradeRefreshError("freshness objective must be a positive integer")
     if policy.get("publication_review_required") is not True:
         raise GradeRefreshError("publication review must be required")
     return RefreshPolicy(raw=policy, **fields)
 
 
-def catalog_inventory(
-    *, seed_path: Path, masked_path: Path, policy_path: Path
-) -> dict[str, Any]:
+def catalog_inventory(*, seed_path: Path, masked_path: Path, policy_path: Path) -> dict[str, Any]:
     policy = load_policy(policy_path, seed_path, masked_path)
     seed = load_json(seed_path)
     rows: list[dict[str, Any]] = []
@@ -338,9 +337,7 @@ def catalog_inventory(
                 "source_kind": source.get("kind"),
                 "source_reference": source.get("reference"),
                 "sandbox_image": image if local_process else None,
-                "image_build_source": (
-                    build_descriptor.get("path") if local_process else None
-                ),
+                "image_build_source": (build_descriptor.get("path") if local_process else None),
                 "image_build_provenance_status": (
                     build_descriptor.get("provenance_status") if local_process else None
                 ),
@@ -379,8 +376,7 @@ def catalog_inventory(
                 row["unsafe_to_execute_unsandboxed"] for row in rows
             ),
             "missing_image_build_source": sum(
-                row["unsafe_to_execute_unsandboxed"]
-                and row["image_build_source"] is None
+                row["unsafe_to_execute_unsandboxed"] and row["image_build_source"] is None
                 for row in rows
             ),
             "unqualified_image_build_source": sum(
@@ -410,9 +406,7 @@ def source_binding(repo_root: Path) -> dict[str, Any]:
     )
     if tracked.returncode != 0:
         raise GradeRefreshError("tracked source inventory is unavailable")
-    relative_paths = [
-        item.decode("utf-8") for item in tracked.stdout.split(b"\0") if item
-    ]
+    relative_paths = [item.decode("utf-8") for item in tracked.stdout.split(b"\0") if item]
     if not relative_paths:
         raise GradeRefreshError("tracked source inventory is empty")
     file_digests: dict[str, str] = {}
@@ -422,9 +416,7 @@ def source_binding(repo_root: Path) -> dict[str, Any]:
             raise GradeRefreshError("tracked source inventory contains an unsafe path")
         path = repo_root / relative_path
         if path.is_symlink():
-            file_digests[relative] = digest_bytes(
-                ("symlink:" + os.readlink(path)).encode("utf-8")
-            )
+            file_digests[relative] = digest_bytes(("symlink:" + os.readlink(path)).encode("utf-8"))
         else:
             file_digests[relative] = digest_file(path)
     binding_digest = digest_bytes(canonical_bytes(file_digests))
@@ -504,8 +496,7 @@ def _sandbox_controls(image: str, host: str) -> dict[str, Any]:
         "network_none": "--network" in joined and "none" in joined,
         "read_only_root": "--read-only" in joined,
         "capabilities_dropped": "--cap-drop" in joined and "ALL" in joined,
-        "no_new_privileges": "--security-opt" in joined
-        and "no-new-privileges" in joined,
+        "no_new_privileges": "--security-opt" in joined and "no-new-privileges" in joined,
         "memory_limit": "--memory" in joined,
         "cpu_limit": "--cpus" in joined,
         "pids_limit": "--pids-limit" in joined,
@@ -548,9 +539,7 @@ def scheduler_readback(
         if _run(runner, ["launchctl", "print", target]).returncode == 0
     ]
     definitions_match: bool | str = (
-        installed_digest == source_digest
-        if installed_digest is not None
-        else "NOT_APPLICABLE"
+        installed_digest == source_digest if installed_digest is not None else "NOT_APPLICABLE"
     )
     if disabled_state is True and not loaded_domains:
         state = "DISABLED_UNLOADED"
@@ -563,9 +552,7 @@ def scheduler_readback(
         "state": state,
         "persistently_disabled": disabled_state,
         "loaded_domains": loaded_domains,
-        "installed_definition_state": (
-            "PRESENT" if installed_digest is not None else "ABSENT"
-        ),
+        "installed_definition_state": ("PRESENT" if installed_digest is not None else "ABSENT"),
         "installed_plist": str(installed_plist) if installed_digest is not None else None,
         "installed_plist_sha256": installed_digest,
         "repository_plist_sha256": source_digest,
@@ -677,8 +664,7 @@ def _valid_npm_inputs(manifest_path: Path, lock_path: Path) -> bool:
             or not isinstance(package.get("resolved"), str)
             or not package["resolved"].startswith("https://registry.npmjs.org/")
             or not isinstance(package.get("integrity"), str)
-            or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"])
-            is None
+            or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"]) is None
             or package.get("link") is True
         ):
             return False
@@ -733,9 +719,7 @@ def _valid_python_inputs(manifest_path: Path, lock_path: Path) -> bool:
     return bool(locked) and all(locked.get(name) == version for name, version in direct.items())
 
 
-def _python_source_build_receipt(
-    *, repo_root: Path, value: object
-) -> dict[str, str] | None:
+def _python_source_build_receipt(*, repo_root: Path, value: object) -> dict[str, str] | None:
     receipt_ref = _exact_dependency_descriptor(repo_root=repo_root, value=value)
     if receipt_ref is None:
         return None
@@ -773,15 +757,13 @@ def _python_source_build_receipt(
         or not isinstance(claimed, str)
         or _SHA256.fullmatch(claimed) is None
         or claimed != digest_bytes(canonical_bytes(unsigned))
-        or re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", str(payload.get("python_base")))
-        is None
+        or re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", str(payload.get("python_base"))) is None
         or payload.get("platform") not in {"linux/arm64", "linux/amd64"}
         or type(payload.get("source_date_epoch")) is not int
         or payload.get("network_policy") != "none-during-all-package-code-execution"
         or payload.get("repeatable") is not True
         or payload.get("package_code_executed") is not True
-        or payload.get("exit_classification")
-        != "QUALIFIED_REPEATABLE_NETWORK_NONE"
+        or payload.get("exit_classification") != "QUALIFIED_REPEATABLE_NETWORK_NONE"
     ):
         return None
     try:
@@ -793,9 +775,7 @@ def _python_source_build_receipt(
     input_ref = _exact_dependency_descriptor(
         repo_root=repo_root, value=payload.get("input_descriptor")
     )
-    builder_ref = _exact_dependency_descriptor(
-        repo_root=repo_root, value=payload.get("builder")
-    )
+    builder_ref = _exact_dependency_descriptor(repo_root=repo_root, value=payload.get("builder"))
     if input_ref is None or builder_ref is None:
         return None
     try:
@@ -830,8 +810,7 @@ def _python_source_build_receipt(
         or not isinstance(tools, dict)
         or not tools
         or not all(
-            isinstance(key, str) and isinstance(item, str) and item
-            for key, item in tools.items()
+            isinstance(key, str) and isinstance(item, str) and item for key, item in tools.items()
         )
     ):
         return None
@@ -873,9 +852,7 @@ def _dependency_artifact(
         "package_code_executed",
     }
     source_build_ref = (
-        descriptor.get("source_build_receipt")
-        if isinstance(descriptor, dict)
-        else None
+        descriptor.get("source_build_receipt") if isinstance(descriptor, dict) else None
     )
     if source_build_ref is not None:
         expected_keys.add("source_build_receipt")
@@ -918,9 +895,7 @@ def _dependency_artifact(
             "registry-client-allowlist-build-code-network-none"
         ):
             return None
-        source_build = _python_source_build_receipt(
-            repo_root=repo_root, value=source_build_ref
-        )
+        source_build = _python_source_build_receipt(repo_root=repo_root, value=source_build_ref)
         if source_build is None:
             return None
     else:
@@ -932,10 +907,7 @@ def _dependency_artifact(
     if prepared_at.tzinfo is None:
         return None
     bundle_path = repo_root / str(descriptor["bundle_path"])
-    if (
-        not bundle_path.is_file()
-        or digest_file(bundle_path) != descriptor["bundle_sha256"]
-    ):
+    if not bundle_path.is_file() or digest_file(bundle_path) != descriptor["bundle_sha256"]:
         return None
     try:
         metadata = dependency_bundle_metadata(bundle_path)
@@ -1000,11 +972,7 @@ def _image_build_qualification(
         return None
     first = payload.get("first_build_image_id")
     second = payload.get("second_build_image_id")
-    if (
-        not isinstance(first, str)
-        or _SHA256.fullmatch(first) is None
-        or first != second
-    ):
+    if not isinstance(first, str) or _SHA256.fullmatch(first) is None or first != second:
         return None
     base_images = payload.get("base_images")
     network_policy = payload.get("build_network_policy")
@@ -1020,8 +988,7 @@ def _image_build_qualification(
         not isinstance(base_images, list)
         or not base_images
         or not all(
-            isinstance(item, str)
-            and re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", item) is not None
+            isinstance(item, str) and re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", item) is not None
             for item in base_images
         )
         or network_policy != ["none"]
@@ -1205,9 +1172,7 @@ def _image_build_qualification(
         }
         normalized_locks[lock_path] = lock_sha256
         normalized_artifacts[kind] = artifact
-        expected_copied_sources.update(
-            {manifest_path, lock_path, str(artifact["bundle_path"])}
-        )
+        expected_copied_sources.update({manifest_path, lock_path, str(artifact["bundle_path"])})
     if copied_sources != expected_copied_sources:
         return None
     build_input = {
@@ -1233,15 +1198,13 @@ def _image_build_qualification(
             return None
 
         if not (
-            (value[:2] == ["docker-buildx", "build"])
-            or value[:3] == ["docker", "buildx", "build"]
+            (value[:2] == ["docker-buildx", "build"]) or value[:3] == ["docker", "buildx", "build"]
         ):
             return None
 
         def pair(flag: str, expected: str) -> bool:
             return any(
-                value[index : index + 2] == [flag, expected]
-                for index in range(len(value) - 1)
+                value[index : index + 2] == [flag, expected] for index in range(len(value) - 1)
             )
 
         try:
@@ -1378,8 +1341,7 @@ def build_preflight_receipt(
         {
             row["sandbox_image"]
             for row in inventory["entries"]
-            if row.get("scannable") is True
-            and isinstance(row.get("sandbox_image"), str)
+            if row.get("scannable") is True and isinstance(row.get("sandbox_image"), str)
         }
     )
     image_build_sources: dict[str, dict[str, Any]] = {}
@@ -1418,9 +1380,7 @@ def build_preflight_receipt(
             "path": build_source,
             "sha256": build_source_sha256,
             "provenance_status": descriptor.get("provenance_status", "UNKNOWN"),
-            "reproducibility_status": descriptor.get(
-                "reproducibility_status", "UNKNOWN"
-            ),
+            "reproducibility_status": descriptor.get("reproducibility_status", "UNKNOWN"),
             "qualification": None,
             "state": "UNQUALIFIED",
         }
@@ -1442,13 +1402,9 @@ def build_preflight_receipt(
             if qualification is None:
                 binding["state"] = "UNKNOWN"
                 reasons.append(f"image_build_qualification_invalid:{reference}")
-            elif (
-                source.get("file_digests", {}).get(receipt_path)
-                != qualification["sha256"]
-                or any(
-                    source.get("file_digests", {}).get(input_path) != input_digest
-                    for input_path, input_digest in qualification["tracked_inputs"].items()
-                )
+            elif source.get("file_digests", {}).get(receipt_path) != qualification["sha256"] or any(
+                source.get("file_digests", {}).get(input_path) != input_digest
+                for input_path, input_digest in qualification["tracked_inputs"].items()
             ):
                 binding["state"] = "UNKNOWN"
                 reasons.append(f"image_build_qualification_unbound:{reference}")
@@ -1491,8 +1447,7 @@ def build_preflight_receipt(
                             "image_id": image_id,
                             "repo_digests": sorted(repo_digests),
                             "platform": (
-                                f"{item.get('Os', 'UNKNOWN')}/"
-                                f"{item.get('Architecture', 'UNKNOWN')}"
+                                f"{item.get('Os', 'UNKNOWN')}/{item.get('Architecture', 'UNKNOWN')}"
                             ),
                             "sandbox_controls": controls,
                         }
@@ -1506,7 +1461,13 @@ def build_preflight_receipt(
                         and qualification.get("qualified_image_id") != image_id
                     ):
                         reasons.append(f"catalog_image_qualification_mismatch:{reference}")
-                except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                except (
+                    IndexError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                ):
                     binding["state"] = "UNKNOWN"
                     reasons.append(f"catalog_image_provenance_unknown:{reference}")
         image_bindings.append(binding)
@@ -1528,9 +1489,7 @@ def build_preflight_receipt(
         reasons.append("mcp_audits_runtime_lock_mismatch")
     if tool_versions["mcp_trust"] == "UNKNOWN":
         reasons.append("mcp_trust_runtime_unavailable")
-    execution_ready = not reasons and all(
-        binding["state"] == "BOUND" for binding in image_bindings
-    )
+    execution_ready = not reasons and all(binding["state"] == "BOUND" for binding in image_bindings)
     payload: dict[str, Any] = {
         "schema": PREFLIGHT_SCHEMA,
         "observed_at": observed_at.isoformat(),
@@ -1579,7 +1538,11 @@ def build_preflight_receipt(
 
 
 def build_fixture_repeatability_receipt(
-    *, seed_path: Path, masked_path: Path, policy_path: Path, now: datetime | None = None
+    *,
+    seed_path: Path,
+    masked_path: Path,
+    policy_path: Path,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     observed_at = (now or datetime.now(tz=UTC)).astimezone(UTC)
     inventory = catalog_inventory(
@@ -1696,20 +1659,14 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
             )
         elif state == "masked":
             proof_ref = result.get("scan_proof")
-            if (
-                not isinstance(proof_ref, str)
-                or not proof_ref
-                or Path(proof_ref).name != proof_ref
-            ):
+            if not isinstance(proof_ref, str) or not proof_ref or Path(proof_ref).name != proof_ref:
                 raise GradeRefreshError("controlled masked proof reference is invalid")
             proof = load_json(candidate / "masked-proofs" / proof_ref)
             row.update(
                 {
                     "engine_name": result.get("engine_name"),
                     "engine_version": result.get("engine_version"),
-                    "proof_outcome": (
-                        proof.get("outcome") if isinstance(proof, dict) else None
-                    ),
+                    "proof_outcome": (proof.get("outcome") if isinstance(proof, dict) else None),
                     "evidence_present": (
                         proof.get("evidence_present") if isinstance(proof, dict) else None
                     ),
@@ -1741,9 +1698,7 @@ def _require_independent_candidate_paths(candidate: Path, repeat_candidate: Path
     except (OSError, RuntimeError) as exc:
         raise GradeRefreshError("controlled candidate paths cannot be resolved") from exc
     if candidate_path == repeat_path:
-        raise GradeRefreshError(
-            "controlled repeat candidate must be an independent path"
-        )
+        raise GradeRefreshError("controlled repeat candidate must be an independent path")
 
 
 def triage_candidate(
@@ -1753,6 +1708,7 @@ def triage_candidate(
     repeatability: object,
     seed_path: Path,
     masked_path: Path,
+    repo_root: Path = _REPO_ROOT,
     repeat_candidate: Path | None = None,
     candidate_verifier: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -1782,6 +1738,7 @@ def triage_candidate(
         candidate,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
     )
     if verification.get("structural_valid") is not True:
         add("Critical", "candidate_verification_failed")
@@ -1823,22 +1780,19 @@ def triage_candidate(
     if not isinstance(catalog_binding, dict):
         add("Critical", "reviewed_catalog_binding_mismatch")
         catalog_binding = {}
-    elif (
-        catalog_binding.get("seed_digest") != digest_file(seed_path)
-        or catalog_binding.get("masking_digest") != digest_file(masked_path)
-    ):
+    elif catalog_binding.get("seed_digest") != digest_file(seed_path) or catalog_binding.get(
+        "masking_digest"
+    ) != digest_file(masked_path):
         add("Critical", "reviewed_catalog_binding_mismatch")
     if repeatability.get("catalog_denominator") != catalog_binding.get("denominator"):
         add("High", "repeatability_denominator_mismatch")
     qualification = manifest.get("qualification")
     if (
         not isinstance(qualification, dict)
-        or qualification.get("preflight_receipt_digest")
-        != preflight.get("receipt_digest")
+        or qualification.get("preflight_receipt_digest") != preflight.get("receipt_digest")
         or not isinstance(source_binding, dict)
         or qualification.get("source_revision") != source_binding.get("revision")
-        or qualification.get("source_tree_digest")
-        != source_binding.get("source_tree_digest")
+        or qualification.get("source_tree_digest") != source_binding.get("source_tree_digest")
         or qualification.get("policy_digest") != catalog_binding.get("policy_digest")
     ):
         add("Critical", "candidate_qualification_binding_mismatch")
@@ -1848,14 +1802,13 @@ def triage_candidate(
             repeat_candidate,
             expected_seed_path=seed_path,
             expected_masked_path=masked_path,
+            repo_root=repo_root,
         )
         if repeat_verification.get("structural_valid") is not True:
             add("Critical", "repeat_candidate_verification_failed")
         try:
             repeat_manifest = load_json(repeat_candidate / "MANIFEST.json")
-            repeat_candidate_manifest_digest = digest_file(
-                repeat_candidate / "MANIFEST.json"
-            )
+            repeat_candidate_manifest_digest = digest_file(repeat_candidate / "MANIFEST.json")
             if not isinstance(repeat_manifest, dict) or any(
                 repeat_manifest.get(key) != manifest.get(key)
                 for key in ("catalog", "masking", "qualification", "sandbox")
@@ -1902,7 +1855,13 @@ def triage_candidate(
             or drift.get("current_grade") not in _GRADE_INDEX
             or drift.get("surface_comparison") not in {"changed", "unchanged", "unknown"}
             or drift.get("cause")
-            not in {"surface-changed", "engine-changed", "score-moved", "undetermined", "no-change"}
+            not in {
+                "surface-changed",
+                "engine-changed",
+                "score-moved",
+                "undetermined",
+                "no-change",
+            }
             or not isinstance(drift.get("summary"), str)
         ):
             add("High", "drift_provenance_invalid", slug)
@@ -1973,8 +1932,7 @@ def _triage_integrity_valid(
             triage.get("repeat_candidate_manifest_digest") is None
             or (
                 isinstance(triage.get("repeat_candidate_manifest_digest"), str)
-                and _SHA256.fullmatch(triage["repeat_candidate_manifest_digest"])
-                is not None
+                and _SHA256.fullmatch(triage["repeat_candidate_manifest_digest"]) is not None
             )
         )
         and triage.get("preflight_receipt_digest") == preflight_digest
@@ -2006,14 +1964,12 @@ def _triage_integrity_valid(
         and set(counts) == {"Critical", "High", "Medium", "Low"}
         and all(
             type(counts[severity]) is int
-            and counts[severity]
-            == sum(finding["severity"] == severity for finding in findings)
+            and counts[severity] == sum(finding["severity"] == severity for finding in findings)
             for severity in counts
         )
         and triage.get("candidate_claimed_state") in {"complete", "partial"}
         and isinstance(verification, dict)
-        and set(verification)
-        == {"structural_valid", "publication_ready", "state", "errors"}
+        and set(verification) == {"structural_valid", "publication_ready", "state", "errors"}
         and verification.get("structural_valid") is True
         and verification.get("publication_ready")
         is (triage.get("candidate_claimed_state") == "complete")
@@ -2022,9 +1978,7 @@ def _triage_integrity_valid(
     )
 
 
-def _load_disposition_policy(
-    *, path: Path, inventory: dict[str, Any]
-) -> dict[str, Any]:
+def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[str, Any]:
     payload = load_json(path)
     base_keys = {
         "schema",
@@ -2060,13 +2014,10 @@ def _load_disposition_policy(
     expected_forward = (
         {
             "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
-            "disposition": (
-                "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
-            ),
+            "disposition": ("adopt-exact-v37-candidate-bindings-as-current-forward-baseline"),
         }
         if review_state == "ACCEPTED_CURRENT_SOURCE_REVIEW"
-        else
-        {
+        else {
             "state": "ACCEPTED",
             "disposition": "adopt-exact-v20-candidate-bindings-as-forward-baseline",
         }
@@ -2075,8 +2026,7 @@ def _load_disposition_policy(
             {
                 "state": "PENDING_SANITIZED_REACCEPTANCE",
                 "disposition": (
-                    "preserve-exact-v20-bindings-pending-sanitized-artifact-"
-                    "reacceptance"
+                    "preserve-exact-v20-bindings-pending-sanitized-artifact-reacceptance"
                 ),
             }
             if review_state == "SANITIZED_REACCEPTANCE_REQUIRED"
@@ -2109,11 +2059,9 @@ def _load_disposition_policy(
             or acceptance.get("scope")
             != "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
             or acceptance.get("acceptance_state") != "ACCEPTED_EXACT_V38"
-            or acceptance.get("accepted_review_path")
-            != "accepted_publication_review_v38.json"
+            or acceptance.get("accepted_review_path") != "accepted_publication_review_v38.json"
             or not isinstance(acceptance.get("accepted_review_policy_sha256"), str)
-            or _SHA256.fullmatch(acceptance["accepted_review_policy_sha256"])
-            is None
+            or _SHA256.fullmatch(acceptance["accepted_review_policy_sha256"]) is None
             or acceptance.get("accepted_disposition_path")
             != "accepted_disposition_artifact_v38.json"
             or any(
@@ -2143,8 +2091,7 @@ def _load_disposition_policy(
             or acceptance.get("authority") != "operator"
             or acceptance.get("scope")
             != "all-eight-masked-dispositions-and-exact-v20-forward-baseline"
-            or acceptance.get("accepted_review_path")
-            != "accepted_publication_review_v20.json"
+            or acceptance.get("accepted_review_path") != "accepted_publication_review_v20.json"
             or not isinstance(acceptance.get("accepted_review_receipt_digest"), str)
             or _SHA256.fullmatch(acceptance["accepted_review_receipt_digest"]) is None
             or not isinstance(acceptance.get("accepted_review_artifact_sha256"), str)
@@ -2178,8 +2125,7 @@ def _load_disposition_policy(
             or acceptance.get("historical_review_artifact_sha256")
             != "sha256:2a7a95f129b86a115c067bf1542757a8524318a8b2f2f44a6b84d891c46139a8"
             or not isinstance(acceptance.get("sanitized_review_path"), str)
-            or Path(acceptance["sanitized_review_path"]).name
-            != acceptance["sanitized_review_path"]
+            or Path(acceptance["sanitized_review_path"]).name != acceptance["sanitized_review_path"]
             or not isinstance(acceptance.get("sanitized_review_receipt_digest"), str)
             or _SHA256.fullmatch(acceptance["sanitized_review_receipt_digest"]) is None
             or not isinstance(acceptance.get("sanitized_review_artifact_sha256"), str)
@@ -2191,8 +2137,7 @@ def _load_disposition_policy(
             or acceptance.get("sanitized_replacement") != "python3.11"
             or acceptance.get("original_value_sha256")
             != "sha256:9061081ffe2519f9fad388ce242ef4303808a4a5a5433e31db73a4ad925f89b8"
-            or acceptance.get("sanitized_acceptance_state")
-            != "PENDING_OPERATOR_REACCEPTANCE"
+            or acceptance.get("sanitized_acceptance_state") != "PENDING_OPERATOR_REACCEPTANCE"
         ):
             raise GradeRefreshError("sanitized review lineage binding is invalid")
     if payload.get("scheduler") != {
@@ -2255,9 +2200,7 @@ def _load_disposition_policy(
                 "next_review_condition": "explicit-human-disposition",
             }
         if any(entry.get(key) != value for key, value in expected.items()):
-            raise GradeRefreshError(
-                f"refresh disposition is inconsistent with inventory: {slug}"
-            )
+            raise GradeRefreshError(f"refresh disposition is inconsistent with inventory: {slug}")
         normalized.append(dict(entry))
     slugs = [entry["slug"] for entry in normalized]
     if len(slugs) != len(set(slugs)) or set(slugs) != set(masked_inventory):
@@ -2267,28 +2210,17 @@ def _load_disposition_policy(
     return result
 
 
-def _load_accepted_review(
-    *, path: Path, disposition_policy: dict[str, Any]
-) -> dict[str, Any]:
+def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> dict[str, Any]:
     acceptance = disposition_policy.get("acceptance")
     if not isinstance(acceptance, dict):
         raise GradeRefreshError("accepted disposition policy lacks acceptance evidence")
-    sanitized = (
-        disposition_policy.get("review_state")
-        == "SANITIZED_REACCEPTANCE_REQUIRED"
-    )
-    current_source = (
-        disposition_policy.get("review_state") == "ACCEPTED_CURRENT_SOURCE_REVIEW"
-    )
+    sanitized = disposition_policy.get("review_state") == "SANITIZED_REACCEPTANCE_REQUIRED"
+    current_source = disposition_policy.get("review_state") == "ACCEPTED_CURRENT_SOURCE_REVIEW"
     artifact_key = (
-        "sanitized_review_artifact_sha256"
-        if sanitized
-        else "accepted_review_artifact_sha256"
+        "sanitized_review_artifact_sha256" if sanitized else "accepted_review_artifact_sha256"
     )
     receipt_key = (
-        "sanitized_review_receipt_digest"
-        if sanitized
-        else "accepted_review_receipt_digest"
+        "sanitized_review_receipt_digest" if sanitized else "accepted_review_receipt_digest"
     )
     if digest_file(path) != acceptance.get(artifact_key):
         raise GradeRefreshError("accepted review artifact digest does not match policy")
@@ -2318,16 +2250,12 @@ def _load_accepted_review(
     ):
         raise GradeRefreshError("accepted review is not an exact proposed decision")
     if current_source:
-        if (
-            acceptance.get("accepted_review_path") != path.name
-            or review_policy.get("sha256")
-            != acceptance.get("accepted_review_policy_sha256")
-        ):
+        if acceptance.get("accepted_review_path") != path.name or review_policy.get(
+            "sha256"
+        ) != acceptance.get("accepted_review_policy_sha256"):
             raise GradeRefreshError("current-source review policy binding is invalid")
         artifact_path = path.parent / str(acceptance.get("accepted_disposition_path", ""))
-        if digest_file(artifact_path) != acceptance.get(
-            "accepted_disposition_artifact_sha256"
-        ):
+        if digest_file(artifact_path) != acceptance.get("accepted_disposition_artifact_sha256"):
             raise GradeRefreshError("accepted disposition artifact digest does not match policy")
         artifact = load_json(artifact_path)
         if not isinstance(artifact, dict):
@@ -2342,8 +2270,7 @@ def _load_accepted_review(
         if (
             artifact.get("schema") != "McpTrustAcceptedDispositionArtifactV1"
             or artifact.get("decision") != "OPERATOR_ACCEPTED_EXACT_V38"
-            or artifact_receipt
-            != acceptance.get("accepted_disposition_receipt_digest")
+            or artifact_receipt != acceptance.get("accepted_disposition_receipt_digest")
             or artifact_receipt != digest_bytes(canonical_bytes(artifact_unsigned))
             or not isinstance(artifact_acceptance, dict)
             or artifact_acceptance.get("state") != "ACCEPTED_EXACT_V38"
@@ -2351,14 +2278,11 @@ def _load_accepted_review(
             or artifact_acceptance.get("proposal_policy_sha256")
             != acceptance.get("accepted_review_policy_sha256")
             or not isinstance(artifact_forward, dict)
-            or artifact_forward.get("state")
-            != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
-            or artifact.get("historical_baseline")
-            != disposition_policy.get("historical_baseline")
+            or artifact_forward.get("state") != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+            or artifact.get("historical_baseline") != disposition_policy.get("historical_baseline")
             or not isinstance(artifact_masked, dict)
             or artifact_masked.get("count") != 8
-            or artifact_masked.get("acceptance_state")
-            != "ACCEPTED_EXACT_V38_RETAIN_MASKED"
+            or artifact_masked.get("acceptance_state") != "ACCEPTED_EXACT_V38_RETAIN_MASKED"
             or artifact_masked.get("projection_repeatability") != "PASS"
             or artifact_privacy
             != {
@@ -2371,8 +2295,7 @@ def _load_accepted_review(
             or artifact_public.get("production_freshness") != "UNKNOWN"
             or artifact_public.get("production_source_binding") != "UNKNOWN"
             or artifact_public.get("production_deployment_revision") != "UNKNOWN"
-            or artifact_public.get("relationship_to_v38")
-            != "NOT_PUBLISHED_AND_NOT_DEPLOYED"
+            or artifact_public.get("relationship_to_v38") != "NOT_PUBLISHED_AND_NOT_DEPLOYED"
         ):
             raise GradeRefreshError("accepted disposition artifact integrity is invalid")
         shared_forward_fields = {
@@ -2428,8 +2351,7 @@ def _load_accepted_review(
         if (
             acceptance.get("sanitized_review_path") != path.name
             or not isinstance(tool_versions, dict)
-            or tool_versions.get("python_executable")
-            != acceptance.get("sanitized_replacement")
+            or tool_versions.get("python_executable") != acceptance.get("sanitized_replacement")
             or "/" in str(tool_versions.get("python_executable", ""))
         ):
             raise GradeRefreshError("sanitized review privacy binding is invalid")
@@ -2460,34 +2382,28 @@ def _sanitized_acceptance_projection_valid(payload: object) -> bool:
         return False
     return bool(
         payload.get("authority") == "operator"
-        and payload.get("scope")
-        == "all-eight-masked-dispositions-and-exact-v20-forward-baseline"
+        and payload.get("scope") == "all-eight-masked-dispositions-and-exact-v20-forward-baseline"
         and payload.get("historical_review_receipt_digest")
         == "sha256:15b1367db8f671c84884247f2fc698abef8436897d9a7e1c31634d0f2bcbbddc"
         and payload.get("historical_review_artifact_sha256")
         == "sha256:2a7a95f129b86a115c067bf1542757a8524318a8b2f2f44a6b84d891c46139a8"
         and isinstance(payload.get("sanitized_review_path"), str)
-        and Path(payload["sanitized_review_path"]).name
-        == payload["sanitized_review_path"]
+        and Path(payload["sanitized_review_path"]).name == payload["sanitized_review_path"]
         and isinstance(payload.get("sanitized_review_receipt_digest"), str)
         and _SHA256.fullmatch(payload["sanitized_review_receipt_digest"]) is not None
         and isinstance(payload.get("sanitized_review_artifact_sha256"), str)
         and _SHA256.fullmatch(payload["sanitized_review_artifact_sha256"]) is not None
         and payload.get("sanitization_policy")
         == "normalize-python-executable-to-versioned-command-v1"
-        and payload.get("sanitized_field")
-        == "forward_baseline.tool_versions.python_executable"
+        and payload.get("sanitized_field") == "forward_baseline.tool_versions.python_executable"
         and payload.get("sanitized_replacement") == "python3.11"
         and payload.get("original_value_sha256")
         == "sha256:9061081ffe2519f9fad388ce242ef4303808a4a5a5433e31db73a4ad925f89b8"
-        and payload.get("sanitized_acceptance_state")
-        == "PENDING_OPERATOR_REACCEPTANCE"
+        and payload.get("sanitized_acceptance_state") == "PENDING_OPERATOR_REACCEPTANCE"
     )
 
 
-def _masked_projection_evidence(
-    *, slug: str, projection: dict[str, Any]
-) -> dict[str, str]:
+def _masked_projection_evidence(*, slug: str, projection: dict[str, Any]) -> dict[str, str]:
     sandbox = projection.get("sandbox")
     if (
         projection.get("state") != "masked"
@@ -2522,6 +2438,7 @@ def build_publication_review_decision(
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
+    repo_root: Path = _REPO_ROOT,
     disposition_path: Path,
     accepted_review_path: Path | None = None,
     candidate_verifier: Callable[..., dict[str, Any]] | None = None,
@@ -2534,9 +2451,7 @@ def build_publication_review_decision(
         masked_path=masked_path,
         policy_path=policy_path,
     )
-    disposition_policy = _load_disposition_policy(
-        path=disposition_path, inventory=inventory
-    )
+    disposition_policy = _load_disposition_policy(path=disposition_path, inventory=inventory)
     review_state = disposition_policy["review_state"]
     dispositions_accepted = review_state in {
         "ACCEPTED",
@@ -2544,9 +2459,7 @@ def build_publication_review_decision(
         "ACCEPTED_CURRENT_SOURCE_REVIEW",
     }
     current_source_accepted = review_state == "ACCEPTED_CURRENT_SOURCE_REVIEW"
-    sanitized_reacceptance_required = (
-        review_state == "SANITIZED_REACCEPTANCE_REQUIRED"
-    )
+    sanitized_reacceptance_required = review_state == "SANITIZED_REACCEPTANCE_REQUIRED"
     accepted_review: dict[str, Any] | None = None
     if dispositions_accepted:
         if accepted_review_path is None:
@@ -2563,6 +2476,7 @@ def build_publication_review_decision(
         repeatability=repeatability,
         seed_path=seed_path,
         masked_path=masked_path,
+        repo_root=repo_root,
         candidate_verifier=candidate_verifier,
     )
     if triage != recomputed_triage:
@@ -2581,10 +2495,7 @@ def build_publication_review_decision(
         and finding.get("severity") == "High"
         and finding.get("code") == "masked_result_requires_review"
     }
-    masked_slugs = {
-        entry["slug"]
-        for entry in disposition_policy["entries"]
-    }
+    masked_slugs = {entry["slug"] for entry in disposition_policy["entries"]}
     if masked_findings != masked_slugs:
         raise GradeRefreshError("masked findings and dispositions do not match")
     if projection_builder is None:
@@ -2608,12 +2519,8 @@ def build_publication_review_decision(
     entry_dispositions: list[dict[str, Any]] = []
     for disposition in disposition_policy["entries"]:
         slug = disposition["slug"]
-        first = _masked_projection_evidence(
-            slug=slug, projection=first_projection.get(slug, {})
-        )
-        second = _masked_projection_evidence(
-            slug=slug, projection=second_projection.get(slug, {})
-        )
+        first = _masked_projection_evidence(slug=slug, projection=first_projection.get(slug, {}))
+        second = _masked_projection_evidence(slug=slug, projection=second_projection.get(slug, {}))
         if first != second:
             raise GradeRefreshError(f"masked controlled repeats differ: {slug}")
         inventory_row = inventory_by_slug[slug]
@@ -2634,12 +2541,8 @@ def build_publication_review_decision(
                 "classification": {
                     "unsupported_upstream": inventory_row["unsupported_upstream"],
                     "credential_dependent": inventory_row["credential_dependent"],
-                    "backing_service_dependent": inventory_row[
-                        "backing_service_dependent"
-                    ],
-                    "unsafe_to_execute_unsandboxed": inventory_row[
-                        "unsafe_to_execute_unsandboxed"
-                    ],
+                    "backing_service_dependent": inventory_row["backing_service_dependent"],
+                    "unsafe_to_execute_unsandboxed": inventory_row["unsafe_to_execute_unsandboxed"],
                 },
                 "controlled_evidence": first,
                 "claim_ceiling": (
@@ -2751,12 +2654,8 @@ def build_publication_review_decision(
         "entry_dispositions": entry_dispositions,
         "disposition_counts": {
             "total": len(entry_dispositions),
-            "pending_human_acceptance": (
-                0 if dispositions_accepted else len(entry_dispositions)
-            ),
-            "accepted_human": (
-                len(entry_dispositions) if dispositions_accepted else 0
-            ),
+            "pending_human_acceptance": (0 if dispositions_accepted else len(entry_dispositions)),
+            "accepted_human": (len(entry_dispositions) if dispositions_accepted else 0),
             "retain_masked": len(entry_dispositions),
         },
         "candidate_counts": candidate_counts,
@@ -2770,19 +2669,13 @@ def build_publication_review_decision(
             "masking_digest": catalog.get("masking_digest", "UNKNOWN"),
             "catalog_denominator": catalog.get("denominator", 0),
             "preflight_receipt_digest": preflight.get("receipt_digest", "UNKNOWN"),
-            "repeatability_receipt_digest": repeatability.get(
-                "receipt_digest", "UNKNOWN"
-            ),
+            "repeatability_receipt_digest": repeatability.get("receipt_digest", "UNKNOWN"),
             "triage_receipt_digest": triage.get("receipt_digest", "UNKNOWN"),
-            "candidate_manifest_digest": triage.get(
-                "candidate_manifest_digest", "UNKNOWN"
-            ),
+            "candidate_manifest_digest": triage.get("candidate_manifest_digest", "UNKNOWN"),
             "repeat_candidate_manifest_digest": triage.get(
                 "repeat_candidate_manifest_digest", "UNKNOWN"
             ),
-            "tool_versions": _privacy_safe_tool_versions(
-                preflight.get("tool_versions", {})
-            ),
+            "tool_versions": _privacy_safe_tool_versions(preflight.get("tool_versions", {})),
             "qualified_images": {
                 binding["reference"]: binding["image_id"]
                 for binding in sorted(image_bindings, key=lambda item: item["reference"])
@@ -2794,21 +2687,13 @@ def build_publication_review_decision(
             "persistently_disabled": scheduler.get("persistently_disabled", "UNKNOWN"),
             "loaded_domains": scheduler.get("loaded_domains", "UNKNOWN"),
             "definitions_match": scheduler.get("definitions_match", "UNKNOWN"),
-            "installed_plist_sha256": scheduler.get(
-                "installed_plist_sha256", "UNKNOWN"
-            ),
-            "repository_plist_sha256": scheduler.get(
-                "repository_plist_sha256", "UNKNOWN"
-            ),
+            "installed_plist_sha256": scheduler.get("installed_plist_sha256", "UNKNOWN"),
+            "repository_plist_sha256": scheduler.get("repository_plist_sha256", "UNKNOWN"),
             "mutation_performed": scheduler.get("mutation_performed", "UNKNOWN"),
         },
         "blocking_gates": [
             *acceptance_gates,
-            *(
-                []
-                if current_source_accepted
-                else ["exact_source_review_and_landing_required"]
-            ),
+            *([] if current_source_accepted else ["exact_source_review_and_landing_required"]),
             "immutable_site_artifact_and_rollback_binding_required",
             "explicit_publication_authority_required",
             "production_source_and_deployment_binding_unknown",
@@ -2858,8 +2743,7 @@ def build_publication_review_decision(
         if proposed_forward != accepted_forward:
             raise GradeRefreshError("accepted review forward baseline bindings changed")
         if (
-            accepted_review.get("historical_baseline")
-            != payload["historical_baseline"]
+            accepted_review.get("historical_baseline") != payload["historical_baseline"]
             or accepted_review.get("candidate_counts") != payload["candidate_counts"]
         ):
             raise GradeRefreshError("accepted review candidate semantics changed")
@@ -2880,9 +2764,9 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
     candidates = payload.get("candidate_counts")
     blockers = payload.get("blocking_gates")
     quarantines = payload.get("quarantined_gates")
-    if not all(
-        isinstance(value, dict) for value in (forward, dispositions, candidates)
-    ) or not all(isinstance(value, list) for value in (blockers, quarantines)):
+    if not all(isinstance(value, dict) for value in (forward, dispositions, candidates)) or not all(
+        isinstance(value, list) for value in (blockers, quarantines)
+    ):
         raise GradeRefreshError("publication review decision state fields are invalid")
     assert isinstance(forward, dict)
     assert isinstance(dispositions, dict)
@@ -2910,17 +2794,14 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         disposition_projection = payload.get("disposition_policy")
         current_source_accepted = bool(
             isinstance(disposition_projection, dict)
-            and disposition_projection.get("review_state")
-            == "ACCEPTED_CURRENT_SOURCE_REVIEW"
+            and disposition_projection.get("review_state") == "ACCEPTED_CURRENT_SOURCE_REVIEW"
         )
         if dispositions != accepted_counts:
             raise GradeRefreshError("accepted disposition counts are invalid")
         if current_source_accepted and (
-            forward.get("state")
-            != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
+            forward.get("state") != "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
             or not isinstance(payload.get("acceptance"), dict)
-            or payload["acceptance"].get("acceptance_state")
-            != "ACCEPTED_EXACT_V38"
+            or payload["acceptance"].get("acceptance_state") != "ACCEPTED_EXACT_V38"
             or "exact_source_review_and_landing_required" in blockers
         ):
             raise GradeRefreshError("current-source acceptance binding is invalid")
@@ -2935,8 +2816,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         disposition_policy = payload.get("disposition_policy")
         if (
             not isinstance(disposition_policy, dict)
-            or disposition_policy.get("review_state")
-            != "SANITIZED_REACCEPTANCE_REQUIRED"
+            or disposition_policy.get("review_state") != "SANITIZED_REACCEPTANCE_REQUIRED"
             or forward.get("state") != "PENDING_SANITIZED_REACCEPTANCE"
             or not _sanitized_acceptance_projection_valid(payload.get("acceptance"))
         ):
@@ -3018,12 +2898,8 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
 def publication_review_markdown(payload: dict[str, Any]) -> str:
     """Render a compact, grade-free human review view of a decision receipt."""
     entries = payload.get("entry_dispositions", [])
-    accepted = payload.get("disposition_counts", {}).get("accepted_human") == len(
-        entries
-    )
-    sanitized_pending = (
-        payload.get("review_state") == "READY_FOR_SANITIZED_REACCEPTANCE"
-    )
+    accepted = payload.get("disposition_counts", {}).get("accepted_human") == len(entries)
+    sanitized_pending = payload.get("review_state") == "READY_FOR_SANITIZED_REACCEPTANCE"
     if sanitized_pending:
         acceptance_label = (
             "accepted in V20 and remains masked; sanitized successor reacceptance pending"
@@ -3039,12 +2915,8 @@ def publication_review_markdown(payload: dict[str, Any]) -> str:
         for entry in entries
         if isinstance(entry, dict)
     )
-    blockers = "\n".join(
-        f"- `{gate}`" for gate in payload.get("blocking_gates", [])
-    )
-    quarantines = "\n".join(
-        f"- `{gate}`" for gate in payload.get("quarantined_gates", [])
-    )
+    blockers = "\n".join(f"- `{gate}`" for gate in payload.get("blocking_gates", []))
+    quarantines = "\n".join(f"- `{gate}`" for gate in payload.get("quarantined_gates", []))
     baseline = payload.get("forward_baseline", {})
     status_label = (
         "V20-accepted; sanitized successor pending reacceptance"
@@ -3058,7 +2930,7 @@ def publication_review_markdown(payload: dict[str, Any]) -> str:
     masking_digest = baseline.get("masking_digest", "UNKNOWN")
     return f"""# MCP Trust publication decision packet
 
-Decision: **{payload.get('decision', 'UNKNOWN')}**
+Decision: **{payload.get("decision", "UNKNOWN")}**
 
 This is a local review artifact. It grants no publication, deployment,
 scheduler, credential, backing-service, or outreach authority. A danger grade
@@ -3066,7 +2938,7 @@ is a technical capability assessment, not an endorsement.
 
 ## {status_label} masked-entry dispositions
 
-{entry_lines or '- none'}
+{entry_lines or "- none"}
 
 No masked grade, risk detail, or finding detail is disclosed by this packet.
 Controlled success proves invocation and evidence presence only.
@@ -3077,15 +2949,15 @@ Controlled success proves invocation and evidence presence only.
 - {status_label} forward source revision: `{source_revision}`
 - {status_label} forward policy digest: `{policy_digest}`
 - {status_label} forward masking digest: `{masking_digest}`
-- Adoption state: `{baseline.get('state', 'UNKNOWN')}`
+- Adoption state: `{baseline.get("state", "UNKNOWN")}`
 
 ## Blocking publication gates
 
-{blockers or '- none'}
+{blockers or "- none"}
 
 ## Quarantined scheduler gates
 
-{quarantines or '- none'}
+{quarantines or "- none"}
 
 Production freshness remains `UNKNOWN`. Publication remains a separate human
 and deployment decision after the exact source, artifact, rollback, and public
@@ -3233,10 +3105,7 @@ def build_state_card(
         "sandbox-policy-defined",
         "review-only-authority",
     ]
-    if (
-        preflight.get("status") == "READY"
-        and preflight.get("safe_to_execute_catalog") is True
-    ):
+    if preflight.get("status") == "READY" and preflight.get("safe_to_execute_catalog") is True:
         completed_controls.append("image-provenance-preflight-run")
     if repeatability.get("status") == "PASS":
         completed_controls.append("deterministic-fixture-repeatability")
@@ -3281,6 +3150,245 @@ def build_state_card(
             )
         ),
     }
+
+
+def validate_ready_preflight_contract(
+    preflight: object,
+    *,
+    expected_image_references: object,
+) -> None:
+    """Reject internally self-consistent but unqualified READY evidence."""
+    if not isinstance(preflight, dict):
+        raise GradeRefreshError("READY preflight semantics are invalid")
+    authority = preflight.get("authority")
+    scheduler = preflight.get("scheduler")
+    if (
+        preflight.get("status") != "READY"
+        or preflight.get("safe_to_execute_catalog") is not True
+        or preflight.get("exit_classification") != "ready"
+        or preflight.get("reasons") != []
+        or authority
+        != {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        }
+        or not isinstance(scheduler, dict)
+        or scheduler.get("mutation_performed") is not False
+    ):
+        raise GradeRefreshError("READY preflight semantics are invalid")
+
+    sandbox = preflight.get("sandbox")
+    catalog = preflight.get("catalog")
+    tool_versions = preflight.get("tool_versions")
+    image_bindings = sandbox.get("image_bindings") if isinstance(sandbox, dict) else None
+    image_sources = catalog.get("image_build_sources") if isinstance(catalog, dict) else None
+    expected_references = expected_image_references
+    if (
+        not isinstance(sandbox, dict)
+        or set(sandbox)
+        != {
+            "docker_host_kind",
+            "image_bindings",
+            "network_policy",
+            "filesystem_policy",
+            "resource_policy",
+            "secret_policy",
+        }
+        or sandbox.get("docker_host_kind") != "local-unix"
+        or sandbox.get("network_policy") != "none"
+        or sandbox.get("filesystem_policy") != "read-only-root-bounded-tmpfs-no-host-mounts"
+        or sandbox.get("resource_policy") != "cpu-memory-pids-timeout-required"
+        or sandbox.get("secret_policy") != "no-live-secrets-dummy-network-off-only"
+        or not isinstance(expected_references, list)
+        or not all(isinstance(reference, str) for reference in expected_references)
+        or len(set(expected_references)) != len(expected_references)
+        or not isinstance(image_bindings, list)
+        or len(image_bindings) != len(expected_references)
+        or not isinstance(image_sources, dict)
+        or set(image_sources) != set(expected_references)
+    ):
+        raise GradeRefreshError("READY sandbox evidence is invalid")
+
+    binding_by_reference: dict[str, dict[str, Any]] = {}
+    for binding in image_bindings:
+        reference = binding.get("reference") if isinstance(binding, dict) else None
+        if not isinstance(reference, str) or reference in binding_by_reference:
+            raise GradeRefreshError("READY image bindings are invalid")
+        binding_by_reference[reference] = binding
+    if set(binding_by_reference) != set(expected_references):
+        raise GradeRefreshError("READY image bindings are invalid")
+    required_controls = {
+        "network_none",
+        "read_only_root",
+        "capabilities_dropped",
+        "no_new_privileges",
+        "memory_limit",
+        "cpu_limit",
+        "pids_limit",
+        "non_root_user",
+        "bounded_writable_tmpfs",
+        "no_host_mount",
+    }
+    source = preflight.get("source_binding")
+    source_files = source.get("file_digests") if isinstance(source, dict) else None
+    for reference in expected_references:
+        binding = binding_by_reference[reference]
+        controls = binding.get("sandbox_controls")
+        control_values = controls.get("controls") if isinstance(controls, dict) else None
+        source_binding = image_sources[reference]
+        qualification = (
+            source_binding.get("qualification") if isinstance(source_binding, dict) else None
+        )
+        tracked_inputs = (
+            qualification.get("tracked_inputs") if isinstance(qualification, dict) else None
+        )
+        if (
+            set(binding)
+            != {
+                "reference",
+                "state",
+                "image_id",
+                "repo_digests",
+                "platform",
+                "sandbox_controls",
+            }
+            or binding.get("state") != "BOUND"
+            or not isinstance(binding.get("image_id"), str)
+            or _SHA256.fullmatch(binding["image_id"]) is None
+            or not isinstance(binding.get("repo_digests"), list)
+            or not all(isinstance(value, str) for value in binding["repo_digests"])
+            or not isinstance(binding.get("platform"), str)
+            or re.fullmatch(r"linux/(?:arm64|amd64)", binding["platform"]) is None
+            or not isinstance(controls, dict)
+            or set(controls) != {"controls", "all_required_controls"}
+            or controls.get("all_required_controls") is not True
+            or not isinstance(control_values, dict)
+            or set(control_values) != required_controls
+            or not all(value is True for value in control_values.values())
+            or not isinstance(source_binding, dict)
+            or source_binding.get("state") != "BOUND"
+            or source_binding.get("provenance_status") != "SOURCE_CONTROLLED"
+            or source_binding.get("reproducibility_status") != "VERIFIED"
+            or not _safe_relative_path(source_binding.get("path"))
+            or not isinstance(source_binding.get("sha256"), str)
+            or _SHA256.fullmatch(source_binding["sha256"]) is None
+            or not isinstance(qualification, dict)
+            or set(qualification)
+            != {
+                "path",
+                "sha256",
+                "receipt_digest",
+                "qualified_image_id",
+                "build_input_digest",
+                "dependency_locks",
+                "dependency_artifacts",
+                "tracked_inputs",
+                "state",
+            }
+            or qualification.get("state") != "VERIFIED"
+            or qualification.get("qualified_image_id") != binding.get("image_id")
+            or not _safe_relative_path(qualification.get("path"))
+            or not isinstance(qualification.get("sha256"), str)
+            or _SHA256.fullmatch(qualification["sha256"]) is None
+            or not isinstance(qualification.get("receipt_digest"), str)
+            or _SHA256.fullmatch(qualification["receipt_digest"]) is None
+            or not isinstance(qualification.get("build_input_digest"), str)
+            or _SHA256.fullmatch(qualification["build_input_digest"]) is None
+            or not isinstance(qualification.get("dependency_locks"), dict)
+            or not isinstance(qualification.get("dependency_artifacts"), dict)
+            or not isinstance(tracked_inputs, dict)
+            or not all(
+                _safe_relative_path(path)
+                and isinstance(digest, str)
+                and _SHA256.fullmatch(digest) is not None
+                for path, digest in tracked_inputs.items()
+            )
+            or not isinstance(source_files, dict)
+            or source_files.get(source_binding["path"]) != source_binding["sha256"]
+            or source_files.get(qualification["path"]) != qualification["sha256"]
+            or any(source_files.get(path) != digest for path, digest in tracked_inputs.items())
+        ):
+            raise GradeRefreshError("READY image bindings are invalid")
+
+    required_tool_keys = {
+        "python",
+        "python_executable",
+        "mcp_audits",
+        "mcp_audits_locked",
+        "mcp_trust",
+        "docker_client",
+        "docker_server",
+    }
+    if (
+        not isinstance(tool_versions, dict)
+        or set(tool_versions) != required_tool_keys
+        or not all(
+            isinstance(tool_versions.get(key), str) and tool_versions[key] != "UNKNOWN"
+            for key in required_tool_keys
+        )
+        or tool_versions.get("mcp_audits") != tool_versions.get("mcp_audits_locked")
+        or any(
+            _STABLE_VERSION.fullmatch(tool_versions[key]) is None
+            for key in (
+                "python",
+                "mcp_audits",
+                "mcp_audits_locked",
+                "mcp_trust",
+                "docker_client",
+                "docker_server",
+            )
+        )
+    ):
+        raise GradeRefreshError("READY tool evidence is invalid")
+
+
+def revalidate_ready_preflight_qualifications(
+    preflight: object,
+    *,
+    repo_root: Path,
+    expected_image_references: object,
+    now: datetime | None = None,
+) -> None:
+    """Recompute every READY image qualification from current tracked bytes."""
+    validate_ready_preflight_contract(
+        preflight,
+        expected_image_references=expected_image_references,
+    )
+    if not isinstance(preflight, dict) or not isinstance(
+        expected_image_references, list
+    ):
+        raise GradeRefreshError("READY image qualification is invalid")
+    catalog = preflight.get("catalog")
+    image_sources = (
+        catalog.get("image_build_sources") if isinstance(catalog, dict) else None
+    )
+    if not isinstance(image_sources, dict):
+        raise GradeRefreshError("READY image qualification is invalid")
+    for reference in expected_image_references:
+        source = image_sources[reference]
+        if not isinstance(source, dict):
+            raise GradeRefreshError("READY image qualification is invalid")
+        qualification = source.get("qualification")
+        build_source = source.get("path")
+        build_source_sha256 = source.get("sha256")
+        receipt_path = qualification.get("path") if isinstance(qualification, dict) else None
+        if not all(
+            isinstance(value, str)
+            for value in (reference, build_source, build_source_sha256, receipt_path)
+        ):
+            raise GradeRefreshError("READY image qualification is invalid")
+        recomputed = _image_build_qualification(
+            repo_root=repo_root,
+            reference=reference,
+            build_source=build_source,
+            build_source_sha256=build_source_sha256,
+            receipt_path=receipt_path,
+            now=now,
+        )
+        if recomputed is None or recomputed != qualification:
+            raise GradeRefreshError(f"READY image qualification changed:{reference}")
 
 
 def build_operator_package_lineage(
@@ -3335,122 +3443,23 @@ def build_operator_package_lineage(
     ):
         raise GradeRefreshError("operator package preflight semantics are invalid")
     if preflight_ready:
-        sandbox = preflight.get("sandbox")
-        tool_versions = preflight.get("tool_versions")
-        image_bindings = sandbox.get("image_bindings") if isinstance(sandbox, dict) else None
-        expected_references = catalog_inputs.get("image_references") if isinstance(
-            catalog_inputs, dict
-        ) else None
-        ready_catalog = preflight.get("catalog")
-        image_sources = (
-            ready_catalog.get("image_build_sources")
-            if isinstance(ready_catalog, dict)
-            else None
+        expected_references = (
+            catalog_inputs.get("image_references") if isinstance(catalog_inputs, dict) else None
         )
-        required_controls = {
-            "network_none",
-            "read_only_root",
-            "capabilities_dropped",
-            "no_new_privileges",
-            "memory_limit",
-            "cpu_limit",
-            "pids_limit",
-            "non_root_user",
-            "bounded_writable_tmpfs",
-            "no_host_mount",
-        }
-        if (
-            not isinstance(sandbox, dict)
-            or sandbox.get("docker_host_kind") != "local-unix"
-            or sandbox.get("network_policy") != "none"
-            or sandbox.get("filesystem_policy")
-            != "read-only-root-bounded-tmpfs-no-host-mounts"
-            or sandbox.get("resource_policy") != "cpu-memory-pids-timeout-required"
-            or sandbox.get("secret_policy") != "no-live-secrets-dummy-network-off-only"
-            or not isinstance(expected_references, list)
-            or not expected_references
-            or not isinstance(image_bindings, list)
-            or len(image_bindings) != len(expected_references)
-            or not isinstance(image_sources, dict)
-            or set(image_sources) != set(expected_references)
-        ):
-            raise GradeRefreshError("operator package READY sandbox evidence is invalid")
-        binding_by_reference = {
-            binding.get("reference"): binding
-            for binding in image_bindings
-            if isinstance(binding, dict)
-        }
-        if set(binding_by_reference) != set(expected_references):
-            raise GradeRefreshError("operator package READY image bindings are invalid")
-        for reference in expected_references:
-            binding = binding_by_reference[reference]
-            controls = binding.get("sandbox_controls")
-            control_values = controls.get("controls") if isinstance(controls, dict) else None
-            source_binding = image_sources[reference]
-            qualification = (
-                source_binding.get("qualification")
-                if isinstance(source_binding, dict)
-                else None
+        try:
+            validate_ready_preflight_contract(
+                preflight,
+                expected_image_references=expected_references,
             )
-            if (
-                binding.get("state") != "BOUND"
-                or not isinstance(binding.get("image_id"), str)
-                or _SHA256.fullmatch(binding["image_id"]) is None
-                or not isinstance(binding.get("repo_digests"), list)
-                or not all(isinstance(value, str) for value in binding["repo_digests"])
-                or not isinstance(binding.get("platform"), str)
-                or not isinstance(controls, dict)
-                or controls.get("all_required_controls") is not True
-                or not isinstance(control_values, dict)
-                or set(control_values) != required_controls
-                or not all(value is True for value in control_values.values())
-                or not isinstance(source_binding, dict)
-                or source_binding.get("state") != "BOUND"
-                or not isinstance(qualification, dict)
-                or qualification.get("state") != "VERIFIED"
-                or qualification.get("qualified_image_id") != binding.get("image_id")
-            ):
-                raise GradeRefreshError("operator package READY image bindings are invalid")
-        required_tool_keys = {
-            "python",
-            "python_executable",
-            "mcp_audits",
-            "mcp_audits_locked",
-            "mcp_trust",
-            "docker_client",
-            "docker_server",
-        }
-        if (
-            not isinstance(tool_versions, dict)
-            or set(tool_versions) != required_tool_keys
-            or not all(
-                isinstance(tool_versions.get(key), str)
-                and tool_versions[key] != "UNKNOWN"
-                for key in required_tool_keys
-            )
-            or tool_versions.get("mcp_audits")
-            != tool_versions.get("mcp_audits_locked")
-            or any(
-                _STABLE_VERSION.fullmatch(tool_versions[key]) is None
-                for key in (
-                    "python",
-                    "mcp_audits",
-                    "mcp_audits_locked",
-                    "mcp_trust",
-                    "docker_client",
-                    "docker_server",
-                )
-            )
-        ):
-            raise GradeRefreshError("operator package READY tool evidence is invalid")
+        except GradeRefreshError as exc:
+            raise GradeRefreshError(f"operator package {exc}") from exc
     repeatability_passed = (
         repeatability.get("status") == "PASS"
         and repeatability.get("repeatable") is True
         and repeatability.get("first_digest") == repeatability.get("second_digest")
     )
     repeatability_failed = (
-        repeatability.get("status") == "FAIL"
-        and repeatability.get("repeatable") is False
+        repeatability.get("status") == "FAIL" and repeatability.get("repeatable") is False
     )
     for key in ("first_digest", "second_digest"):
         value = repeatability.get(key)
@@ -3459,8 +3468,7 @@ def build_operator_package_lineage(
     if not (repeatability_passed or repeatability_failed):
         raise GradeRefreshError("operator package repeatability semantics are invalid")
     if (
-        repeatability.get("fixture_kind")
-        != "deterministic-stub-no-process-no-network"
+        repeatability.get("fixture_kind") != "deterministic-stub-no-process-no-network"
         or repeatability.get("claim_ceiling")
         != "Fixture determinism only; no real server or sandbox runtime proof."
     ):
@@ -3541,23 +3549,15 @@ def build_operator_package_lineage(
     evaluated_at = (now or datetime.now(tz=UTC)).astimezone(UTC)
     for label, receipt in (("preflight", preflight), ("repeatability", repeatability)):
         try:
-            parsed = datetime.fromisoformat(
-                str(receipt.get("observed_at")).replace("Z", "+00:00")
-            )
+            parsed = datetime.fromisoformat(str(receipt.get("observed_at")).replace("Z", "+00:00"))
         except ValueError as exc:
-            raise GradeRefreshError(
-                f"operator package {label} observed_at is invalid"
-            ) from exc
+            raise GradeRefreshError(f"operator package {label} observed_at is invalid") from exc
         if parsed.tzinfo is None:
-            raise GradeRefreshError(
-                f"operator package {label} observed_at lacks a timezone"
-            )
+            raise GradeRefreshError(f"operator package {label} observed_at lacks a timezone")
         normalized = parsed.astimezone(UTC)
         age_seconds = (evaluated_at - normalized).total_seconds()
         if age_seconds < -60 or age_seconds > 86_400:
-            raise GradeRefreshError(
-                f"operator package {label} receipt freshness is invalid"
-            )
+            raise GradeRefreshError(f"operator package {label} receipt freshness is invalid")
         observed.append(normalized)
 
     triage_binding = None
@@ -3567,9 +3567,7 @@ def build_operator_package_lineage(
             "file_sha256": triage_file_sha256,
             "receipt_digest": triage["receipt_digest"],
             "candidate_manifest_digest": triage["candidate_manifest_digest"],
-            "repeat_candidate_manifest_digest": triage[
-                "repeat_candidate_manifest_digest"
-            ],
+            "repeat_candidate_manifest_digest": triage["repeat_candidate_manifest_digest"],
         }
     catalog_lineage: dict[str, Any] = {
         **catalog_digests,

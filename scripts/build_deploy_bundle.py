@@ -422,6 +422,7 @@ def build_deploy_bundle(
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
+    repo_root: Path = ROOT,
     review_path: Path,
     disposition_path: Path,
     out_dir: Path,
@@ -454,6 +455,7 @@ def build_deploy_bundle(
         candidate_path,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
         _include_artifact_manifest=True,
     )
     if verification.get("publication_ready") is not True:
@@ -474,6 +476,7 @@ def build_deploy_bundle(
         seed_path=seed_path,
         masked_path=masked_path,
         policy_path=policy_path,
+        repo_root=repo_root,
         candidate_verifier=candidate_verifier,
     )
     if (
@@ -589,6 +592,7 @@ def build_deploy_bundle(
             seed_path=seed_path,
             masked_path=masked_path,
             policy_path=policy_path,
+            repo_root=repo_root,
             candidate_verifier=candidate_verifier,
         )
         if final_review_binding != review_binding:
@@ -597,6 +601,7 @@ def build_deploy_bundle(
             candidate_path,
             expected_seed_path=seed_path,
             expected_masked_path=masked_path,
+            repo_root=repo_root,
             _include_artifact_manifest=True,
         )
         if (
@@ -656,6 +661,7 @@ def main(argv: list[str] | None = None) -> int:
         seed_path=args.seed,
         masked_path=args.masked_grades,
         policy_path=args.policy,
+        repo_root=Path(__file__).resolve().parents[1],
         review_path=args.review,
         disposition_path=args.disposition,
         out_dir=args.out_dir,

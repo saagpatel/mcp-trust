@@ -111,6 +111,7 @@ def _artifact_manifest(candidate: Path) -> list[dict[str, object]]:
 
 
 def _admitted_candidate_verifier(candidate: Path, **_kwargs) -> dict[str, object]:
+    assert _kwargs["repo_root"] == ROOT
     return {
         "structural_valid": True,
         "publication_ready": True,
@@ -121,6 +122,7 @@ def _admitted_candidate_verifier(candidate: Path, **_kwargs) -> dict[str, object
 
 
 def _admitted_review_verifier(**kwargs) -> dict[str, object]:
+    assert kwargs["repo_root"] == ROOT
     masked_path = kwargs["masked_path"]
     return {
         "state": "PUBLICATION_APPROVED_ROLLBACK_BOUND",
@@ -135,6 +137,7 @@ def _admitted_review_verifier(**kwargs) -> dict[str, object]:
 
 def _review_args(tmp_path: Path) -> dict[str, object]:
     return {
+        "repo_root": ROOT,
         "policy_path": tmp_path / "policy.json",
         "review_path": tmp_path / "review.json",
         "disposition_path": tmp_path / "disposition.json",

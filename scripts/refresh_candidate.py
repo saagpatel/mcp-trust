@@ -74,6 +74,7 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("src/mcp_trust/catalog/seed_servers.json"),
     )
     verify.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
+    verify.add_argument("--repo-root", type=Path, default=Path.cwd())
 
     approve = subcommands.add_parser(
         "approve",
@@ -90,6 +91,7 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("src/mcp_trust/catalog/seed_servers.json"),
     )
     approve.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
+    approve.add_argument("--repo-root", type=Path, default=Path.cwd())
     approve.add_argument(
         "--confirm-manifest-sha256",
         required=True,
@@ -109,6 +111,7 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("src/mcp_trust/catalog/seed_servers.json"),
     )
     publish.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
+    publish.add_argument("--repo-root", type=Path, default=Path.cwd())
     return parser
 
 
@@ -133,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate,
                 expected_seed_path=args.seed,
                 expected_masked_path=args.masked_grades,
+                repo_root=args.repo_root,
             )
             print(
                 json.dumps(
@@ -151,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.candidate,
                 expected_seed_path=args.seed,
                 expected_masked_path=args.masked_grades,
+                repo_root=args.repo_root,
             )
             print(json.dumps(verification, indent=2, sort_keys=True))
             return 0 if verification["publication_ready"] else 1
@@ -164,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                 confirmation_digest=args.confirm_manifest_sha256,
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
+                repo_root=args.repo_root,
             )
             print(path)
             return 0
@@ -174,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 destination_parent=args.destination,
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
+                repo_root=args.repo_root,
             )
             print(path)
             return 0

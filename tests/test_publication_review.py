@@ -168,7 +168,11 @@ def _build(
 ) -> dict[str, object]:
     preflight, repeatability, triage, default_projections = _inputs()
     projection = projections or default_projections
-    monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
+    def recompute_triage(**kwargs):
+        assert kwargs["repo_root"] == ROOT
+        return triage
+
+    monkeypatch.setattr(grade_refresh, "triage_candidate", recompute_triage)
     if disposition_path == DISPOSITIONS and accepted_review_path is None:
         proposed_policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
         proposed_policy["review_state"] = "PROPOSED"
@@ -190,6 +194,7 @@ def _build(
             seed_path=SEED,
             masked_path=MASKED,
             policy_path=POLICY,
+            repo_root=ROOT,
             disposition_path=proposed_policy_path,
             projection_builder=lambda _path: projection,
         )
@@ -276,6 +281,7 @@ def _build(
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
+        repo_root=ROOT,
         disposition_path=disposition_path,
         accepted_review_path=accepted_review_path,
         projection_builder=lambda _path: projection,

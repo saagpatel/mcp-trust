@@ -29,12 +29,20 @@ from mcp_trust.engine.stub import StubEngine
 from mcp_trust.refresh import (
     RefreshCandidateError,
     _real_scan_mode,
-    approve_refresh_candidate,
     create_refresh_candidate,
     preflight_real_refresh,
-    publish_refresh_candidate,
-    verified_masked_scan_slugs,
-    verify_refresh_candidate,
+)
+from mcp_trust.refresh import (
+    approve_refresh_candidate as _approve_refresh_candidate,
+)
+from mcp_trust.refresh import (
+    publish_refresh_candidate as _publish_refresh_candidate,
+)
+from mcp_trust.refresh import (
+    verified_masked_scan_slugs as _verified_masked_scan_slugs,
+)
+from mcp_trust.refresh import (
+    verify_refresh_candidate as _verify_refresh_candidate,
 )
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -72,8 +80,7 @@ def _write_refresh_policy(
     image_refs = {
         source.get("sandbox_image") or default_image
         for row in seed
-        if isinstance((source := row.get("source")), dict)
-        and source.get("command") is not None
+        if isinstance((source := row.get("source")), dict) and source.get("command") is not None
     }
     policy = {
         "schema": "McpTrustRefreshPolicyV2",
@@ -160,6 +167,18 @@ def _qualification_receipt(
     *,
     profiles: list[dict[str, object]],
 ) -> dict[str, object]:
+    controls = {
+        "network_none": True,
+        "read_only_root": True,
+        "capabilities_dropped": True,
+        "no_new_privileges": True,
+        "memory_limit": True,
+        "cpu_limit": True,
+        "pids_limit": True,
+        "non_root_user": True,
+        "bounded_writable_tmpfs": True,
+        "no_host_mount": True,
+    }
     image_bindings = [
         {
             "reference": profile["image"],
@@ -167,18 +186,40 @@ def _qualification_receipt(
             "image_id": profile["image_digest"],
             "repo_digests": [],
             "platform": "linux/arm64",
-            "sandbox_controls": {"all_required_controls": True},
+            "sandbox_controls": {
+                "controls": dict(controls),
+                "all_required_controls": True,
+            },
         }
         for profile in profiles
     ]
-    build_sources = {
-        str(profile["image"]): {
+    build_sources: dict[str, dict[str, object]] = {}
+    qualification_files: dict[str, str] = {}
+    for index, profile in enumerate(profiles):
+        qualification_path = f"docker/refresh/qualification/test-{index}.json"
+        qualification_sha256 = "sha256:" + f"{index + 3:x}"[-1] * 64
+        tracked_path = f"docker/refresh/locks/test-{index}.lock"
+        tracked_sha256 = "sha256:" + f"{index + 5:x}"[-1] * 64
+        build_sources[str(profile["image"])] = {
             "path": "Dockerfile.scan",
             "sha256": "sha256:" + ("b" * 64),
+            "provenance_status": "SOURCE_CONTROLLED",
+            "reproducibility_status": "VERIFIED",
+            "qualification": {
+                "path": qualification_path,
+                "sha256": qualification_sha256,
+                "receipt_digest": "sha256:" + ("d" * 64),
+                "qualified_image_id": profile["image_digest"],
+                "build_input_digest": "sha256:" + ("e" * 64),
+                "dependency_locks": {"fixture": tracked_sha256},
+                "dependency_artifacts": {},
+                "tracked_inputs": {tracked_path: tracked_sha256},
+                "state": "VERIFIED",
+            },
             "state": "BOUND",
         }
-        for profile in profiles
-    }
+        qualification_files[qualification_path] = qualification_sha256
+        qualification_files[tracked_path] = tracked_sha256
     policy_path = seed_path.with_name("refresh_policy.json")
     if not policy_path.exists():
         _write_refresh_policy(seed_path, masked_path)
@@ -186,10 +227,8 @@ def _qualification_receipt(
     policy_digest = "sha256:" + hashlib.sha256(policy_path.read_bytes()).hexdigest()
     source_files = {
         "src/mcp_trust/catalog/refresh_policy.json": policy_digest,
-        **{
-            str(binding["path"]): str(binding["sha256"])
-            for binding in build_sources.values()
-        },
+        **{str(binding["path"]): str(binding["sha256"]) for binding in build_sources.values()},
+        **qualification_files,
     }
     payload: dict[str, object] = {
         "schema": "McpTrustGradeRefreshPreflightV1",
@@ -216,16 +255,23 @@ def _qualification_receipt(
                 "blocked": sorted(policy["blocked"]),
             },
             "seed_digest": "sha256:" + hashlib.sha256(seed_path.read_bytes()).hexdigest(),
-            "masking_digest": "sha256:"
-            + hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            "masking_digest": "sha256:" + hashlib.sha256(masked_path.read_bytes()).hexdigest(),
             "policy_digest": policy_digest,
             "image_build_sources": build_sources,
         },
-        "sandbox": {"image_bindings": image_bindings},
+        "sandbox": {
+            "docker_host_kind": "local-unix",
+            "image_bindings": image_bindings,
+            "network_policy": "none",
+            "filesystem_policy": "read-only-root-bounded-tmpfs-no-host-mounts",
+            "resource_policy": "cpu-memory-pids-timeout-required",
+            "secret_policy": "no-live-secrets-dummy-network-off-only",
+        },
         "tool_versions": {
             "python": "3.11.15",
             "python_executable": "/fixture/python",
             "mcp_audits": "2.7.0",
+            "mcp_audits_locked": "2.7.0",
             "mcp_trust": "0.1.1",
             "docker_client": "29.7.2",
             "docker_server": "29.5.2",
@@ -239,9 +285,9 @@ def _qualification_receipt(
             "scheduler_change": False,
         },
     }
-    payload["receipt_digest"] = "sha256:" + hashlib.sha256(
-        refresh_module._json_bytes(payload)
-    ).hexdigest()
+    payload["receipt_digest"] = (
+        "sha256:" + hashlib.sha256(refresh_module._json_bytes(payload)).hexdigest()
+    )
     return payload
 
 
@@ -249,6 +295,95 @@ def _qualification_source_provider(receipt: dict[str, object]):
     source = receipt["source_binding"]
     assert isinstance(source, dict)
     return lambda _repo_root: source
+
+
+def _test_current_source_kwargs(candidate: Path) -> dict[str, object]:
+    receipt_path = candidate / "qualification_receipt.json"
+    if not receipt_path.is_file():
+        return {"repo_root": ROOT}
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    return {
+        "repo_root": ROOT,
+        "_source_binding_provider": _qualification_source_provider(receipt),
+        "_qualification_revalidator": lambda *_args, **_kwargs: None,
+    }
+
+
+def verify_refresh_candidate(candidate: Path, **kwargs):
+    binding_kwargs = _test_current_source_kwargs(candidate)
+    binding_kwargs.update(kwargs)
+    return _verify_refresh_candidate(
+        candidate,
+        **binding_kwargs,
+    )
+
+
+def verified_masked_scan_slugs(candidate: Path, **kwargs):
+    binding_kwargs = _test_current_source_kwargs(candidate)
+    binding_kwargs.update(kwargs)
+    return _verified_masked_scan_slugs(
+        candidate,
+        **binding_kwargs,
+    )
+
+
+def approve_refresh_candidate(*, candidate: Path, **kwargs):
+    return _approve_refresh_candidate(
+        candidate=candidate,
+        **_test_current_source_kwargs(candidate),
+        **kwargs,
+    )
+
+
+def publish_refresh_candidate(*, candidate: Path, **kwargs):
+    return _publish_refresh_candidate(
+        candidate=candidate,
+        **_test_current_source_kwargs(candidate),
+        **kwargs,
+    )
+
+
+def _redigest_qualification(receipt: dict[str, object]) -> None:
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest", None)
+    receipt["receipt_digest"] = (
+        "sha256:" + hashlib.sha256(refresh_module._json_bytes(unsigned)).hexdigest()
+    )
+
+
+def _replace_candidate_qualification(
+    candidate: Path,
+    receipt: dict[str, object],
+) -> None:
+    receipt_path = candidate / "qualification_receipt.json"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    candidate.chmod(0o700)
+    for path in (receipt_path, manifest_path, digest_path):
+        path.chmod(0o600)
+    receipt_bytes = refresh_module._json_bytes(receipt)
+    receipt_path.write_bytes(receipt_bytes)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["qualification"]["receipt_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    manifest["qualification"]["preflight_receipt_digest"] = receipt["receipt_digest"]
+    manifest["qualification"]["source_revision"] = receipt["source_binding"]["revision"]
+    manifest["qualification"]["source_tree_digest"] = receipt["source_binding"][
+        "source_tree_digest"
+    ]
+    manifest["source_tree_digest"] = receipt["source_binding"]["source_tree_digest"]
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == "qualification_receipt.json":
+            artifact["bytes"] = len(receipt_bytes)
+            artifact["sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    manifest_bytes = refresh_module._json_bytes(manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    digest_path.write_text(
+        hashlib.sha256(manifest_bytes).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (receipt_path, manifest_path, digest_path):
+        path.chmod(0o400)
+    candidate.chmod(0o500)
 
 
 def test_qualification_rejects_build_digest_not_bound_to_source_tree(
@@ -271,11 +406,14 @@ def test_qualification_rejects_build_digest_not_bound_to_source_tree(
     source_files["Dockerfile.scan"] = "sha256:" + ("e" * 64)
     unsigned = dict(receipt)
     unsigned.pop("receipt_digest")
-    receipt["receipt_digest"] = "sha256:" + hashlib.sha256(
-        refresh_module._json_bytes(unsigned)
-    ).hexdigest()
+    receipt["receipt_digest"] = (
+        "sha256:" + hashlib.sha256(refresh_module._json_bytes(unsigned)).hexdigest()
+    )
 
-    with pytest.raises(RefreshCandidateError, match="not source-bound"):
+    with pytest.raises(
+        RefreshCandidateError,
+        match="not source-bound|READY image bindings are invalid",
+    ):
         refresh_module._qualification_metadata(
             receipt,
             seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
@@ -303,11 +441,14 @@ def test_qualification_requires_exact_build_source_image_coverage(
     catalog["image_build_sources"] = {}
     unsigned = dict(receipt)
     unsigned.pop("receipt_digest")
-    receipt["receipt_digest"] = "sha256:" + hashlib.sha256(
-        refresh_module._json_bytes(unsigned)
-    ).hexdigest()
+    receipt["receipt_digest"] = (
+        "sha256:" + hashlib.sha256(refresh_module._json_bytes(unsigned)).hexdigest()
+    )
 
-    with pytest.raises(RefreshCandidateError, match="provenance is incomplete"):
+    with pytest.raises(
+        RefreshCandidateError,
+        match="READY sandbox evidence is invalid|provenance is incomplete",
+    ):
         refresh_module._qualification_metadata(
             receipt,
             seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
@@ -315,6 +456,113 @@ def test_qualification_requires_exact_build_source_image_coverage(
             sandbox_evidence={"profiles": [profile]},
             now=FIXED_NOW,
         )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "network_policy",
+        "sandbox_control",
+        "qualification_state",
+        "qualification_image_id",
+        "tool_lock",
+        "binding_reference",
+        "build_source_path",
+        "qualification_path",
+    ),
+)
+def test_qualification_rejects_self_redigested_ready_evidence_tampering(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    profile = refresh_module._sandbox_profile(
+        "required:image",
+        image_digest=IMAGE_DIGEST,
+    )
+    receipt = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[profile],
+    )
+    if mutation == "network_policy":
+        receipt["sandbox"]["network_policy"] = "bridge"
+    elif mutation == "sandbox_control":
+        receipt["sandbox"]["image_bindings"][0]["sandbox_controls"]["controls"]["network_none"] = (
+            False
+        )
+    elif mutation == "qualification_state":
+        receipt["catalog"]["image_build_sources"]["required:image"]["qualification"]["state"] = (
+            "UNKNOWN"
+        )
+    elif mutation == "qualification_image_id":
+        receipt["catalog"]["image_build_sources"]["required:image"]["qualification"][
+            "qualified_image_id"
+        ] = "sha256:" + "f" * 64
+    elif mutation == "binding_reference":
+        receipt["sandbox"]["image_bindings"][0]["reference"] = []
+    elif mutation == "build_source_path":
+        receipt["catalog"]["image_build_sources"]["required:image"]["path"] = (
+            "/tmp/escaped-Dockerfile"
+        )
+    elif mutation == "qualification_path":
+        receipt["catalog"]["image_build_sources"]["required:image"]["qualification"][
+            "path"
+        ] = "../../escaped-receipt.json"
+    else:
+        receipt["tool_versions"]["mcp_audits_locked"] = "2.6.0"
+    _redigest_qualification(receipt)
+
+    with pytest.raises(RefreshCandidateError, match="qualification receipt READY"):
+        refresh_module._qualification_metadata(
+            receipt,
+            seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
+            masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            sandbox_evidence={"profiles": [profile]},
+            now=FIXED_NOW,
+        )
+
+
+def test_invalid_ready_receipt_is_rejected_before_docker_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path, seed_path, masked_path = _inputs(tmp_path)
+    profile = refresh_module._sandbox_profile(
+        "required:image",
+        image_digest=IMAGE_DIGEST,
+    )
+    receipt = _qualification_receipt(
+        seed_path,
+        masked_path,
+        profiles=[profile],
+    )
+    receipt["sandbox"]["network_policy"] = "bridge"
+    _redigest_qualification(receipt)
+    preflight_called = False
+
+    def forbidden_preflight(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal preflight_called
+        preflight_called = True
+        raise AssertionError("Docker preflight must not run")
+
+    monkeypatch.setattr(refresh_module, "preflight_real_refresh", forbidden_preflight)
+    with pytest.raises(RefreshCandidateError, match="READY sandbox evidence"):
+        create_refresh_candidate(
+            source_db=db_path,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            output_parent=tmp_path / "candidates",
+            default_image="required:image",
+            qualification_receipt=receipt,
+            repo_root=ROOT,
+            _source_binding_provider=_qualification_source_provider(receipt),
+            now=FIXED_NOW,
+            candidate_name="candidate",
+        )
+
+    assert preflight_called is False
+    assert not (tmp_path / "candidates").exists()
 
 
 def _candidate(
@@ -441,6 +689,198 @@ def test_real_candidate_rejects_source_change_after_preflight(
         )
 
 
+def test_candidate_verifier_rejects_self_redigested_tool_lock_tampering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    assert (
+        verify_refresh_candidate(
+            candidate,
+            now=FIXED_NOW,
+            expected_seed_path=seed_path,
+            expected_masked_path=masked_path,
+        )["publication_ready"]
+        is True
+    )
+
+    receipt_path = candidate / "qualification_receipt.json"
+    manifest_path = candidate / "MANIFEST.json"
+    digest_path = candidate / "MANIFEST.sha256"
+    candidate.chmod(0o700)
+    for path in (receipt_path, manifest_path, digest_path):
+        path.chmod(0o600)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["tool_versions"]["mcp_audits_locked"] = "2.6.0"
+    _redigest_qualification(receipt)
+    receipt_bytes = refresh_module._json_bytes(receipt)
+    receipt_path.write_bytes(receipt_bytes)
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["qualification"]["receipt_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    manifest["qualification"]["preflight_receipt_digest"] = receipt["receipt_digest"]
+    for artifact in manifest["artifacts"]:
+        if artifact["path"] == "qualification_receipt.json":
+            artifact["bytes"] = len(receipt_bytes)
+            artifact["sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+    manifest_bytes = refresh_module._json_bytes(manifest)
+    manifest_path.write_bytes(manifest_bytes)
+    digest_path.write_text(
+        hashlib.sha256(manifest_bytes).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+    for path in (receipt_path, manifest_path, digest_path):
+        path.chmod(0o400)
+    candidate.chmod(0o500)
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "qualification_receipt_invalid" in verification["errors"]
+
+
+def test_candidate_verifier_rejects_current_source_change_during_verification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    receipt = json.loads(
+        (candidate / "qualification_receipt.json").read_text(encoding="utf-8")
+    )
+    source = receipt["source_binding"]
+    calls = 0
+
+    def changing_source(_repo_root: Path) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return source
+        return {**source, "source_tree_digest": "sha256:" + "f" * 64}
+
+    verification = _verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+        repo_root=ROOT,
+        _source_binding_provider=changing_source,
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "qualification_receipt_invalid" in verification["errors"]
+
+
+def test_real_candidate_without_current_source_binding_is_not_verifiable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+
+    verification = _verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "qualification_current_source_unavailable" in verification["errors"]
+    assert "qualification_receipt_invalid" in verification["errors"]
+
+
+def test_candidate_verifier_rejects_self_redigested_source_forgery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(
+        tmp_path,
+        monkeypatch,
+    )
+    receipt_path = candidate / "qualification_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    original_source = json.loads(json.dumps(receipt["source_binding"]))
+    receipt["tool_versions"]["mcp_audits"] = "2.6.0"
+    receipt["tool_versions"]["mcp_audits_locked"] = "2.6.0"
+    receipt["source_binding"]["file_digests"]["src/mcp_trust/catalog/refresh_policy.json"] = (
+        "sha256:" + "f" * 64
+    )
+    receipt["source_binding"]["source_tree_digest"] = "sha256:" + "e" * 64
+    _redigest_qualification(receipt)
+    _replace_candidate_qualification(candidate, receipt)
+
+    verification = _verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+        repo_root=ROOT,
+        _source_binding_provider=lambda _repo_root: original_source,
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "qualification_receipt_invalid" in verification["errors"]
+
+
+def test_static_image_qualification_is_recomputed_from_current_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mcp_trust import grade_refresh
+
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    profile = refresh_module._sandbox_profile(
+        "required:image",
+        image_digest=IMAGE_DIGEST,
+    )
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[profile])
+    qualification = json.loads(
+        json.dumps(receipt["catalog"]["image_build_sources"]["required:image"]["qualification"])
+    )
+    monkeypatch.setattr(
+        grade_refresh,
+        "_image_build_qualification",
+        lambda **_kwargs: json.loads(json.dumps(qualification)),
+    )
+    grade_refresh.revalidate_ready_preflight_qualifications(
+        receipt,
+        repo_root=ROOT,
+        expected_image_references=["required:image"],
+        now=FIXED_NOW,
+    )
+    receipt["catalog"]["image_build_sources"]["required:image"]["qualification"][
+        "build_input_digest"
+    ] = "sha256:" + "f" * 64
+    _redigest_qualification(receipt)
+
+    with pytest.raises(grade_refresh.GradeRefreshError, match="qualification changed"):
+        grade_refresh.revalidate_ready_preflight_qualifications(
+            receipt,
+            repo_root=ROOT,
+            expected_image_references=["required:image"],
+            now=FIXED_NOW,
+        )
+
+
 def _results(candidate: Path) -> list[dict[str, object]]:
     return json.loads((candidate / "scan_results.json").read_text())["results"]
 
@@ -455,12 +895,15 @@ def test_verified_masked_scan_slugs_exposes_only_success_claim(
         masked=("alpha",),
     )
 
-    assert verified_masked_scan_slugs(
-        candidate,
-        seed_path=seed_path,
-        masked_path=masked_path,
-        now=FIXED_NOW,
-    ) == frozenset()
+    assert (
+        verified_masked_scan_slugs(
+            candidate,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            now=FIXED_NOW,
+        )
+        == frozenset()
+    )
 
 
 def test_verified_masked_scan_slugs_rejects_stale_candidate(
@@ -521,12 +964,15 @@ def test_verified_masked_scan_slugs_uses_the_verified_candidate_snapshot(
         verify_then_swap,
     )
 
-    assert verified_masked_scan_slugs(
-        candidate,
-        seed_path=seed_path,
-        masked_path=masked_path,
-        now=FIXED_NOW,
-    ) == frozenset()
+    assert (
+        verified_masked_scan_slugs(
+            candidate,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            now=FIXED_NOW,
+        )
+        == frozenset()
+    )
 
 
 def test_candidate_replacement_during_verification_fails_closed(
@@ -725,7 +1171,12 @@ def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["schema"] = "RefreshCandidateV1"
     manifest["scan_counts"].pop("blocked")
-    for field in ("freshness", "semantic_digests", "source_tree_digest", "tool_versions"):
+    for field in (
+        "freshness",
+        "semantic_digests",
+        "source_tree_digest",
+        "tool_versions",
+    ):
         manifest.pop(field)
     receipt_paths = list((candidate / "receipts").glob("*.json"))
     for receipt_path in receipt_paths:
@@ -744,7 +1195,12 @@ def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["schema"] = "RefreshCandidateV1"
     manifest["scan_counts"].pop("blocked")
-    for field in ("freshness", "semantic_digests", "source_tree_digest", "tool_versions"):
+    for field in (
+        "freshness",
+        "semantic_digests",
+        "source_tree_digest",
+        "tool_versions",
+    ):
         manifest.pop(field)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     digest_path = candidate / "MANIFEST.sha256"
@@ -835,7 +1291,7 @@ def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
     script = (ROOT / "scripts/refresh_and_publish.sh").read_text(encoding="utf-8")
 
     assert "refresh_candidate.py create" in script
-    assert '${REPO_ROOT}/.venv/bin/python' in script
+    assert "${REPO_ROOT}/.venv/bin/python" in script
     assert "uv run" not in script
     assert "mcp-trust scan" not in script
     assert "build_site.py" not in script
@@ -867,9 +1323,7 @@ def test_create_cli_returns_failure_for_partial_candidate(
     qualification = tmp_path / "qualification.json"
     qualification.write_text("{}", encoding="utf-8")
 
-    result = refresh_cli.main(
-        ["create", "--qualification-receipt", str(qualification)]
-    )
+    result = refresh_cli.main(["create", "--qualification-receipt", str(qualification)])
     output = json.loads(capsys.readouterr().out)
 
     assert result == 1
@@ -1344,7 +1798,9 @@ def test_partial_scan_failure_never_retains_old_grade_as_fresh(tmp_path: Path) -
     assert "fixture failure" not in json.dumps(by_slug["beta"])
 
 
-def test_scan_timeout_is_unknown_and_never_retains_a_fresh_grade(tmp_path: Path) -> None:
+def test_scan_timeout_is_unknown_and_never_retains_a_fresh_grade(
+    tmp_path: Path,
+) -> None:
     def scanner(_server: Server) -> EngineResult:
         raise ScanTimeoutError("controlled timeout")
 
@@ -1381,10 +1837,7 @@ def test_scan_timeout_preserves_verified_container_absence(tmp_path: Path) -> No
 
     assert result["state"] == "scan-timeout"
     assert result["fresh_grade"] is None
-    assert (
-        result["hard_termination_evidence"]
-        == "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
-    )
+    assert result["hard_termination_evidence"] == "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
     assert verification["structural_valid"] is True
     assert verification["publication_ready"] is False
 
@@ -1407,10 +1860,7 @@ def test_verifier_rejects_non_string_timeout_evidence_without_crashing(
     verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
 
     assert verification["structural_valid"] is False
-    assert any(
-        error.startswith("timeout_scan_schema_invalid:")
-        for error in verification["errors"]
-    )
+    assert any(error.startswith("timeout_scan_schema_invalid:") for error in verification["errors"])
 
 
 def test_masked_real_entry_is_blocked_without_preflight_or_scanner_execution(
@@ -1454,6 +1904,7 @@ def test_masked_real_entry_is_blocked_without_preflight_or_scanner_execution(
         qualification_receipt=qualification,
         repo_root=ROOT,
         _source_binding_provider=_qualification_source_provider(qualification),
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -1555,6 +2006,7 @@ def test_policy_blocked_server_is_never_preflighted_or_scanned(
         repo_root=ROOT,
         policy_path=policy_path,
         _source_binding_provider=_qualification_source_provider(qualification),
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -1636,9 +2088,9 @@ def test_verifier_rejects_qualification_boundary_that_differs_from_live_policy(
     }
     qualification["catalog"]["counts"] = {"scannable": 0, "blocked": 1}
     qualification.pop("receipt_digest")
-    qualification["receipt_digest"] = "sha256:" + hashlib.sha256(
-        refresh_module._json_bytes(qualification)
-    ).hexdigest()
+    qualification["receipt_digest"] = (
+        "sha256:" + hashlib.sha256(refresh_module._json_bytes(qualification)).hexdigest()
+    )
     qualification_path.write_text(json.dumps(qualification), encoding="utf-8")
     _rebind_candidate_artifacts(candidate, "qualification_receipt.json")
     manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
@@ -1766,10 +2218,7 @@ def test_rebound_manifest_cannot_invent_drift(
 
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
-    assert any(
-        error.startswith("fresh_scan_drift_mismatch:")
-        for error in verification["errors"]
-    )
+    assert any(error.startswith("fresh_scan_drift_mismatch:") for error in verification["errors"])
 
 
 def test_rebound_receipt_cannot_add_authoritative_claims(
@@ -1904,10 +2353,7 @@ def test_receipt_caveats_cannot_claim_publication_authority(
 
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
-    assert any(
-        error.startswith("fresh_scan_binding_mismatch:")
-        for error in verification["errors"]
-    )
+    assert any(error.startswith("fresh_scan_binding_mismatch:") for error in verification["errors"])
 
 
 def test_missing_receipt_is_explicit_and_not_fresh(tmp_path: Path) -> None:
@@ -2244,7 +2690,9 @@ def test_hardlinked_candidate_artifact_is_rejected(tmp_path: Path) -> None:
     assert "hardlinked_artifact:scan_results.json" in verification["errors"]
 
 
-def test_oversized_candidate_json_returns_bounded_invalid_result(tmp_path: Path) -> None:
+def test_oversized_candidate_json_returns_bounded_invalid_result(
+    tmp_path: Path,
+) -> None:
     candidate = _candidate(tmp_path)
     results_path = candidate / "scan_results.json"
     candidate.chmod(0o700)
@@ -2330,8 +2778,7 @@ def test_deeply_nested_database_json_returns_structured_invalid_result(
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
     assert any(
-        error.startswith("fresh_scan_")
-        or error == "static_snapshot_scan_binding_unavailable"
+        error.startswith("fresh_scan_") or error == "static_snapshot_scan_binding_unavailable"
         for error in verification["errors"]
     )
 
@@ -2400,9 +2847,7 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         stdout = (
-            json.dumps([{"Id": IMAGE_DIGEST}])
-            if command[-3:-1] == ["image", "inspect"]
-            else ""
+            json.dumps([{"Id": IMAGE_DIGEST}]) if command[-3:-1] == ["image", "inspect"] else ""
         )
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
@@ -2429,9 +2874,7 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         commands.append(command)
         stdout = (
-            json.dumps([{"Id": IMAGE_DIGEST}])
-            if command[-3:-1] == ["image", "inspect"]
-            else ""
+            json.dumps([{"Id": IMAGE_DIGEST}]) if command[-3:-1] == ["image", "inspect"] else ""
         )
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
@@ -2611,6 +3054,7 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
         qualification_receipt=qualification,
         repo_root=ROOT,
         _source_binding_provider=_qualification_source_provider(qualification),
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -2706,11 +3150,7 @@ def test_reviewed_input_replacement_during_read_is_not_source_binding(
 
     def replace_then_open(path, flags, mode=0o777, *, dir_fd=None):
         nonlocal replaced
-        if (
-            not replaced
-            and isinstance(path, (str, os.PathLike))
-            and Path(path) == seed_path
-        ):
+        if not replaced and isinstance(path, (str, os.PathLike)) and Path(path) == seed_path:
             replaced = True
             os.replace(replacement_seed, seed_path)
         if dir_fd is None:
@@ -2926,6 +3366,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
         qualification_receipt=qualification,
         repo_root=ROOT,
         _source_binding_provider=_qualification_source_provider(qualification),
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
         now=FIXED_NOW,
         candidate_name="candidate",
     )
@@ -3299,9 +3740,7 @@ def test_publication_rejects_extreme_approval_integer(
     )
     approval_path.chmod(0o600)
     approval_path.write_text(
-        '{"schema":"RefreshPublicationApprovalV1","extreme":'
-        + "9" * 5000
-        + "}",
+        '{"schema":"RefreshPublicationApprovalV1","extreme":' + "9" * 5000 + "}",
         encoding="utf-8",
     )
     approval_path.chmod(0o400)

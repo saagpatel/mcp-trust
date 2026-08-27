@@ -26,6 +26,8 @@ from mcp_trust.site.candidate import (
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ServerRepository
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _fixture(tmp_path: Path) -> dict[str, object]:
     candidate = tmp_path / "candidate"
@@ -180,6 +182,7 @@ def _fixture(tmp_path: Path) -> dict[str, object]:
     disposition_path.write_text(json.dumps(disposition), encoding="utf-8")
 
     def verifier(*_args, **_kwargs) -> dict[str, object]:
+        assert _kwargs["repo_root"] == ROOT
         return {
             "publication_ready": True,
             "schema": "RefreshCandidateV2",
@@ -196,6 +199,7 @@ def _fixture(tmp_path: Path) -> dict[str, object]:
         "seed_path": seed,
         "masked_path": masked,
         "policy_path": policy,
+        "repo_root": ROOT,
         "corrections_path": corrections,
         "base_url": "https://mcp-trust.example",
         "implementation_binding": {

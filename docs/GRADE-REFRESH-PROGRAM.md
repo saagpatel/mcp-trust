@@ -163,6 +163,13 @@ images, external `COPY --from` sources, non-exact dependency specifications,
 and lock sources outside the approved npm/PyPI endpoints. A locally built
 dependency-preparation tag is a staging name only: it is inspected immediately
 and every subsequent container executes its immutable `sha256:` image ID.
+The candidate producer and verifier share one strict READY-preflight validator.
+It rejects self-redigested sandbox-policy/control changes, nested qualification
+state or image-ID changes, unbound qualification inputs, and locked/runtime
+engine drift before Docker preflight or candidate acceptance. The verifier also
+requires an explicit current repository root, recomputes static image
+qualification projections from the current tracked inputs, and compares the
+receipt's full source binding with a fresh current-worktree binding.
 
 Docker is the current baseline, not proof against a kernel/runtime compromise.
 If the threat model requires stronger isolation, use a verified microVM/gVisor

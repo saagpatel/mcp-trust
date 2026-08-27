@@ -84,13 +84,49 @@ def _receipts(
         reference: "sha256:" + f"{index + 1:x}" * 64
         for index, reference in enumerate(image_references)
     }
+    image_sources: dict[str, dict[str, object]] = {}
+    source_files: dict[str, str] = {
+        "src/mcp_trust/catalog/refresh_policy.json": grade_refresh.digest_file(POLICY)
+    }
+    for index, reference in enumerate(image_references):
+        build_path = f"docker/refresh/{index}/Dockerfile"
+        qualification_path = f"docker/refresh/qualification/test-{index}.json"
+        tracked_path = f"docker/refresh/locks/test-{index}.lock"
+        build_sha256 = "sha256:" + "8" * 64
+        qualification_sha256 = "sha256:" + f"{index + 6:x}"[-1] * 64
+        tracked_sha256 = "sha256:" + f"{index + 10:x}"[-1] * 64
+        source_files.update(
+            {
+                build_path: build_sha256,
+                qualification_path: qualification_sha256,
+                tracked_path: tracked_sha256,
+            }
+        )
+        image_sources[reference] = {
+            "path": build_path,
+            "sha256": build_sha256,
+            "provenance_status": "SOURCE_CONTROLLED",
+            "reproducibility_status": "VERIFIED",
+            "qualification": {
+                "path": qualification_path,
+                "sha256": qualification_sha256,
+                "receipt_digest": "sha256:" + "c" * 64,
+                "qualified_image_id": image_ids[reference],
+                "build_input_digest": "sha256:" + "d" * 64,
+                "dependency_locks": {"fixture": tracked_sha256},
+                "dependency_artifacts": {},
+                "tracked_inputs": {tracked_path: tracked_sha256},
+                "state": "VERIFIED",
+            },
+            "state": "BOUND",
+        }
     preflight: dict[str, object] = {
         "schema": grade_refresh.PREFLIGHT_SCHEMA,
         "observed_at": (NOW - timedelta(minutes=1)).isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
         "exit_classification": "ready",
-        "source_binding": dict(TEST_SOURCE),
+        "source_binding": {**TEST_SOURCE, "file_digests": source_files},
         "catalog": {
             "policy_digest": grade_refresh.digest_file(POLICY),
             "seed_digest": grade_refresh.digest_file(SEED),
@@ -105,18 +141,7 @@ def _receipts(
                 "scannable": scannable,
                 "blocked": blocked,
             },
-            "image_build_sources": {
-                reference: {
-                    "path": f"docker/refresh/{index}/Dockerfile",
-                    "sha256": "sha256:" + "8" * 64,
-                    "state": "BOUND",
-                    "qualification": {
-                        "state": "VERIFIED",
-                        "qualified_image_id": image_ids[reference],
-                    },
-                }
-                for index, reference in enumerate(image_references)
-            },
+            "image_build_sources": image_sources,
         },
         "sandbox": {
             "docker_host_kind": "local-unix",
@@ -268,7 +293,13 @@ def test_operator_package_binds_exact_candidate_and_rollback_lineage(
     repeat = tmp_path / "repeat"
     candidate.mkdir()
     repeat.mkdir()
-    monkeypatch.setattr(operator_package, "triage_candidate", lambda **_kwargs: triage)
+    triage_kwargs: dict[str, object] = {}
+
+    def recompute_triage(**kwargs):
+        triage_kwargs.update(kwargs)
+        return triage
+
+    monkeypatch.setattr(operator_package, "triage_candidate", recompute_triage)
     output = tmp_path / "package"
 
     build_operator_review_package(
@@ -281,7 +312,10 @@ def test_operator_package_binds_exact_candidate_and_rollback_lineage(
         repeat_candidate_path=repeat,
         seed_path=SEED,
         masked_path=MASKED,
+        repo_root=ROOT,
     )
+
+    assert triage_kwargs["repo_root"] == ROOT
 
     manifest = json.loads((output / OPERATOR_PACKAGE_MANIFEST).read_text())
     rollback = (output / "rollback.md").read_text()
