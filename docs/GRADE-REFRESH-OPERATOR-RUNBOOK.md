@@ -212,7 +212,11 @@ versions. Both `package` and `verify-package` re-run the current read-only
 preflight before accepting a `READY` receipt; that operation requires separate
 authority to inspect the approved Docker/Colima qualification and disabled
 scheduler state, but it never starts an MCP server or mutates the scheduler. A
-`BLOCKED` receipt may be packaged for review but cannot claim the
+`BLOCKED` receipt may be packaged for review only when its sorted engine reason
+codes agree with the embedded engine receipt. Missing or invalid engine evidence
+must say so explicitly; present evidence must have exact schema, self-digest,
+READY/source semantics, and current installed-byte reproduction before an image
+reconstruction gate can be emitted. A blocked receipt cannot claim the
 image-provenance completed control. The manifest binds
 the preflight, repeatability, optional triage, source revision/tree, catalog
 input digests, inventory digest, denominator, counts, execution boundary,

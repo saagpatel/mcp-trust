@@ -27,6 +27,7 @@ from mcp_trust.grade_refresh import (
     digest_bytes,
     source_binding,
     triage_candidate,
+    verify_engine_materialization_receipt,
 )
 
 OPERATOR_PACKAGE_SCHEMA = "McpTrustOperatorReviewPackageV2"
@@ -537,6 +538,28 @@ def _inputs(
         current_source = reader(effective_repo_root)
     except (OSError, GradeRefreshError) as exc:
         raise OperatorPackageError("operator package current source read failed") from exc
+    engine_materialization = preflight.get("engine_materialization")
+    if preflight.get("status") == "BLOCKED" and isinstance(
+        engine_materialization, dict
+    ):
+        try:
+            materialization_verification = verify_engine_materialization_receipt(
+                engine_materialization,
+                repo_root=effective_repo_root,
+                now=now,
+            )
+        except (OSError, GradeRefreshError) as exc:
+            raise OperatorPackageError(
+                "operator package current engine materialization revalidation failed"
+            ) from exc
+        if (
+            materialization_verification.get("receipt_valid") is not True
+            or materialization_verification.get("receipt_digest")
+            != engine_materialization.get("receipt_digest")
+        ):
+            raise OperatorPackageError(
+                "operator package current engine materialization evidence changed"
+            )
     if preflight.get("status") == "READY":
         try:
             current_preflight = _current_preflight_evidence(
