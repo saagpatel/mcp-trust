@@ -45,7 +45,7 @@ _BUILDKIT_VERSION_LINE = re.compile(
 _BUILDX_VERSION_LINE = re.compile(
     r"github\.com/docker/buildx "
     r"(v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)"
-    r"(?: [0-9a-f]{7,64})?"
+    r"(?: [0-9a-f]{7,64}| Homebrew)?"
 )
 
 

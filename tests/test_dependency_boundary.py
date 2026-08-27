@@ -341,6 +341,12 @@ def test_qualification_tool_versions_serialize_only_stable_versions(
     assert "/Users/example" not in serialized
 
 
+def test_qualification_accepts_homebrew_buildx_provenance_without_serializing_it() -> None:
+    module = _script("qualify_refresh_images.py")
+
+    assert module._buildx_version("github.com/docker/buildx v0.36.1 Homebrew") == "v0.36.1"
+
+
 @pytest.mark.parametrize(
     "receipt_set", ["../escape", "/absolute", ".", "..", "bad\\name", "unversioned"]
 )
