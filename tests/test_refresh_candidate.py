@@ -26,6 +26,10 @@ from mcp_trust.core.models import (
     TrustGrade,
 )
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
+from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
+    sandbox_server_process_digest,
+)
 from mcp_trust.engine.stub import StubEngine
 from mcp_trust.refresh import (
     RefreshCandidateError,
@@ -53,6 +57,54 @@ from tests.receipt_fixtures import engine_materialization_receipt
 FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[1]
 IMAGE_DIGEST = "sha256:" + ("a" * 64)
+
+
+def _runtime_readback(*, image_id: str = IMAGE_DIGEST) -> dict[str, object]:
+    return {
+        "schema": "McpTrustSandboxRuntimeReadbackV1",
+        "state": "VERIFIED",
+        "proof_boundary": "live-mcp-server-process-and-docker-daemon-config",
+        "image_id": image_id,
+        "container_identity_digest": "sha256:" + "b" * 64,
+        "controls": {
+            "network_none": True,
+            "read_only_root": True,
+            "capabilities_dropped": True,
+            "no_new_privileges": True,
+            "memory_limit": True,
+            "memory_swap_disabled": True,
+            "cpu_limit": True,
+            "pids_limit": True,
+            "non_root_user": True,
+            "bounded_writable_tmpfs": True,
+            "no_host_mount": True,
+            "not_privileged": True,
+            "environment_policy": True,
+            "live_process_observed": True,
+            "server_process_identity": True,
+            "shared_namespaces_and_cgroup": True,
+        },
+        "observed": {
+            "uid": 1000,
+            "gid": 1000,
+            "network_interfaces": ["lo"],
+            "memory_max_bytes": 512 * 1024 * 1024,
+            "pids_max": 256,
+            "cpu_quota": 100000,
+            "cpu_period": 100000,
+            "environment_names": ["HOME", "PATH", "TMPDIR"],
+            "image_environment_names": ["PATH"],
+            "injected_dummy_env_names": [],
+            "secret_values_emitted_in_readback": False,
+            "server_process_cmdline_digest": sandbox_server_process_digest(
+                "/opt/alpha", []
+            ),
+            "workdir": "/scan",
+            "root_write_denied": True,
+            "workdir_write_verified": True,
+        },
+        "claim_ceiling": SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -1204,6 +1256,7 @@ def test_candidate_receipt_self_binds_execution_contract(tmp_path: Path) -> None
 
     assert receipt["format_version"] == 2
     assert refresh_module._receipt_digest_valid(receipt) is True
+    assert binding["schema"] == "McpTrustScanExecutionBindingV2"
     assert binding["target_slug"] == "alpha"
     assert binding["source"] == {
         "revision": None,
@@ -1215,9 +1268,111 @@ def test_candidate_receipt_self_binds_execution_contract(tmp_path: Path) -> None
     assert binding["sandbox"]["container_cleanup_evidence"] == "NOT_APPLICABLE"
     assert binding["timeout"] == {
         "configured_seconds": None,
+        "repository_outer_deadline_seconds": None,
+        "runtime_readback_deadline_seconds": None,
         "outcome": "completed",
         "hard_termination_evidence": "NOT_APPLICABLE",
     }
+
+
+def test_local_execution_binding_refuses_missing_or_false_green_runtime_readback() -> None:
+    server = _server("alpha")
+    sandbox_evidence = {
+        "profiles": [
+            refresh_module._sandbox_profile(
+                "required:image",
+                image_digest=IMAGE_DIGEST,
+            )
+        ]
+    }
+    arguments = {
+        "qualification": {},
+        "sandbox_evidence": sandbox_evidence,
+        "default_image": "required:image",
+        "expected_image": IMAGE_DIGEST,
+        "fixture_mode": False,
+        "cleanup_evidence": "CONTAINER_ABSENCE_VERIFIED",
+    }
+
+    with pytest.raises(RefreshCandidateError, match="runtime controls"):
+        refresh_module._candidate_execution_binding(
+            server,
+            runtime_readback=None,
+            **arguments,
+        )
+
+    tampered = _runtime_readback()
+    tampered["controls"]["network_none"] = False
+    with pytest.raises(RefreshCandidateError, match="runtime controls"):
+        refresh_module._candidate_execution_binding(
+            server,
+            runtime_readback=tampered,
+            **arguments,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("memory_max_bytes", 1),
+        ("pids_max", 1),
+        ("cpu_quota", 50_000),
+        ("uid", 65534),
+        ("workdir", "/other"),
+        ("environment_names", ["HOME", "TMPDIR"]),
+        ("server_process_cmdline_digest", "sha256:" + "c" * 64),
+    ],
+)
+def test_local_execution_binding_rejects_profile_mismatched_observations(
+    field: str,
+    value: object,
+) -> None:
+    server = _server("alpha")
+    readback = _runtime_readback()
+    readback["observed"][field] = value
+
+    with pytest.raises(RefreshCandidateError, match="runtime controls"):
+        refresh_module._candidate_execution_binding(
+            server,
+            qualification={},
+            sandbox_evidence={
+                "profiles": [
+                    refresh_module._sandbox_profile(
+                        "required:image",
+                        image_digest=IMAGE_DIGEST,
+                    )
+                ]
+            },
+            default_image="required:image",
+            expected_image=IMAGE_DIGEST,
+            fixture_mode=False,
+            cleanup_evidence="CONTAINER_ABSENCE_VERIFIED",
+            runtime_readback=readback,
+        )
+
+
+def test_local_execution_binding_rejects_claim_ceiling_rewrite() -> None:
+    readback = _runtime_readback()
+    readback["claim_ceiling"] = "Everything is safe."
+
+    with pytest.raises(RefreshCandidateError, match="runtime controls"):
+        refresh_module._candidate_execution_binding(
+            _server("alpha"),
+            qualification={},
+            sandbox_evidence={
+                "profiles": [
+                    refresh_module._sandbox_profile(
+                        "required:image",
+                        image_digest=IMAGE_DIGEST,
+                    )
+                ]
+            },
+            default_image="required:image",
+            expected_image=IMAGE_DIGEST,
+            fixture_mode=False,
+            cleanup_evidence="CONTAINER_ABSENCE_VERIFIED",
+            runtime_readback=readback,
+        )
 
 
 def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
@@ -2057,6 +2212,7 @@ def test_policy_blocked_server_is_never_preflighted_or_scanned(
                     "engine_version": "2.7.0",
                     "sandbox_image": IMAGE_DIGEST,
                     "sandbox_cleanup_evidence": "CONTAINER_ABSENCE_VERIFIED",
+                    "sandbox_runtime_readback": _runtime_readback(),
                 }
             )
 
@@ -2094,9 +2250,19 @@ def test_policy_blocked_server_is_never_preflighted_or_scanned(
         expected_masked_path=masked_path,
     )
     by_slug = {row["server_slug"]: row for row in _results(candidate)}
+    alpha_receipt = json.loads(
+        (candidate / "receipts" / str(by_slug["alpha"]["receipt"])).read_text()
+    )
 
     assert preflighted == ["alpha"]
     assert scanned == ["@example/alpha"]
+    assert alpha_receipt["execution_binding"]["timeout"] == {
+        "configured_seconds": 90.0,
+        "repository_outer_deadline_seconds": 95.0,
+        "runtime_readback_deadline_seconds": 5.0,
+        "outcome": "completed",
+        "hard_termination_evidence": "NOT_APPLICABLE",
+    }
     assert by_slug["beta"] == {
         "server_slug": "beta",
         "state": "blocked-policy",
@@ -2509,6 +2675,12 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
     proof = json.loads((candidate / "masked-proofs" / proof_ref).read_text())
     assert proof["outcome"] == "scan_succeeded"
     assert proof["evidence_present"] is True
+    assert proof["format_version"] == 2
+    assert proof["execution_binding"]["schema"] == "McpTrustScanExecutionBindingV2"
+    assert proof["execution_binding"]["sandbox"]["runtime_readback"]["state"] == (
+        "NOT_APPLICABLE"
+    )
+    assert refresh_module._masked_proof_digest_valid(proof) is True
     assert "scan" not in proof
     assert "evidence" not in proof
     assert "danger_score" not in proof
@@ -2517,6 +2689,34 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
     assert freelist_count == 0
     assert masked_sentinel.encode() not in (candidate / "registry.db").read_bytes()
     assert snapshot["servers"] == []
+
+
+def test_rebound_masked_proof_cannot_forge_runtime_binding(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path, masked=("alpha",))
+    result = _results(candidate)[0]
+    proof_ref = str(result["scan_proof"])
+    proof_path = candidate / "masked-proofs" / proof_ref
+    candidate.chmod(0o700)
+    proof_path.chmod(0o600)
+    proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    proof["execution_binding"]["sandbox"]["runtime_readback"] = {
+        "state": "VERIFIED"
+    }
+    proof.pop("proof_digest")
+    proof["proof_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(proof)
+    ).hexdigest()
+    proof_path.write_bytes(refresh_module._json_bytes(proof))
+    _rebind_candidate_artifacts(candidate, f"masked-proofs/{proof_ref}")
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert any(
+        error.startswith("masked_scan_execution_binding_invalid:")
+        for error in verification["errors"]
+    )
 
 
 def test_rebound_masked_result_without_scan_proof_is_rejected(tmp_path: Path) -> None:
@@ -3394,6 +3594,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
                         "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
                         "sandbox_image": IMAGE_DIGEST,
                         "sandbox_cleanup_evidence": "CONTAINER_ABSENCE_VERIFIED",
+                        "sandbox_runtime_readback": _runtime_readback(),
                     }
                 )
             )
@@ -3404,20 +3605,10 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
             "docker_daemon": "available",
             "default_image": default_image,
             "profiles": [
-                {
-                    "kind": "docker",
-                    "image": default_image,
-                    "image_digest": IMAGE_DIGEST,
-                    "network": "none",
-                    "read_only_root": True,
-                    "capabilities": "dropped-all",
-                    "no_new_privileges": True,
-                    "memory": "512m",
-                    "pids_limit": 128,
-                    "cpus": "1.0",
-                    "user": "65532:65532",
-                    "tmpfs": "/work:rw,noexec,nosuid,size=64m",
-                }
+                refresh_module._sandbox_profile(
+                    default_image,
+                    image_digest=IMAGE_DIGEST,
+                )
             ],
             "remote_transport_count": 0,
             "_execution_image_bindings": {default_image: IMAGE_DIGEST},

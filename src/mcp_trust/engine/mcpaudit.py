@@ -34,6 +34,7 @@ import math
 import os
 import subprocess
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -51,6 +52,7 @@ from mcp_trust.engine.credentials import build_dummy_env
 from mcp_trust.engine.sandbox import (
     DockerSandbox,
     DockerSandboxCleanupError,
+    DockerSandboxRuntimeReadbackError,
     Sandbox,
     select_sandbox,
 )
@@ -124,7 +126,8 @@ def _run_sync(
     factory: Callable[[], Awaitable[_T]],
     *,
     outer_timeout: float | None = None,
-) -> _T:
+    runtime_probe: Callable[[], dict[str, object]] | None = None,
+) -> tuple[_T, dict[str, object] | None]:
     """Run an async coroutine to completion from sync code.
 
     Uses ``asyncio.run`` when no loop is active; if called from inside a running
@@ -132,10 +135,12 @@ def _run_sync(
     with its own loop, so it never collides with the caller's loop.
     """
     if outer_timeout is None:
+        if runtime_probe is not None:
+            raise ValueError("a runtime probe requires an outer deadline")
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(factory())
+            return asyncio.run(factory()), None
 
     box: dict[str, _T] = {}
     err: dict[str, BaseException] = {}
@@ -147,13 +152,24 @@ def _run_sync(
             err["e"] = exc
 
     thread = threading.Thread(target=worker, daemon=True)
+    deadline = None if outer_timeout is None else time.monotonic() + outer_timeout
     thread.start()
-    thread.join(timeout=outer_timeout)
+    runtime_readback: dict[str, object] | None = None
+    runtime_error: BaseException | None = None
+    if runtime_probe is not None:
+        try:
+            runtime_readback = runtime_probe()
+        except BaseException as exc:  # cleanup is owned by the lifecycle caller
+            runtime_error = exc
+    if runtime_error is not None:
+        raise runtime_error
+    remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+    thread.join(timeout=remaining)
     if thread.is_alive():
         raise TimeoutError("scan connector exceeded the repository outer deadline")
     if "e" in err:
         raise err["e"]
-    return box["v"]
+    return box["v"], runtime_readback
 
 
 def _severity_for(category: str, confidence: str) -> Severity:
@@ -197,6 +213,27 @@ def _build_evidence(audit) -> ScanEvidence:  # noqa: ANN001 - mcp-audits runtime
     )
 
 
+def launch_spec(source: ServerSource) -> tuple[str, list[str]]:
+    """Resolve the exact in-container server argv without executing it."""
+    if source.command:
+        return source.command, list(source.args)
+    if source.kind == SourceKind.NPM:
+        return "npx", ["-y", source.reference, *source.args]
+    if source.kind == SourceKind.PYPI:
+        return "uvx", [source.reference, *source.args]
+    if source.kind == SourceKind.BINARY:
+        return source.reference, list(source.args)
+    raise ScanError(
+        f"Cannot infer a launch command for {source.reference!r} "
+        f"(kind={source.kind}); set an explicit `command` on the source."
+    )
+
+
+def repository_outer_timeout_seconds(connector_timeout: float) -> float:
+    """Repository hard deadline including the bounded runtime probe."""
+    return connector_timeout + max(1.0, min(5.0, connector_timeout * 0.1))
+
+
 class MCPAuditEngine:
     """Scan engine backed by the public ``mcp-audits`` package.
 
@@ -206,6 +243,11 @@ class MCPAuditEngine:
 
     name: str = "mcpaudit"
     version: str = _FALLBACK_VERSION
+
+    @staticmethod
+    def outer_timeout_seconds(connector_timeout: float) -> float:
+        """Repository hard deadline including the bounded runtime probe."""
+        return repository_outer_timeout_seconds(connector_timeout)
 
     def __init__(
         self,
@@ -228,22 +270,28 @@ class MCPAuditEngine:
         sandbox: Sandbox,
         *,
         launches_process: bool,
-    ) -> tuple[object, str | None]:
+    ) -> tuple[object, str | None, dict[str, object] | None]:
         """Connect within a bounded Docker lifecycle and verify cleanup."""
         connect_error: BaseException | None = None
         audit: object | None = None
+        runtime_readback: dict[str, object] | None = None
         try:
             # The connector owns its configured protocol timeout. Docker scans
             # also get a repository-owned outer deadline so an uncooperative
             # coroutine or active-loop bridge cannot block the caller forever.
-            outer_timeout = self._timeout + max(1.0, min(5.0, self._timeout * 0.1))
-            audit = _run_sync(
+            outer_timeout = self.outer_timeout_seconds(self._timeout)
+            audit, runtime_readback = _run_sync(
                 lambda: connector.connect(cfg),  # type: ignore[attr-defined]
                 outer_timeout=(
                     outer_timeout
                     if launches_process and isinstance(sandbox, DockerSandbox)
                     else None
                 ),
+                runtime_probe=(
+                    lambda: sandbox.capture_runtime_readback(runner=self._cleanup_runner)
+                )
+                if launches_process and isinstance(sandbox, DockerSandbox)
+                else None,
             )
         except BaseException as exc:  # cleanup must also run for cancellation/system exit
             connect_error = exc
@@ -275,10 +323,20 @@ class MCPAuditEngine:
                         else "UNKNOWN"
                     ),
                 ) from connect_error
+            if isinstance(connect_error, DockerSandboxRuntimeReadbackError):
+                raise ScanError(
+                    "Docker live runtime controls could not be attested; refusing to "
+                    "return scan evidence."
+                ) from connect_error
             raise connect_error
         if audit is None:
             raise ScanError("mcp-audits returned no connection result")
-        return audit, cleanup_evidence
+        if launches_process and isinstance(sandbox, DockerSandbox) and runtime_readback is None:
+            raise ScanError(
+                "Docker live runtime controls were not attested; refusing to return "
+                "scan evidence."
+            )
+        return audit, cleanup_evidence, runtime_readback
 
     def _resolve_sandbox(self, source: ServerSource) -> Sandbox:
         """Resolve the sandbox for one scan: injected > per-server image > env.
@@ -375,7 +433,7 @@ class MCPAuditEngine:
         scorer = RiskScorer()
 
         try:
-            audit, cleanup_evidence = self._connect_with_lifecycle(
+            audit, cleanup_evidence, runtime_readback = self._connect_with_lifecycle(
                 connector,
                 cfg,
                 sandbox,
@@ -469,6 +527,7 @@ class MCPAuditEngine:
             # ambient env. None for remote scans or non-isolating passthroughs.
             sandbox_image=getattr(sandbox, "image", None) if launches_process else None,
             sandbox_cleanup_evidence=(cleanup_evidence if launches_process else None),
+            sandbox_runtime_readback=(runtime_readback if launches_process else None),
         )
 
     def _build_config(  # noqa: ANN001
@@ -509,19 +568,7 @@ class MCPAuditEngine:
     @staticmethod
     def _launch_spec(source) -> tuple[str, list[str]]:  # noqa: ANN001
         """Resolve (command, args) for a stdio server. Explicit command wins."""
-        if source.command:
-            return source.command, list(source.args)
-        if source.kind == SourceKind.NPM:
-            return "npx", ["-y", source.reference, *source.args]
-        if source.kind == SourceKind.PYPI:
-            return "uvx", [source.reference, *source.args]
-        if source.kind == SourceKind.BINARY:
-            return source.reference, list(source.args)
-        # GIT or anything else without an explicit command is ambiguous to launch.
-        raise ScanError(
-            f"Cannot infer a launch command for {source.reference!r} "
-            f"(kind={source.kind}); set an explicit `command` on the source."
-        )
+        return launch_spec(source)
 
     @staticmethod
     def _launches_local_process(source: ServerSource) -> bool:

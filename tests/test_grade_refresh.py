@@ -31,6 +31,28 @@ POLICY = ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 NOW = datetime(2026, 8, 23, 13, 0, tzinfo=UTC)
 
 
+def test_repeat_projection_ignores_only_per_run_container_identity() -> None:
+    binding = {
+        "schema": "McpTrustScanExecutionBindingV2",
+        "sandbox": {
+            "runtime_readback": {
+                "container_identity_digest": "sha256:" + "a" * 64,
+                "controls": {"network_none": True},
+            }
+        },
+    }
+
+    projected = grade_refresh._repeatable_execution_binding_projection(binding)
+
+    assert "container_identity_digest" not in projected["sandbox"]["runtime_readback"]
+    assert projected["sandbox"]["runtime_readback"]["controls"] == {
+        "network_none": True
+    }
+    assert binding["sandbox"]["runtime_readback"]["container_identity_digest"] == (
+        "sha256:" + "a" * 64
+    )
+
+
 def test_triage_cli_requires_repeat_candidate() -> None:
     with pytest.raises(SystemExit):
         grade_refresh_cli._parser().parse_args(  # noqa: SLF001

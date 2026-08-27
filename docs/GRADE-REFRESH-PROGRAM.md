@@ -176,6 +176,23 @@ requires an explicit current repository root, recomputes static image
 qualification projections from the current tracked inputs, and compares the
 receipt's full source binding with a fresh current-worktree binding.
 
+Each successful local scan must also carry a privacy-minimized
+`McpTrustSandboxRuntimeReadbackV1` inside its execution binding. The collector
+observes the exact pre-created container while PID 1 is the digest-bound MCP
+server command, reads PID 1 status and environment names, proves the helper
+shares its network/mount namespaces and cgroup, and compares daemon
+configuration with `/proc`, mount, interface, and cgroup observations. The
+helper performs only the behavioral root/tmpfs write probes. Network-none,
+read-only root, dropped capabilities, no-new-privileges, non-root identity, no
+bind mounts, bounded tmpfs, memory, CPU, PID, environment-name, and command
+bindings must match the exact configured profile. Environment values are never
+emitted. Missing or contradictory readback refuses a fresh grade and remains
+`UNKNOWN`. The receipt is not signed and does not prove protection from an
+artifact-replay-capable local writer. Each qualified purpose-built image also
+binds the fixed non-shell `python` attestor command; an image without that
+capability fails closed and cannot return scan evidence. The generic
+`DockerSandbox` image default is not runtime-qualified by this source contract.
+
 Docker is the current baseline, not proof against a kernel/runtime compromise.
 If the threat model requires stronger isolation, use a verified microVM/gVisor
 boundary and requalify the same controls before execution.

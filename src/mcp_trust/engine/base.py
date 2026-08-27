@@ -62,6 +62,13 @@ class EngineResult(BaseModel):
             "bound daemon and proving the uniquely owned scan container absent."
         ),
     )
+    sandbox_runtime_readback: dict[str, object] | None = Field(
+        default=None,
+        description=(
+            "Privacy-minimized live readback of the exact sandbox process and "
+            "bound Docker daemon controls. None when no local sandbox process ran."
+        ),
+    )
 
 
 @runtime_checkable
