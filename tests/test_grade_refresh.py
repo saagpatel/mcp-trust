@@ -290,6 +290,26 @@ def test_engine_lock_binding_is_exact_and_pypi_only() -> None:
     assert binding["artifacts"]["sdist"]["url"].endswith(".tar.gz")
 
 
+def _write_engine_lock_fixture(
+    root: Path,
+    *,
+    lock: str | None = None,
+    project: str | None = None,
+) -> None:
+    (root / "uv.lock").write_text(
+        lock if lock is not None else (ROOT / "uv.lock").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (root / "pyproject.toml").write_text(
+        (
+            project
+            if project is not None
+            else (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_engine_lock_binding_rejects_non_pypi_dependency_source(tmp_path: Path) -> None:
     lock = (
         (ROOT / "uv.lock")
@@ -300,7 +320,7 @@ def test_engine_lock_binding_rejects_non_pypi_dependency_source(tmp_path: Path) 
             1,
         )
     )
-    (tmp_path / "uv.lock").write_text(lock, encoding="utf-8")
+    _write_engine_lock_fixture(tmp_path, lock=lock)
 
     assert grade_refresh._locked_engine_binding(tmp_path) is None
 
@@ -322,9 +342,66 @@ def test_engine_lock_binding_rejects_format_and_noncanonical_urls(
 ) -> None:
     lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
     assert original in lock
-    (tmp_path / "uv.lock").write_text(
-        lock.replace(original, replacement, 1),
-        encoding="utf-8",
+    _write_engine_lock_fixture(
+        tmp_path,
+        lock=lock.replace(original, replacement, 1),
+    )
+
+    assert grade_refresh._locked_engine_binding(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [
+        (
+            'engine = [\n    { name = "mcp-audits" },\n]',
+            'engine = [\n]',
+        ),
+        (
+            '{ name = "mcp-audits", marker = "extra == \'engine\'", '
+            'specifier = ">=2.4.0,<3" },',
+            '{ name = "mcp-audits", marker = "extra == \'dev\'", '
+            'specifier = ">=2.4.0,<3" },',
+        ),
+        (
+            'provides-extras = ["engine", "dev"]',
+            'provides-extras = ["dev"]',
+        ),
+    ],
+)
+def test_engine_lock_binding_rejects_orphaned_engine_dependency_edge(
+    original: str,
+    replacement: str,
+    tmp_path: Path,
+) -> None:
+    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    assert original in lock
+    _write_engine_lock_fixture(tmp_path, lock=lock.replace(original, replacement, 1))
+
+    assert grade_refresh._locked_engine_binding(tmp_path) is None
+
+
+def test_engine_lock_binding_rejects_duplicate_editable_project(tmp_path: Path) -> None:
+    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    editable = lock[lock.index('[[package]]\nname = "mcp-trust"') :]
+    editable = editable[: editable.index("\n[[package]]", 1)]
+    _write_engine_lock_fixture(tmp_path, lock=lock + "\n" + editable + "\n")
+
+    assert grade_refresh._locked_engine_binding(tmp_path) is None
+
+
+def test_engine_lock_binding_rejects_project_engine_requirement_drift(
+    tmp_path: Path,
+) -> None:
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert grade_refresh.EXPECTED_MCP_AUDITS_REQUIREMENT in project
+    _write_engine_lock_fixture(
+        tmp_path,
+        project=project.replace(
+            grade_refresh.EXPECTED_MCP_AUDITS_REQUIREMENT,
+            "mcp-audits>=2.6.0,<3",
+            1,
+        ),
     )
 
     assert grade_refresh._locked_engine_binding(tmp_path) is None
@@ -464,6 +541,48 @@ def test_engine_materialization_integrity_mismatch_is_blocked(
     assert verification["state"] == "BLOCKED"
     assert verification["receipt_valid"] is True
     assert verification["materialization_ready"] is False
+
+
+def test_engine_materialization_verifier_reproduces_blocked_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
+    monkeypatch.setattr(
+        grade_refresh,
+        "_uv_binding",
+        lambda _runner: {
+            "version": "0.12.5",
+            "executable": "uv",
+            "executable_sha256": "sha256:" + "c" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        grade_refresh,
+        "distribution_runtime_binding",
+        lambda _name, _modules: None,
+    )
+    receipt = grade_refresh.build_engine_materialization_receipt(
+        repo_root=ROOT,
+        now=NOW,
+    )
+    assert receipt["status"] == "BLOCKED"
+
+    monkeypatch.setattr(
+        grade_refresh,
+        "distribution_runtime_binding",
+        lambda _name, _modules: _engine_distribution_binding(),
+    )
+    verification = grade_refresh.verify_engine_materialization_receipt(
+        receipt,
+        repo_root=ROOT,
+        now=NOW,
+    )
+
+    assert verification["state"] == "UNKNOWN"
+    assert verification["receipt_valid"] is False
+    assert verification["materialization_ready"] is False
+    assert verification["reasons"] == ["current_environment_mismatch"]
 
 
 def test_engine_materialization_ready_receipt_repeats_and_is_private(

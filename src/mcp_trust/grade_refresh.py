@@ -52,6 +52,7 @@ IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
 ENGINE_MATERIALIZATION_SCHEMA = "McpTrustEngineMaterializationReceiptV1"
 ENGINE_MATERIALIZATION_VERIFICATION_SCHEMA = "McpTrustEngineMaterializationVerificationV1"
 EXPECTED_MCP_AUDITS_VERSION = "2.7.0"
+EXPECTED_MCP_AUDITS_REQUIREMENT = "mcp-audits>=2.4.0,<3"
 ENGINE_MATERIALIZATION_MAX_AGE_SECONDS = 900
 _ENGINE_MATERIALIZATION_AUTHORITY = {
     "observation_only": True,
@@ -508,9 +509,11 @@ def _locked_package_version(repo_root: Path, distribution: str) -> str:
 def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
     """Return the exact PyPI lock binding for the approved scan engine."""
     lock_path = repo_root / "uv.lock"
+    project_path = repo_root / "pyproject.toml"
     try:
         lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
         lock_digest = digest_file(lock_path)
+        project = tomllib.loads(project_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError):
         return None
     if (
@@ -523,6 +526,65 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
     packages = lock.get("package")
     if not isinstance(packages, list):
         return None
+    project_table = project.get("project") if isinstance(project, dict) else None
+    optional_dependencies = (
+        project_table.get("optional-dependencies")
+        if isinstance(project_table, dict)
+        else None
+    )
+    if (
+        not isinstance(project_table, dict)
+        or project_table.get("name") != "mcp-trust"
+        or not isinstance(project_table.get("version"), str)
+        or _STABLE_VERSION.fullmatch(project_table["version"]) is None
+        or project_table.get("requires-python") != ">=3.11"
+        or not isinstance(optional_dependencies, dict)
+        or optional_dependencies.get("engine") != [EXPECTED_MCP_AUDITS_REQUIREMENT]
+    ):
+        return None
+    editable_projects = [
+        locked_package
+        for locked_package in packages
+        if isinstance(locked_package, dict)
+        and locked_package.get("source") == {"editable": "."}
+    ]
+    if len(editable_projects) != 1:
+        return None
+    editable_project = editable_projects[0]
+    locked_optional_dependencies = editable_project.get("optional-dependencies")
+    locked_metadata = editable_project.get("metadata")
+    locked_requirements = (
+        locked_metadata.get("requires-dist") if isinstance(locked_metadata, dict) else None
+    )
+    locked_extras = (
+        locked_metadata.get("provides-extras") if isinstance(locked_metadata, dict) else None
+    )
+    engine_requirements = [
+        requirement
+        for requirement in locked_requirements or []
+        if isinstance(requirement, dict)
+        and isinstance(requirement.get("name"), str)
+        and _normalized_project_name(requirement["name"]) == "mcp-audits"
+    ]
+    if (
+        editable_project.get("name") != "mcp-trust"
+        or editable_project.get("version") != project_table["version"]
+        or not isinstance(locked_optional_dependencies, dict)
+        or locked_optional_dependencies.get("engine") != [{"name": "mcp-audits"}]
+        or not isinstance(locked_requirements, list)
+        or engine_requirements
+        != [
+            {
+                "name": "mcp-audits",
+                "marker": "extra == 'engine'",
+                "specifier": ">=2.4.0,<3",
+            }
+        ]
+        or not isinstance(locked_extras, list)
+        or len(locked_extras) != len(set(locked_extras))
+        or "engine" not in locked_extras
+    ):
+        return None
     registry_packages = 0
     registry_artifacts = 0
     for locked_package in packages:
@@ -530,7 +592,7 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
             return None
         locked_source = locked_package.get("source")
         if locked_source == {"editable": "."}:
-            if locked_package.get("name") != "mcp-trust":
+            if locked_package is not editable_project:
                 return None
             continue
         if locked_source != {"registry": "https://pypi.org/simple"}:
