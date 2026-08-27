@@ -253,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate,
                 seed_path=Path(args.seed),
                 masked_path=Path(args.masked_grades),
+                repo_root=_REPO_ROOT,
                 now=now,
             )
         )

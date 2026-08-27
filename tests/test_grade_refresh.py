@@ -869,18 +869,25 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
         encoding="utf-8",
     )
 
+    verifier_kwargs: dict[str, object] = {}
+
+    def candidate_verifier(*_args, **kwargs):
+        verifier_kwargs.update(kwargs)
+        return {
+            "structural_valid": True,
+            "publication_ready": True,
+            "state": "complete",
+            "errors": [],
+        }
+
     triage = triage_candidate(
         candidate=candidate,
         preflight=preflight,
         repeatability=repeatability,
         seed_path=SEED,
         masked_path=MASKED,
-        candidate_verifier=lambda *_args, **_kwargs: {
-            "structural_valid": True,
-            "publication_ready": True,
-            "state": "complete",
-            "errors": [],
-        },
+        repo_root=ROOT,
+        candidate_verifier=candidate_verifier,
     )
 
     codes = {finding["code"] for finding in triage["findings"]}
@@ -891,6 +898,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
     assert "controlled_repeat_evidence_missing" in codes
     assert "baseline_policy_digest_unknown" in codes
     assert triage["candidate_verification"]["publication_ready"] is True
+    assert verifier_kwargs["repo_root"] == ROOT
     state = build_state_card(
         preflight=preflight,
         repeatability=repeatability,
@@ -993,6 +1001,18 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
             encoding="utf-8",
         )
 
+    verifier_calls: list[dict[str, object]] = []
+
+    def candidate_verifier(*_args, **kwargs):
+        verifier_calls.append(kwargs)
+        return {
+            "structural_valid": True,
+            "publication_ready": False,
+            "state": "partial",
+            "errors": [],
+        }
+
+    alternate_root = tmp_path / "alternate-repo-root"
     triage = triage_candidate(
         candidate=first,
         repeat_candidate=second,
@@ -1000,13 +1020,14 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
         repeatability=repeatability,
         seed_path=SEED,
         masked_path=MASKED,
-        candidate_verifier=lambda *_args, **_kwargs: {
-            "structural_valid": True,
-            "publication_ready": False,
-            "state": "partial",
-            "errors": [],
-        },
+        repo_root=alternate_root,
+        candidate_verifier=candidate_verifier,
     )
+
+    assert [call["repo_root"] for call in verifier_calls] == [
+        alternate_root,
+        alternate_root,
+    ]
 
     assert any(
         finding == {

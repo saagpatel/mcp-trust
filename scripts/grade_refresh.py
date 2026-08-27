@@ -110,6 +110,7 @@ def _parser() -> argparse.ArgumentParser:
     triage.add_argument("--repeat-candidate", type=Path, required=True)
     triage.add_argument("--preflight", type=Path, required=True)
     triage.add_argument("--repeatability", type=Path, required=True)
+    triage.add_argument("--repo-root", type=Path, default=_ROOT)
     triage.add_argument("--out", type=Path)
 
     package = subcommands.add_parser(
@@ -149,6 +150,7 @@ def _parser() -> argparse.ArgumentParser:
     publication_review.add_argument("--preflight", type=Path, required=True)
     publication_review.add_argument("--repeatability", type=Path, required=True)
     publication_review.add_argument("--triage", type=Path, required=True)
+    publication_review.add_argument("--repo-root", type=Path, default=_ROOT)
     publication_review.add_argument(
         "--dispositions", type=Path, default=_DISPOSITIONS
     )
@@ -172,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = catalog_inventory(
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
+                repo_root=args.repo_root,
                 policy_path=args.policy,
             )
             _emit(payload, args.out)
@@ -203,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                 repeatability=load_json(args.repeatability),
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
+                repo_root=args.repo_root,
                 repeat_candidate=args.repeat_candidate,
             )
             _emit(payload, args.out)
@@ -269,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
                 policy_path=args.policy,
+                repo_root=args.repo_root,
                 disposition_path=args.dispositions,
                 accepted_review_path=args.accepted_review,
             )

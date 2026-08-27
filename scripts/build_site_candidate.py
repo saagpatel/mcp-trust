@@ -131,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
             seed_path=args.seed,
             masked_path=args.masked_grades,
             policy_path=args.policy,
+            repo_root=ROOT,
             corrections_path=args.corrections,
             output_path=args.out,
             base_url=args.base_url,

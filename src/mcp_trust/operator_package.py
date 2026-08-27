@@ -454,6 +454,8 @@ def _inputs(
     source_binding_reader: Callable[[Path], dict[str, Any]] | None,
     now: datetime | None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None, dict[str, Any]]:
+    effective_policy = policy_path or seed_path.parent / "refresh_policy.json"
+    effective_repo_root = repo_root or effective_policy.resolve().parents[3]
     preflight, preflight_bytes = _strict_json(preflight_path, "preflight receipt")
     repeatability, repeatability_bytes = _strict_json(
         repeatability_path, "repeatability receipt"
@@ -477,6 +479,7 @@ def _inputs(
                 repeatability=repeatability,
                 seed_path=seed_path,
                 masked_path=masked_path,
+                repo_root=effective_repo_root,
                 candidate_verifier=candidate_verifier,
             )
         except GradeRefreshError as exc:
@@ -485,7 +488,6 @@ def _inputs(
             raise OperatorPackageError(
                 "triage receipt differs from independently recomputed evidence"
             )
-    effective_policy = policy_path or seed_path.parent / "refresh_policy.json"
     try:
         seed_bytes = _stable_bytes(seed_path, "catalog seed")
         masked_bytes = _stable_bytes(masked_path, "masked grade policy")
@@ -530,7 +532,6 @@ def _inputs(
             }
         ),
     }
-    effective_repo_root = repo_root or effective_policy.resolve().parents[3]
     reader = source_binding_reader or source_binding
     try:
         current_source = reader(effective_repo_root)

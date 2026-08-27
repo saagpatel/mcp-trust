@@ -67,6 +67,16 @@ not pull, rebuild, retag, or substitute an image without explicit approval.
 Blocked catalog rows remain excluded; do not widen execution to make the
 preflight green.
 
+Candidate creation does not trust the receipt self-digest alone. Before any
+Docker preflight it revalidates the exact network/filesystem/resource/secret
+policies, all ten sandbox controls, every nested verified build qualification
+and image ID, the qualification receipt and tracked-input source bindings, and
+the exact locked/runtime tool set. Candidate verification requires the current
+repository root, recomputes each static image qualification from current
+tracked bytes, and requires the receipt's complete source binding to equal the
+current worktree binding. A re-digested alteration or missing current-source
+evidence is a terminal source-evidence failure.
+
 ## 2. Deterministic fixtures
 
 ```bash

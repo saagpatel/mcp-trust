@@ -29,6 +29,8 @@ from mcp_trust.refresh import verify_refresh_candidate
 from mcp_trust.site.generator import SiteBuild, generate_site
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 SITE_CANDIDATE_SCHEMA_V1 = "McpTrustSiteCandidateV1"
 SITE_CANDIDATE_SCHEMA = "McpTrustSiteCandidateV2"
 SITE_CANDIDATE_MANIFEST = "SITE_CANDIDATE.json"
@@ -630,6 +632,7 @@ def verify_site_candidate_review(
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
+    repo_root: Path = _REPO_ROOT,
     candidate_verifier: Callable[..., dict[str, object]] = verify_refresh_candidate,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -642,6 +645,7 @@ def verify_site_candidate_review(
         candidate_path,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
         now=now,
     )
     if verification.get("publication_ready") is not True:
@@ -1114,6 +1118,7 @@ def build_site_candidate(
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
+    repo_root: Path = _REPO_ROOT,
     corrections_path: Path,
     output_path: Path,
     base_url: str,
@@ -1142,6 +1147,7 @@ def build_site_candidate(
         seed_path=seed_path,
         masked_path=masked_path,
         policy_path=policy_path,
+        repo_root=repo_root,
         candidate_verifier=candidate_verifier,
         now=now,
     )
@@ -1243,6 +1249,7 @@ def build_site_candidate(
             seed_path=seed_path,
             masked_path=masked_path,
             policy_path=policy_path,
+            repo_root=repo_root,
             candidate_verifier=candidate_verifier,
             now=now,
         )
