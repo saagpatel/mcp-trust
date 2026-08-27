@@ -35,6 +35,7 @@ PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV1"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
+OPERATOR_PACKAGE_LINEAGE_SCHEMA = "McpTrustOperatorPackageLineageV1"
 DISPOSITION_POLICY_SCHEMA_V1 = "McpTrustGradeRefreshDispositionPolicyV1"
 DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV2"
 PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
@@ -165,7 +166,7 @@ def load_json(path: Path) -> Any:
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
         )
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise GradeRefreshError(f"unreadable JSON input: {path.name}") from exc
 
 
@@ -3229,10 +3230,14 @@ def build_state_card(
     completed_controls = [
         "catalog-inventory",
         "source-and-policy-digests",
-        "image-provenance-preflight-run",
         "sandbox-policy-defined",
         "review-only-authority",
     ]
+    if (
+        preflight.get("status") == "READY"
+        and preflight.get("safe_to_execute_catalog") is True
+    ):
+        completed_controls.append("image-provenance-preflight-run")
     if repeatability.get("status") == "PASS":
         completed_controls.append("deterministic-fixture-repeatability")
     if triage_valid:
@@ -3276,6 +3281,323 @@ def build_state_card(
             )
         ),
     }
+
+
+def build_operator_package_lineage(
+    *,
+    preflight: object,
+    repeatability: object,
+    triage: object | None,
+    preflight_file_sha256: str,
+    repeatability_file_sha256: str,
+    triage_file_sha256: str | None,
+    catalog_inputs: object,
+    current_source: object,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate exact input receipts and return privacy-minimized package lineage."""
+    if not isinstance(preflight, dict) or not _receipt_integrity_valid(
+        preflight,
+        schema=PREFLIGHT_SCHEMA,
+        expected_keys=_PREFLIGHT_KEYS,
+    ):
+        raise GradeRefreshError("operator package preflight receipt is invalid")
+    if not isinstance(repeatability, dict) or not _receipt_integrity_valid(
+        repeatability,
+        schema=REPEATABILITY_SCHEMA,
+        expected_keys=_REPEATABILITY_KEYS,
+    ):
+        raise GradeRefreshError("operator package repeatability receipt is invalid")
+    preflight_ready = (
+        preflight.get("status") == "READY"
+        and preflight.get("safe_to_execute_catalog") is True
+        and preflight.get("exit_classification") == "ready"
+        and preflight.get("reasons") == []
+    )
+    preflight_blocked = (
+        preflight.get("status") == "BLOCKED"
+        and preflight.get("safe_to_execute_catalog") is False
+        and preflight.get("exit_classification") == "preflight-blocked"
+        and isinstance(preflight.get("reasons"), list)
+        and bool(preflight["reasons"])
+    )
+    authority = preflight.get("authority")
+    scheduler = preflight.get("scheduler")
+    if (
+        not (preflight_ready or preflight_blocked)
+        or not isinstance(authority, dict)
+        or authority.get("candidate_build") is not preflight_ready
+        or authority.get("publication") is not False
+        or authority.get("deployment") is not False
+        or authority.get("scheduler_change") is not False
+        or not isinstance(scheduler, dict)
+        or scheduler.get("mutation_performed") is not False
+    ):
+        raise GradeRefreshError("operator package preflight semantics are invalid")
+    if preflight_ready:
+        sandbox = preflight.get("sandbox")
+        tool_versions = preflight.get("tool_versions")
+        image_bindings = sandbox.get("image_bindings") if isinstance(sandbox, dict) else None
+        expected_references = catalog_inputs.get("image_references") if isinstance(
+            catalog_inputs, dict
+        ) else None
+        ready_catalog = preflight.get("catalog")
+        image_sources = (
+            ready_catalog.get("image_build_sources")
+            if isinstance(ready_catalog, dict)
+            else None
+        )
+        required_controls = {
+            "network_none",
+            "read_only_root",
+            "capabilities_dropped",
+            "no_new_privileges",
+            "memory_limit",
+            "cpu_limit",
+            "pids_limit",
+            "non_root_user",
+            "bounded_writable_tmpfs",
+            "no_host_mount",
+        }
+        if (
+            not isinstance(sandbox, dict)
+            or sandbox.get("docker_host_kind") != "local-unix"
+            or sandbox.get("network_policy") != "none"
+            or sandbox.get("filesystem_policy")
+            != "read-only-root-bounded-tmpfs-no-host-mounts"
+            or sandbox.get("resource_policy") != "cpu-memory-pids-timeout-required"
+            or sandbox.get("secret_policy") != "no-live-secrets-dummy-network-off-only"
+            or not isinstance(expected_references, list)
+            or not expected_references
+            or not isinstance(image_bindings, list)
+            or len(image_bindings) != len(expected_references)
+            or not isinstance(image_sources, dict)
+            or set(image_sources) != set(expected_references)
+        ):
+            raise GradeRefreshError("operator package READY sandbox evidence is invalid")
+        binding_by_reference = {
+            binding.get("reference"): binding
+            for binding in image_bindings
+            if isinstance(binding, dict)
+        }
+        if set(binding_by_reference) != set(expected_references):
+            raise GradeRefreshError("operator package READY image bindings are invalid")
+        for reference in expected_references:
+            binding = binding_by_reference[reference]
+            controls = binding.get("sandbox_controls")
+            control_values = controls.get("controls") if isinstance(controls, dict) else None
+            source_binding = image_sources[reference]
+            qualification = (
+                source_binding.get("qualification")
+                if isinstance(source_binding, dict)
+                else None
+            )
+            if (
+                binding.get("state") != "BOUND"
+                or not isinstance(binding.get("image_id"), str)
+                or _SHA256.fullmatch(binding["image_id"]) is None
+                or not isinstance(binding.get("repo_digests"), list)
+                or not all(isinstance(value, str) for value in binding["repo_digests"])
+                or not isinstance(binding.get("platform"), str)
+                or not isinstance(controls, dict)
+                or controls.get("all_required_controls") is not True
+                or not isinstance(control_values, dict)
+                or set(control_values) != required_controls
+                or not all(value is True for value in control_values.values())
+                or not isinstance(source_binding, dict)
+                or source_binding.get("state") != "BOUND"
+                or not isinstance(qualification, dict)
+                or qualification.get("state") != "VERIFIED"
+                or qualification.get("qualified_image_id") != binding.get("image_id")
+            ):
+                raise GradeRefreshError("operator package READY image bindings are invalid")
+        required_tool_keys = {
+            "python",
+            "python_executable",
+            "mcp_audits",
+            "mcp_audits_locked",
+            "mcp_trust",
+            "docker_client",
+            "docker_server",
+        }
+        if (
+            not isinstance(tool_versions, dict)
+            or set(tool_versions) != required_tool_keys
+            or not all(
+                isinstance(tool_versions.get(key), str)
+                and tool_versions[key] != "UNKNOWN"
+                for key in required_tool_keys
+            )
+            or tool_versions.get("mcp_audits")
+            != tool_versions.get("mcp_audits_locked")
+            or any(
+                _STABLE_VERSION.fullmatch(tool_versions[key]) is None
+                for key in (
+                    "python",
+                    "mcp_audits",
+                    "mcp_audits_locked",
+                    "mcp_trust",
+                    "docker_client",
+                    "docker_server",
+                )
+            )
+        ):
+            raise GradeRefreshError("operator package READY tool evidence is invalid")
+    repeatability_passed = (
+        repeatability.get("status") == "PASS"
+        and repeatability.get("repeatable") is True
+        and repeatability.get("first_digest") == repeatability.get("second_digest")
+    )
+    repeatability_failed = (
+        repeatability.get("status") == "FAIL"
+        and repeatability.get("repeatable") is False
+    )
+    for key in ("first_digest", "second_digest"):
+        value = repeatability.get(key)
+        if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+            raise GradeRefreshError("operator package repeatability semantics are invalid")
+    if not (repeatability_passed or repeatability_failed):
+        raise GradeRefreshError("operator package repeatability semantics are invalid")
+    if (
+        repeatability.get("fixture_kind")
+        != "deterministic-stub-no-process-no-network"
+        or repeatability.get("claim_ceiling")
+        != "Fixture determinism only; no real server or sandbox runtime proof."
+    ):
+        raise GradeRefreshError("operator package repeatability claim is invalid")
+    file_digests = {
+        "preflight": preflight_file_sha256,
+        "repeatability": repeatability_file_sha256,
+    }
+    if not all(
+        isinstance(value, str) and _SHA256.fullmatch(value) is not None
+        for value in file_digests.values()
+    ):
+        raise GradeRefreshError("operator package input file digest is invalid")
+    if triage is None:
+        if triage_file_sha256 is not None:
+            raise GradeRefreshError("operator package triage file binding is inconsistent")
+    else:
+        if (
+            not isinstance(triage_file_sha256, str)
+            or _SHA256.fullmatch(triage_file_sha256) is None
+            or not _triage_integrity_valid(
+                triage,
+                preflight_digest=preflight.get("receipt_digest"),
+                repeatability_digest=repeatability.get("receipt_digest"),
+            )
+        ):
+            raise GradeRefreshError("operator package triage receipt is invalid")
+    source = preflight.get("source_binding")
+    catalog = preflight.get("catalog")
+    if not isinstance(source, dict) or not isinstance(catalog, dict):
+        raise GradeRefreshError("operator package source or catalog binding is invalid")
+    if (
+        not isinstance(current_source, dict)
+        or current_source.get("worktree_state") != "clean"
+        or source.get("worktree_state") != "clean"
+        or any(
+            source.get(key) != current_source.get(key)
+            for key in ("revision", "source_tree_digest", "worktree_state")
+        )
+    ):
+        raise GradeRefreshError("operator package current source binding is invalid")
+    source_revision = source.get("revision")
+    source_tree_digest = source.get("source_tree_digest")
+    if (
+        not isinstance(source_revision, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_revision) is None
+        or not isinstance(source_tree_digest, str)
+        or _SHA256.fullmatch(source_tree_digest) is None
+    ):
+        raise GradeRefreshError("operator package source binding is invalid")
+    if (
+        type(catalog.get("denominator")) is not int
+        or type(repeatability.get("catalog_denominator")) is not int
+        or repeatability.get("catalog_denominator") != catalog.get("denominator")
+    ):
+        raise GradeRefreshError("operator package catalog denominator is invalid")
+    catalog_digests: dict[str, str] = {}
+    if not isinstance(catalog_inputs, dict):
+        raise GradeRefreshError("operator package catalog input binding is invalid")
+    for key in ("policy_digest", "seed_digest", "masking_digest"):
+        value = catalog.get(key)
+        if (
+            not isinstance(value, str)
+            or _SHA256.fullmatch(value) is None
+            or catalog_inputs.get(key) != value
+        ):
+            raise GradeRefreshError("operator package catalog binding is invalid")
+        catalog_digests[key] = value
+    if (
+        catalog.get("inventory_digest") != catalog_inputs.get("inventory_digest")
+        or catalog.get("denominator") != catalog_inputs.get("denominator")
+        or catalog.get("counts") != catalog_inputs.get("counts")
+        or catalog.get("execution_boundary") != catalog_inputs.get("execution_boundary")
+    ):
+        raise GradeRefreshError("operator package catalog binding is invalid")
+
+    observed: list[datetime] = []
+    evaluated_at = (now or datetime.now(tz=UTC)).astimezone(UTC)
+    for label, receipt in (("preflight", preflight), ("repeatability", repeatability)):
+        try:
+            parsed = datetime.fromisoformat(
+                str(receipt.get("observed_at")).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise GradeRefreshError(
+                f"operator package {label} observed_at is invalid"
+            ) from exc
+        if parsed.tzinfo is None:
+            raise GradeRefreshError(
+                f"operator package {label} observed_at lacks a timezone"
+            )
+        normalized = parsed.astimezone(UTC)
+        age_seconds = (evaluated_at - normalized).total_seconds()
+        if age_seconds < -60 or age_seconds > 86_400:
+            raise GradeRefreshError(
+                f"operator package {label} receipt freshness is invalid"
+            )
+        observed.append(normalized)
+
+    triage_binding = None
+    if isinstance(triage, dict):
+        triage_binding = {
+            "schema": TRIAGE_SCHEMA,
+            "file_sha256": triage_file_sha256,
+            "receipt_digest": triage["receipt_digest"],
+            "candidate_manifest_digest": triage["candidate_manifest_digest"],
+            "repeat_candidate_manifest_digest": triage[
+                "repeat_candidate_manifest_digest"
+            ],
+        }
+    catalog_lineage: dict[str, Any] = {
+        **catalog_digests,
+        "inventory_digest": catalog["inventory_digest"],
+        "denominator": catalog["denominator"],
+        "counts": catalog["counts"],
+        "execution_boundary": catalog["execution_boundary"],
+    }
+    payload: dict[str, Any] = {
+        "schema": OPERATOR_PACKAGE_LINEAGE_SCHEMA,
+        "evidence_as_of": max(observed).isoformat(),
+        "source_revision": source_revision,
+        "source_tree_digest": source_tree_digest,
+        "catalog": catalog_lineage,
+        "preflight": {
+            "schema": PREFLIGHT_SCHEMA,
+            "file_sha256": preflight_file_sha256,
+            "receipt_digest": preflight["receipt_digest"],
+        },
+        "repeatability": {
+            "schema": REPEATABILITY_SCHEMA,
+            "file_sha256": repeatability_file_sha256,
+            "receipt_digest": repeatability["receipt_digest"],
+        },
+        "triage": triage_binding,
+    }
+    payload["lineage_digest"] = digest_bytes(canonical_bytes(payload))
+    return payload
 
 
 def build_resume_capsule(

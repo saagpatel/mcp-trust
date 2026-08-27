@@ -20,13 +20,15 @@ from mcp_trust.grade_refresh import (
     build_preflight_receipt,
     build_publication_review_decision,
     build_publication_review_state_card,
-    build_resume_capsule,
-    build_state_card,
     canonical_bytes,
     catalog_inventory,
     load_json,
     publication_review_markdown,
     triage_candidate,
+)
+from mcp_trust.operator_package import (
+    build_operator_review_package,
+    verify_operator_review_package,
 )
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +122,22 @@ def _parser() -> argparse.ArgumentParser:
     package.add_argument("--candidate", type=Path)
     package.add_argument("--repeat-candidate", type=Path)
     package.add_argument("--task-id", required=True)
+    package.add_argument("--repo-root", type=Path, default=_ROOT)
     package.add_argument("--out-dir", type=Path, required=True)
+
+    verify_package = subcommands.add_parser(
+        "verify-package",
+        help="Independently re-read one local operator package and all receipt inputs.",
+    )
+    _common_inputs(verify_package)
+    verify_package.add_argument("--package", type=Path, required=True)
+    verify_package.add_argument("--preflight", type=Path, required=True)
+    verify_package.add_argument("--repeatability", type=Path, required=True)
+    verify_package.add_argument("--triage", type=Path)
+    verify_package.add_argument("--candidate", type=Path)
+    verify_package.add_argument("--repeat-candidate", type=Path)
+    verify_package.add_argument("--task-id", required=True)
+    verify_package.add_argument("--repo-root", type=Path, default=_ROOT)
 
     publication_review = subcommands.add_parser(
         "publication-review",
@@ -145,75 +162,6 @@ def _parser() -> argparse.ArgumentParser:
     publication_review.add_argument("--markdown-out", type=Path)
     publication_review.add_argument("--state-card-out", type=Path)
     return parser
-
-
-def _review_markdown(state: dict[str, object]) -> str:
-    gates = state.get("outstanding_gates")
-    gate_lines = (
-        "\n".join(f"- {gate}" for gate in gates)
-        if isinstance(gates, list) and gates
-        else "- none"
-    )
-    findings = state.get("findings")
-    finding_lines = (
-        "\n".join(
-            f"- {finding.get('severity', 'UNKNOWN')}: "
-            f"`{finding.get('code', 'unknown')}` ({finding.get('scope', 'catalog')})"
-            for finding in findings
-            if isinstance(finding, dict)
-        )
-        if isinstance(findings, list) and findings
-        else "- none"
-    )
-    return f"""# MCP Trust grade-refresh operator review
-
-This package is review-only. It grants no publication, deployment, scheduler,
-credential, third-party execution, or outreach authority.
-
-## Current decision
-
-- Source revision: `{state.get('source_revision', 'UNKNOWN')}`
-- Source tree digest: `{state.get('source_tree_digest', 'UNKNOWN')}`
-- Catalog denominator: `{state.get('catalog_denominator', 0)}`
-- Catalog execution ready: `{state.get('safe_to_execute_catalog', False)}`
-- Fixture repeatability: `{state.get('fixture_repeatability', 'UNKNOWN')}`
-- Production freshness: `{state.get('production_freshness', 'UNKNOWN')}`
-- Publication state: `{state.get('publication_state', 'UNKNOWN')}`
-
-## Findings (Critical, High, Medium, Low)
-
-{finding_lines}
-
-## Outstanding gates
-
-{gate_lines}
-
-## Next action
-
-{state.get('next_action', 'UNKNOWN')}
-"""
-
-
-def _rollback_markdown() -> str:
-    return """# Future publication rollback procedure
-
-Rollback is a separate, explicitly approved publication action. Before any
-future publication, retain the prior deployment revision, site artifact digest,
-catalog snapshot digest, masking digest, and provider deployment identifier.
-
-If post-publication readback fails or differs from the approved candidate:
-
-1. Stop; do not rescan, rebuild, or overwrite evidence.
-2. Mark the new publication `WITHDRAWN_PENDING_REVIEW` and preserve receipts.
-3. Re-authorize the exact prior immutable site artifact and deployment target.
-4. Restore only through the manual deployment lane with its TTY confirmation.
-5. Read back health, catalog denominator, masking, grade/staleness semantics,
-   badges, source identity, and denied scan POST behavior.
-6. Record both failed and restored deployment identifiers and artifact digests.
-
-Local candidate deletion, scheduler enablement, force pushes, and provider
-rollback commands are not authorized by this document.
-"""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -260,50 +208,54 @@ def main(argv: list[str] | None = None) -> int:
             _emit(payload, args.out)
             return 0
         if args.command == "package":
-            preflight = load_json(args.preflight)
-            repeatability = load_json(args.repeatability)
-            triage = None
-            if args.triage is not None:
-                if args.candidate is None:
-                    raise GradeRefreshError(
-                        "package requires --candidate to independently verify triage"
-                    )
-                supplied_triage = load_json(args.triage)
-                triage = triage_candidate(
-                    candidate=args.candidate,
-                    preflight=preflight,
-                    repeatability=repeatability,
-                    seed_path=args.seed,
-                    masked_path=args.masked_grades,
-                    repeat_candidate=args.repeat_candidate,
-                )
-                if supplied_triage != triage:
-                    raise GradeRefreshError(
-                        "triage receipt differs from independently recomputed evidence"
-                    )
-            state = build_state_card(
-                preflight=preflight,
-                repeatability=repeatability,
-                triage=triage,
-            )
-            capsule = build_resume_capsule(task_id=args.task_id, state_card=state, now=now)
-            args.out_dir.mkdir(parents=True, exist_ok=False)
-            _write_json(args.out_dir / "state-card.json", state)
-            _write_json(args.out_dir / "HumanGateResumeCapsuleV1.json", capsule)
-            (args.out_dir / "operator-review.md").write_text(
-                _review_markdown(state), encoding="utf-8"
-            )
-            (args.out_dir / "rollback.md").write_text(
-                _rollback_markdown(), encoding="utf-8"
+            output = build_operator_review_package(
+                output_path=args.out_dir,
+                task_id=args.task_id,
+                preflight_path=args.preflight,
+                repeatability_path=args.repeatability,
+                triage_path=args.triage,
+                candidate_path=args.candidate,
+                repeat_candidate_path=args.repeat_candidate,
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
+                policy_path=args.policy,
+                repo_root=args.repo_root,
+                now=now,
             )
             _emit(
-                {
-                    "schema": "McpTrustOperatorReviewPackageV1",
-                    "state": "CREATED",
-                    "path": str(args.out_dir.resolve()),
-                    "publication_allowed": False,
-                    "deployment_allowed": False,
-                },
+                verify_operator_review_package(
+                    output,
+                    task_id=args.task_id,
+                    preflight_path=args.preflight,
+                    repeatability_path=args.repeatability,
+                    triage_path=args.triage,
+                    candidate_path=args.candidate,
+                    repeat_candidate_path=args.repeat_candidate,
+                    seed_path=args.seed,
+                    masked_path=args.masked_grades,
+                    policy_path=args.policy,
+                    repo_root=args.repo_root,
+                    now=now,
+                ),
+                None,
+            )
+            return 0
+        if args.command == "verify-package":
+            _emit(
+                verify_operator_review_package(
+                    args.package,
+                    task_id=args.task_id,
+                    preflight_path=args.preflight,
+                    repeatability_path=args.repeatability,
+                    triage_path=args.triage,
+                    candidate_path=args.candidate,
+                    repeat_candidate_path=args.repeat_candidate,
+                    seed_path=args.seed,
+                    masked_path=args.masked_grades,
+                    policy_path=args.policy,
+                    repo_root=args.repo_root,
+                    now=now,
+                ),
                 None,
             )
             return 0

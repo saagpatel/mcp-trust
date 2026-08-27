@@ -94,6 +94,28 @@ def test_triage_rejects_malformed_candidate_manifest_root(tmp_path: Path) -> Non
         )
 
 
+def test_triage_converts_deep_candidate_manifest_to_structured_error(
+    tmp_path: Path,
+) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "scan_results.json").write_text(
+        json.dumps({"results": []}), encoding="utf-8"
+    )
+    (candidate / "MANIFEST.json").write_text(
+        "[" * 1_100 + "0" + "]" * 1_100, encoding="utf-8"
+    )
+
+    with pytest.raises(GradeRefreshError, match="unreadable JSON input"):
+        triage_candidate(
+            candidate=candidate,
+            preflight={},
+            repeatability={},
+            seed_path=SEED,
+            masked_path=MASKED,
+        )
+
+
 def test_inventory_classifies_every_catalog_entry() -> None:
     inventory = catalog_inventory(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
 

@@ -146,7 +146,41 @@ uv run --frozen --extra dev python scripts/grade_refresh.py package \
   --triage ./dist/grade-refresh/triage.json \
   --task-id <codex-task-id> \
   --out-dir ./dist/grade-refresh/operator-package
+
+uv run --frozen --extra dev python scripts/grade_refresh.py verify-package \
+  --package ./dist/grade-refresh/operator-package \
+  --candidate ./dist/refresh-candidates/<candidate> \
+  --repeat-candidate ./dist/refresh-candidates/<repeat-candidate> \
+  --preflight ./dist/grade-refresh/preflight.json \
+  --repeatability ./dist/grade-refresh/fixture-repeatability.json \
+  --triage ./dist/grade-refresh/triage.json \
+  --task-id <codex-task-id>
 ```
+
+The builder stages into a task-owned sibling directory, writes the immutable
+`OPERATOR_PACKAGE.json` last, independently verifies every receipt and child
+file, then uses platform no-replace rename semantics and parent-directory fsync
+to finalize a previously absent output without clobbering a concurrent path.
+Receipt self-digests are insufficient: READY/BLOCKED preflight coherence,
+fixture repeatability semantics, catalog denominator, non-mutation authority,
+exact stub-only claim ceiling, 24-hour/future-skew freshness, clean current Git
+revision/tree, and freshly recomputed seed, masking, policy, inventory, and
+execution-boundary digests are checked independently. A `READY` receipt must
+also bind all five qualified image IDs, verified build qualifications, every
+required network/filesystem/resource control, and matching locked/runtime tool
+versions. Both `package` and `verify-package` re-run the current read-only
+preflight before accepting a `READY` receipt; that operation requires separate
+authority to inspect the approved Docker/Colima qualification and disabled
+scheduler state, but it never starts an MCP server or mutates the scheduler. A
+`BLOCKED` receipt may be packaged for review but cannot claim the
+image-provenance completed control. The manifest binds
+the preflight, repeatability, optional triage, source revision/tree, catalog
+input digests, inventory digest, denominator, counts, execution boundary,
+candidate manifests, rollback lineage, privacy decision, and four
+content-file digests. Its timestamp is derived from the latest input receipt,
+so identical inputs and task identity reproduce byte-identical packages.
+`verify-package` must be run from the original receipt and candidate inputs;
+package self-digests alone are insufficient.
 
 Review Critical, High, Medium, then Low. The triage normalizes the two
 independently verified controlled candidates while excluding receipt IDs and
