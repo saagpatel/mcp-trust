@@ -41,7 +41,8 @@ PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV2"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
-OPERATOR_PACKAGE_LINEAGE_SCHEMA = "McpTrustOperatorPackageLineageV1"
+OPERATOR_PACKAGE_LINEAGE_SCHEMA = "McpTrustOperatorPackageLineageV2"
+ENGINE_MATERIALIZATION_LINEAGE_SCHEMA = "McpTrustEngineMaterializationLineageV1"
 DISPOSITION_POLICY_SCHEMA_V1 = "McpTrustGradeRefreshDispositionPolicyV1"
 DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV2"
 PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
@@ -4376,6 +4377,65 @@ def build_operator_package_lineage(
         "counts": catalog["counts"],
         "execution_boundary": catalog["execution_boundary"],
     }
+    materialization = preflight.get("engine_materialization")
+    unknown_tool_versions = {
+        "python": "UNKNOWN",
+        "uv": "UNKNOWN",
+        "mcp_audits": "UNKNOWN",
+    }
+    engine_lineage: dict[str, Any] = {
+        "schema": ENGINE_MATERIALIZATION_LINEAGE_SCHEMA,
+        "evidence_state": "UNKNOWN",
+        "receipt_schema": "UNKNOWN",
+        "observed_at": "UNKNOWN",
+        "status": "UNKNOWN",
+        "receipt_digest": "UNKNOWN",
+        "lock_binding_digest": "UNKNOWN",
+        "distribution_binding_digest": "UNKNOWN",
+        "distribution_record_sha256": "UNKNOWN",
+        "tool_versions": unknown_tool_versions,
+        "tool_versions_digest": "UNKNOWN",
+    }
+    if isinstance(materialization, dict):
+        environment = materialization["environment"]
+        uv = environment.get("uv")
+        tool_versions = {
+            "python": environment["python"],
+            "uv": uv["version"] if isinstance(uv, dict) else "UNKNOWN",
+            "mcp_audits": environment["mcp_audits"],
+        }
+        lock_binding = materialization.get("lock_binding")
+        distribution_binding = materialization.get("distribution_binding")
+        distribution = (
+            distribution_binding.get("distribution")
+            if isinstance(distribution_binding, dict)
+            else None
+        )
+        engine_lineage = {
+            "schema": ENGINE_MATERIALIZATION_LINEAGE_SCHEMA,
+            "evidence_state": "PRESENT",
+            "receipt_schema": materialization["schema"],
+            "observed_at": materialization["observed_at"],
+            "status": materialization["status"],
+            "receipt_digest": materialization["receipt_digest"],
+            "lock_binding_digest": (
+                digest_bytes(canonical_bytes(lock_binding))
+                if isinstance(lock_binding, dict)
+                else "UNKNOWN"
+            ),
+            "distribution_binding_digest": (
+                digest_bytes(canonical_bytes(distribution_binding))
+                if isinstance(distribution_binding, dict)
+                else "UNKNOWN"
+            ),
+            "distribution_record_sha256": (
+                distribution.get("record_sha256")
+                if isinstance(distribution, dict)
+                else "UNKNOWN"
+            ),
+            "tool_versions": tool_versions,
+            "tool_versions_digest": digest_bytes(canonical_bytes(tool_versions)),
+        }
     payload: dict[str, Any] = {
         "schema": OPERATOR_PACKAGE_LINEAGE_SCHEMA,
         "evidence_as_of": max(observed).isoformat(),
@@ -4387,6 +4447,7 @@ def build_operator_package_lineage(
             "file_sha256": preflight_file_sha256,
             "receipt_digest": preflight["receipt_digest"],
         },
+        "engine_materialization": engine_lineage,
         "repeatability": {
             "schema": REPEATABILITY_SCHEMA,
             "file_sha256": repeatability_file_sha256,

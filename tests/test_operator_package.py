@@ -328,10 +328,50 @@ def test_operator_package_binds_exact_candidate_and_rollback_lineage(
     assert triage_kwargs["repo_root"] == ROOT
 
     manifest = json.loads((output / OPERATOR_PACKAGE_MANIFEST).read_text())
+    review = (output / "operator-review.md").read_text()
     rollback = (output / "rollback.md").read_text()
+    assert manifest["schema"] == "McpTrustOperatorReviewPackageV3"
+    assert manifest["lineage"]["schema"] == "McpTrustOperatorPackageLineageV2"
     assert manifest["lineage"]["triage"]["candidate_manifest_digest"] in rollback
     assert manifest["lineage"]["triage"]["repeat_candidate_manifest_digest"] in rollback
     assert manifest["lineage"]["lineage_digest"] in rollback
+    engine = manifest["lineage"]["engine_materialization"]
+    materialization = json.loads(preflight.read_text())["engine_materialization"]
+    expected_tools = {
+        "python": materialization["environment"]["python"],
+        "uv": materialization["environment"]["uv"]["version"],
+        "mcp_audits": materialization["environment"]["mcp_audits"],
+    }
+    assert engine == {
+        "schema": "McpTrustEngineMaterializationLineageV1",
+        "evidence_state": "PRESENT",
+        "receipt_schema": materialization["schema"],
+        "observed_at": materialization["observed_at"],
+        "status": "READY",
+        "receipt_digest": materialization["receipt_digest"],
+        "lock_binding_digest": grade_refresh.digest_bytes(
+            grade_refresh.canonical_bytes(materialization["lock_binding"])
+        ),
+        "distribution_binding_digest": grade_refresh.digest_bytes(
+            grade_refresh.canonical_bytes(materialization["distribution_binding"])
+        ),
+        "distribution_record_sha256": materialization["distribution_binding"]["distribution"][
+            "record_sha256"
+        ],
+        "tool_versions": expected_tools,
+        "tool_versions_digest": grade_refresh.digest_bytes(
+            grade_refresh.canonical_bytes(expected_tools)
+        ),
+    }
+    for value in (
+        engine["receipt_digest"],
+        engine["lock_binding_digest"],
+        engine["distribution_binding_digest"],
+        engine["distribution_record_sha256"],
+        engine["tool_versions_digest"],
+    ):
+        assert value in review
+        assert value in rollback
     catalog = manifest["lineage"]["catalog"]
     assert catalog["inventory_digest"] in rollback
     assert f"Catalog denominator: `{catalog['denominator']}`" in rollback
@@ -706,6 +746,20 @@ def test_operator_package_routes_absent_engine_materialization_before_images(
     )
 
     state = json.loads((output / "state-card.json").read_text())
+    manifest = json.loads((output / OPERATOR_PACKAGE_MANIFEST).read_text())
+    review = (output / "operator-review.md").read_text()
+    rollback = (output / "rollback.md").read_text()
+    engine = manifest["lineage"]["engine_materialization"]
+    assert engine["evidence_state"] == "UNKNOWN"
+    assert engine["status"] == "UNKNOWN"
+    assert engine["receipt_digest"] == "UNKNOWN"
+    assert engine["tool_versions"] == {
+        "python": "UNKNOWN",
+        "uv": "UNKNOWN",
+        "mcp_audits": "UNKNOWN",
+    }
+    assert "Engine materialization lineage" in review
+    assert "Engine evidence state: `UNKNOWN`" in rollback
     capsule = json.loads((output / "HumanGateResumeCapsuleV1.json").read_text())
     assert "mcp-audits==2.7.0" in state["next_action"]
     assert "all five image cohorts" not in state["next_action"]
