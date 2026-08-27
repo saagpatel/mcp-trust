@@ -89,7 +89,6 @@ def _parser() -> argparse.ArgumentParser:
 
     inventory = subcommands.add_parser("inventory", help="Emit the exact 31-entry inventory.")
     _common_inputs(inventory)
-    inventory.add_argument("--repo-root", type=Path, default=_ROOT)
     inventory.add_argument("--out", type=Path)
 
     preflight = subcommands.add_parser(
@@ -191,7 +190,6 @@ def main(argv: list[str] | None = None) -> int:
             payload = catalog_inventory(
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
-                repo_root=args.repo_root,
                 policy_path=args.policy,
             )
             _emit(payload, args.out)
