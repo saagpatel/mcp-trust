@@ -37,7 +37,7 @@ from mcp_trust.engine.runtime import (
 from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
 from mcp_trust.engine.stub import StubEngine
 
-PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV1"
+PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV2"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
@@ -94,6 +94,7 @@ _PREFLIGHT_KEYS = frozenset(
         "safe_to_execute_catalog",
         "exit_classification",
         "source_binding",
+        "engine_materialization",
         "catalog",
         "sandbox",
         "tool_versions",
@@ -1891,6 +1892,7 @@ def build_preflight_receipt(
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
+    engine_materialization_receipt: object | None = None,
     now: datetime | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     include_scheduler_readback: bool = False,
@@ -1906,6 +1908,24 @@ def build_preflight_receipt(
         reasons.append("source_revision_unknown")
     if source.get("worktree_state") != "clean":
         reasons.append("source_worktree_not_clean")
+    engine_materialization: dict[str, Any] | None = None
+    if engine_materialization_receipt is None:
+        reasons.append("engine_materialization_receipt_missing")
+    else:
+        materialization_verification = verify_engine_materialization_receipt(
+            engine_materialization_receipt,
+            repo_root=repo_root,
+            now=observed_at,
+            runner=runner,
+        )
+        if materialization_verification.get("receipt_valid") is not True:
+            reasons.append("engine_materialization_receipt_invalid")
+        elif isinstance(engine_materialization_receipt, dict):
+            engine_materialization = engine_materialization_receipt
+            if materialization_verification.get("materialization_ready") is not True:
+                reasons.append("engine_materialization_not_ready")
+            elif engine_materialization.get("source_binding") != source:
+                reasons.append("engine_materialization_source_mismatch")
     docker = shutil.which("docker")
     host: str | None = None
     docker_versions: dict[str, Any] = {"client": "UNKNOWN", "server": "UNKNOWN"}
@@ -2101,6 +2121,7 @@ def build_preflight_receipt(
         "safe_to_execute_catalog": execution_ready,
         "exit_classification": "ready" if execution_ready else "preflight-blocked",
         "source_binding": source,
+        "engine_materialization": engine_materialization,
         "catalog": {
             "seed_digest": digest_file(seed_path),
             "masking_digest": digest_file(masked_path),
@@ -3762,8 +3783,12 @@ def validate_ready_preflight_contract(
     expected_image_references: object,
 ) -> None:
     """Reject internally self-consistent but unqualified READY evidence."""
-    if not isinstance(preflight, dict):
-        raise GradeRefreshError("READY preflight semantics are invalid")
+    if not isinstance(preflight, dict) or not _receipt_integrity_valid(
+        preflight,
+        schema=PREFLIGHT_SCHEMA,
+        expected_keys=_PREFLIGHT_KEYS,
+    ):
+        raise GradeRefreshError("READY preflight receipt is invalid")
     authority = preflight.get("authority")
     scheduler = preflight.get("scheduler")
     if (
@@ -3782,6 +3807,23 @@ def validate_ready_preflight_contract(
         or scheduler.get("mutation_performed") is not False
     ):
         raise GradeRefreshError("READY preflight semantics are invalid")
+
+    engine_materialization = preflight.get("engine_materialization")
+    if (
+        not isinstance(engine_materialization, dict)
+        or not _receipt_integrity_valid(
+            engine_materialization,
+            schema=ENGINE_MATERIALIZATION_SCHEMA,
+            expected_keys=_ENGINE_MATERIALIZATION_KEYS,
+        )
+        or not _valid_engine_materialization_receipt_shape(engine_materialization)
+        or engine_materialization.get("status") != "READY"
+        or engine_materialization.get("safe_to_execute") is not True
+        or engine_materialization.get("exit_classification") != "ready"
+        or engine_materialization.get("reasons") != []
+        or engine_materialization.get("source_binding") != preflight.get("source_binding")
+    ):
+        raise GradeRefreshError("READY engine materialization evidence is invalid")
 
     sandbox = preflight.get("sandbox")
     catalog = preflight.get("catalog")
@@ -3946,6 +3988,24 @@ def validate_ready_preflight_contract(
         )
     ):
         raise GradeRefreshError("READY tool evidence is invalid")
+    materialization_environment = engine_materialization.get("environment")
+    materialization_distribution = engine_materialization.get("distribution_binding")
+    distribution = (
+        materialization_distribution.get("distribution")
+        if isinstance(materialization_distribution, dict)
+        else None
+    )
+    lock_binding = engine_materialization.get("lock_binding")
+    if (
+        not isinstance(materialization_environment, dict)
+        or not isinstance(distribution, dict)
+        or not isinstance(lock_binding, dict)
+        or materialization_environment.get("python") != tool_versions.get("python")
+        or materialization_environment.get("mcp_audits") != tool_versions.get("mcp_audits")
+        or distribution.get("version") != tool_versions.get("mcp_audits")
+        or lock_binding.get("version") != tool_versions.get("mcp_audits_locked")
+    ):
+        raise GradeRefreshError("READY engine materialization evidence is inconsistent")
 
 
 def revalidate_ready_preflight_qualifications(
@@ -3954,8 +4014,9 @@ def revalidate_ready_preflight_qualifications(
     repo_root: Path,
     expected_image_references: object,
     now: datetime | None = None,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> None:
-    """Recompute every READY image qualification from current tracked bytes."""
+    """Recompute READY engine and image qualifications from current local bytes."""
     validate_ready_preflight_contract(
         preflight,
         expected_image_references=expected_image_references,
@@ -3964,6 +4025,18 @@ def revalidate_ready_preflight_qualifications(
         expected_image_references, list
     ):
         raise GradeRefreshError("READY image qualification is invalid")
+    materialization_verification = verify_engine_materialization_receipt(
+        preflight.get("engine_materialization"),
+        repo_root=repo_root,
+        now=now,
+        runner=runner,
+    )
+    if (
+        materialization_verification.get("materialization_ready") is not True
+        or materialization_verification.get("receipt_digest")
+        != preflight["engine_materialization"].get("receipt_digest")
+    ):
+        raise GradeRefreshError("READY engine materialization changed")
     catalog = preflight.get("catalog")
     image_sources = (
         catalog.get("image_build_sources") if isinstance(catalog, dict) else None

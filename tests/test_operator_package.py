@@ -14,6 +14,7 @@ from mcp_trust.operator_package import (
     build_operator_review_package,
     verify_operator_review_package,
 )
+from tests.receipt_fixtures import engine_materialization_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
@@ -55,12 +56,8 @@ def _receipts(
     inventory = grade_refresh.catalog_inventory(
         seed_path=SEED, masked_path=MASKED, policy_path=POLICY
     )
-    scannable = sorted(
-        row["slug"] for row in inventory["entries"] if row["scannable"]
-    )
-    blocked = sorted(
-        row["slug"] for row in inventory["entries"] if not row["scannable"]
-    )
+    scannable = sorted(row["slug"] for row in inventory["entries"] if row["scannable"])
+    blocked = sorted(row["slug"] for row in inventory["entries"] if not row["scannable"])
     image_references = sorted(
         {
             row["sandbox_image"]
@@ -120,13 +117,22 @@ def _receipts(
             },
             "state": "BOUND",
         }
+    preflight_source: dict[str, object] = {
+        **TEST_SOURCE,
+        "file_digests": source_files,
+    }
     preflight: dict[str, object] = {
         "schema": grade_refresh.PREFLIGHT_SCHEMA,
         "observed_at": (NOW - timedelta(minutes=1)).isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
         "exit_classification": "ready",
-        "source_binding": {**TEST_SOURCE, "file_digests": source_files},
+        "source_binding": preflight_source,
+        "engine_materialization": engine_materialization_receipt(
+            source_binding=preflight_source,
+            observed_at=NOW - timedelta(minutes=1),
+            repo_root=ROOT,
+        ),
         "catalog": {
             "policy_digest": grade_refresh.digest_file(POLICY),
             "seed_digest": grade_refresh.digest_file(SEED),
@@ -194,9 +200,7 @@ def _receipts(
         "first_digest": "sha256:" + "f" * 64,
         "second_digest": "sha256:" + "f" * 64,
         "repeatable": True,
-        "claim_ceiling": (
-            "Fixture determinism only; no real server or sandbox runtime proof."
-        ),
+        "claim_ceiling": ("Fixture determinism only; no real server or sandbox runtime proof."),
     }
     repeatability["receipt_digest"] = grade_refresh.digest_bytes(
         grade_refresh.canonical_bytes(repeatability)
@@ -225,9 +229,7 @@ def _receipts(
             "errors": [],
         },
     }
-    triage["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(triage)
-    )
+    triage["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(triage))
     triage_path = tmp_path / "triage.json"
     _write_json(triage_path, triage)
     return preflight_path, repeatability_path, triage_path, triage
@@ -285,9 +287,7 @@ def test_operator_package_is_deterministic_and_independently_verifiable(
 def test_operator_package_binds_exact_candidate_and_rollback_lineage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    preflight, repeatability, triage_path, triage = _receipts(
-        tmp_path, with_triage=True
-    )
+    preflight, repeatability, triage_path, triage = _receipts(tmp_path, with_triage=True)
     assert triage_path is not None and triage is not None
     candidate = tmp_path / "candidate"
     repeat = tmp_path / "repeat"
@@ -378,9 +378,7 @@ def test_operator_package_rejects_self_digested_manifest_policy_tamper(
     manifest = json.loads(manifest_path.read_text())
     manifest["claim_ceiling"] = "publication is safe"
     manifest.pop("receipt_digest")
-    manifest["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(manifest)
-    )
+    manifest["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(manifest))
     _write_json(manifest_path, manifest)
 
     with pytest.raises(OperatorPackageError, match="binding changed"):
@@ -399,9 +397,7 @@ def test_operator_package_rejects_input_drift_and_output_collision(tmp_path: Pat
     payload = json.loads(preflight.read_text())
     payload["observed_at"] = (NOW - timedelta(minutes=2)).isoformat()
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(OperatorPackageError, match="binding changed|generated content"):
@@ -457,9 +453,7 @@ def test_operator_package_rejects_self_digested_semantic_contradictions(
     payload = json.loads(target.read_text())
     payload.update(updates)
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(target, payload)
 
     with pytest.raises(OperatorPackageError, match=message):
@@ -483,15 +477,13 @@ def test_operator_package_rejects_self_digested_ready_evidence_gaps(
     if case == "sandbox":
         payload["sandbox"] = {}
     elif case == "control":
-        payload["sandbox"]["image_bindings"][0]["sandbox_controls"]["controls"][
-            "network_none"
-        ] = False
+        payload["sandbox"]["image_bindings"][0]["sandbox_controls"]["controls"]["network_none"] = (
+            False
+        )
     else:
         payload["tool_versions"]["mcp_audits"] = "UNKNOWN"
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(OperatorPackageError, match="READY .* invalid"):
@@ -516,13 +508,11 @@ def test_operator_package_rejects_self_digested_alternate_image_bindings(
     for index, binding in enumerate(supplied["sandbox"]["image_bindings"]):
         alternate_id = "sha256:" + f"{index + 10:x}"[-1] * 64
         binding["image_id"] = alternate_id
-        supplied["catalog"]["image_build_sources"][binding["reference"]][
-            "qualification"
-        ]["qualified_image_id"] = alternate_id
+        supplied["catalog"]["image_build_sources"][binding["reference"]]["qualification"][
+            "qualified_image_id"
+        ] = alternate_id
     supplied.pop("receipt_digest")
-    supplied["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(supplied)
-    )
+    supplied["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(supplied))
     _write_json(preflight, supplied)
     monkeypatch.setattr(
         operator_package,
@@ -530,9 +520,7 @@ def test_operator_package_rejects_self_digested_alternate_image_bindings(
         lambda **_kwargs: current,
     )
 
-    with pytest.raises(
-        OperatorPackageError, match="current preflight evidence changed"
-    ):
+    with pytest.raises(OperatorPackageError, match="current preflight evidence changed"):
         build_operator_review_package(
             output_path=tmp_path / "package",
             task_id="task-fixture",
@@ -558,9 +546,7 @@ def test_operator_package_rejects_stale_scheduler_claim(
         "mutation_performed": False,
     }
     supplied.pop("receipt_digest")
-    supplied["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(supplied)
-    )
+    supplied["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(supplied))
     _write_json(preflight, supplied)
     monkeypatch.setattr(
         operator_package,
@@ -568,9 +554,7 @@ def test_operator_package_rejects_stale_scheduler_claim(
         lambda **_kwargs: current,
     )
 
-    with pytest.raises(
-        OperatorPackageError, match="current preflight evidence changed"
-    ):
+    with pytest.raises(OperatorPackageError, match="current preflight evidence changed"):
         build_operator_review_package(
             output_path=tmp_path / "package",
             task_id="task-fixture",
@@ -595,6 +579,7 @@ def test_current_preflight_revalidation_preserves_scheduler_readback_contract(
 
     def fake_preflight(**kwargs: object) -> dict[str, object]:
         assert kwargs["include_scheduler_readback"] is True
+        assert kwargs["engine_materialization_receipt"] is None
         return expected
 
     monkeypatch.setattr(operator_package, "build_preflight_receipt", fake_preflight)
@@ -618,12 +603,8 @@ def test_operator_package_wraps_current_preflight_revalidation_failure(
     def fail_revalidation(**_kwargs: object) -> dict[str, object]:
         raise grade_refresh.GradeRefreshError("fixture preflight failure")
 
-    monkeypatch.setattr(
-        operator_package, "_current_preflight_evidence", fail_revalidation
-    )
-    with pytest.raises(
-        OperatorPackageError, match="current preflight revalidation failed"
-    ):
+    monkeypatch.setattr(operator_package, "_current_preflight_evidence", fail_revalidation)
+    with pytest.raises(OperatorPackageError, match="current preflight revalidation failed"):
         build_operator_review_package(
             output_path=tmp_path / "package",
             task_id="task-fixture",
@@ -653,9 +634,7 @@ def test_operator_package_blocked_preflight_withholds_image_control(tmp_path: Pa
     )
     payload["authority"]["candidate_build"] = False
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     output = tmp_path / "package"
@@ -679,16 +658,12 @@ def test_operator_package_blocked_preflight_withholds_image_control(tmp_path: Pa
     "digest_key",
     ["seed_digest", "masking_digest", "policy_digest", "inventory_digest"],
 )
-def test_operator_package_recomputes_catalog_bindings(
-    tmp_path: Path, digest_key: str
-) -> None:
+def test_operator_package_recomputes_catalog_bindings(tmp_path: Path, digest_key: str) -> None:
     preflight, repeatability, _, _ = _receipts(tmp_path)
     payload = json.loads(preflight.read_text())
     payload["catalog"][digest_key] = "sha256:" + "9" * 64
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(OperatorPackageError, match="catalog binding is invalid"):
@@ -708,10 +683,14 @@ def test_operator_package_recomputes_clean_source_binding(tmp_path: Path) -> Non
     preflight, repeatability, _, _ = _receipts(tmp_path)
     payload = json.loads(preflight.read_text())
     payload["source_binding"]["revision"] = "9" * 40
-    payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
+    materialization = payload["engine_materialization"]
+    materialization["source_binding"]["revision"] = "9" * 40
+    materialization.pop("receipt_digest")
+    materialization["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(materialization)
     )
+    payload.pop("receipt_digest")
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(OperatorPackageError, match="current source binding is invalid"):
@@ -738,9 +717,7 @@ def test_operator_package_rejects_future_or_stale_receipts(
     payload = json.loads(preflight.read_text())
     payload["observed_at"] = observed_at.isoformat()
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(OperatorPackageError, match="freshness is invalid"):
@@ -944,9 +921,7 @@ def test_operator_package_converts_malformed_nested_receipt_to_structured_error(
     payload = json.loads(preflight.read_text())
     payload["catalog"]["counts"] = "not-an-object"
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(OperatorPackageError, match="binding is invalid|semantics are invalid"):

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import mcp_trust.grade_refresh as grade_refresh
 from mcp_trust import refresh as refresh_module
 from mcp_trust.core.models import (
     RiskSummary,
@@ -47,10 +48,29 @@ from mcp_trust.refresh import (
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 from scripts import refresh_candidate as refresh_cli
+from tests.receipt_fixtures import engine_materialization_receipt
 
 FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[1]
 IMAGE_DIGEST = "sha256:" + ("a" * 64)
+
+
+@pytest.fixture(autouse=True)
+def _reproduce_fixture_engine_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def verify(receipt: object, **_kwargs: object) -> dict[str, object]:
+        digest = receipt.get("receipt_digest") if isinstance(receipt, dict) else None
+        return {
+            "materialization_ready": isinstance(digest, str),
+            "receipt_digest": digest,
+        }
+
+    monkeypatch.setattr(
+        grade_refresh,
+        "verify_engine_materialization_receipt",
+        verify,
+    )
 
 
 def _server(slug: str) -> Server:
@@ -230,19 +250,25 @@ def _qualification_receipt(
         **{str(binding["path"]): str(binding["sha256"]) for binding in build_sources.values()},
         **qualification_files,
     }
+    source_binding: dict[str, object] = {
+        "revision": "a" * 40,
+        "worktree_state": "clean",
+        "source_tree_digest": "sha256:" + ("c" * 64),
+        "repository": "https://example.test/mcp-trust.git",
+        "file_digests": source_files,
+    }
     payload: dict[str, object] = {
-        "schema": "McpTrustGradeRefreshPreflightV1",
+        "schema": "McpTrustGradeRefreshPreflightV2",
         "observed_at": FIXED_NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
         "exit_classification": "ready",
-        "source_binding": {
-            "revision": "a" * 40,
-            "worktree_state": "clean",
-            "source_tree_digest": "sha256:" + ("c" * 64),
-            "repository": "https://example.test/mcp-trust.git",
-            "file_digests": source_files,
-        },
+        "source_binding": source_binding,
+        "engine_materialization": engine_materialization_receipt(
+            source_binding=source_binding,
+            observed_at=FIXED_NOW,
+            repo_root=ROOT,
+        ),
         "catalog": {
             "denominator": policy["catalog_denominator"],
             "counts": {
@@ -412,7 +438,7 @@ def test_qualification_rejects_build_digest_not_bound_to_source_tree(
 
     with pytest.raises(
         RefreshCandidateError,
-        match="not source-bound|READY image bindings are invalid",
+        match="not source-bound|READY image bindings are invalid|READY engine materialization",
     ):
         refresh_module._qualification_metadata(
             receipt,
@@ -506,9 +532,9 @@ def test_qualification_rejects_self_redigested_ready_evidence_tampering(
             "/tmp/escaped-Dockerfile"
         )
     elif mutation == "qualification_path":
-        receipt["catalog"]["image_build_sources"]["required:image"]["qualification"][
-            "path"
-        ] = "../../escaped-receipt.json"
+        receipt["catalog"]["image_build_sources"]["required:image"]["qualification"]["path"] = (
+            "../../escaped-receipt.json"
+        )
     else:
         receipt["tool_versions"]["mcp_audits_locked"] = "2.6.0"
     _redigest_qualification(receipt)
@@ -756,9 +782,7 @@ def test_candidate_verifier_rejects_current_source_change_during_verification(
         tmp_path,
         monkeypatch,
     )
-    receipt = json.loads(
-        (candidate / "qualification_receipt.json").read_text(encoding="utf-8")
-    )
+    receipt = json.loads((candidate / "qualification_receipt.json").read_text(encoding="utf-8"))
     source = receipt["source_binding"]
     calls = 0
 
@@ -861,6 +885,14 @@ def test_static_image_qualification_is_recomputed_from_current_bytes(
         "_image_build_qualification",
         lambda **_kwargs: json.loads(json.dumps(qualification)),
     )
+    monkeypatch.setattr(
+        grade_refresh,
+        "verify_engine_materialization_receipt",
+        lambda receipt, **_kwargs: {
+            "materialization_ready": True,
+            "receipt_digest": receipt["receipt_digest"],
+        },
+    )
     grade_refresh.revalidate_ready_preflight_qualifications(
         receipt,
         repo_root=ROOT,
@@ -878,6 +910,51 @@ def test_static_image_qualification_is_recomputed_from_current_bytes(
             repo_root=ROOT,
             expected_image_references=["required:image"],
             now=FIXED_NOW,
+        )
+
+
+def test_ready_preflight_revalidation_rejects_engine_materialization_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
+    monkeypatch.setattr(
+        grade_refresh,
+        "verify_engine_materialization_receipt",
+        lambda *_args, **_kwargs: {
+            "materialization_ready": False,
+            "receipt_digest": None,
+        },
+    )
+
+    with pytest.raises(
+        grade_refresh.GradeRefreshError,
+        match="engine materialization changed",
+    ):
+        grade_refresh.revalidate_ready_preflight_qualifications(
+            receipt,
+            repo_root=ROOT,
+            expected_image_references=[],
+            now=FIXED_NOW,
+        )
+
+
+def test_ready_preflight_rejects_legacy_schema_before_execution(
+    tmp_path: Path,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
+    receipt["schema"] = "McpTrustGradeRefreshPreflightV1"
+    _redigest_qualification(receipt)
+
+    with pytest.raises(
+        grade_refresh.GradeRefreshError,
+        match="preflight receipt is invalid",
+    ):
+        grade_refresh.validate_ready_preflight_contract(
+            receipt,
+            expected_image_references=[],
         )
 
 
@@ -2843,9 +2920,7 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
         "unix:///Users/operator/.colima/default/docker.sock",
     )
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
-    monkeypatch.setattr(
-        "mcp_trust.refresh.modules_belong_to_distribution", lambda *_args: False
-    )
+    monkeypatch.setattr("mcp_trust.refresh.modules_belong_to_distribution", lambda *_args: False)
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         stdout = (
