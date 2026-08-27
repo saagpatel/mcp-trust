@@ -34,8 +34,8 @@ def test_inventory_classifies_every_catalog_entry() -> None:
     assert inventory["catalog_denominator"] == 31
     assert len(inventory["entries"]) == 31
     assert inventory["counts"] == {
-        "scannable": 31,
-        "blocked": 0,
+        "scannable": 18,
+        "blocked": 13,
         "intentionally_masked": 8,
         "unsupported_upstream": 8,
         "credential_dependent": 7,
@@ -63,6 +63,19 @@ def test_policy_rejects_duplicate_masking_input(tmp_path: Path) -> None:
 
     with pytest.raises(GradeRefreshError, match="contains duplicates"):
         catalog_inventory(seed_path=SEED, masked_path=masked, policy_path=POLICY)
+
+
+def test_policy_rejects_execution_lists_that_do_not_match_exclusion_categories(
+    tmp_path: Path,
+) -> None:
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    moved = policy["blocked"].pop()
+    policy["scannable"].append(moved)
+    policy_path = tmp_path / "refresh-policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GradeRefreshError, match="category-derived execution boundary"):
+        catalog_inventory(seed_path=SEED, masked_path=MASKED, policy_path=policy_path)
 
 
 def test_source_binding_covers_the_full_tracked_tree() -> None:

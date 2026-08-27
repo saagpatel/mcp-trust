@@ -24,7 +24,7 @@ from mcp_trust.core.models import (
     ToolEvidence,
     TrustGrade,
 )
-from mcp_trust.engine.base import EngineResult
+from mcp_trust.engine.base import EngineResult, ScanTimeoutError
 from mcp_trust.engine.stub import StubEngine
 from mcp_trust.refresh import (
     RefreshCandidateError,
@@ -66,7 +66,8 @@ def _write_refresh_policy(
 ) -> Path:
     seed = json.loads(seed_path.read_text(encoding="utf-8"))
     slugs = [row["slug"] for row in seed]
-    blocked_set = set(blocked)
+    masked_set = set(json.loads(masked_path.read_text(encoding="utf-8")))
+    blocked_set = set(blocked) | masked_set
     default_image = "required:image"
     image_refs = {
         source.get("sandbox_image") or default_image
@@ -89,8 +90,8 @@ def _write_refresh_policy(
         },
         "scannable": [slug for slug in slugs if slug not in blocked_set],
         "blocked": [slug for slug in slugs if slug in blocked_set],
-        "intentionally_masked": json.loads(masked_path.read_text(encoding="utf-8")),
-        "unsupported_upstream": [],
+        "intentionally_masked": sorted(masked_set),
+        "unsupported_upstream": sorted(blocked_set - masked_set),
         "credential_dependent": [],
         "backing_service_dependent": [],
         "unsafe_to_execute_unsandboxed": "all-local-process-entries",
@@ -208,6 +209,11 @@ def _qualification_receipt(
             "counts": {
                 "scannable": len(policy["scannable"]),
                 "blocked": len(policy["blocked"]),
+            },
+            "execution_boundary": {
+                "schema": "McpTrustRefreshExecutionBoundaryV1",
+                "scannable": sorted(policy["scannable"]),
+                "blocked": sorted(policy["blocked"]),
             },
             "seed_digest": "sha256:" + hashlib.sha256(seed_path.read_bytes()).hexdigest(),
             "masking_digest": "sha256:"
@@ -454,7 +460,7 @@ def test_verified_masked_scan_slugs_exposes_only_success_claim(
         seed_path=seed_path,
         masked_path=masked_path,
         now=FIXED_NOW,
-    ) == frozenset({"alpha"})
+    ) == frozenset()
 
 
 def test_verified_masked_scan_slugs_rejects_stale_candidate(
@@ -520,7 +526,7 @@ def test_verified_masked_scan_slugs_uses_the_verified_candidate_snapshot(
         seed_path=seed_path,
         masked_path=masked_path,
         now=FIXED_NOW,
-    ) == frozenset({"alpha"})
+    ) == frozenset()
 
 
 def test_candidate_replacement_during_verification_fails_closed(
@@ -666,6 +672,30 @@ def test_deterministic_fixture_candidate_is_immutable_and_reviewable(
     assert candidate.stat().st_mode & 0o222 == 0
 
 
+def test_candidate_receipt_self_binds_execution_contract(tmp_path: Path) -> None:
+    candidate = _candidate(tmp_path)
+    result = _results(candidate)[0]
+    receipt_path = candidate / "receipts" / str(result["receipt"])
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    binding = receipt["execution_binding"]
+
+    assert receipt["format_version"] == 2
+    assert refresh_module._receipt_digest_valid(receipt) is True
+    assert binding["target_slug"] == "alpha"
+    assert binding["source"] == {
+        "revision": None,
+        "source_tree_digest": None,
+        "policy_digest": None,
+        "preflight_receipt_digest": None,
+    }
+    assert binding["sandbox"]["runtime_readback"]["state"] == "NOT_APPLICABLE"
+    assert binding["timeout"] == {
+        "configured_seconds": None,
+        "outcome": "completed",
+        "hard_termination_evidence": "NOT_APPLICABLE",
+    }
+
+
 def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
     tmp_path: Path,
 ) -> None:
@@ -693,6 +723,26 @@ def test_legacy_v1_candidate_is_structurally_inspectable_but_ineligible(
     manifest_path.chmod(0o600)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["schema"] = "RefreshCandidateV1"
+    manifest["scan_counts"].pop("blocked")
+    for field in ("freshness", "semantic_digests", "source_tree_digest", "tool_versions"):
+        manifest.pop(field)
+    receipt_paths = list((candidate / "receipts").glob("*.json"))
+    for receipt_path in receipt_paths:
+        receipt_path.chmod(0o600)
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["format_version"] = 1
+        receipt.pop("execution_binding")
+        receipt.pop("receipt_digest")
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    _rebind_candidate_artifacts(
+        candidate,
+        *(path.relative_to(candidate).as_posix() for path in receipt_paths),
+    )
+    candidate.chmod(0o700)
+    manifest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema"] = "RefreshCandidateV1"
+    manifest["scan_counts"].pop("blocked")
     for field in ("freshness", "semantic_digests", "source_tree_digest", "tool_versions"):
         manifest.pop(field)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -764,7 +814,7 @@ def test_legacy_empty_candidate_is_rejected_by_verifier(tmp_path: Path) -> None:
             "seed_sha256": catalog["seed_sha256"],
             "server_count": 0,
         },
-        scan_counts={"total": 0, "fresh": 0, "masked": 0, "failed": 0},
+        scan_counts={"total": 0, "fresh": 0, "masked": 0, "blocked": 0, "failed": 0},
     )
 
     verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
@@ -1292,15 +1342,42 @@ def test_partial_scan_failure_never_retains_old_grade_as_fresh(tmp_path: Path) -
     assert "fixture failure" not in json.dumps(by_slug["beta"])
 
 
-def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
+def test_scan_timeout_is_unknown_and_never_retains_a_fresh_grade(tmp_path: Path) -> None:
+    def scanner(_server: Server) -> EngineResult:
+        raise ScanTimeoutError("controlled timeout")
+
+    candidate = _candidate(tmp_path, scanner=scanner)
+    result = _results(candidate)[0]
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert result == {
+        "server_slug": "alpha",
+        "state": "scan-timeout",
+        "fresh_grade": None,
+        "reason": "configured_scan_timeout_expired",
+        "configured_timeout_seconds": 90.0,
+        "timeout_outcome": "timeout",
+        "hard_termination_evidence": "UNKNOWN",
+        "previous_grade": None,
+        "previous_scanned_at": None,
+        "previous_scan_age_days": None,
+    }
+    assert verification["structural_valid"] is True
+    assert verification["publication_ready"] is False
+
+
+def test_masked_real_entry_is_blocked_without_preflight_or_scanner_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path, seed_path, masked_path = _inputs(tmp_path, masked=("alpha",))
 
+    engine_constructed = False
+
     class FailingMCPAuditEngine:
         def __init__(self, timeout: float) -> None:
-            assert timeout == 90.0
+            nonlocal engine_constructed
+            engine_constructed = True
 
         def scan(self, source: ServerSource) -> EngineResult:
             raise RuntimeError(f"controlled failure for {source.reference}")
@@ -1308,16 +1385,10 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
     monkeypatch.setattr(
         "mcp_trust.refresh.preflight_real_refresh",
         lambda servers, *, default_image: {
-            "docker_daemon": "available",
+            "docker_daemon": "not_required",
             "default_image": default_image,
-            "profiles": [
-                refresh_module._sandbox_profile(
-                    default_image,
-                    image_digest=IMAGE_DIGEST,
-                )
-            ],
+            "profiles": [],
             "remote_transport_count": 0,
-            "_execution_image_bindings": {default_image: IMAGE_DIGEST},
         },
     )
     monkeypatch.setattr("mcp_trust.refresh.MCPAuditEngine", FailingMCPAuditEngine)
@@ -1325,12 +1396,7 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
     qualification = _qualification_receipt(
         seed_path,
         masked_path,
-        profiles=[
-            refresh_module._sandbox_profile(
-                "required:image",
-                image_digest=IMAGE_DIGEST,
-            )
-        ],
+        profiles=[],
     )
     candidate = create_refresh_candidate(
         source_db=db_path,
@@ -1351,10 +1417,11 @@ def test_masked_real_scan_failure_is_a_valid_nonpublishable_partial_candidate(
         expected_masked_path=masked_path,
     )
 
-    assert _results(candidate)[0]["state"] == "scan-failed"
+    assert _results(candidate)[0]["state"] == "blocked-policy"
+    assert engine_constructed is True
     assert verification["structural_valid"] is True
-    assert verification["state"] == "partial"
-    assert verification["publication_ready"] is False
+    assert verification["state"] == "complete"
+    assert verification["publication_ready"] is True
     assert verification["errors"] == []
 
 
@@ -1464,8 +1531,86 @@ def test_policy_blocked_server_is_never_preflighted_or_scanned(
         "previous_scan_age_days": 30.0,
     }
     assert verification["structural_valid"] is True
-    assert verification["state"] == "partial"
+    assert verification["state"] == "complete"
+    assert verification["publication_ready"] is True
+
+
+def test_verifier_rejects_eligible_result_relabelled_as_policy_blocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(tmp_path, monkeypatch)
+    results_path = candidate / "scan_results.json"
+    candidate.chmod(0o700)
+    results_path.chmod(0o600)
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    payload["results"] = [
+        {
+            "server_slug": "alpha",
+            "state": "blocked-policy",
+            "fresh_grade": None,
+            "execution_disposition": "do-not-execute",
+            "reason": "sandbox_image_qualification_unknown",
+            "previous_grade": None,
+            "previous_scanned_at": None,
+            "previous_scan_age_days": None,
+        }
+    ]
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+    _rebind_candidate_artifacts(candidate, "scan_results.json")
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
+    assert "execution_policy_result_boundary_mismatch" in verification["errors"]
+    assert "blocked_scan_schema_invalid:alpha" in verification["errors"]
+
+
+def test_verifier_rejects_qualification_boundary_that_differs_from_live_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate, seed_path, masked_path = _complete_remote_candidate(tmp_path, monkeypatch)
+    qualification_path = candidate / "qualification_receipt.json"
+    candidate.chmod(0o700)
+    qualification_path.chmod(0o600)
+    qualification = json.loads(qualification_path.read_text(encoding="utf-8"))
+    qualification["catalog"]["execution_boundary"] = {
+        "schema": "McpTrustRefreshExecutionBoundaryV1",
+        "scannable": [],
+        "blocked": ["alpha"],
+    }
+    qualification["catalog"]["counts"] = {"scannable": 0, "blocked": 1}
+    qualification.pop("receipt_digest")
+    qualification["receipt_digest"] = "sha256:" + hashlib.sha256(
+        refresh_module._json_bytes(qualification)
+    ).hexdigest()
+    qualification_path.write_text(json.dumps(qualification), encoding="utf-8")
+    _rebind_candidate_artifacts(candidate, "qualification_receipt.json")
+    manifest = json.loads((candidate / "MANIFEST.json").read_text(encoding="utf-8"))
+    qualification_manifest = dict(manifest["qualification"])
+    qualification_manifest["receipt_sha256"] = hashlib.sha256(
+        refresh_module._json_bytes(qualification)
+    ).hexdigest()
+    qualification_manifest["preflight_receipt_digest"] = qualification["receipt_digest"]
+    _rebind_manifest(candidate, qualification=qualification_manifest)
+
+    verification = verify_refresh_candidate(
+        candidate,
+        now=FIXED_NOW,
+        expected_seed_path=seed_path,
+        expected_masked_path=masked_path,
+    )
+
+    assert verification["structural_valid"] is False
+    assert verification["publication_ready"] is False
+    assert "qualification_execution_boundary_mismatch" in verification["errors"]
 
 
 def test_failed_rescan_excludes_the_previous_grade_from_static_snapshot(
@@ -1857,6 +2002,7 @@ def test_rebound_manifest_cannot_omit_catalog_result(tmp_path: Path) -> None:
         "total": 1,
         "fresh": 1,
         "masked": 0,
+        "blocked": 0,
         "failed": 0,
     }
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -2020,6 +2166,7 @@ def test_boolean_scan_count_cannot_alias_integer_count(tmp_path: Path) -> None:
             "total": True,
             "fresh": True,
             "masked": False,
+            "blocked": False,
             "failed": False,
         },
     )

@@ -198,7 +198,9 @@ def test_qualify_rejects_unsafe_descriptor_before_any_subprocess(
         lambda *_args, **_kwargs: pytest.fail("subprocess crossed failed preflight"),
     )
     with pytest.raises(module.QualificationError):
-        module.qualify("../escape", config, buildx="docker-buildx")
+        module.qualify(
+            "../escape", config, buildx="docker-buildx", receipt_root=module.RECEIPT_ROOT
+        )
 
 
 def test_qualify_validates_platform_separately_before_dependency_inputs(
@@ -221,6 +223,7 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
         raise ValidationPassed
 
     monkeypatch.setattr(module, "RECEIPT_ROOT", tmp_path)
+    monkeypatch.setattr(module, "_require_safe_directory", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(module, "_dependency_inputs", stop_after_validation)
     monkeypatch.setattr(
         module,
@@ -229,7 +232,7 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
     )
 
     with pytest.raises(ValidationPassed):
-        module.qualify("reference", config, buildx="docker-buildx")
+        module.qualify("reference", config, buildx="docker-buildx", receipt_root=tmp_path)
 
     assert observed == {
         "cohort": "reference",
@@ -254,7 +257,9 @@ def test_qualify_rejects_unexpected_cohort_keys_before_any_subprocess(
     )
 
     with pytest.raises(module.QualificationError, match="descriptor is invalid"):
-        module.qualify("reference", config, buildx="docker-buildx")
+        module.qualify(
+            "reference", config, buildx="docker-buildx", receipt_root=module.RECEIPT_ROOT
+        )
 
 
 @pytest.mark.parametrize("platform", [None, "linux/s390x"])
@@ -273,7 +278,9 @@ def test_qualify_rejects_missing_or_unsupported_platform_before_any_subprocess(
     )
 
     with pytest.raises(module.QualificationError, match="platform is unsupported"):
-        module.qualify("reference", config, buildx="docker-buildx")
+        module.qualify(
+            "reference", config, buildx="docker-buildx", receipt_root=module.RECEIPT_ROOT
+        )
 
 
 def test_qualification_checks_lock_source_policy_before_buildkit(
@@ -332,6 +339,79 @@ def test_qualification_tool_versions_serialize_only_stable_versions(
     assert "hostname" not in serialized
     assert "192.168.5.2" not in serialized
     assert "/Users/example" not in serialized
+
+
+@pytest.mark.parametrize(
+    "receipt_set", ["../escape", "/absolute", ".", "..", "bad\\name", "unversioned"]
+)
+def test_qualification_receipt_set_rejects_unsafe_names_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    receipt_set: str,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    receipt_root = root / "docker/refresh/qualification"
+    receipt_root.mkdir(parents=True)
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
+
+    with pytest.raises(module.QualificationError, match="safe versioned"):
+        module._new_receipt_set_root(receipt_set)
+
+
+def test_qualification_receipt_set_refuses_existing_or_symlink_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    receipt_root = root / "docker/refresh/qualification"
+    receipt_root.mkdir(parents=True)
+    (receipt_root / "v65-existing").mkdir()
+    (receipt_root / "v65-link").symlink_to(tmp_path / "outside", target_is_directory=True)
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
+
+    with pytest.raises(module.QualificationError, match="already exists"):
+        module._new_receipt_set_root("v65-existing")
+    with pytest.raises(module.QualificationError, match="already exists"):
+        module._new_receipt_set_root("v65-link")
+    assert module._new_receipt_set_root("v65-new") == receipt_root / "v65-new"
+
+
+def test_qualification_receipt_set_refuses_symlinked_parent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "docker/refresh").mkdir(parents=True)
+    receipt_root = root / "docker/refresh/qualification"
+    receipt_root.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
+
+    with pytest.raises(module.QualificationError, match="symlink"):
+        module._new_receipt_set_root("v65-new")
+
+
+def test_qualification_safely_creates_missing_ignored_output_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.setattr(module, "ROOT", root)
+    output_root = root / "tmp/qualification"
+
+    module._ensure_safe_directory(output_root, label="qualification OCI output root")
+
+    assert output_root.is_dir()
+    assert output_root.is_symlink() is False
 
 
 @pytest.mark.parametrize(

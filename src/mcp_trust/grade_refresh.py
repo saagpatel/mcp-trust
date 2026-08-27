@@ -287,10 +287,18 @@ def load_policy(policy_path: Path, seed_path: Path, masked_path: Path) -> Refres
     for field, values in fields.items():
         if not values <= catalog:
             raise GradeRefreshError(f"refresh policy {field} contains an unknown slug")
-    overlapping = fields["scannable"] & fields["blocked"]
-    covered = fields["scannable"] | fields["blocked"]
-    if overlapping or covered != catalog:
-        raise GradeRefreshError("every catalog entry must be exactly scannable or blocked")
+    excluded = (
+        fields["masked"]
+        | fields["unsupported"]
+        | fields["credential_dependent"]
+        | fields["backing_service_dependent"]
+    )
+    eligible = catalog - excluded
+    if fields["blocked"] != excluded or fields["scannable"] != eligible:
+        raise GradeRefreshError(
+            "scannable and blocked entries must exactly match the category-derived "
+            "execution boundary"
+        )
     if fields["masked"] != frozenset(masked):
         raise GradeRefreshError("refresh policy masking does not match masked-grades.json")
     if policy.get("unsafe_to_execute_unsandboxed") != "all-local-process-entries":
@@ -1298,6 +1306,7 @@ def build_preflight_receipt(
     inventory = catalog_inventory(
         seed_path=seed_path, masked_path=masked_path, policy_path=policy_path
     )
+    execution_policy = load_policy(policy_path, seed_path, masked_path)
     source = source_binding(repo_root)
     reasons: list[str] = []
     if source.get("revision") == "UNKNOWN":
@@ -1502,6 +1511,11 @@ def build_preflight_receipt(
             "inventory_digest": digest_bytes(canonical_bytes(inventory)),
             "denominator": inventory["catalog_denominator"],
             "counts": inventory["counts"],
+            "execution_boundary": {
+                "schema": "McpTrustRefreshExecutionBoundaryV1",
+                "scannable": sorted(execution_policy.scannable),
+                "blocked": sorted(execution_policy.blocked),
+            },
             "image_build_sources": image_build_sources,
         },
         "sandbox": {

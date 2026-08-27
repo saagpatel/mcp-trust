@@ -284,7 +284,8 @@ uv run --frozen --extra dev python scripts/grade_refresh.py fixture-repeat \
 ```
 
 Do not execute a catalog server unless preflight returns `READY`. The receipt
-binds the 31-entry classification, source and policy digests, tool versions,
+binds the 31-entry classification, including the exact derived 18 scannable and
+13 blocked execution boundary, source and policy digests, tool versions,
 local Docker authority, immutable image IDs, and explicit network, filesystem,
 resource, and secret controls. See
 [`docs/GRADE-REFRESH-PROGRAM.md`](docs/GRADE-REFRESH-PROGRAM.md) and the
@@ -306,8 +307,9 @@ locally at the recorded immutable IDs. Those sources run through the existing
 network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
 endpoints are probed over their live network transport without a local process
 sandbox and are labeled accordingly. New immutable bundles use
-`RefreshCandidateV2` and contain receipts, catalog identity, scan times and
-ages, masked/failed/unknown evidence states, attributed scan drift, an honest
+`RefreshCandidateV2` and contain self-digested execution-bound receipts, catalog
+identity, scan times and ages, blocked/masked/failed/timeout/unknown evidence
+states, attributed scan drift, an honest
 static snapshot, source/tool bindings, freshness counts and earliest expiry,
 semantic projection digests, and a content-bound manifest. Legacy V1 bundles
 remain structurally inspectable but are publication-ineligible.

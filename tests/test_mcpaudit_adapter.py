@@ -13,7 +13,7 @@ import os
 import pytest
 
 from mcp_trust.core.models import ServerSource, Severity, SourceKind
-from mcp_trust.engine.base import ScanError
+from mcp_trust.engine.base import ScanError, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for
 from mcp_trust.engine.sandbox import DockerSandbox
 
@@ -106,6 +106,23 @@ def test_scan_wraps_engine_shape_drift_in_scan_error(monkeypatch: pytest.MonkeyP
     src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
     with pytest.raises(ScanError, match="unexpected result shape"):
         MCPAuditEngine().scan(src)
+
+
+@pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
+def test_scan_classifies_connection_timeout_distinctly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _TimedOut:
+        connection_status = "timeout"
+
+    async def fake_connect(self: object, cfg: object) -> _TimedOut:
+        return _TimedOut()
+
+    monkeypatch.setattr("mcp_audit.connector.ServerConnector.connect", fake_connect)
+    src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
+
+    with pytest.raises(ScanTimeoutError, match="connection timeout"):
+        MCPAuditEngine(timeout=90.0).scan(src)
 
 
 @pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")
