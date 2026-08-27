@@ -217,11 +217,16 @@ codes agree with the embedded engine receipt. Missing or invalid engine evidence
 must say so explicitly; present evidence must have exact schema, self-digest,
 READY/source semantics, and current installed-byte reproduction before an image
 reconstruction gate can be emitted. A blocked receipt cannot claim the
-image-provenance completed control. The manifest binds
+image-provenance completed control. The V3 manifest binds
 the preflight, repeatability, optional triage, source revision/tree, catalog
 input digests, inventory digest, denominator, counts, execution boundary,
 candidate manifests, rollback lineage, privacy decision, and four
-content-file digests. Its timestamp is derived from the latest input receipt,
+content-file digests. Its V2 lineage also projects the exact engine receipt,
+lock binding, installed distribution binding and RECORD digest, and Python, uv,
+and mcp-audits versions without retaining host paths. Missing engine evidence is
+rendered as `UNKNOWN`, never as a safe binding. The human review and rollback
+procedure carry the same projection. Its timestamp is derived from the latest
+input receipt,
 so identical inputs and task identity reproduce byte-identical packages.
 `verify-package` must be run from the original receipt and candidate inputs;
 package self-digests alone are insufficient.

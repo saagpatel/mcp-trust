@@ -30,7 +30,7 @@ from mcp_trust.grade_refresh import (
     verify_engine_materialization_receipt,
 )
 
-OPERATOR_PACKAGE_SCHEMA = "McpTrustOperatorReviewPackageV2"
+OPERATOR_PACKAGE_SCHEMA = "McpTrustOperatorReviewPackageV3"
 OPERATOR_PACKAGE_STATE = "LOCAL_REVIEW_ONLY"
 OPERATOR_PACKAGE_MANIFEST = "OPERATOR_PACKAGE.json"
 _CONTENT_FILES = frozenset(
@@ -305,7 +305,7 @@ def _content_inventory(root: Path) -> list[dict[str, Any]]:
     return files
 
 
-def _review_markdown(state: dict[str, Any]) -> str:
+def _review_markdown(state: dict[str, Any], lineage: dict[str, Any]) -> str:
     gates = state.get("outstanding_gates")
     gate_lines = (
         "\n".join(f"- {gate}" for gate in gates)
@@ -324,6 +324,8 @@ def _review_markdown(state: dict[str, Any]) -> str:
         if isinstance(findings, list) and findings
         else "- none"
     )
+    engine = lineage["engine_materialization"]
+    tools = engine["tool_versions"]
     return f"""# MCP Trust grade-refresh operator review
 
 This package is review-only. It grants no publication, deployment, scheduler,
@@ -339,6 +341,19 @@ technical capability assessment, not an endorsement.
 - Fixture repeatability: `{state.get('fixture_repeatability', 'UNKNOWN')}`
 - Production freshness: `{state.get('production_freshness', 'UNKNOWN')}`
 - Publication state: `{state.get('publication_state', 'UNKNOWN')}`
+
+## Engine materialization lineage
+
+- Evidence state: `{engine['evidence_state']}`
+- Receipt status: `{engine['status']}`
+- Receipt digest: `{engine['receipt_digest']}`
+- Lock binding digest: `{engine['lock_binding_digest']}`
+- Distribution binding digest: `{engine['distribution_binding_digest']}`
+- Distribution RECORD digest: `{engine['distribution_record_sha256']}`
+- Python version: `{tools['python']}`
+- uv version: `{tools['uv']}`
+- mcp-audits version: `{tools['mcp_audits']}`
+- Tool versions digest: `{engine['tool_versions_digest']}`
 
 ## Findings (Critical, High, Medium, Low)
 
@@ -399,6 +414,12 @@ def _rollback_markdown(lineage: dict[str, Any]) -> str:
         f"{len(execution_boundary['scannable'])} scannable / "
         f"{len(execution_boundary['blocked'])} blocked"
     )
+    engine = lineage["engine_materialization"]
+    tools = engine["tool_versions"]
+    tool_summary = (
+        f"python={tools['python']}; uv={tools['uv']}; "
+        f"mcp-audits={tools['mcp_audits']}"
+    )
     return f"""# Future publication rollback procedure
 
 This review-only rollback plan is bound to operator-package lineage
@@ -410,6 +431,14 @@ scheduler, credential, or provider mutation authority.
 - Source revision: `{lineage['source_revision']}`
 - Source tree digest: `{lineage['source_tree_digest']}`
 - Preflight receipt: `{lineage['preflight']['receipt_digest']}`
+- Engine evidence state: `{engine['evidence_state']}`
+- Engine receipt status: `{engine['status']}`
+- Engine receipt: `{engine['receipt_digest']}`
+- Engine lock binding: `{engine['lock_binding_digest']}`
+- Engine distribution binding: `{engine['distribution_binding_digest']}`
+- Engine distribution RECORD: `{engine['distribution_record_sha256']}`
+- Engine tool versions: `{tool_summary}`
+- Engine tool versions digest: `{engine['tool_versions_digest']}`
 - Repeatability receipt: `{lineage['repeatability']['receipt_digest']}`
 - Triage receipt: `{triage.get('receipt_digest') if isinstance(triage, dict) else 'UNKNOWN'}`
 - Candidate manifest: `{candidate_digest}`
@@ -640,7 +669,7 @@ def _expected_content(
         )
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise OperatorPackageError("operator package input semantics are invalid") from exc
-    review = _review_markdown(state)
+    review = _review_markdown(state, lineage)
     rollback = _rollback_markdown(lineage)
     for payload in (state, capsule, review, rollback, lineage, task_id):
         _privacy_walk(payload)
