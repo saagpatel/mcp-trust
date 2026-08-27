@@ -32,6 +32,18 @@ BUILD_OPTIONS = {
     "rewrite_timestamps": True,
     "sbom": False,
 }
+_STABLE_VERSION = re.compile(
+    r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?"
+)
+_BUILDKIT_VERSION_LINE = re.compile(
+    r"^\s*BuildKit version:\s*(v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)\s*$",
+    flags=re.MULTILINE,
+)
+_BUILDX_VERSION_LINE = re.compile(
+    r"github\.com/docker/buildx "
+    r"(v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)"
+    r"(?: [0-9a-f]{7,64})?"
+)
 
 
 class QualificationError(RuntimeError):
@@ -78,16 +90,48 @@ def _reference(path: str) -> dict[str, str]:
     }
 
 
+def _exact_version(value: str, *, label: str, require_v: bool) -> str:
+    version = value.strip()
+    if (
+        _STABLE_VERSION.fullmatch(version) is None
+        or require_v != version.startswith("v")
+    ):
+        raise QualificationError(f"{label} did not return one exact version")
+    return version
+
+
+def _buildx_version(value: str) -> str:
+    match = _BUILDX_VERSION_LINE.fullmatch(value.strip())
+    if match is None:
+        raise QualificationError("docker buildx did not return one exact version")
+    return _exact_version(match.group(1), label="docker buildx", require_v=True)
+
+
+def _buildkit_version(value: str) -> str:
+    matches = _BUILDKIT_VERSION_LINE.findall(value)
+    if len(matches) != 1:
+        raise QualificationError("BuildKit inspect did not return one exact version")
+    return _exact_version(matches[0], label="BuildKit inspect", require_v=True)
+
+
 def _tool_versions(buildx: str) -> dict[str, str]:
+    docker_client = _run(
+        ["docker", "version", "--format", "{{.Client.Version}}"], capture=True
+    )
+    docker_server = _run(
+        ["docker", "version", "--format", "{{.Server.Version}}"], capture=True
+    )
+    buildx_version = _run([buildx, "version"], capture=True)
+    buildkit_inspect = _run([buildx, "inspect", "colima"], capture=True)
     return {
-        "docker_client": _run(
-            ["docker", "version", "--format", "{{.Client.Version}}"], capture=True
+        "docker_client": _exact_version(
+            docker_client, label="Docker client", require_v=False
         ),
-        "docker_server": _run(
-            ["docker", "version", "--format", "{{.Server.Version}}"], capture=True
+        "docker_server": _exact_version(
+            docker_server, label="Docker server", require_v=False
         ),
-        "docker_buildx": _run([buildx, "version"], capture=True),
-        "buildkit_colima": _run([buildx, "inspect", "colima"], capture=True),
+        "docker_buildx": _buildx_version(buildx_version),
+        "buildkit_colima": _buildkit_version(buildkit_inspect),
     }
 
 
@@ -300,8 +344,7 @@ def main() -> int:
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
     cohorts = payload["cohorts"]
-    buildx = shutil.which("docker-buildx")
-    if buildx is None:
+    if shutil.which("docker-buildx") is None:
         raise QualificationError("docker-buildx executable is unavailable")
     names = args.cohort or [
         "reference",
@@ -315,7 +358,7 @@ def main() -> int:
         if not isinstance(config, dict):
             raise QualificationError(f"dependency cohort is unavailable: {name}")
         config = {**config, "platform": payload.get("platform")}
-        receipt = qualify(name, config, buildx=buildx)
+        receipt = qualify(name, config, buildx="docker-buildx")
         print(f"QUALIFIED {name} {receipt.relative_to(ROOT)}")
     print("NO_PUBLICATION NO_DEPLOYMENT NO_SCHEDULER_MUTATION")
     return 0
