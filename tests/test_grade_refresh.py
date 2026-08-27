@@ -1762,6 +1762,15 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
         }
         for finding in triage["findings"]
     )
+    assert any(
+        finding
+        == {
+            "severity": "Critical",
+            "code": "repeat_candidate_not_publication_ready",
+            "slug": "catalog",
+        }
+        for finding in triage["findings"]
+    )
     assert triage["repeat_candidate_manifest_digest"] == grade_refresh.digest_file(
         second / "MANIFEST.json"
     )
@@ -1772,9 +1781,10 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
         triage=triage,
     )
     assert "grade-diff-review-triage-run" in state["completed_controls"]
-    assert "controlled-sandbox-candidate-repeat" in state["completed_controls"]
+    assert "controlled-sandbox-candidate-repeat" not in state["completed_controls"]
     assert "triage_receipt_invalid_or_unbound" not in state["outstanding_gates"]
     assert "candidate_review_required" in state["outstanding_gates"]
+    assert "controlled_repeat_evidence_not_qualified" in state["outstanding_gates"]
 
 
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
@@ -2052,6 +2062,61 @@ def test_state_card_rejects_triage_that_omits_required_repeat_finding() -> None:
     assert "triage_receipt_invalid_or_unbound" in state["outstanding_gates"]
     assert "grade-diff-review-triage-run" not in state["completed_controls"]
     assert "controlled-sandbox-candidate-repeat" not in state["completed_controls"]
+
+
+def test_state_card_marks_only_qualified_controlled_repeat_complete() -> None:
+    preflight = {
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "reasons": [],
+        "receipt_digest": "sha256:" + "1" * 64,
+        "source_binding": {
+            "revision": "a" * 40,
+            "source_tree_digest": "sha256:" + "2" * 64,
+        },
+        "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "NOT_READ"},
+    }
+    repeatability = {
+        "status": "PASS",
+        "receipt_digest": "sha256:" + "3" * 64,
+    }
+    triage = {
+        "schema": "McpTrustGradeDiffTriageV1",
+        "candidate_manifest_digest": "sha256:" + "4" * 64,
+        "repeat_candidate_manifest_digest": "sha256:" + "5" * 64,
+        "preflight_receipt_digest": preflight["receipt_digest"],
+        "repeatability_receipt_digest": repeatability["receipt_digest"],
+        "review_required": True,
+        "publication_allowed": False,
+        "findings": [
+            {
+                "severity": "High",
+                "code": "masked_result_requires_review",
+                "slug": "masked-server",
+            }
+        ],
+        "counts": {"Critical": 0, "High": 1, "Medium": 0, "Low": 0},
+        "candidate_claimed_state": "complete",
+        "candidate_verification": {
+            "structural_valid": True,
+            "publication_ready": True,
+            "state": "complete",
+            "errors": [],
+        },
+    }
+    triage["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(triage)
+    )
+
+    state = build_state_card(
+        preflight=preflight,
+        repeatability=repeatability,
+        triage=triage,
+    )
+
+    assert "controlled-sandbox-candidate-repeat" in state["completed_controls"]
+    assert "controlled_repeat_evidence_not_qualified" not in state["outstanding_gates"]
 
 
 def test_state_card_fails_closed_for_malformed_triage_findings() -> None:

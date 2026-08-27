@@ -2450,6 +2450,8 @@ def triage_candidate(
         )
         if repeat_verification.get("structural_valid") is not True:
             add("Critical", "repeat_candidate_verification_failed")
+        elif repeat_verification.get("publication_ready") is not True:
+            add("Critical", "repeat_candidate_not_publication_ready")
         try:
             repeat_manifest = load_json(repeat_candidate / "MANIFEST.json")
             repeat_candidate_manifest_digest = digest_file(repeat_candidate / "MANIFEST.json")
@@ -3648,8 +3650,29 @@ def build_state_card(
         and isinstance(triage.get("repeat_candidate_manifest_digest"), str)
         and _SHA256.fullmatch(triage["repeat_candidate_manifest_digest"]) is not None
     )
+    repeat_failure_codes = {
+        "candidate_verification_failed",
+        "candidate_not_publication_ready",
+        "repeat_candidate_verification_failed",
+        "repeat_candidate_not_publication_ready",
+        "controlled_repeat_binding_mismatch",
+        "controlled_repeat_inconsistent",
+        "controlled_repeat_evidence_invalid",
+        "controlled_repeat_evidence_missing",
+    }
+    repeat_evidence_qualified = bool(
+        repeat_evidence_present
+        and triage is not None
+        and not any(
+            isinstance(finding, dict)
+            and finding.get("code") in repeat_failure_codes
+            for finding in triage.get("findings", [])
+        )
+    )
     if triage_valid and not repeat_evidence_present:
         blockers.append("controlled_repeat_evidence_missing")
+    elif triage_valid and repeat_evidence_present and not repeat_evidence_qualified:
+        blockers.append("controlled_repeat_evidence_not_qualified")
     source = preflight.get("source_binding", {})
     catalog = preflight.get("catalog", {})
     scheduler = preflight.get("scheduler", {})
@@ -3778,7 +3801,7 @@ def build_state_card(
         completed_controls.append("deterministic-fixture-repeatability")
     if triage_valid:
         completed_controls.append("grade-diff-review-triage-run")
-    if repeat_evidence_present:
+    if repeat_evidence_qualified:
         completed_controls.append("controlled-sandbox-candidate-repeat")
     if scheduler.get("state") != "NOT_READ":
         completed_controls.append("scheduler-readback-no-mutation")
