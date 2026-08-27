@@ -274,10 +274,17 @@ the catalog, publish or withdraw records, run scans, or change deployment state.
 First emit the no-execution inventory, exact source/tool/image preflight, and
 deterministic repeated fixture receipt:
 
+Runtime refresh commands require a separately prepared frozen `[engine]`
+environment. They use its exact interpreter and never hydrate dependencies as
+part of preflight or candidate creation:
+
 ```bash
-uv run --frozen --extra engine python scripts/grade_refresh.py inventory \
+PYTHON=./.venv/bin/python
+test -x "$PYTHON"
+
+"$PYTHON" scripts/grade_refresh.py inventory \
   --out ./dist/grade-refresh/inventory.json
-uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
+"$PYTHON" scripts/grade_refresh.py preflight \
   --repo-root "$PWD" --out ./dist/grade-refresh/preflight.json
 uv run --frozen --extra dev python scripts/grade_refresh.py fixture-repeat \
   --out ./dist/grade-refresh/fixture-repeatability.json
@@ -295,7 +302,7 @@ Create a review candidate without mutating the canonical registry, baked
 snapshot, static site, schedule, or deployment:
 
 ```bash
-uv run --frozen --extra engine python scripts/refresh_candidate.py create \
+"$PYTHON" scripts/refresh_candidate.py create \
   --db ./registry.db \
   --out-dir ./dist/refresh-candidates \
   --qualification-receipt ./dist/grade-refresh/preflight.json

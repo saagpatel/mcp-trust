@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -444,6 +445,32 @@ def _package_version(distribution: str) -> str:
         return importlib.metadata.version(distribution)
     except importlib.metadata.PackageNotFoundError:
         return "UNKNOWN"
+
+
+def _locked_package_version(repo_root: Path, distribution: str) -> str:
+    """Return one exact package version from the repository's frozen uv lock."""
+    try:
+        lock = tomllib.loads((repo_root / "uv.lock").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        return "UNKNOWN"
+    packages = lock.get("package") if isinstance(lock, dict) else None
+    if not isinstance(packages, list):
+        return "UNKNOWN"
+    normalized = _normalized_project_name(distribution)
+    versions = [
+        package.get("version")
+        for package in packages
+        if isinstance(package, dict)
+        and isinstance(package.get("name"), str)
+        and _normalized_project_name(package["name"]) == normalized
+    ]
+    if (
+        len(versions) != 1
+        or not isinstance(versions[0], str)
+        or _STABLE_VERSION.fullmatch(versions[0]) is None
+    ):
+        return "UNKNOWN"
+    return versions[0]
 
 
 def _run(
@@ -1482,16 +1509,22 @@ def build_preflight_receipt(
                     binding["state"] = "UNKNOWN"
                     reasons.append(f"catalog_image_provenance_unknown:{reference}")
         image_bindings.append(binding)
+    locked_mcp_audits = _locked_package_version(repo_root, "mcp-audits")
     tool_versions = {
         "python": platform.python_version(),
         "python_executable": str(Path(sys.executable).resolve()),
         "mcp_audits": _package_version("mcp-audits"),
+        "mcp_audits_locked": locked_mcp_audits,
         "mcp_trust": _package_version("mcp-trust"),
         "docker_client": docker_versions["client"],
         "docker_server": docker_versions["server"],
     }
     if tool_versions["mcp_audits"] == "UNKNOWN":
         reasons.append("mcp_audits_runtime_unavailable")
+    if locked_mcp_audits == "UNKNOWN":
+        reasons.append("mcp_audits_lock_unavailable")
+    elif tool_versions["mcp_audits"] != locked_mcp_audits:
+        reasons.append("mcp_audits_runtime_lock_mismatch")
     if tool_versions["mcp_trust"] == "UNKNOWN":
         reasons.append("mcp_trust_runtime_unavailable")
     execution_ready = not reasons and all(

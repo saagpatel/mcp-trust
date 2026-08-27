@@ -834,7 +834,8 @@ def test_legacy_refresh_entrypoint_only_creates_a_candidate() -> None:
     script = (ROOT / "scripts/refresh_and_publish.sh").read_text(encoding="utf-8")
 
     assert "refresh_candidate.py create" in script
-    assert "uv run --frozen --extra engine" in script
+    assert '${REPO_ROOT}/.venv/bin/python' in script
+    assert "uv run" not in script
     assert "mcp-trust scan" not in script
     assert "build_site.py" not in script
     assert "deploy_production" not in script

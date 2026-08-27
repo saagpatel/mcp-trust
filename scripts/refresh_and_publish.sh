@@ -24,18 +24,25 @@ IMAGE="${MCP_TRUST_SANDBOX_IMAGE:-mcp-trust-scan:corpus-2026-07-03}"
 CANDIDATES="${MCP_TRUST_CANDIDATES_DIR:-./dist/refresh-candidates}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 PREFLIGHT="${CANDIDATES}/preflight-${RUN_ID}.json"
+PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+
+if [ ! -x "${PYTHON_BIN}" ]; then
+  printf '%s\n' \
+    "ERROR: frozen engine environment is absent; prepare .venv in a separately approved dependency lane." >&2
+  exit 1
+fi
 
 # Stop before any catalog process is launched unless the exact source,
-# toolchain, local Docker authority, sandbox controls, and all four catalog
+# toolchain, local Docker authority, sandbox controls, and all five catalog
 # image bytes are bound. The receipt remains local and review-only.
-uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
+"${PYTHON_BIN}" scripts/grade_refresh.py preflight \
   --repo-root "${REPO_ROOT}" \
   --seed "./src/mcp_trust/catalog/seed_servers.json" \
   --masked-grades "./masked-grades.json" \
   --policy "./src/mcp_trust/catalog/refresh_policy.json" \
   --out "${PREFLIGHT}"
 
-exec uv run --frozen --extra engine python scripts/refresh_candidate.py create \
+exec "${PYTHON_BIN}" scripts/refresh_candidate.py create \
   --db "${DB}" \
   --seed "./src/mcp_trust/catalog/seed_servers.json" \
   --masked-grades "./masked-grades.json" \
