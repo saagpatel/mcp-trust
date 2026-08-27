@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import math
 import os
@@ -35,6 +34,10 @@ from mcp_trust.core.governance import (
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
+from mcp_trust.engine.runtime import (
+    MCP_AUDIT_RUNTIME_MODULES,
+    modules_belong_to_distribution,
+)
 from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
 from mcp_trust.receipts import build_scan_receipt
 from mcp_trust.store.db import connect, init_schema
@@ -1075,7 +1078,7 @@ def preflight_real_refresh(
                     docker_host=docker_host,
                 )
             )
-    if importlib.util.find_spec("mcp_audit") is None:
+    if not modules_belong_to_distribution("mcp-audits", MCP_AUDIT_RUNTIME_MODULES):
         raise RefreshCandidateError("required MCPAudit engine package is unavailable")
     evidence: dict[str, object] = {
         "docker_daemon": "available" if local_servers else "not_required",

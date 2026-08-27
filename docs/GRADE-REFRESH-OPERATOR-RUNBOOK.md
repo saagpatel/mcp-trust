@@ -62,7 +62,9 @@ test -x "$PYTHON"
 Stop unless the receipt says `status: READY` and
 `safe_to_execute_catalog: true`. Missing image tags, missing immutable IDs,
 missing deterministic build source, remote Docker authority, missing engine
-runtime, or incomplete sandbox controls are terminal preflight blockers. Do
+runtime, required scanner module files not owned and hash-bound by the installed
+`mcp-audits` distribution record, or incomplete sandbox controls are terminal
+preflight blockers. Do
 not pull, rebuild, retag, or substitute an image without explicit approval.
 Blocked catalog rows remain excluded; do not widen execution to make the
 preflight green.

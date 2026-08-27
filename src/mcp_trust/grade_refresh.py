@@ -28,6 +28,10 @@ from typing import Any
 
 from mcp_trust.core import grading
 from mcp_trust.core.models import ServerSource
+from mcp_trust.engine.runtime import (
+    MCP_AUDIT_RUNTIME_MODULES,
+    modules_belong_to_distribution,
+)
 from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
 from mcp_trust.engine.stub import StubEngine
 
@@ -1483,6 +1487,8 @@ def build_preflight_receipt(
     }
     if tool_versions["mcp_audits"] == "UNKNOWN":
         reasons.append("mcp_audits_runtime_unavailable")
+    elif not modules_belong_to_distribution("mcp-audits", MCP_AUDIT_RUNTIME_MODULES):
+        reasons.append("mcp_audits_module_distribution_mismatch")
     if locked_mcp_audits == "UNKNOWN":
         reasons.append("mcp_audits_lock_unavailable")
     elif tool_versions["mcp_audits"] != locked_mcp_audits:
