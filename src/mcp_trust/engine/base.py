@@ -26,6 +26,15 @@ class ScanError(RuntimeError):
 class ScanTimeoutError(ScanError):
     """Raised when the engine reports that a configured scan deadline expired."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        hard_termination_evidence: str = "UNKNOWN",
+    ) -> None:
+        super().__init__(message)
+        self.hard_termination_evidence = hard_termination_evidence
+
 
 class EngineResult(BaseModel):
     """What every ``ScanEngine.scan`` returns. Built from core models so the
@@ -43,6 +52,14 @@ class EngineResult(BaseModel):
             "engine (per-server pin > env default). Ground-truth provenance the "
             "receipt records instead of re-reading ambient env. None when the "
             "scan used no isolating sandbox (host passthrough or the stub engine)."
+        ),
+    )
+    sandbox_cleanup_evidence: str | None = Field(
+        default=None,
+        description=(
+            "Post-scan lifecycle readback for an isolating sandbox. The Docker "
+            "engine emits CONTAINER_ABSENCE_VERIFIED only after querying the "
+            "bound daemon and proving the uniquely owned scan container absent."
         ),
     )
 

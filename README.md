@@ -311,7 +311,10 @@ snapshot, static site, schedule, or deployment:
 The command refuses local-process scans unless the bound preflight receipt is
 current and READY, and Docker and every catalog-pinned image are available
 locally at the recorded immutable IDs. Those sources run through the existing
-network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
+network-off, read-only, capability-dropped, resource-bounded sandbox. Each local
+container is pre-created and the connector is bound to start only that immutable
+ID; scan evidence is accepted only after the bound daemon proves it absent. A
+timeout without that readback remains `UNKNOWN`. Remote
 endpoints are probed over their live network transport without a local process
 sandbox and are labeled accordingly. New immutable bundles use
 `RefreshCandidateV2` and contain self-digested execution-bound receipts, catalog

@@ -136,7 +136,7 @@ either partial candidate remains a Critical publication block.
 | Egress and callbacks | `--network none`; remote transports are a separate approval lane | `BLOCKED` |
 | Secret theft | no live secrets; dummy values only with network off; values never recorded | `BLOCKED` |
 | Filesystem escape | read-only root, bounded tmpfs, no host mounts, non-root user | `BLOCKED` |
-| CPU/memory/PID exhaustion | explicit CPU, memory, PID and scan timeout ceilings | `BLOCKED` |
+| CPU/memory/PID exhaustion | explicit CPU, memory and PID ceilings; pre-created uniquely owned Docker container; connector launch bound to its immutable ID; repository outer deadline; removal and post-cleanup daemon absence readback | `BLOCKED` |
 | Result/receipt spoofing | canonical JSON digests, exact candidate manifest, receipt/DB identity checks | `UNKNOWN` |
 | Grade manipulation | source/rule/policy digests, separate axes, review triage | review required |
 | Compromised upstream | reviewed image/source bytes; no live substitution | `BLOCKED` |

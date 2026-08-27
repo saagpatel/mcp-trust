@@ -26,12 +26,26 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import secrets
 import shutil
+import subprocess
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import ClassVar, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 _DOCKER_HOST_ENV = "MCP_TRUST_DOCKER_HOST"
+_SCAN_OWNER_LABEL = "com.mcp-trust.scan-owner"
+_CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
+_DOCKER_CLEANUP_TIMEOUT_SECONDS = 10.0
+_DOCKER_CREATE_SETTLE_POLLS = 20
+_DOCKER_CREATE_SETTLE_INTERVAL_SECONDS = 0.1
+
+
+class DockerSandboxCleanupError(RuntimeError):
+    """Raised when post-scan Docker container absence cannot be proven."""
 
 
 def normalize_local_docker_host(value: str) -> str:
@@ -117,6 +131,12 @@ class DockerSandbox:
     # injected as ``-e KEY=VALUE`` so they live only inside the container, never
     # the host env. Only ever set with network off (the engine enforces this).
     env: dict[str, str] = field(default_factory=dict)
+    # A per-sandbox unguessable identity lets cleanup target only the container
+    # created by this exact scan lifecycle. Neither value is caller-controlled.
+    _owner_token: str = field(
+        default_factory=lambda: secrets.token_hex(16), init=False, repr=False
+    )
+    _container_id: str | None = field(default=None, init=False, repr=False)
 
     name: ClassVar[str] = "docker"
     isolates: ClassVar[bool] = True
@@ -124,6 +144,10 @@ class DockerSandbox:
     def __post_init__(self) -> None:
         if self.host is not None:
             self.host = normalize_local_docker_host(self.host)
+
+    @property
+    def container_name(self) -> str:
+        return f"mcp-trust-scan-{self._owner_token}"
 
     def available(self) -> bool:
         return shutil.which("docker") is not None
@@ -136,6 +160,10 @@ class DockerSandbox:
             "run",
             "--rm",
             "-i",  # keep stdin open for the MCP stdio transport
+            "--name",
+            self.container_name,
+            "--label",
+            f"{_SCAN_OWNER_LABEL}={self._owner_token}",
             "--network",
             self.network,
             "--memory",
@@ -171,6 +199,172 @@ class DockerSandbox:
             docker_args += ["--env", f"{key}={value}"]
         docker_args += [self.image, command, *args]
         return "docker", docker_args
+
+    def _docker_command(self, *args: str) -> list[str]:
+        command = ["docker"]
+        if self.host is not None:
+            command += ["--host", self.host]
+        return [*command, *args]
+
+    @staticmethod
+    def _docker_cli_env() -> dict[str, str]:
+        # Do not let ambient DOCKER_HOST/DOCKER_CONTEXT redirect cleanup. HOME
+        # remains so an unpinned non-refresh caller can use its selected context;
+        # the controlled refresh always supplies an exact local Unix host.
+        return {
+            key: value
+            for key in ("HOME", "PATH", "TMPDIR")
+            if (value := os.environ.get(key)) is not None
+        }
+
+    def _owned_container_ids(
+        self,
+        *,
+        runner: Callable[..., subprocess.CompletedProcess[str]],
+    ) -> list[str]:
+        try:
+            completed = runner(
+                self._docker_command(
+                    "container",
+                    "ls",
+                    "--all",
+                    "--filter",
+                    f"label={_SCAN_OWNER_LABEL}={self._owner_token}",
+                    "--filter",
+                    f"name=^/{self.container_name}$",
+                    "--format",
+                    "{{.ID}}",
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=_DOCKER_CLEANUP_TIMEOUT_SECONDS,
+                env=self._docker_cli_env(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise DockerSandboxCleanupError(
+                "Docker cleanup readback could not query the bound daemon"
+            ) from exc
+        if completed.returncode != 0:
+            raise DockerSandboxCleanupError(
+                "Docker cleanup readback could not query the bound daemon"
+            )
+        container_ids = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+        if len(container_ids) > 1 or any(
+            _CONTAINER_ID.fullmatch(container_id) is None for container_id in container_ids
+        ):
+            raise DockerSandboxCleanupError(
+                "Docker cleanup readback returned an ambiguous owned-container identity"
+            )
+        return container_ids
+
+    def prepare_owned_container(
+        self,
+        command: str,
+        args: list[str],
+        *,
+        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    ) -> tuple[str, list[str]]:
+        """Create the exact scan container before the connector worker starts.
+
+        The connector receives only ``docker start`` for the immutable created
+        ID. Therefore a worker that outlives the outer deadline cannot create a
+        new container after cleanup has proved that ID absent.
+        """
+        if self._container_id is not None:
+            raise DockerSandboxCleanupError("Docker scan container is already prepared")
+        docker_command, run_args = self.wrap(command, args)
+        run_index = run_args.index("run")
+        create_args = [*run_args[:run_index], "container", "create", *run_args[run_index + 1 :]]
+        create_args.remove("--rm")
+        try:
+            completed = runner(
+                [docker_command, *create_args],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=_DOCKER_CLEANUP_TIMEOUT_SECONDS,
+                env=self._docker_cli_env(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # subprocess.run kills and waits for a timed-out CLI child, but the
+            # daemon may already have accepted the create request. Observe a
+            # bounded quiescence window for delayed materialization, removing
+            # only the exact unique identity whenever it appears, then require
+            # a final absence readback before failing closed.
+            try:
+                for _ in range(_DOCKER_CREATE_SETTLE_POLLS):
+                    self.cleanup_owned_container(runner=runner)
+                    time.sleep(_DOCKER_CREATE_SETTLE_INTERVAL_SECONDS)
+                self.cleanup_owned_container(runner=runner)
+            except DockerSandboxCleanupError as cleanup_exc:
+                raise DockerSandboxCleanupError(
+                    "Docker create failed and cleanup could not prove the uniquely "
+                    "owned scan container absent"
+                ) from cleanup_exc
+            raise DockerSandboxCleanupError(
+                "Docker could not create the uniquely owned scan container"
+            ) from exc
+        created_ids = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+        if (
+            completed.returncode != 0
+            or len(created_ids) != 1
+            or _CONTAINER_ID.fullmatch(created_ids[0]) is None
+        ):
+            # A failed CLI can still have created a daemon object. Query by the
+            # unique identity and remove it before returning the preparation error.
+            self.cleanup_owned_container(runner=runner)
+            raise DockerSandboxCleanupError(
+                "Docker did not return one immutable scan container ID"
+            )
+        self._container_id = created_ids[0]
+        return docker_command, self._docker_command(
+            "container", "start", "--attach", "--interactive", self._container_id
+        )[1:]
+
+    def cleanup_owned_container(
+        self,
+        *,
+        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    ) -> str:
+        """Force-remove this scan's owned container and prove it is absent.
+
+        Cleanup selects by both an unguessable owner label and exact generated
+        name, then removes by the returned immutable container ID. It never
+        removes a name-only or caller-supplied target.
+        """
+        container_ids = self._owned_container_ids(runner=runner)
+        if (
+            self._container_id is not None
+            and container_ids
+            and container_ids[0] != self._container_id
+        ):
+            raise DockerSandboxCleanupError(
+                "Docker cleanup readback did not match the prepared container ID"
+            )
+        if container_ids:
+            try:
+                removed = runner(
+                    self._docker_command("container", "rm", "--force", container_ids[0]),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=_DOCKER_CLEANUP_TIMEOUT_SECONDS,
+                    env=self._docker_cli_env(),
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise DockerSandboxCleanupError(
+                    "Docker could not force-remove the owned scan container"
+                ) from exc
+            if removed.returncode != 0:
+                raise DockerSandboxCleanupError(
+                    "Docker could not force-remove the owned scan container"
+                )
+        if self._owned_container_ids(runner=runner):
+            raise DockerSandboxCleanupError(
+                "Docker owned scan container remained after forced cleanup"
+            )
+        return "CONTAINER_ABSENCE_VERIFIED"
 
 
 def effective_docker_image(source_image: str | None = None) -> str:
