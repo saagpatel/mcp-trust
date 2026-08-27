@@ -1794,8 +1794,84 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     assert capsule["capsule"]["resume_states"] == ["deterministic-image-build-authorized"]
     assert capsule["capsule"]["target"] == capsule["capsule"]["authorized_next_read"]["target"]
     assert capsule["observation"]["readback_status"] == "not_run"
-    assert capsule["capsule"]["authority"]["boundary"].startswith("Read this Codex task")
+    assert capsule["capsule"]["authority"]["boundary"] == (
+        "Read task status only until exact V68 approval; no package install, registry or "
+        "other network access, Docker or Colima, MCP execution, push, publication, deployment, "
+        "public-route access, credentials, backing services, or scheduler effects."
+    )
     assert len(capsule["capsule"]["claim_ceiling"]) <= 300
+
+
+def test_state_card_and_resume_capsule_route_engine_materialization_first() -> None:
+    preflight = {
+        "status": "BLOCKED",
+        "safe_to_execute_catalog": False,
+        "reasons": [
+            "catalog_image_missing:x",
+            "engine_materialization_receipt_missing",
+        ],
+        "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
+        "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": True},
+    }
+    state = build_state_card(
+        preflight=preflight,
+        repeatability={"status": "PASS"},
+        triage=None,
+    )
+    capsule = build_resume_capsule(task_id="task-1", state_card=state, now=NOW)
+
+    assert any(
+        finding["code"] == "engine_materialization_not_ready"
+        for finding in state["findings"]
+    )
+    assert "mcp-audits==2.7.0" in state["next_action"]
+    assert "all five image cohorts" not in state["next_action"]
+    assert (
+        capsule["capsule"]["capsule_id"]
+        == "mcp-trust-grade-refresh-engine-materialization-gate"
+    )
+    assert (
+        capsule["capsule"]["waiting_condition"]["code"]
+        == "exact-mcp-audits-materialization-approval-required"
+    )
+    assert capsule["capsule"]["resume_states"] == [
+        "exact-mcp-audits-materialization-authorized"
+    ]
+    assert "until exact V68 approval" in capsule["capsule"]["authority"]["boundary"]
+    assert "push, publication, deployment" in capsule["capsule"]["authority"]["boundary"]
+    assert "credentials, backing services" in capsule["capsule"]["authority"]["boundary"]
+    assert "Docker, MCP scans" in capsule["capsule"]["claim_ceiling"]
+    assert "remain prohibited" in capsule["capsule"]["claim_ceiling"]
+
+
+def test_state_card_and_resume_capsule_do_not_infer_broad_remediation_authority() -> None:
+    preflight = {
+        "status": "BLOCKED",
+        "safe_to_execute_catalog": False,
+        "reasons": ["unclassified_local_preflight_blocker"],
+        "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
+        "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": True},
+    }
+    state = build_state_card(
+        preflight=preflight,
+        repeatability={"status": "PASS"},
+        triage=None,
+    )
+    capsule = build_resume_capsule(task_id="task-1", state_card=state, now=NOW)
+
+    assert "exact scoped approval" in state["next_action"]
+    assert (
+        capsule["capsule"]["capsule_id"]
+        == "mcp-trust-grade-refresh-preflight-remediation-gate"
+    )
+    assert (
+        capsule["capsule"]["waiting_condition"]["code"]
+        == "preflight-remediation-review-required"
+    )
+    assert capsule["capsule"]["resume_states"] == ["preflight-remediation-authorized"]
+    assert "grants no package, registry, Docker, MCP" in capsule["capsule"]["claim_ceiling"]
 
 
 def test_state_card_rejects_self_digested_but_unbound_triage() -> None:

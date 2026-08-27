@@ -654,6 +654,52 @@ def test_operator_package_blocked_preflight_withholds_image_control(tmp_path: Pa
     assert "image-provenance-preflight-run" not in state["completed_controls"]
 
 
+def test_operator_package_routes_missing_engine_materialization_before_images(
+    tmp_path: Path,
+) -> None:
+    preflight, repeatability, _, _ = _receipts(tmp_path)
+    payload = json.loads(preflight.read_text())
+    payload.update(
+        {
+            "status": "BLOCKED",
+            "safe_to_execute_catalog": False,
+            "exit_classification": "preflight-blocked",
+            "reasons": ["engine_materialization_receipt_missing"],
+            "engine_materialization": None,
+        }
+    )
+    payload["authority"]["candidate_build"] = False
+    payload.pop("receipt_digest")
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    _write_json(preflight, payload)
+
+    output = tmp_path / "package"
+    build_operator_review_package(
+        output_path=output,
+        task_id="task-fixture",
+        preflight_path=preflight,
+        repeatability_path=repeatability,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        now=NOW,
+    )
+
+    state = json.loads((output / "state-card.json").read_text())
+    capsule = json.loads((output / "HumanGateResumeCapsuleV1.json").read_text())
+    assert "mcp-audits==2.7.0" in state["next_action"]
+    assert "all five image cohorts" not in state["next_action"]
+    assert (
+        capsule["capsule"]["waiting_condition"]["code"]
+        == "exact-mcp-audits-materialization-approval-required"
+    )
+    assert capsule["capsule"]["resume_states"] == [
+        "exact-mcp-audits-materialization-authorized"
+    ]
+
+
 @pytest.mark.parametrize(
     "digest_key",
     ["seed_digest", "masking_digest", "policy_digest", "inventory_digest"],
