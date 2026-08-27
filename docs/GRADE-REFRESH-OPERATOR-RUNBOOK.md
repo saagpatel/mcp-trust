@@ -152,6 +152,12 @@ Review Critical, High, Medium, then Low. The triage normalizes the two
 independently verified controlled candidates while excluding receipt IDs and
 timestamps; every grade/evidence inconsistency, upgrade, large change, new
 mask, provenance gap, or policy change requires disposition.
+Omitting the repeat candidate is a blocking High finding and can never produce
+the `controlled-sandbox-candidate-repeat` completed control. The ordinary
+triage command therefore requires `--repeat-candidate`; an early operator state
+package without candidates remains review-only and explicitly incomplete.
+The candidate and repeat candidate must resolve to different paths; reusing the
+same directory through a symlink or other path alias is rejected as non-independent.
 
 Review the neutral disposition for every intentionally masked row and build the
 deterministic publication decision packet:

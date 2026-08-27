@@ -140,6 +140,24 @@ def _inputs() -> tuple[
     return preflight, repeatability, triage, projections
 
 
+def test_publication_review_rejects_same_candidate_path(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+
+    with pytest.raises(GradeRefreshError, match="independent path"):
+        build_publication_review_decision(
+            candidate=candidate,
+            repeat_candidate=candidate,
+            preflight={},
+            repeatability={},
+            triage={},
+            seed_path=SEED,
+            masked_path=MASKED,
+            policy_path=POLICY,
+            disposition_path=DISPOSITIONS,
+        )
+
+
 def _build(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

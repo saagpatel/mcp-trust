@@ -105,7 +105,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _common_inputs(triage)
     triage.add_argument("--candidate", type=Path, required=True)
-    triage.add_argument("--repeat-candidate", type=Path)
+    triage.add_argument("--repeat-candidate", type=Path, required=True)
     triage.add_argument("--preflight", type=Path, required=True)
     triage.add_argument("--repeatability", type=Path, required=True)
     triage.add_argument("--out", type=Path)
