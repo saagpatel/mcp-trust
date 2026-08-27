@@ -22,6 +22,7 @@ from mcp_trust.grade_refresh import (
     triage_candidate,
 )
 from scripts import grade_refresh as grade_refresh_cli
+from tests.receipt_fixtures import engine_materialization_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
@@ -1757,6 +1758,8 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     preflight = {
         "safe_to_execute_catalog": False,
+        "status": "BLOCKED",
+        "exit_classification": "preflight-blocked",
         "reasons": [
             "catalog_image_missing:x",
             "image_build_reproducibility_unknown:x",
@@ -1765,6 +1768,11 @@ def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
         "catalog": {"denominator": 31, "counts": {"scannable": 31}},
         "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": False},
     }
+    preflight["engine_materialization"] = engine_materialization_receipt(
+        source_binding=preflight["source_binding"],
+        observed_at=NOW,
+        repo_root=ROOT,
+    )
     repeatability = {"status": "PASS"}
     state = build_state_card(preflight=preflight, repeatability=repeatability, triage=None)
     capsule = build_resume_capsule(task_id="task-1", state_card=state, now=NOW)
@@ -1845,6 +1853,55 @@ def test_state_card_and_resume_capsule_route_engine_materialization_first() -> N
     assert "remain prohibited" in capsule["capsule"]["claim_ceiling"]
 
 
+def test_state_card_derives_engine_gate_when_blocked_reason_omits_it() -> None:
+    preflight = {
+        "status": "BLOCKED",
+        "safe_to_execute_catalog": False,
+        "exit_classification": "preflight-blocked",
+        "reasons": ["catalog_image_missing:x"],
+        "engine_materialization": None,
+        "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
+        "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": True},
+    }
+    state = build_state_card(
+        preflight=preflight,
+        repeatability={"status": "PASS"},
+        triage=None,
+    )
+    capsule = build_resume_capsule(task_id="task-1", state_card=state, now=NOW)
+
+    assert "engine_materialization_not_ready" in state["outstanding_gates"]
+    assert "blocked_preflight_engine_contract_invalid" in state["outstanding_gates"]
+    assert "mcp-audits==2.7.0" in state["next_action"]
+    assert "all five image cohorts" not in state["next_action"]
+    assert (
+        capsule["capsule"]["waiting_condition"]["code"]
+        == "exact-mcp-audits-materialization-approval-required"
+    )
+
+
+def test_state_card_does_not_complete_image_preflight_with_invalid_ready_engine() -> None:
+    preflight = {
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "exit_classification": "ready",
+        "reasons": [],
+        "engine_materialization": None,
+        "source_binding": {"revision": "abc", "source_tree_digest": "sha256:" + "a" * 64},
+        "catalog": {"denominator": 31, "counts": {"scannable": 31}},
+        "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": True},
+    }
+    state = build_state_card(
+        preflight=preflight,
+        repeatability={"status": "PASS"},
+        triage=None,
+    )
+
+    assert "engine_materialization_not_ready" in state["outstanding_gates"]
+    assert "image-provenance-preflight-run" not in state["completed_controls"]
+
+
 def test_state_card_and_resume_capsule_do_not_infer_broad_remediation_authority() -> None:
     preflight = {
         "status": "BLOCKED",
@@ -1854,6 +1911,11 @@ def test_state_card_and_resume_capsule_do_not_infer_broad_remediation_authority(
         "catalog": {"denominator": 31, "counts": {"scannable": 31}},
         "scheduler": {"state": "DISABLED_UNLOADED", "definitions_match": True},
     }
+    preflight["engine_materialization"] = engine_materialization_receipt(
+        source_binding=preflight["source_binding"],
+        observed_at=NOW,
+        repo_root=ROOT,
+    )
     state = build_state_card(
         preflight=preflight,
         repeatability={"status": "PASS"},

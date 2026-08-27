@@ -3634,12 +3634,17 @@ def build_state_card(
     source = preflight.get("source_binding", {})
     catalog = preflight.get("catalog", {})
     scheduler = preflight.get("scheduler", {})
-    engine_materialization_blocked = _engine_materialization_gate_required(
-        preflight.get("reasons")
-    )
+    engine_materialization_blocked = _engine_materialization_gate_required(preflight)
     image_reconstruction_blocked = _image_reconstruction_gate_required(
         preflight.get("reasons")
     )
+    if engine_materialization_blocked:
+        blockers.append("engine_materialization_not_ready")
+    if (
+        preflight.get("status") == "BLOCKED"
+        and not _blocked_preflight_engine_contract_valid(preflight)
+    ):
+        blockers.append("blocked_preflight_engine_contract_invalid")
     if triage_valid:
         assert triage is not None
         findings = list(triage.get("findings", []))
@@ -3744,7 +3749,11 @@ def build_state_card(
         "sandbox-policy-defined",
         "review-only-authority",
     ]
-    if preflight.get("status") == "READY" and preflight.get("safe_to_execute_catalog") is True:
+    if (
+        preflight.get("status") == "READY"
+        and preflight.get("safe_to_execute_catalog") is True
+        and _engine_materialization_ready_and_bound(preflight)
+    ):
         completed_controls.append("image-provenance-preflight-run")
     if repeatability.get("status") == "PASS":
         completed_controls.append("deterministic-fixture-repeatability")
@@ -3800,7 +3809,7 @@ def build_state_card(
     }
 
 
-def _engine_materialization_gate_required(reasons: object) -> bool:
+def _engine_materialization_reason_present(reasons: object) -> bool:
     prefixes = (
         "engine_materialization_",
         "mcp_audits_",
@@ -3812,6 +3821,72 @@ def _engine_materialization_gate_required(reasons: object) -> bool:
     return isinstance(reasons, list) and any(
         isinstance(reason, str) and reason.startswith(prefixes) for reason in reasons
     )
+
+
+def _engine_materialization_ready_and_bound(preflight: object) -> bool:
+    if not isinstance(preflight, dict):
+        return False
+    materialization = preflight.get("engine_materialization")
+    return bool(
+        isinstance(materialization, dict)
+        and _receipt_integrity_valid(
+            materialization,
+            schema=ENGINE_MATERIALIZATION_SCHEMA,
+            expected_keys=_ENGINE_MATERIALIZATION_KEYS,
+        )
+        and _valid_engine_materialization_receipt_shape(materialization)
+        and materialization.get("status") == "READY"
+        and materialization.get("safe_to_execute") is True
+        and materialization.get("exit_classification") == "ready"
+        and materialization.get("reasons") == []
+        and materialization.get("source_binding") == preflight.get("source_binding")
+    )
+
+
+def _engine_materialization_gate_required(preflight: object) -> bool:
+    reasons = preflight.get("reasons") if isinstance(preflight, dict) else None
+    return _engine_materialization_reason_present(
+        reasons
+    ) or not _engine_materialization_ready_and_bound(preflight)
+
+
+def _blocked_preflight_engine_contract_valid(preflight: object) -> bool:
+    if not isinstance(preflight, dict):
+        return False
+    reasons = preflight.get("reasons")
+    if (
+        not isinstance(reasons, list)
+        or not reasons
+        or any(not isinstance(reason, str) or not reason for reason in reasons)
+        or reasons != sorted(set(reasons))
+    ):
+        return False
+    engine_reasons = [
+        reason for reason in reasons if reason.startswith("engine_materialization_")
+    ]
+    materialization = preflight.get("engine_materialization")
+    if materialization is None:
+        return engine_reasons in (
+            ["engine_materialization_receipt_invalid"],
+            ["engine_materialization_receipt_missing"],
+        )
+    if (
+        not isinstance(materialization, dict)
+        or not _receipt_integrity_valid(
+            materialization,
+            schema=ENGINE_MATERIALIZATION_SCHEMA,
+            expected_keys=_ENGINE_MATERIALIZATION_KEYS,
+        )
+        or not _valid_engine_materialization_receipt_shape(materialization)
+    ):
+        return False
+    if materialization.get("status") != "READY":
+        expected_reasons = ["engine_materialization_not_ready"]
+    elif materialization.get("source_binding") != preflight.get("source_binding"):
+        expected_reasons = ["engine_materialization_source_mismatch"]
+    else:
+        expected_reasons = []
+    return engine_reasons == expected_reasons
 
 
 def _image_reconstruction_gate_required(reasons: object) -> bool:
@@ -4163,6 +4238,10 @@ def build_operator_package_lineage(
         or scheduler.get("mutation_performed") is not False
     ):
         raise GradeRefreshError("operator package preflight semantics are invalid")
+    if preflight_blocked and not _blocked_preflight_engine_contract_valid(preflight):
+        raise GradeRefreshError(
+            "operator package blocked preflight engine contract is invalid"
+        )
     if preflight_ready:
         expected_references = (
             catalog_inputs.get("image_references") if isinstance(catalog_inputs, dict) else None
@@ -4332,7 +4411,7 @@ def build_resume_capsule(
     authority_digest = digest_bytes(authority_boundary.encode())
     execution_blocked = state_card.get("safe_to_execute_catalog") is not True
     outstanding_gates = state_card.get("outstanding_gates")
-    engine_materialization_blocked = _engine_materialization_gate_required(
+    engine_materialization_blocked = _engine_materialization_reason_present(
         outstanding_gates
     )
     image_reconstruction_blocked = _image_reconstruction_gate_required(

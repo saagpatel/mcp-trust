@@ -41,6 +41,16 @@ def _stable_source_binding(monkeypatch: pytest.MonkeyPatch) -> None:
         "_current_preflight_evidence",
         lambda **kwargs: dict(kwargs["supplied_preflight"]),
     )
+    monkeypatch.setattr(
+        operator_package,
+        "verify_engine_materialization_receipt",
+        lambda receipt, **_kwargs: {
+            "receipt_valid": isinstance(receipt, dict),
+            "receipt_digest": (
+                receipt.get("receipt_digest") if isinstance(receipt, dict) else None
+            ),
+        },
+    )
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -654,8 +664,16 @@ def test_operator_package_blocked_preflight_withholds_image_control(tmp_path: Pa
     assert "image-provenance-preflight-run" not in state["completed_controls"]
 
 
-def test_operator_package_routes_missing_engine_materialization_before_images(
+@pytest.mark.parametrize(
+    "engine_reason",
+    [
+        "engine_materialization_receipt_invalid",
+        "engine_materialization_receipt_missing",
+    ],
+)
+def test_operator_package_routes_absent_engine_materialization_before_images(
     tmp_path: Path,
+    engine_reason: str,
 ) -> None:
     preflight, repeatability, _, _ = _receipts(tmp_path)
     payload = json.loads(preflight.read_text())
@@ -664,7 +682,7 @@ def test_operator_package_routes_missing_engine_materialization_before_images(
             "status": "BLOCKED",
             "safe_to_execute_catalog": False,
             "exit_classification": "preflight-blocked",
-            "reasons": ["engine_materialization_receipt_missing"],
+            "reasons": [engine_reason],
             "engine_materialization": None,
         }
     )
@@ -698,6 +716,140 @@ def test_operator_package_routes_missing_engine_materialization_before_images(
     assert capsule["capsule"]["resume_states"] == [
         "exact-mcp-audits-materialization-authorized"
     ]
+
+
+@pytest.mark.parametrize("engine_state", ["missing", "malformed"])
+def test_operator_package_rejects_hidden_blocked_engine_failure(
+    tmp_path: Path,
+    engine_state: str,
+) -> None:
+    preflight, repeatability, _, _ = _receipts(tmp_path)
+    payload = json.loads(preflight.read_text())
+    payload.update(
+        {
+            "status": "BLOCKED",
+            "safe_to_execute_catalog": False,
+            "exit_classification": "preflight-blocked",
+            "reasons": ["catalog_image_missing:test-image"],
+        }
+    )
+    payload["authority"]["candidate_build"] = False
+    if engine_state == "missing":
+        payload["engine_materialization"] = None
+    else:
+        materialization = payload["engine_materialization"]
+        materialization["environment"]["mcp_audits"] = "9.9.9"
+        materialization.pop("receipt_digest")
+        materialization["receipt_digest"] = grade_refresh.digest_bytes(
+            grade_refresh.canonical_bytes(materialization)
+        )
+    payload.pop("receipt_digest")
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    _write_json(preflight, payload)
+
+    with pytest.raises(
+        OperatorPackageError,
+        match="blocked preflight engine contract is invalid",
+    ):
+        build_operator_review_package(
+            output_path=tmp_path / "package",
+            task_id="task-fixture",
+            preflight_path=preflight,
+            repeatability_path=repeatability,
+            seed_path=SEED,
+            masked_path=MASKED,
+            policy_path=POLICY,
+            now=NOW,
+        )
+
+
+def test_operator_package_preserves_image_gate_with_ready_engine(
+    tmp_path: Path,
+) -> None:
+    preflight, repeatability, _, _ = _receipts(tmp_path)
+    payload = json.loads(preflight.read_text())
+    payload.update(
+        {
+            "status": "BLOCKED",
+            "safe_to_execute_catalog": False,
+            "exit_classification": "preflight-blocked",
+            "reasons": ["catalog_image_missing:test-image"],
+        }
+    )
+    payload["authority"]["candidate_build"] = False
+    payload.pop("receipt_digest")
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    _write_json(preflight, payload)
+
+    output = tmp_path / "package"
+    build_operator_review_package(
+        output_path=output,
+        task_id="task-fixture",
+        preflight_path=preflight,
+        repeatability_path=repeatability,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        now=NOW,
+    )
+
+    state = json.loads((output / "state-card.json").read_text())
+    capsule = json.loads((output / "HumanGateResumeCapsuleV1.json").read_text())
+    assert "all five image cohorts" in state["next_action"]
+    assert (
+        capsule["capsule"]["waiting_condition"]["code"]
+        == "deterministic-image-build-approval-required"
+    )
+
+
+def test_operator_package_reproduces_blocked_engine_before_image_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preflight, repeatability, _, _ = _receipts(tmp_path)
+    payload = json.loads(preflight.read_text())
+    payload.update(
+        {
+            "status": "BLOCKED",
+            "safe_to_execute_catalog": False,
+            "exit_classification": "preflight-blocked",
+            "reasons": ["catalog_image_missing:test-image"],
+        }
+    )
+    payload["authority"]["candidate_build"] = False
+    payload.pop("receipt_digest")
+    payload["receipt_digest"] = grade_refresh.digest_bytes(
+        grade_refresh.canonical_bytes(payload)
+    )
+    _write_json(preflight, payload)
+    monkeypatch.setattr(
+        operator_package,
+        "verify_engine_materialization_receipt",
+        lambda *_args, **_kwargs: {
+            "receipt_valid": False,
+            "receipt_digest": None,
+            "reasons": ["current_environment_mismatch"],
+        },
+    )
+
+    with pytest.raises(
+        OperatorPackageError,
+        match="current engine materialization evidence changed",
+    ):
+        build_operator_review_package(
+            output_path=tmp_path / "package",
+            task_id="task-fixture",
+            preflight_path=preflight,
+            repeatability_path=repeatability,
+            seed_path=SEED,
+            masked_path=MASKED,
+            policy_path=POLICY,
+            now=NOW,
+        )
 
 
 @pytest.mark.parametrize(
