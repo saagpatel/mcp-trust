@@ -3,6 +3,8 @@ runs; actual container execution is integration-gated (needs a Docker daemon).""
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from mcp_trust.core.models import ServerSource, SourceKind
@@ -10,6 +12,7 @@ from mcp_trust.engine.base import ScanError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
 from mcp_trust.engine.sandbox import (
     DockerSandbox,
+    DockerSandboxCleanupError,
     NoSandbox,
     Sandbox,
     select_sandbox,
@@ -32,7 +35,8 @@ def test_docker_wrap_runs_original_command_inside_container() -> None:
 
 
 def test_docker_wrap_applies_isolation_flags() -> None:
-    cmd, args = DockerSandbox().wrap("uvx", ["acme-mcp"])
+    sandbox = DockerSandbox()
+    cmd, args = sandbox.wrap("uvx", ["acme-mcp"])
     assert cmd == "docker"
     joined = " ".join(args)
     # No egress, no privileges, no caps, read-only fs, resource ceilings.
@@ -44,8 +48,122 @@ def test_docker_wrap_applies_isolation_flags() -> None:
     assert "--memory" in args
     assert "/scan:rw,size=64m,mode=1777" in args
     assert "-i" in args  # stdio transport stays open
+    assert args[args.index("--name") + 1] == sandbox.container_name
+    assert "com.mcp-trust.scan-owner=" in args[args.index("--label") + 1]
     # original command lands after the image
     assert args[-2:] == ["uvx", "acme-mcp"]
+
+
+def test_docker_scan_identity_is_unique() -> None:
+    assert DockerSandbox().container_name != DockerSandbox().container_name
+
+
+def test_docker_prepares_immutable_container_before_connector_launch() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    container_id = "c" * 64
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+
+    command, args = sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert command == "docker"
+    assert args == [
+        "--host",
+        "unix:///tmp/controlled-docker.sock",
+        "container",
+        "start",
+        "--attach",
+        "--interactive",
+        container_id,
+    ]
+
+
+def test_docker_create_timeout_cleans_delayed_daemon_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sandbox = DockerSandbox()
+    container_id = "e" * 64
+    calls: list[list[str]] = []
+    list_queries = 0
+    removed = False
+    monkeypatch.setattr("mcp_trust.engine.sandbox.time.sleep", lambda _seconds: None)
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal list_queries, removed
+        calls.append(command)
+        if "create" in command:
+            raise subprocess.TimeoutExpired(command, 10.0)
+        if "ls" in command:
+            list_queries += 1
+            stdout = container_id + "\n" if list_queries == 7 and not removed else ""
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+        if "rm" in command:
+            removed = True
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="could not create"):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert any("rm" in command and container_id in command for command in calls)
+    assert "ls" in calls[-1]
+
+
+def test_docker_cleanup_removes_only_owned_container_id_and_proves_absence() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    container_id = "a" * 64
+    calls: list[list[str]] = []
+    list_results = iter([container_id + "\n", ""])
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, next(list_results), "")
+        return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+
+    assert (
+        sandbox.cleanup_owned_container(runner=runner)
+        == "CONTAINER_ABSENCE_VERIFIED"
+    )
+    assert calls[1][-4:] == ["container", "rm", "--force", container_id]
+    for query in (calls[0], calls[2]):
+        assert query[:3] == ["docker", "--host", "unix:///tmp/controlled-docker.sock"]
+        assert f"name=^/{sandbox.container_name}$" in query
+        assert any(
+            value.startswith("label=com.mcp-trust.scan-owner=") for value in query
+        )
+
+
+def test_docker_cleanup_empty_readback_is_verified_without_removal() -> None:
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    assert DockerSandbox().cleanup_owned_container(runner=runner) == (
+        "CONTAINER_ABSENCE_VERIFIED"
+    )
+    assert len(calls) == 2
+    assert all("ls" in command for command in calls)
+
+
+@pytest.mark.parametrize("stdout", ["not-an-id\n", "a" * 12 + "\n" + "b" * 12 + "\n"])
+def test_docker_cleanup_rejects_ambiguous_identity(stdout: str) -> None:
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    with pytest.raises(DockerSandboxCleanupError, match="ambiguous"):
+        DockerSandbox().cleanup_owned_container(runner=runner)
+
+
+def test_docker_cleanup_fails_closed_when_daemon_query_fails() -> None:
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, "", "daemon unavailable")
+
+    with pytest.raises(DockerSandboxCleanupError, match="could not query"):
+        DockerSandbox().cleanup_owned_container(runner=runner)
 
 
 def test_docker_wrap_binds_the_preflighted_local_daemon() -> None:
@@ -185,6 +303,12 @@ def test_engine_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ScanError, match="Refusing to scan untrusted"):
         MCPAuditEngine(sandbox=_FakePassthrough())._resolve_sandbox(untrusted)
+
+    class _UnmanagedIsolatingSandbox(_FakePassthrough):
+        isolates = True
+
+    with pytest.raises(ScanError, match="lifecycle contract"):
+        MCPAuditEngine(sandbox=_UnmanagedIsolatingSandbox())._resolve_sandbox(untrusted)
 
     # A trusted source may use NoSandbox — the vetted reference-server flow.
     trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)

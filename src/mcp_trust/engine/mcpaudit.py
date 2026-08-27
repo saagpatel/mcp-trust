@@ -30,7 +30,9 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
+import subprocess
 import threading
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
@@ -46,7 +48,12 @@ from mcp_trust.core.models import (
 )
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError, ScanTimeoutError
 from mcp_trust.engine.credentials import build_dummy_env
-from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
+from mcp_trust.engine.sandbox import (
+    DockerSandbox,
+    DockerSandboxCleanupError,
+    Sandbox,
+    select_sandbox,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,17 +120,22 @@ _HIGH_CONFIDENCE = {"high", "llm"}
 _CRITICAL_CATEGORIES = {"destructive", "exfiltration"}
 
 
-def _run_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
+def _run_sync(
+    factory: Callable[[], Awaitable[_T]],
+    *,
+    outer_timeout: float | None = None,
+) -> _T:
     """Run an async coroutine to completion from sync code.
 
     Uses ``asyncio.run`` when no loop is active; if called from inside a running
     loop (e.g. an async web handler) it runs the coroutine on a worker thread
     with its own loop, so it never collides with the caller's loop.
     """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(factory())
+    if outer_timeout is None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(factory())
 
     box: dict[str, _T] = {}
     err: dict[str, BaseException] = {}
@@ -136,7 +148,9 @@ def _run_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
-    thread.join()
+    thread.join(timeout=outer_timeout)
+    if thread.is_alive():
+        raise TimeoutError("scan connector exceeded the repository outer deadline")
     if "e" in err:
         raise err["e"]
     return box["v"]
@@ -193,10 +207,78 @@ class MCPAuditEngine:
     name: str = "mcpaudit"
     version: str = _FALLBACK_VERSION
 
-    def __init__(self, timeout: float = 15.0, sandbox: Sandbox | None = None) -> None:
+    def __init__(
+        self,
+        timeout: float = 15.0,
+        sandbox: Sandbox | None = None,
+        *,
+        cleanup_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    ) -> None:
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("scan timeout must be one positive finite number")
         self._timeout = timeout
         # None → resolve from MCP_TRUST_SANDBOX at scan time (default: NoSandbox).
         self._sandbox = sandbox
+        self._cleanup_runner = cleanup_runner
+
+    def _connect_with_lifecycle(
+        self,
+        connector: object,
+        cfg: object,
+        sandbox: Sandbox,
+        *,
+        launches_process: bool,
+    ) -> tuple[object, str | None]:
+        """Connect within a bounded Docker lifecycle and verify cleanup."""
+        connect_error: BaseException | None = None
+        audit: object | None = None
+        try:
+            # The connector owns its configured protocol timeout. Docker scans
+            # also get a repository-owned outer deadline so an uncooperative
+            # coroutine or active-loop bridge cannot block the caller forever.
+            outer_timeout = self._timeout + max(1.0, min(5.0, self._timeout * 0.1))
+            audit = _run_sync(
+                lambda: connector.connect(cfg),  # type: ignore[attr-defined]
+                outer_timeout=(
+                    outer_timeout
+                    if launches_process and isinstance(sandbox, DockerSandbox)
+                    else None
+                ),
+            )
+        except BaseException as exc:  # cleanup must also run for cancellation/system exit
+            connect_error = exc
+
+        cleanup_evidence: str | None = None
+        if launches_process and isinstance(sandbox, DockerSandbox):
+            try:
+                cleanup_evidence = sandbox.cleanup_owned_container(
+                    runner=self._cleanup_runner
+                )
+            except DockerSandboxCleanupError as exc:
+                raise ScanError(
+                    "Docker scan cleanup could not prove the owned container absent; "
+                    "refusing to return scan evidence."
+                ) from exc
+
+        if connect_error is not None:
+            if isinstance(connect_error, (KeyboardInterrupt, SystemExit)):
+                raise connect_error
+            if isinstance(connect_error, TimeoutError):
+                logger.warning(
+                    "mcp-audits connect exceeded the outer deadline: %s", connect_error
+                )
+                raise ScanTimeoutError(
+                    "Could not scan: configured connection timeout expired.",
+                    hard_termination_evidence=(
+                        "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
+                        if cleanup_evidence == "CONTAINER_ABSENCE_VERIFIED"
+                        else "UNKNOWN"
+                    ),
+                ) from connect_error
+            raise connect_error
+        if audit is None:
+            raise ScanError("mcp-audits returned no connection result")
+        return audit, cleanup_evidence
 
     def _resolve_sandbox(self, source: ServerSource) -> Sandbox:
         """Resolve the sandbox for one scan: injected > per-server image > env.
@@ -224,6 +306,15 @@ class MCPAuditEngine:
                 "isolate it, or mark the source trusted for the vetted "
                 "reference-server flow."
             )
+        if (
+            launches_process
+            and getattr(sandbox, "isolates", False)
+            and not isinstance(sandbox, DockerSandbox)
+        ):
+            raise ScanError(
+                "Refusing an isolating sandbox without the repository-owned "
+                "container lifecycle contract."
+            )
         return sandbox
 
     def scan(self, source: ServerSource) -> EngineResult:
@@ -248,19 +339,57 @@ class MCPAuditEngine:
         _apply_dummy_credentials(sandbox, source)
 
         launches_process = self._launches_local_process(source)
-        cfg = self._build_config(source, ServerConfig, ClientType, TransportType, sandbox)
+        prepared_launch: tuple[str, list[str]] | None = None
+        if launches_process and isinstance(sandbox, DockerSandbox):
+            command, args = self._launch_spec(source)
+            try:
+                prepared_launch = sandbox.prepare_owned_container(
+                    command, args, runner=self._cleanup_runner
+                )
+            except DockerSandboxCleanupError as exc:
+                raise ScanError(
+                    "Docker could not establish a uniquely owned scan lifecycle."
+                ) from exc
+        try:
+            cfg = self._build_config(
+                source,
+                ServerConfig,
+                ClientType,
+                TransportType,
+                sandbox,
+                launch_override=prepared_launch,
+            )
+        except BaseException:
+            if prepared_launch is not None:
+                try:
+                    sandbox.cleanup_owned_container(runner=self._cleanup_runner)
+                except DockerSandboxCleanupError as exc:
+                    raise ScanError(
+                        "Docker scan configuration failed and cleanup could not prove "
+                        "the owned container absent."
+                    ) from exc
+            raise
 
         connector = ServerConnector(timeout=self._timeout)
         analyzer = PermissionAnalyzer()
         scorer = RiskScorer()
 
         try:
-            audit = _run_sync(lambda: connector.connect(cfg))
+            audit, cleanup_evidence = self._connect_with_lifecycle(
+                connector,
+                cfg,
+                sandbox,
+                launches_process=launches_process,
+            )
+        except ScanTimeoutError:
+            raise
         except TimeoutError as exc:
             logger.warning("mcp-audits connect timed out for %r: %s", source.reference, exc)
             raise ScanTimeoutError(
                 f"Could not scan {source.reference!r}: configured connection timeout expired."
             ) from exc
+        except ScanError:
+            raise
         except Exception as exc:
             logger.warning("mcp-audits connect failed for %r: %s", source.reference, exc)
             raise ScanError(f"Failed to connect to {source.reference!r}: {exc}") from exc
@@ -269,7 +398,12 @@ class MCPAuditEngine:
         if status == "timeout":
             raise ScanTimeoutError(
                 f"Could not scan {source.reference!r}: connection timeout. "
-                "A trust grade requires a successful connection to enumerate tools."
+                "A trust grade requires a successful connection to enumerate tools.",
+                hard_termination_evidence=(
+                    "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
+                    if cleanup_evidence == "CONTAINER_ABSENCE_VERIFIED"
+                    else "UNKNOWN"
+                ),
             )
         if status == "failed":
             raise ScanError(
@@ -334,9 +468,19 @@ class MCPAuditEngine:
             # own image (per-server pin > env default), not a later re-read of
             # ambient env. None for remote scans or non-isolating passthroughs.
             sandbox_image=getattr(sandbox, "image", None) if launches_process else None,
+            sandbox_cleanup_evidence=(cleanup_evidence if launches_process else None),
         )
 
-    def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001
+    def _build_config(  # noqa: ANN001
+        self,
+        source,
+        ServerConfig,
+        ClientType,
+        TransportType,
+        sandbox,
+        *,
+        launch_override: tuple[str, list[str]] | None = None,
+    ):
         """Translate a ``ServerSource`` into an mcp-audits ``ServerConfig``.
 
         For stdio servers the launch command is wrapped by *sandbox* so the
@@ -355,8 +499,11 @@ class MCPAuditEngine:
         if not self._launches_local_process(source):
             return ServerConfig(**base, transport=TransportType.HTTP, url=source.reference)
 
-        command, args = self._launch_spec(source)
-        command, args = sandbox.wrap(command, args)
+        if launch_override is None:
+            command, args = self._launch_spec(source)
+            command, args = sandbox.wrap(command, args)
+        else:
+            command, args = launch_override
         return ServerConfig(**base, transport=TransportType.STDIO, command=command, args=args)
 
     @staticmethod

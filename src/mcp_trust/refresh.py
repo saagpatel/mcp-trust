@@ -1365,6 +1365,7 @@ def _candidate_execution_binding(
     default_image: str,
     expected_image: str | None,
     fixture_mode: bool,
+    cleanup_evidence: str | None,
 ) -> dict[str, Any]:
     local_process = _requires_local_sandbox(server)
     requested_image = (
@@ -1393,6 +1394,7 @@ def _candidate_execution_binding(
         }
         immutable_image_id = None
         sandbox_mode = "deterministic-fixture"
+        container_cleanup_evidence = "NOT_APPLICABLE"
     else:
         source = {
             "revision": qualification.get("source_revision"),
@@ -1413,6 +1415,9 @@ def _candidate_execution_binding(
         )
         immutable_image_id = expected_image if local_process else None
         sandbox_mode = "docker" if local_process else "remote-no-local-process"
+        container_cleanup_evidence = (
+            cleanup_evidence if local_process else "NOT_APPLICABLE"
+        )
     return {
         "schema": "McpTrustScanExecutionBindingV1",
         "target_slug": server.slug,
@@ -1423,6 +1428,7 @@ def _candidate_execution_binding(
             "immutable_image_id": immutable_image_id,
             "configured_launch_controls": configured_profile,
             "runtime_readback": runtime_readback,
+            "container_cleanup_evidence": container_cleanup_evidence,
         },
         "timeout": {
             "configured_seconds": None if fixture_mode else SCAN_TIMEOUT_SECONDS,
@@ -2053,7 +2059,11 @@ def create_refresh_candidate(
                     if (
                         not fixture_mode
                         and _requires_local_sandbox(server)
-                        and engine_result.sandbox_image != expected_image
+                        and (
+                            engine_result.sandbox_image != expected_image
+                            or engine_result.sandbox_cleanup_evidence
+                            != "CONTAINER_ABSENCE_VERIFIED"
+                        )
                     ):
                         results.append(
                             {
@@ -2061,6 +2071,9 @@ def create_refresh_candidate(
                                 "state": "unknown-sandbox-evidence",
                                 "fresh_grade": None,
                                 "expected_sandbox_image": expected_image,
+                                "sandbox_cleanup_evidence": (
+                                    engine_result.sandbox_cleanup_evidence or "UNKNOWN"
+                                ),
                             }
                         )
                         excluded.add(server.slug)
@@ -2086,6 +2099,7 @@ def create_refresh_candidate(
                         default_image=default_image,
                         expected_image=expected_image,
                         fixture_mode=fixture_mode,
+                        cleanup_evidence=engine_result.sandbox_cleanup_evidence,
                     )
                     if masked:
                         receipt_ref = None
@@ -2174,7 +2188,15 @@ def create_refresh_candidate(
                             "drift": _drift_payload(drift),
                         }
                     )
-                except ScanTimeoutError:
+                except ScanTimeoutError as exc:
+                    hard_termination_evidence = getattr(
+                        exc, "hard_termination_evidence", "UNKNOWN"
+                    )
+                    if hard_termination_evidence not in {
+                        "UNKNOWN",
+                        "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT",
+                    }:
+                        hard_termination_evidence = "UNKNOWN"
                     results.append(
                         {
                             "server_slug": server.slug,
@@ -2183,7 +2205,7 @@ def create_refresh_candidate(
                             "reason": "configured_scan_timeout_expired",
                             "configured_timeout_seconds": SCAN_TIMEOUT_SECONDS,
                             "timeout_outcome": "timeout",
-                            "hard_termination_evidence": "UNKNOWN",
+                            "hard_termination_evidence": hard_termination_evidence,
                             "previous_grade": str(previous.grade) if previous else None,
                             "previous_scanned_at": (
                                 previous.scanned_at.isoformat() if previous else None
@@ -2909,7 +2931,9 @@ def verify_refresh_candidate(
                 or result.get("reason") != "configured_scan_timeout_expired"
                 or result.get("configured_timeout_seconds") != SCAN_TIMEOUT_SECONDS
                 or result.get("timeout_outcome") != "timeout"
-                or result.get("hard_termination_evidence") != "UNKNOWN"
+                or not isinstance(result.get("hard_termination_evidence"), str)
+                or result.get("hard_termination_evidence")
+                not in {"UNKNOWN", "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"}
             ):
                 errors.append(
                     f"timeout_scan_schema_invalid:{_safe_error_label(result.get('server_slug'))}"
@@ -3131,6 +3155,11 @@ def verify_refresh_candidate(
                             else reviewed_profile_bindings.get(requested_image_for_binding)
                         ),
                         fixture_mode=candidate_state == "fixture",
+                        cleanup_evidence=(
+                            "NOT_APPLICABLE"
+                            if candidate_state == "fixture"
+                            else "CONTAINER_ABSENCE_VERIFIED"
+                        ),
                     )
                 except RefreshCandidateError:
                     expected_execution_binding = None

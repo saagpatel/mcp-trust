@@ -7,8 +7,10 @@ is opt-in (set MCP_TRUST_RUN_INTEGRATION=1 with the engine extra installed).
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import os
+import subprocess
 
 import pytest
 
@@ -18,6 +20,97 @@ from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for
 from mcp_trust.engine.sandbox import DockerSandbox
 
 _HAS_ENGINE = importlib.util.find_spec("mcp_audit") is not None
+
+
+def _empty_cleanup_runner(
+    command: list[str], **_kwargs: object
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(command, 0, "", "")
+
+
+def _docker_lifecycle_runner():  # noqa: ANN202
+    container_id = "d" * 64
+    present = False
+
+    def runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal present
+        if "create" in command:
+            present = True
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "ls" in command:
+            stdout = container_id + "\n" if present else ""
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+        if "rm" in command:
+            present = False
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    return runner
+
+
+@pytest.mark.parametrize("timeout", [0.0, -1.0, float("nan"), float("inf")])
+def test_engine_rejects_invalid_timeout(timeout: float) -> None:
+    with pytest.raises(ValueError, match="positive finite"):
+        MCPAuditEngine(timeout=timeout)
+
+
+def test_docker_lifecycle_success_requires_verified_absence() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            return object()
+
+    runner = _docker_lifecycle_runner()
+    sandbox = DockerSandbox()
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+    audit, evidence = MCPAuditEngine(
+        timeout=1.0,
+        cleanup_runner=runner,
+    )._connect_with_lifecycle(
+        _Connector(), object(), sandbox, launches_process=True
+    )
+
+    assert audit is not None
+    assert evidence == "CONTAINER_ABSENCE_VERIFIED"
+
+
+def test_docker_outer_deadline_verifies_absence_before_timeout_result() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            await asyncio.sleep(2.0)
+            return object()
+
+    runner = _docker_lifecycle_runner()
+    sandbox = DockerSandbox()
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+    engine = MCPAuditEngine(timeout=0.001, cleanup_runner=runner)
+
+    with pytest.raises(ScanTimeoutError) as caught:
+        engine._connect_with_lifecycle(
+            _Connector(), object(), sandbox, launches_process=True
+        )
+
+    assert (
+        caught.value.hard_termination_evidence
+        == "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
+    )
+
+
+def test_docker_cleanup_failure_refuses_scan_evidence() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            return object()
+
+    def failed_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, "", "daemon unavailable")
+
+    with pytest.raises(ScanError, match="refusing to return scan evidence"):
+        MCPAuditEngine(timeout=1.0, cleanup_runner=failed_runner)._connect_with_lifecycle(
+            _Connector(), object(), DockerSandbox(), launches_process=True
+        )
 
 
 @pytest.mark.parametrize(
@@ -162,8 +255,9 @@ def test_scan_surfaces_resolved_sandbox_image(monkeypatch: pytest.MonkeyPatch) -
     # surface that exact image (not the env default) on the result.
     sandbox = DockerSandbox(image="mcp-trust-batch4:20260703")
     src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
-    result = MCPAuditEngine(sandbox=sandbox).scan(src)
+    result = MCPAuditEngine(sandbox=sandbox, cleanup_runner=_docker_lifecycle_runner()).scan(src)
     assert result.sandbox_image == "mcp-trust-batch4:20260703"
+    assert result.sandbox_cleanup_evidence == "CONTAINER_ABSENCE_VERIFIED"
 
 
 @pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")

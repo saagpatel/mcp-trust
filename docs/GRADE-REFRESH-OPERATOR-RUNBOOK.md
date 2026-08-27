@@ -115,10 +115,18 @@ preflight receipt, source and policy digests, tool versions, image build
 provenance, and execution-time image IDs. Every successful scan receipt also
 self-binds its target, source revision/tree, policy and preflight digests,
 immutable image ID, configured launch controls, and 90-second timeout contract.
-Per-process runtime control readback remains `UNKNOWN` until separately
-captured. A timeout emits no receipt or fresh grade, and hard termination proof
-remains `UNKNOWN`. Creation or verification does not approve, publish, deploy,
-or schedule it.
+For a local Docker scan, the source contract also pre-creates a unique
+scan-owned container, binds the connector launch to `docker start` of its
+immutable ID, removes only that ID, and requires a second bound-daemon query
+proving the container absent before accepting scan evidence. Pre-creation means
+an outer-deadline worker cannot create a replacement after cleanup. A timeout
+emits no receipt or fresh grade; it records
+`CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT` only after that readback and otherwise
+records `UNKNOWN`. Per-process CPU, memory, filesystem, network, and secret
+runtime readback remains `UNKNOWN` until separately captured. This source
+contract is not runtime qualification: actual enforcement remains `UNKNOWN`
+until controlled execution evidence is reviewed. Creation or verification does
+not approve, publish, deploy, or schedule it.
 
 ## 5. Triage and operator package
 

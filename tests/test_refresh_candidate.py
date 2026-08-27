@@ -689,6 +689,7 @@ def test_candidate_receipt_self_binds_execution_contract(tmp_path: Path) -> None
         "preflight_receipt_digest": None,
     }
     assert binding["sandbox"]["runtime_readback"]["state"] == "NOT_APPLICABLE"
+    assert binding["sandbox"]["container_cleanup_evidence"] == "NOT_APPLICABLE"
     assert binding["timeout"] == {
         "configured_seconds": None,
         "outcome": "completed",
@@ -1367,6 +1368,51 @@ def test_scan_timeout_is_unknown_and_never_retains_a_fresh_grade(tmp_path: Path)
     assert verification["publication_ready"] is False
 
 
+def test_scan_timeout_preserves_verified_container_absence(tmp_path: Path) -> None:
+    def scanner(_server: Server) -> EngineResult:
+        raise ScanTimeoutError(
+            "controlled timeout",
+            hard_termination_evidence="CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT",
+        )
+
+    candidate = _candidate(tmp_path, scanner=scanner)
+    result = _results(candidate)[0]
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert result["state"] == "scan-timeout"
+    assert result["fresh_grade"] is None
+    assert (
+        result["hard_termination_evidence"]
+        == "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
+    )
+    assert verification["structural_valid"] is True
+    assert verification["publication_ready"] is False
+
+
+def test_verifier_rejects_non_string_timeout_evidence_without_crashing(
+    tmp_path: Path,
+) -> None:
+    def scanner(_server: Server) -> EngineResult:
+        raise ScanTimeoutError("controlled timeout")
+
+    candidate = _candidate(tmp_path, scanner=scanner)
+    candidate.chmod(0o700)
+    results_path = candidate / "scan_results.json"
+    results_path.chmod(0o600)
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    results["results"][0]["hard_termination_evidence"] = ["UNKNOWN"]
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+    _rebind_candidate_artifacts(candidate, "scan_results.json")
+
+    verification = verify_refresh_candidate(candidate, now=FIXED_NOW)
+
+    assert verification["structural_valid"] is False
+    assert any(
+        error.startswith("timeout_scan_schema_invalid:")
+        for error in verification["errors"]
+    )
+
+
 def test_masked_real_entry_is_blocked_without_preflight_or_scanner_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1482,6 +1528,7 @@ def test_policy_blocked_server_is_never_preflighted_or_scanned(
                     "engine_name": "mcpaudit",
                     "engine_version": "2.7.0",
                     "sandbox_image": IMAGE_DIGEST,
+                    "sandbox_cleanup_evidence": "CONTAINER_ABSENCE_VERIFIED",
                 }
             )
 
@@ -2829,6 +2876,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
                         "engine_version": "2.4.0",
                         "evidence": ScanEvidence(tools=[ToolEvidence(name="fixture-tool")]),
                         "sandbox_image": IMAGE_DIGEST,
+                        "sandbox_cleanup_evidence": "CONTAINER_ABSENCE_VERIFIED",
                     }
                 )
             )
