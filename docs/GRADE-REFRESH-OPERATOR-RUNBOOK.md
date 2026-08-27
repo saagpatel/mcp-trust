@@ -246,7 +246,10 @@ independently verified controlled candidates while excluding receipt IDs and
 timestamps; every grade/evidence inconsistency, upgrade, large change, new
 mask, provenance gap, or policy change requires disposition.
 Omitting the repeat candidate is a blocking High finding and can never produce
-the `controlled-sandbox-candidate-repeat` completed control. The ordinary
+the `controlled-sandbox-candidate-repeat` completed control. Presence alone is
+not qualification: both candidates must independently verify as publication-ready,
+their manifest bindings must match, and their normalized controlled results must
+repeat consistently before that completed control is emitted. The ordinary
 triage command therefore requires `--repeat-candidate`; an early operator state
 package without candidates remains review-only and explicitly incomplete.
 The candidate and repeat candidate must resolve to different paths; reusing the
