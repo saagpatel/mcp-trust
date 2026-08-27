@@ -2843,7 +2843,9 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
         "unix:///Users/operator/.colima/default/docker.sock",
     )
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
-    monkeypatch.setattr("mcp_trust.refresh.importlib.util.find_spec", lambda _name: None)
+    monkeypatch.setattr(
+        "mcp_trust.refresh.modules_belong_to_distribution", lambda *_args: False
+    )
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
         stdout = (
@@ -2867,8 +2869,8 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
     monkeypatch.setenv("DOCKER_HOST", host)
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr(
-        "mcp_trust.refresh.importlib.util.find_spec",
-        lambda _name: object(),
+        "mcp_trust.refresh.modules_belong_to_distribution",
+        lambda *_args: True,
     )
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
@@ -2902,8 +2904,8 @@ def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr(
-        "mcp_trust.refresh.importlib.util.find_spec",
-        lambda _name: object(),
+        "mcp_trust.refresh.modules_belong_to_distribution",
+        lambda *_args: True,
     )
 
     def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
@@ -2945,8 +2947,8 @@ def test_real_preflight_rejects_remote_docker_daemon_authority(
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.test:2375")
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr(
-        "mcp_trust.refresh.importlib.util.find_spec",
-        lambda _name: object(),
+        "mcp_trust.refresh.modules_belong_to_distribution",
+        lambda *_args: True,
     )
 
     with pytest.raises(RefreshCandidateError, match="local Unix socket"):
@@ -2969,8 +2971,8 @@ def test_remote_only_preflight_does_not_require_docker(
     )
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: None)
     monkeypatch.setattr(
-        "mcp_trust.refresh.importlib.util.find_spec",
-        lambda _name: object(),
+        "mcp_trust.refresh.modules_belong_to_distribution",
+        lambda *_args: True,
     )
 
     evidence = preflight_real_refresh(

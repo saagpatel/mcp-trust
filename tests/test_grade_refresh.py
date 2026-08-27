@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import mcp_trust.engine.runtime as engine_runtime
 import mcp_trust.grade_refresh as grade_refresh
 from mcp_trust.grade_refresh import (
     GradeRefreshError,
@@ -258,6 +259,227 @@ def test_preflight_rejects_mcp_audits_runtime_lock_mismatch(
     assert receipt["tool_versions"]["mcp_audits"] == "2.6.0"
     assert receipt["tool_versions"]["mcp_audits_locked"] == "2.7.0"
     assert "mcp_audits_runtime_lock_mismatch" in receipt["reasons"]
+
+
+def test_preflight_rejects_metadata_without_distribution_owned_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grade_refresh.shutil, "which", lambda _: None)
+    monkeypatch.setattr(grade_refresh, "_package_version", lambda _: "2.7.0")
+    monkeypatch.setattr(
+        grade_refresh,
+        "modules_belong_to_distribution",
+        lambda _distribution, _modules: False,
+    )
+
+    receipt = build_preflight_receipt(
+        repo_root=ROOT,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        now=NOW,
+    )
+
+    assert receipt["status"] == "BLOCKED"
+    assert receipt["safe_to_execute_catalog"] is False
+    assert receipt["tool_versions"]["mcp_audits"] == "2.7.0"
+    assert "mcp_audits_module_distribution_mismatch" in receipt["reasons"]
+
+
+def test_module_binding_requires_all_distribution_owned_module_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module_paths = {
+        name: tmp_path
+        / (
+            name.replace(".", "/")
+            + ("/__init__.py" if name == "mcp_audit" else ".py")
+        )
+        for name in engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    }
+    for module in module_paths.values():
+        module.parent.mkdir(parents=True, exist_ok=True)
+        module.write_text("", encoding="utf-8")
+
+    class FileHash:
+        mode = "sha256"
+        value = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+
+    class RecordedFile(str):
+        hash = FileHash()
+        size = 0
+
+    class Distribution:
+        files = [
+            RecordedFile(path.relative_to(tmp_path).as_posix())
+            for path in module_paths.values()
+        ]
+
+        @staticmethod
+        def locate_file(item: str) -> Path:
+            return tmp_path / item
+
+    class Spec:
+        origin = str(module_paths["mcp_audit"])
+
+    monkeypatch.setattr(engine_runtime.importlib.metadata, "distribution", lambda _: Distribution())
+    monkeypatch.setattr(engine_runtime.importlib.util, "find_spec", lambda _: Spec())
+
+    assert engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+
+    class ShadowedSpec:
+        origin = str(tmp_path / "shadowed" / "analyzer.py")
+
+    original_path_finder = engine_runtime.importlib.machinery.PathFinder.find_spec
+    monkeypatch.setattr(
+        engine_runtime.importlib.machinery.PathFinder,
+        "find_spec",
+        lambda *_args: ShadowedSpec(),
+    )
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    monkeypatch.setattr(
+        engine_runtime.importlib.machinery.PathFinder,
+        "find_spec",
+        original_path_finder,
+    )
+
+    original_symlink_check = engine_runtime._has_symlink_component
+
+    def raise_symlink_loop(_path: Path) -> bool:
+        raise RuntimeError("symlink loop")
+
+    monkeypatch.setattr(engine_runtime, "_has_symlink_component", raise_symlink_loop)
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    monkeypatch.setattr(engine_runtime, "_has_symlink_component", original_symlink_check)
+
+    duplicate = Distribution.files[0]
+    Distribution.files.append(duplicate)
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    Distribution.files.pop()
+
+    RecordedFile.size = 1
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    RecordedFile.size = 0
+
+    missing = Distribution.files.pop()
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+    Distribution.files.append(missing)
+
+    FileHash.value = "A" * 43
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+
+
+def test_module_binding_rejects_symlinked_package_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outside = tmp_path / "outside"
+    package = outside / "mcp_audit"
+    package.mkdir(parents=True)
+    paths = [
+        package / "__init__.py",
+        *(
+            package / f"{name.rsplit('.', maxsplit=1)[1]}.py"
+            for name in engine_runtime.MCP_AUDIT_RUNTIME_MODULES[1:]
+        ),
+    ]
+    for path in paths:
+        path.write_text("", encoding="utf-8")
+    (tmp_path / "mcp_audit").symlink_to(package, target_is_directory=True)
+
+    class FileHash:
+        mode = "sha256"
+        value = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+
+    class RecordedFile(str):
+        hash = FileHash()
+        size = 0
+
+    class Distribution:
+        files = [
+            RecordedFile("mcp_audit/__init__.py"),
+            *(
+                RecordedFile(f"mcp_audit/{name.rsplit('.', maxsplit=1)[1]}.py")
+                for name in engine_runtime.MCP_AUDIT_RUNTIME_MODULES[1:]
+            ),
+        ]
+
+        @staticmethod
+        def locate_file(item: str) -> Path:
+            return tmp_path / item
+
+    class Spec:
+        origin = str(tmp_path / "mcp_audit" / "__init__.py")
+
+    monkeypatch.setattr(engine_runtime.importlib.metadata, "distribution", lambda _: Distribution())
+    monkeypatch.setattr(engine_runtime.importlib.util, "find_spec", lambda _: Spec())
+
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
+
+
+def test_module_binding_rejects_symlinked_install_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    actual_root = tmp_path / "actual-site-packages"
+    package = actual_root / "mcp_audit"
+    package.mkdir(parents=True)
+    paths = [
+        package / "__init__.py",
+        *(
+            package / f"{name.rsplit('.', maxsplit=1)[1]}.py"
+            for name in engine_runtime.MCP_AUDIT_RUNTIME_MODULES[1:]
+        ),
+    ]
+    for path in paths:
+        path.write_text("", encoding="utf-8")
+    alias = tmp_path / "site-packages"
+    alias.symlink_to(actual_root, target_is_directory=True)
+
+    class FileHash:
+        mode = "sha256"
+        value = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+
+    class RecordedFile(str):
+        hash = FileHash()
+        size = 0
+
+    class Distribution:
+        files = [
+            RecordedFile("mcp_audit/__init__.py"),
+            *(
+                RecordedFile(f"mcp_audit/{name.rsplit('.', maxsplit=1)[1]}.py")
+                for name in engine_runtime.MCP_AUDIT_RUNTIME_MODULES[1:]
+            ),
+        ]
+
+        @staticmethod
+        def locate_file(item: str) -> Path:
+            return alias / item
+
+    class Spec:
+        origin = str(alias / "mcp_audit" / "__init__.py")
+
+    monkeypatch.setattr(engine_runtime.importlib.metadata, "distribution", lambda _: Distribution())
+    monkeypatch.setattr(engine_runtime.importlib.util, "find_spec", lambda _: Spec())
+
+    assert not engine_runtime.modules_belong_to_distribution(
+        "mcp-audits", engine_runtime.MCP_AUDIT_RUNTIME_MODULES
+    )
 
 
 def test_locked_package_version_fails_closed_on_ambiguous_lock(tmp_path: Path) -> None:
