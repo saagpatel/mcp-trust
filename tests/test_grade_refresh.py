@@ -147,6 +147,41 @@ def test_preflight_reports_every_missing_catalog_image(
     assert receipt["authority"]["publication"] is False
 
 
+def test_preflight_rejects_mcp_audits_runtime_lock_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(grade_refresh.shutil, "which", lambda _: None)
+    monkeypatch.setattr(
+        grade_refresh,
+        "_package_version",
+        lambda distribution: "2.6.0" if distribution == "mcp-audits" else "2.7.0",
+    )
+
+    receipt = build_preflight_receipt(
+        repo_root=ROOT,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        now=NOW,
+    )
+
+    assert receipt["status"] == "BLOCKED"
+    assert receipt["safe_to_execute_catalog"] is False
+    assert receipt["tool_versions"]["mcp_audits"] == "2.6.0"
+    assert receipt["tool_versions"]["mcp_audits_locked"] == "2.7.0"
+    assert "mcp_audits_runtime_lock_mismatch" in receipt["reasons"]
+
+
+def test_locked_package_version_fails_closed_on_ambiguous_lock(tmp_path: Path) -> None:
+    (tmp_path / "uv.lock").write_text(
+        '[[package]]\nname = "mcp-audits"\nversion = "2.7.0"\n'
+        '[[package]]\nname = "mcp_audits"\nversion = "2.7.0"\n',
+        encoding="utf-8",
+    )
+
+    assert grade_refresh._locked_package_version(tmp_path, "mcp-audits") == "UNKNOWN"
+
+
 def test_preflight_binds_images_by_content_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

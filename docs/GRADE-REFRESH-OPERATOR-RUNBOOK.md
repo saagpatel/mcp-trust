@@ -36,17 +36,25 @@ with newly generated, reviewed receipts in a new safe single-component receipt
 set and update policy references in the same later reviewed source revision.
 Absolute, traversal, existing, or symlinked receipt-set paths are refused
 before Docker or Buildx is invoked.
-The current policy points at the absent `docker/refresh/qualification/v65/`
-set, so preflight fails closed until all five fresh V65 receipts are generated
-and locally reviewed. The legacy top-level receipts are historical only.
+The current policy points at the tracked `docker/refresh/qualification/v65/`
+set. All five receipts must remain present, current under their maximum-age
+contract, and locally reviewed; missing or expired receipts make preflight fail
+closed. The legacy top-level receipts are historical only.
 
 ## 1. Inventory and preflight (no server execution)
 
+Dependency materialization is a separate, explicitly approved lane. Runtime
+commands never invoke a package manager or hydrate missing packages. Prepare the
+frozen `[engine]` environment first, then use its exact interpreter:
+
 ```bash
-uv run --frozen --extra engine python scripts/grade_refresh.py inventory \
+PYTHON=./.venv/bin/python
+test -x "$PYTHON"
+
+"$PYTHON" scripts/grade_refresh.py inventory \
   --out dist/grade-refresh/inventory.json
 
-uv run --frozen --extra engine python scripts/grade_refresh.py preflight \
+"$PYTHON" scripts/grade_refresh.py preflight \
   --repo-root "$PWD" \
   --out dist/grade-refresh/preflight.json
 ```
@@ -83,13 +91,13 @@ as fresh.
 ## 4. Candidate creation and verification
 
 ```bash
-uv run --frozen --extra engine python scripts/refresh_candidate.py create \
+"$PYTHON" scripts/refresh_candidate.py create \
   --db ./registry.db \
   --out-dir ./dist/refresh-candidates \
   --policy ./src/mcp_trust/catalog/refresh_policy.json \
   --qualification-receipt ./dist/grade-refresh/preflight.json
 
-uv run --frozen --extra engine python scripts/refresh_candidate.py verify \
+"$PYTHON" scripts/refresh_candidate.py verify \
   ./dist/refresh-candidates/<candidate>
 ```
 
