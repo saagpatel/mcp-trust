@@ -585,10 +585,18 @@ def test_engine_materialization_verifier_cli_is_fail_closed(
     )
 
 
-def test_inventory_cli_has_explicit_repo_root() -> None:
-    args = grade_refresh_cli._parser().parse_args(["inventory"])
+def test_inventory_cli_executes_without_unowned_repo_root_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[object] = []
+    monkeypatch.setattr(
+        grade_refresh_cli,
+        "_emit",
+        lambda payload, _out: emitted.append(payload),
+    )
 
-    assert args.repo_root == ROOT
+    assert grade_refresh_cli.main(["inventory"]) == 0
+    assert emitted[0]["catalog_denominator"] == 31
 
 
 def test_preflight_reports_every_missing_catalog_image(
