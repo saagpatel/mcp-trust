@@ -9,15 +9,17 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import os
 import subprocess
+import time
 
 import pytest
 
 from mcp_trust.core.models import ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import ScanError, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for
-from mcp_trust.engine.sandbox import DockerSandbox
+from mcp_trust.engine.sandbox import DockerSandbox, sandbox_server_process_digest
 
 _HAS_ENGINE = importlib.util.find_spec("mcp_audit") is not None
 
@@ -28,17 +30,82 @@ def _empty_cleanup_runner(
     return subprocess.CompletedProcess(command, 0, "", "")
 
 
-def _docker_lifecycle_runner():  # noqa: ANN202
+def _docker_lifecycle_runner(sandbox: DockerSandbox):  # noqa: ANN202
     container_id = "d" * 64
+    image_id = "sha256:" + "1" * 64
     present = False
+    server_process_digest = ""
 
     def runner(
         command: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
-        nonlocal present
+        nonlocal present, server_process_digest
         if "create" in command:
             present = True
+            image_index = command.index(sandbox.image)
+            server_process_digest = sandbox_server_process_digest(
+                command[image_index + 1], command[image_index + 2 :]
+            )
             return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "inspect" in command and "container" in command:
+            payload = {
+                "Id": container_id,
+                "Name": f"/{sandbox.container_name}",
+                "Image": image_id,
+                "State": {"Running": True},
+                "Config": {
+                    "Env": ["PATH=/bin", "HOME=/scan", "TMPDIR=/scan"],
+                    "User": "1000:1000",
+                    "WorkingDir": "/scan",
+                    "Labels": {"com.mcp-trust.scan-owner": sandbox._owner_token},
+                },
+                "HostConfig": {
+                    "NetworkMode": "none",
+                    "ReadonlyRootfs": True,
+                    "CapDrop": ["ALL"],
+                    "SecurityOpt": ["no-new-privileges"],
+                    "Memory": 512 * 1024 * 1024,
+                    "MemorySwap": 512 * 1024 * 1024,
+                    "NanoCpus": 1_000_000_000,
+                    "PidsLimit": 256,
+                    "Privileged": False,
+                    "Binds": None,
+                    "Tmpfs": {"/scan": "rw,size=67108864,mode=1777"},
+                },
+                "Mounts": [],
+            }
+            return subprocess.CompletedProcess(command, 0, json.dumps([payload]), "")
+        if "inspect" in command and "image" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps([{"Id": image_id, "Config": {"Env": ["PATH=/bin"]}}]),
+                "",
+            )
+        if "exec" in command:
+            process = {
+                "uid": 1000,
+                "gid": 1000,
+                "environment_names": ["HOME", "PATH", "TMPDIR"],
+                "network_interfaces": ["lo"],
+                "cap_eff": "0000000000000000",
+                "no_new_privs": "1",
+                "root_mount_options": ["ro"],
+                "workdir_mount_options": ["rw"],
+                "workdir_filesystem": "tmpfs",
+                "root_write_denied": True,
+                "workdir_write_verified": True,
+                "memory_max": str(512 * 1024 * 1024),
+                "pids_max": "256",
+                "cpu_quota": "100000",
+                "cpu_period": "100000",
+                "server_process_cmdline_digest": server_process_digest,
+                "server_process_state": "S (sleeping)",
+                "same_network_namespace": True,
+                "same_mount_namespace": True,
+                "same_cgroup": True,
+            }
+            return subprocess.CompletedProcess(command, 0, json.dumps(process), "")
         if "ls" in command:
             stdout = container_id + "\n" if present else ""
             return subprocess.CompletedProcess(command, 0, stdout, "")
@@ -61,10 +128,10 @@ def test_docker_lifecycle_success_requires_verified_absence() -> None:
         async def connect(self, _cfg: object) -> object:
             return object()
 
-    runner = _docker_lifecycle_runner()
     sandbox = DockerSandbox()
+    runner = _docker_lifecycle_runner(sandbox)
     sandbox.prepare_owned_container("npx", ["server"], runner=runner)
-    audit, evidence = MCPAuditEngine(
+    audit, evidence, runtime_readback = MCPAuditEngine(
         timeout=1.0,
         cleanup_runner=runner,
     )._connect_with_lifecycle(
@@ -73,6 +140,8 @@ def test_docker_lifecycle_success_requires_verified_absence() -> None:
 
     assert audit is not None
     assert evidence == "CONTAINER_ABSENCE_VERIFIED"
+    assert runtime_readback is not None
+    assert runtime_readback["state"] == "VERIFIED"
 
 
 def test_docker_outer_deadline_verifies_absence_before_timeout_result() -> None:
@@ -81,8 +150,8 @@ def test_docker_outer_deadline_verifies_absence_before_timeout_result() -> None:
             await asyncio.sleep(2.0)
             return object()
 
-    runner = _docker_lifecycle_runner()
     sandbox = DockerSandbox()
+    runner = _docker_lifecycle_runner(sandbox)
     sandbox.prepare_owned_container("npx", ["server"], runner=runner)
     engine = MCPAuditEngine(timeout=0.001, cleanup_runner=runner)
 
@@ -111,6 +180,35 @@ def test_docker_cleanup_failure_refuses_scan_evidence() -> None:
         MCPAuditEngine(timeout=1.0, cleanup_runner=failed_runner)._connect_with_lifecycle(
             _Connector(), object(), DockerSandbox(), launches_process=True
         )
+
+
+def test_runtime_probe_failure_does_not_wait_for_connector_deadline() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            await asyncio.sleep(2.0)
+            return object()
+
+    sandbox = DockerSandbox()
+    base_runner = _docker_lifecycle_runner(sandbox)
+
+    def failed_probe_runner(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if "exec" in command:
+            return subprocess.CompletedProcess(command, 1, "", "attestor failed")
+        return base_runner(command, **kwargs)
+
+    sandbox.prepare_owned_container("npx", ["server"], runner=failed_probe_runner)
+    started = time.monotonic()
+    with pytest.raises(ScanError, match="runtime controls could not be attested"):
+        MCPAuditEngine(
+            timeout=5.0,
+            cleanup_runner=failed_probe_runner,
+        )._connect_with_lifecycle(
+            _Connector(), object(), sandbox, launches_process=True
+        )
+
+    assert time.monotonic() - started < 1.0
 
 
 @pytest.mark.parametrize(
@@ -255,9 +353,14 @@ def test_scan_surfaces_resolved_sandbox_image(monkeypatch: pytest.MonkeyPatch) -
     # surface that exact image (not the env default) on the result.
     sandbox = DockerSandbox(image="mcp-trust-batch4:20260703")
     src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", trusted=True)
-    result = MCPAuditEngine(sandbox=sandbox, cleanup_runner=_docker_lifecycle_runner()).scan(src)
+    result = MCPAuditEngine(
+        sandbox=sandbox,
+        cleanup_runner=_docker_lifecycle_runner(sandbox),
+    ).scan(src)
     assert result.sandbox_image == "mcp-trust-batch4:20260703"
     assert result.sandbox_cleanup_evidence == "CONTAINER_ABSENCE_VERIFIED"
+    assert result.sandbox_runtime_readback is not None
+    assert result.sandbox_runtime_readback["state"] == "VERIFIED"
 
 
 @pytest.mark.skipif(not _HAS_ENGINE, reason="needs mcp-audits installed")

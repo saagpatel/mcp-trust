@@ -33,18 +33,30 @@ from mcp_trust.core.governance import (
 )
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
-from mcp_trust.engine.mcpaudit import MCPAuditEngine
+from mcp_trust.engine.mcpaudit import (
+    MCPAuditEngine,
+    launch_spec,
+    repository_outer_timeout_seconds,
+)
 from mcp_trust.engine.runtime import (
     MCP_AUDIT_RUNTIME_MODULES,
     modules_belong_to_distribution,
 )
-from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
+from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_SCHEMA,
+    SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
+    DockerSandbox,
+    normalize_local_docker_host,
+    sandbox_server_process_digest,
+    valid_sandbox_runtime_readback,
+)
 from mcp_trust.receipts import build_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
 CANDIDATE_SCHEMA_V1 = "RefreshCandidateV1"
 CANDIDATE_SCHEMA = "RefreshCandidateV2"
+SCAN_EXECUTION_BINDING_SCHEMA = "McpTrustScanExecutionBindingV2"
 APPROVAL_SCHEMA = "RefreshCandidateApprovalV1"
 PUBLICATION_SCHEMA = "RefreshCandidatePublicationV1"
 MANIFEST_NAME = "MANIFEST.json"
@@ -209,6 +221,7 @@ _SANDBOX_PROFILE_KEYS = frozenset(
         "cpus",
         "user",
         "tmpfs",
+        "runtime_attestor",
     }
 )
 _APPROVAL_KEYS = frozenset(
@@ -954,6 +967,7 @@ def _sandbox_profile(
         "cpus": sandbox.cpus,
         "user": sandbox.user,
         "tmpfs": sandbox.workdir,
+        "runtime_attestor": sandbox.attestor_command,
     }
 
 
@@ -1385,6 +1399,7 @@ def _candidate_execution_binding(
     expected_image: str | None,
     fixture_mode: bool,
     cleanup_evidence: str | None,
+    runtime_readback: dict[str, object] | None,
 ) -> dict[str, Any]:
     local_process = _requires_local_sandbox(server)
     requested_image = server.source.sandbox_image or default_image if local_process else None
@@ -1398,6 +1413,15 @@ def _candidate_execution_binding(
     )
     if local_process and configured_profile is None:
         raise RefreshCandidateError("scan execution profile is unavailable")
+    try:
+        server_command, server_args = launch_spec(server.source)
+        expected_server_process_digest = sandbox_server_process_digest(
+            server_command, server_args
+        )
+    except Exception as exc:  # normalized below; no execution occurs here
+        if local_process:
+            raise RefreshCandidateError("scan execution command binding is unavailable") from exc
+        expected_server_process_digest = "NOT_APPLICABLE"
     if fixture_mode:
         source = {
             "revision": None,
@@ -1405,7 +1429,7 @@ def _candidate_execution_binding(
             "policy_digest": None,
             "preflight_receipt_digest": None,
         }
-        runtime_readback = {
+        bound_runtime_readback: dict[str, object] = {
             "state": "NOT_APPLICABLE",
             "reason": "deterministic fixture did not execute a server process",
         }
@@ -1419,22 +1443,32 @@ def _candidate_execution_binding(
             "policy_digest": qualification.get("policy_digest"),
             "preflight_receipt_digest": qualification.get("preflight_receipt_digest"),
         }
-        runtime_readback = (
-            {
-                "state": "UNKNOWN",
-                "reason": "no per-process runtime control readback was captured",
-            }
-            if local_process
-            else {
+        if local_process:
+            if (
+                not isinstance(expected_image, str)
+                or not valid_sandbox_runtime_readback(
+                    runtime_readback,
+                    expected_image_id=expected_image,
+                    expected_profile=configured_profile,
+                    expected_dummy_env_names=list(server.source.env_keys),
+                    expected_server_process_digest=expected_server_process_digest,
+                )
+                or runtime_readback.get("schema") != SANDBOX_RUNTIME_READBACK_SCHEMA
+            ):
+                raise RefreshCandidateError(
+                    "scan runtime controls are missing or do not match the immutable image"
+                )
+            bound_runtime_readback = json.loads(json.dumps(runtime_readback))
+        else:
+            bound_runtime_readback = {
                 "state": "NOT_APPLICABLE",
                 "reason": "remote endpoint launched no local process",
             }
-        )
         immutable_image_id = expected_image if local_process else None
         sandbox_mode = "docker" if local_process else "remote-no-local-process"
         container_cleanup_evidence = cleanup_evidence if local_process else "NOT_APPLICABLE"
     return {
-        "schema": "McpTrustScanExecutionBindingV1",
+        "schema": SCAN_EXECUTION_BINDING_SCHEMA,
         "target_slug": server.slug,
         "source": source,
         "sandbox": {
@@ -1442,11 +1476,21 @@ def _candidate_execution_binding(
             "requested_image": requested_image,
             "immutable_image_id": immutable_image_id,
             "configured_launch_controls": configured_profile,
-            "runtime_readback": runtime_readback,
+            "runtime_readback": bound_runtime_readback,
             "container_cleanup_evidence": container_cleanup_evidence,
         },
         "timeout": {
             "configured_seconds": None if fixture_mode else SCAN_TIMEOUT_SECONDS,
+            "repository_outer_deadline_seconds": (
+                repository_outer_timeout_seconds(SCAN_TIMEOUT_SECONDS)
+                if local_process and not fixture_mode
+                else None
+            ),
+            "runtime_readback_deadline_seconds": (
+                SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS
+                if local_process and not fixture_mode
+                else None
+            ),
             "outcome": "completed",
             "hard_termination_evidence": "NOT_APPLICABLE",
         },
@@ -1464,12 +1508,14 @@ def _write_masked_scan_proof(
     server: Server,
     scan: ScanRecord,
     proofs_dir: Path,
+    *,
+    execution_binding: dict[str, Any],
 ) -> str:
     """Retain scan-success provenance without retaining masked grade evidence."""
-    receipt = _scan_receipt_payload(server, scan)
+    receipt = _scan_receipt_payload(server, scan, execution_binding=execution_binding)
     name = f"{scan.server_slug}-{scan.id}.json"
     proof = {
-        "format_version": 1,
+        "format_version": 2,
         "proof_type": "masked_scan_success",
         "outcome": "scan_succeeded",
         "server_slug": scan.server_slug,
@@ -1479,9 +1525,18 @@ def _write_masked_scan_proof(
         "scanner": receipt["scanner"],
         "sandbox": receipt["sandbox"],
         "evidence_present": scan.evidence is not None,
+        "execution_binding": execution_binding,
     }
+    proof["proof_digest"] = "sha256:" + _sha256_bytes(_json_bytes(proof))
     _write_private(proofs_dir / name, proof)
     return name
+
+
+def _masked_proof_digest_valid(proof: dict[str, Any]) -> bool:
+    claimed = proof.get("proof_digest")
+    unsigned = dict(proof)
+    unsigned.pop("proof_digest", None)
+    return claimed == "sha256:" + _sha256_bytes(_json_bytes(unsigned))
 
 
 def _validate_receipt(
@@ -2092,6 +2147,21 @@ def create_refresh_candidate(
                         if _requires_local_sandbox(server)
                         else None
                     )
+                    runtime_profile = next(
+                        (
+                            profile
+                            for profile in sandbox_evidence.get("profiles", [])
+                            if isinstance(profile, dict)
+                            and profile.get("image") == requested_image
+                        ),
+                        None,
+                    )
+                    try:
+                        expected_server_process_digest = sandbox_server_process_digest(
+                            *launch_spec(server.source)
+                        )
+                    except Exception:  # invalid launch spec is classified as UNKNOWN
+                        expected_server_process_digest = None
                     if (
                         not fixture_mode
                         and _requires_local_sandbox(server)
@@ -2099,6 +2169,16 @@ def create_refresh_candidate(
                             engine_result.sandbox_image != expected_image
                             or engine_result.sandbox_cleanup_evidence
                             != "CONTAINER_ABSENCE_VERIFIED"
+                            or not isinstance(expected_image, str)
+                            or not isinstance(runtime_profile, dict)
+                            or not isinstance(expected_server_process_digest, str)
+                            or not valid_sandbox_runtime_readback(
+                                engine_result.sandbox_runtime_readback,
+                                expected_image_id=expected_image,
+                                expected_profile=runtime_profile,
+                                expected_dummy_env_names=list(server.source.env_keys),
+                                expected_server_process_digest=expected_server_process_digest,
+                            )
                         )
                     ):
                         results.append(
@@ -2109,6 +2189,15 @@ def create_refresh_candidate(
                                 "expected_sandbox_image": expected_image,
                                 "sandbox_cleanup_evidence": (
                                     engine_result.sandbox_cleanup_evidence or "UNKNOWN"
+                                ),
+                                "sandbox_runtime_readback": (
+                                    "VERIFIED"
+                                    if isinstance(
+                                        engine_result.sandbox_runtime_readback, dict
+                                    )
+                                    and engine_result.sandbox_runtime_readback.get("state")
+                                    == "VERIFIED"
+                                    else "UNKNOWN"
                                 ),
                             }
                         )
@@ -2136,6 +2225,7 @@ def create_refresh_candidate(
                         expected_image=expected_image,
                         fixture_mode=fixture_mode,
                         cleanup_evidence=engine_result.sandbox_cleanup_evidence,
+                        runtime_readback=engine_result.sandbox_runtime_readback,
                     )
                     if masked:
                         receipt_ref = None
@@ -2143,6 +2233,7 @@ def create_refresh_candidate(
                             server,
                             scan,
                             masked_proofs_dir,
+                            execution_binding=execution_binding,
                         )
                     elif receipt_writer is None:
                         masked_proof_ref = None
@@ -3056,6 +3147,8 @@ def verify_refresh_candidate(
                 "scanner",
                 "sandbox",
                 "evidence_present",
+                "execution_binding",
+                "proof_digest",
             }
             scanner = proof.get("scanner") if isinstance(proof, dict) else None
             sandbox = proof.get("sandbox") if isinstance(proof, dict) else None
@@ -3063,7 +3156,8 @@ def verify_refresh_candidate(
             proof_valid = bool(
                 isinstance(proof, dict)
                 and set(proof) == proof_keys
-                and proof.get("format_version") == 1
+                and proof.get("format_version") == 2
+                and _masked_proof_digest_valid(proof)
                 and proof.get("proof_type") == "masked_scan_success"
                 and proof.get("outcome") == "scan_succeeded"
                 and proof.get("server_slug") == result.get("server_slug")
@@ -3086,6 +3180,60 @@ def verify_refresh_candidate(
             )
             if not proof_valid:
                 errors.append(f"masked_scan_proof_invalid:{proof_ref}")
+                continue
+            reviewed_server_for_binding: Server | None = None
+            catalog_row_for_binding = catalog_by_slug.get(result.get("server_slug"))
+            if isinstance(catalog_row_for_binding, dict) and isinstance(proof_server, dict):
+                try:
+                    reviewed_server_for_binding = _reviewed_server_from_seed(
+                        catalog_row_for_binding,
+                        added_at=datetime.fromisoformat(
+                            str(proof_server.get("added_at")).replace("Z", "+00:00")
+                        ),
+                    )
+                except (RefreshCandidateError, TypeError, ValueError):
+                    reviewed_server_for_binding = None
+            expected_masked_binding = None
+            if (
+                reviewed_server_for_binding is not None
+                and isinstance(qualification_manifest, dict)
+                and isinstance(sandbox_manifest, dict)
+                and isinstance(sandbox_manifest.get("default_image"), str)
+            ):
+                requested_image_for_binding = (
+                    reviewed_server_for_binding.source.sandbox_image
+                    or sandbox_manifest["default_image"]
+                )
+                proof_binding = proof.get("execution_binding")
+                proof_runtime = (
+                    proof_binding.get("sandbox", {}).get("runtime_readback")
+                    if isinstance(proof_binding, dict)
+                    and isinstance(proof_binding.get("sandbox"), dict)
+                    else None
+                )
+                try:
+                    expected_masked_binding = _candidate_execution_binding(
+                        reviewed_server_for_binding,
+                        qualification=qualification_manifest,
+                        sandbox_evidence=sandbox_manifest,
+                        default_image=sandbox_manifest["default_image"],
+                        expected_image=(
+                            None
+                            if candidate_state == "fixture"
+                            else reviewed_profile_bindings.get(requested_image_for_binding)
+                        ),
+                        fixture_mode=candidate_state == "fixture",
+                        cleanup_evidence=(
+                            "NOT_APPLICABLE"
+                            if candidate_state == "fixture"
+                            else "CONTAINER_ABSENCE_VERIFIED"
+                        ),
+                        runtime_readback=proof_runtime,
+                    )
+                except RefreshCandidateError:
+                    expected_masked_binding = None
+            if proof.get("execution_binding") != expected_masked_binding:
+                errors.append(f"masked_scan_execution_binding_invalid:{proof_ref}")
                 continue
             if candidate_state == "complete":
                 reviewed_server: Server | None = None
@@ -3221,6 +3369,13 @@ def verify_refresh_candidate(
                             "NOT_APPLICABLE"
                             if candidate_state == "fixture"
                             else "CONTAINER_ABSENCE_VERIFIED"
+                        ),
+                        runtime_readback=(
+                            receipt.get("execution_binding", {})
+                            .get("sandbox", {})
+                            .get("runtime_readback")
+                            if isinstance(receipt.get("execution_binding"), dict)
+                            else None
                         ),
                     )
                 except RefreshCandidateError:

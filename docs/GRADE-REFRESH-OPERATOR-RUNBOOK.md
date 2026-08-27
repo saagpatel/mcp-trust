@@ -162,11 +162,21 @@ proving the container absent before accepting scan evidence. Pre-creation means
 an outer-deadline worker cannot create a replacement after cleanup. A timeout
 emits no receipt or fresh grade; it records
 `CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT` only after that readback and otherwise
-records `UNKNOWN`. Per-process CPU, memory, filesystem, network, and secret
-runtime readback remains `UNKNOWN` until separately captured. This source
-contract is not runtime qualification: actual enforcement remains `UNKNOWN`
-until controlled execution evidence is reviewed. Creation or verification does
-not approve, publish, deploy, or schedule it.
+records `UNKNOWN`. A successful local receipt requires live, privacy-minimized
+process readback: PID 1 must match the digest-bound MCP server command, and its
+identity, immutable image, environment names, `/proc` capability state, shared
+network/mount namespaces and cgroup must agree with daemon configuration and
+the exact locked profile. A same-namespace helper performs the behavioral
+root/tmpfs write probes. Environment values are never emitted; this does not
+prove that untrusted server code never retained a value. The receipt also binds
+the 90-second connector limit, 95-second repository outer deadline, and
+5-second runtime-probe deadline. The sandbox profile binds the fixed non-shell
+`python` attestor command; its absence fails closed. Missing or contradictory evidence emits no
+fresh grade. This source contract is not runtime qualification: actual
+enforcement remains `UNKNOWN` until an approved controlled execution captures
+and reviews that receipt. The claim does not cover local artifact replay,
+Docker, VM, or kernel compromise or an actual egress attempt. Creation or
+verification does not approve, publish, deploy, or schedule it.
 
 ## 5. Triage and operator package
 

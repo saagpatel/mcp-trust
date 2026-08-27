@@ -2275,6 +2275,9 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                     "evidence": receipt.get("evidence"),
                     "danger_score": receipt.get("danger_score"),
                     "sandbox": receipt.get("sandbox"),
+                    "execution_binding": _repeatable_execution_binding_projection(
+                        receipt.get("execution_binding")
+                    ),
                     "caveats": receipt.get("caveats"),
                     "freshness_state": result.get("freshness_state"),
                     "freshness_reason": result.get("freshness_reason"),
@@ -2297,6 +2300,9 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                         proof.get("evidence_present") if isinstance(proof, dict) else None
                     ),
                     "sandbox": proof.get("sandbox") if isinstance(proof, dict) else None,
+                    "execution_binding": _repeatable_execution_binding_projection(
+                        proof.get("execution_binding") if isinstance(proof, dict) else None
+                    ),
                     "freshness_state": result.get("freshness_state"),
                     "freshness_reason": result.get("freshness_reason"),
                     "stale_after": result.get("stale_after"),
@@ -2314,6 +2320,18 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                 }
             )
         projected[slug] = row
+    return projected
+
+
+def _repeatable_execution_binding_projection(value: object) -> object:
+    """Drop only the per-run container identity before repeat comparison."""
+    if not isinstance(value, dict):
+        return value
+    projected = json.loads(json.dumps(value))
+    sandbox = projected.get("sandbox")
+    runtime = sandbox.get("runtime_readback") if isinstance(sandbox, dict) else None
+    if isinstance(runtime, dict):
+        runtime.pop("container_identity_digest", None)
     return projected
 
 
