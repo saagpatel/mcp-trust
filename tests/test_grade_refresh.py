@@ -343,7 +343,12 @@ def _qualification_fixture(
         "build_options": build_options,
         "build_commands": [],
         "load_commands": [],
-        "tool_versions": {"docker": "29.5.2"},
+        "tool_versions": {
+            "docker_client": "29.5.2",
+            "docker_server": "29.5.2",
+            "docker_buildx": "v0.30.0",
+            "buildkit_colima": "v0.25.1",
+        },
         "first_build_image_id": image_id,
         "second_build_image_id": image_id,
         "repeatable": True,
@@ -522,6 +527,51 @@ def test_image_build_qualification_rejects_stale_receipt(tmp_path: Path) -> None
     receipt, payload, _image_id = _qualification_fixture(tmp_path)
     payload["observed_at"] = datetime(2026, 8, 21, tzinfo=UTC).isoformat()
     _rewrite_receipt(receipt, payload)
+    assert _qualification(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "tool_versions",
+    [
+        {
+            "docker_client": "29.5.2",
+            "docker_server": "29.5.2",
+            "docker_buildx": "v0.30.0",
+            "buildkit_colima": (
+                "BuildKit version: v0.25.1\n"
+                "org.mobyproject.buildkit.worker.hostname: colima-private"
+            ),
+        },
+        {
+            "docker_client": "29.5.2",
+            "docker_server": "29.5.2",
+            "docker_buildx": "v0.30.0",
+            "buildkit_colima": "v0.25.1",
+            "builder_uuid": "2f09ce6e-dead-beef-acde-cd45923abc12",
+        },
+    ],
+)
+def test_image_build_qualification_rejects_non_version_tool_metadata(
+    tmp_path: Path, tool_versions: dict[str, str]
+) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    payload["tool_versions"] = tool_versions
+    _rewrite_receipt(receipt, payload)
+
+    assert _qualification(tmp_path) is None
+
+
+def test_image_build_qualification_rejects_absolute_buildx_host_path(
+    tmp_path: Path,
+) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    commands = payload["build_commands"]
+    assert isinstance(commands, list)
+    for command in commands:
+        assert isinstance(command, list)
+        command[0] = "/Users/private/bin/docker-buildx"
+    _rewrite_receipt(receipt, payload)
+
     assert _qualification(tmp_path) is None
 
 

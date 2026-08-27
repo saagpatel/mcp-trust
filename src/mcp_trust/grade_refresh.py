@@ -41,6 +41,12 @@ PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
 IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_STABLE_VERSION = re.compile(
+    r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?"
+)
+_IMAGE_BUILD_TOOL_VERSION_KEYS = frozenset(
+    {"docker_client", "docker_server", "docker_buildx", "buildkit_colima"}
+)
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
 _PREFLIGHT_KEYS = frozenset(
     {
@@ -116,6 +122,20 @@ _IMAGE_BUILD_QUALIFICATION_KEYS = frozenset(
 )
 class GradeRefreshError(RuntimeError):
     """The review-only qualification contract is invalid or incomplete."""
+
+
+def _stable_image_build_tool_versions(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != _IMAGE_BUILD_TOOL_VERSION_KEYS:
+        return False
+    for key, version in value.items():
+        if not isinstance(version, str) or _STABLE_VERSION.fullmatch(version) is None:
+            return False
+        if key in {"docker_buildx", "buildkit_colima"}:
+            if not version.startswith("v"):
+                return False
+        elif version.startswith("v"):
+            return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -971,12 +991,7 @@ def _image_build_qualification(
         or network_policy != ["none"]
         or not isinstance(platform_name, str)
         or re.fullmatch(r"linux/(?:arm64|amd64)", platform_name) is None
-        or not isinstance(tools, dict)
-        or not tools
-        or not all(
-            isinstance(key, str) and isinstance(value, str) and value
-            for key, value in tools.items()
-        )
+        or not _stable_image_build_tool_versions(tools)
         or not isinstance(manifests, dict)
         or not isinstance(locks, dict)
         or not locks
@@ -1181,9 +1196,8 @@ def _image_build_qualification(
         ):
             return None
 
-        executable = Path(value[0]).name
         if not (
-            (executable == "docker-buildx" and value[1:2] == ["build"])
+            (value[:2] == ["docker-buildx", "build"])
             or value[:3] == ["docker", "buildx", "build"]
         ):
             return None

@@ -296,6 +296,90 @@ def test_qualification_checks_lock_source_policy_before_buildkit(
     assert called is True
 
 
+def test_qualification_tool_versions_serialize_only_stable_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+
+    def result(command: list[str], *, capture: bool = False) -> str:
+        assert capture is True
+        if command[0:2] == ["docker", "version"]:
+            return "29.5.2"
+        if command[-1] == "version":
+            return "github.com/docker/buildx v0.30.0-desktop.1 0123456789ab"
+        return (
+            "Name: colima\n"
+            "Endpoint: unix:///Users/example/.colima/docker.sock\n"
+            "BuildKit version: v0.25.1\n"
+            "Labels:\n"
+            " containerd.uuid: 2f09ce6e-dead-beef-acde-cd45923abc12\n"
+            " org.mobyproject.buildkit.worker.hostname: colima-mcp-trust-sandbox\n"
+            " org.mobyproject.buildkit.worker.network: host\n"
+            " org.mobyproject.buildkit.worker.moby.host-gateway-ip: 192.168.5.2\n"
+        )
+
+    monkeypatch.setattr(module, "_run", result)
+    versions = module._tool_versions("docker-buildx")
+
+    assert versions == {
+        "docker_client": "29.5.2",
+        "docker_server": "29.5.2",
+        "docker_buildx": "v0.30.0-desktop.1",
+        "buildkit_colima": "v0.25.1",
+    }
+    serialized = json.dumps(versions)
+    assert "uuid" not in serialized
+    assert "hostname" not in serialized
+    assert "192.168.5.2" not in serialized
+    assert "/Users/example" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("buildx_version", "inspect", "message"),
+    [
+        (
+            "github.com/docker/buildx v0.30.0 0123456789ab",
+            "Name: colima\nEndpoint: unix:///tmp/docker.sock\n",
+            "BuildKit inspect",
+        ),
+        (
+            "github.com/docker/buildx v0.30.0 0123456789ab",
+            "BuildKit version: v0.25.1\nBuildKit version: v0.25.2\n",
+            "BuildKit inspect",
+        ),
+        (
+            "github.com/docker/buildx v0.30.0.999",
+            "BuildKit version: v0.25.1\n",
+            "docker buildx",
+        ),
+        (
+            "release-v0.30.0",
+            "BuildKit version: v0.25.1\n",
+            "docker buildx",
+        ),
+    ],
+)
+def test_qualification_tool_versions_fail_closed_on_malformed_or_ambiguous_output(
+    monkeypatch: pytest.MonkeyPatch,
+    buildx_version: str,
+    inspect: str,
+    message: str,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+
+    def result(command: list[str], *, capture: bool = False) -> str:
+        assert capture is True
+        if command[0:2] == ["docker", "version"]:
+            return "29.5.2"
+        if command[-1] == "version":
+            return buildx_version
+        return inspect
+
+    monkeypatch.setattr(module, "_run", result)
+    with pytest.raises(module.QualificationError, match=message):
+        module._tool_versions("docker-buildx")
+
+
 def test_basic_memory_mutable_base_is_rejected_before_execution() -> None:
     payload = json.loads(
         (ROOT / "docker/refresh/source-build-inputs/basic-memory.json").read_text()

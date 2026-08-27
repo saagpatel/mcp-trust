@@ -26,6 +26,13 @@ uv run --frozen python scripts/qualify_refresh_images.py
 Every cohort must produce two identical image IDs and a receipt that passes
 readback. Existing or expired qualification receipts are not overwritten;
 requalification is a reviewed source revision, not an in-place refresh.
+Qualification receipts persist only exact Docker, Buildx, and BuildKit version
+tokens. Raw builder inspection output, host paths, endpoints, UUIDs, addresses,
+and other machine-specific metadata are rejected and must never be landed.
+Legacy receipts containing raw builder output are invalid under this contract;
+do not rewrite their digests or describe them as sanitized. Replace them only
+with newly generated, reviewed receipts and update policy references in the
+same local source revision.
 
 ## 1. Inventory and preflight (no server execution)
 
