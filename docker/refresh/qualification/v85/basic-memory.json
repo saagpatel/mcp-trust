@@ -1,0 +1,114 @@
+{
+  "base_images": [
+    "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134"
+  ],
+  "build_commands": [
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.basic-memory-20260823",
+      "--output=type=oci,dest=tmp/qualification/basic-memory-first.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-qualification:basic-memory-first",
+      "."
+    ],
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.basic-memory-20260823",
+      "--output=type=oci,dest=tmp/qualification/basic-memory-second.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-basic-memory:20260823",
+      "."
+    ]
+  ],
+  "build_input_digest": "sha256:6df05b38f5e4596d1e2210f3ac6214ea434121c16db5407609f3134a2f4489c1",
+  "build_network_policy": [
+    "none"
+  ],
+  "build_options": {
+    "builder": "buildx",
+    "cache": "disabled",
+    "load": false,
+    "output": "oci",
+    "provenance": false,
+    "pull": false,
+    "rewrite_timestamps": true,
+    "sbom": false
+  },
+  "build_source_sha256": "sha256:c30e42fec27c98a7ff5edd3158df0a2b7c77064325179db83d0890d06c3a26c5",
+  "dependency_artifacts": {
+    "python": {
+      "path": "docker/refresh/artifact-manifests/basic-memory/python.json",
+      "sha256": "sha256:22334d147a67399ed94acf89d399d449738423d072feb2aa1745fa3f2690710b"
+    }
+  },
+  "dependency_locks": {
+    "python": {
+      "path": "docker/refresh/locks/basic-memory/requirements.lock",
+      "sha256": "sha256:67fa8d9549bdd972f26086c4fa6b9e2168d2d2f9c586494310493794be1582c4"
+    }
+  },
+  "dependency_manifests": {
+    "python": {
+      "path": "docker/refresh/locks/basic-memory/requirements.in",
+      "sha256": "sha256:3900171289bf950536014309eec3435257d3972e4a6f1a9e7ffa2cbd82351085"
+    }
+  },
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "first_build_image_id": "sha256:88e2d9237e041c11e80d2594a2bc24bd1abe6086e5a4363c28e905445227ebe3",
+  "image_reference": "mcp-trust-basic-memory:20260823",
+  "load_commands": [
+    [
+      "docker",
+      "load",
+      "-i",
+      "tmp/qualification/basic-memory-first.oci.tar"
+    ],
+    [
+      "docker",
+      "load",
+      "-i",
+      "tmp/qualification/basic-memory-second.oci.tar"
+    ]
+  ],
+  "observed_at": "2026-08-28T01:14:54.410054+00:00",
+  "platform": "linux/arm64",
+  "qualification_max_age_seconds": 86400,
+  "receipt_digest": "sha256:0809560bbcd8cd0f7f342967a588efffe10abe93a710a3f976d781a1a0543ac5",
+  "repeatable": true,
+  "schema": "McpTrustImageBuildQualificationV2",
+  "second_build_image_id": "sha256:88e2d9237e041c11e80d2594a2bc24bd1abe6086e5a4363c28e905445227ebe3",
+  "tool_versions": {
+    "buildkit_colima": "v0.30.0",
+    "docker_buildx": "v0.36.1",
+    "docker_client": "29.7.2",
+    "docker_server": "29.5.2"
+  }
+}
