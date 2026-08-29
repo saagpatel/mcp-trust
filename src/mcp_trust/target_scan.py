@@ -41,6 +41,7 @@ from mcp_trust.grade_refresh import (
     GradeRefreshError,
     RefreshPolicy,
     canonical_bytes,
+    catalog_inventory,
     digest_bytes,
     digest_file,
     load_policy,
@@ -94,6 +95,23 @@ _EXPECTED_CATALOG_COUNTS = {
     "missing_image_build_source": 0,
     "unqualified_image_build_source": 0,
 }
+
+
+def _current_catalog_binding(
+    *,
+    seed_path: Path,
+    masked_path: Path,
+    policy_path: Path,
+) -> tuple[dict[str, int], str]:
+    inventory = catalog_inventory(
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=policy_path,
+    )
+    counts = inventory.get("counts")
+    if counts != _EXPECTED_CATALOG_COUNTS:
+        raise RefreshCandidateError("target receipt requires the reviewed V20 catalog counts")
+    return dict(counts), digest_bytes(canonical_bytes(inventory))
 
 _ARTIFACT_KEYS = frozenset(
     {
@@ -167,9 +185,7 @@ _RENAME_EXCL = 0x00000004
 _RENAME_NOREPLACE = 1
 _SIDE_SUFFIXES = ("-wal", "-shm", "-journal")
 _PRIVATE_PATH = re.compile(r"/(?:Users|home|tmp|private/tmp|Volumes)/", re.IGNORECASE)
-_CREDENTIAL_VALUE = re.compile(
-    r"(?i)(?:token|secret|password|credential|api[_-]?key)\s*[:=]\s*\S+"
-)
+_CREDENTIAL_VALUE = re.compile(r"(?i)(?:token|secret|password|credential|api[_-]?key)\s*[:=]\s*\S+")
 _CREDENTIAL_OPTION = re.compile(
     r"(?i)^--?[a-z0-9_-]*(?:token|secret|password|credential|api[_-]?key)"
     r"[a-z0-9_-]*(?:=|$)"
@@ -413,6 +429,8 @@ def _qualification_binding(
     masked_sha256: str,
     policy_sha256: str,
     expected_images: list[str],
+    expected_catalog_counts: dict[str, int],
+    expected_catalog_inventory_digest: str,
     expected_boundary: dict[str, object],
     target_requested_image: str,
     live_sandbox: dict[str, object],
@@ -420,7 +438,12 @@ def _qualification_binding(
     now: datetime,
 ) -> dict[str, str]:
     try:
-        validate_ready_preflight_contract(receipt, expected_image_references=expected_images)
+        validate_ready_preflight_contract(
+            receipt,
+            expected_image_references=expected_images,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+        )
         observed_at = _parse_utc_datetime(receipt.get("observed_at"))
     except (GradeRefreshError, OverflowError, TypeError, ValueError) as exc:
         raise RefreshCandidateError("qualification receipt is not READY") from exc
@@ -443,7 +466,8 @@ def _qualification_binding(
         or not isinstance(counts, dict)
         or set(counts) != set(_EXPECTED_CATALOG_COUNTS)
         or any(type(value) is not int for value in counts.values())
-        or counts != _EXPECTED_CATALOG_COUNTS
+        or counts != expected_catalog_counts
+        or catalog.get("inventory_digest") != expected_catalog_inventory_digest
         or boundary != expected_boundary
         or not isinstance(engine, dict)
         or not isinstance(engine.get("receipt_digest"), str)
@@ -459,6 +483,7 @@ def _qualification_binding(
     sources = catalog.get("image_build_sources")
     if not isinstance(sources, dict):
         raise RefreshCandidateError("qualification image sources are unavailable")
+
     def reference_key(item: object) -> str:
         return str(item.get("reference")) if isinstance(item, dict) else ""
 
@@ -689,8 +714,7 @@ def _validate_artifact_shape(payload: object) -> dict[str, Any]:
         or not isinstance(execution, dict)
         or execution.get("source") != expected_execution_source
         or not isinstance(execution_sandbox, dict)
-        or execution_sandbox.get("requested_image")
-        != qualification.get("target_requested_image")
+        or execution_sandbox.get("requested_image") != qualification.get("target_requested_image")
     ):
         raise RefreshCandidateError("target scan artifact duplicated bindings differ")
     _source_projection({**source, "worktree_state": "clean"})
@@ -898,6 +922,11 @@ def create_target_scan_artifact(
     try:
         policy = load_policy(policy_path, seed_path, masked_path)
         policy_sha256 = digest_file(policy_path)
+        expected_catalog_counts, expected_catalog_inventory_digest = _current_catalog_binding(
+            seed_path=seed_path,
+            masked_path=masked_path,
+            policy_path=policy_path,
+        )
     except (GradeRefreshError, OSError) as exc:
         raise RefreshCandidateError("refresh execution policy is invalid") from exc
     _require_current_denominator(policy, reviewed.catalog_rows)
@@ -942,11 +971,15 @@ def create_target_scan_artifact(
             validate_ready_preflight_contract(
                 preflight,
                 expected_image_references=expected_images,
+                expected_catalog_counts=expected_catalog_counts,
+                expected_catalog_inventory_digest=expected_catalog_inventory_digest,
             )
             _qualification_revalidator(
                 preflight,
                 repo_root=repo_root,
                 expected_image_references=expected_images,
+                expected_catalog_counts=expected_catalog_counts,
+                expected_catalog_inventory_digest=expected_catalog_inventory_digest,
                 now=fixed_now,
             )
         except GradeRefreshError as exc:
@@ -962,6 +995,8 @@ def create_target_scan_artifact(
             masked_sha256=reviewed.masked_sha256,
             policy_sha256=policy_sha256,
             expected_images=expected_images,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
             expected_boundary=expected_boundary,
             target_requested_image=requested_image,
             live_sandbox=live,
@@ -978,9 +1013,7 @@ def create_target_scan_artifact(
             for key, value in live.items()
             if not key.startswith("_execution_")
         }
-        execution_source = target.source.model_copy(
-            update={"sandbox_image": immutable_image_id}
-        )
+        execution_source = target.source.model_copy(update={"sandbox_image": immutable_image_id})
         engine = (_engine_factory or (lambda: MCPAuditEngine(timeout=SCAN_TIMEOUT_SECONDS)))()
         tool_versions = preflight.get("tool_versions")
         expected_engine_version = (
@@ -1034,9 +1067,7 @@ def create_target_scan_artifact(
                         "source_revision": source_projection["revision"],
                         "source_tree_digest": source_projection["source_tree_digest"],
                         "policy_digest": policy_sha256,
-                        "preflight_receipt_digest": qualification[
-                            "preflight_receipt_digest"
-                        ],
+                        "preflight_receipt_digest": qualification["preflight_receipt_digest"],
                     },
                     sandbox_evidence=public_live,
                     default_image=default_image,
@@ -1062,6 +1093,11 @@ def create_target_scan_artifact(
         try:
             post_policy = load_policy(policy_path, seed_path, masked_path)
             post_policy_sha256 = digest_file(policy_path)
+            post_catalog_counts, post_catalog_inventory_digest = _current_catalog_binding(
+                seed_path=seed_path,
+                masked_path=masked_path,
+                policy_path=policy_path,
+            )
             post_preflight, post_preflight_sha256 = _load_json_with_digest(
                 qualification_receipt_path
             )
@@ -1069,6 +1105,8 @@ def create_target_scan_artifact(
                 post_preflight,
                 repo_root=repo_root,
                 expected_image_references=expected_images,
+                expected_catalog_counts=post_catalog_counts,
+                expected_catalog_inventory_digest=post_catalog_inventory_digest,
                 now=fixed_now,
             )
         except GradeRefreshError as exc:
@@ -1077,6 +1115,8 @@ def create_target_scan_artifact(
             post_reviewed != reviewed
             or post_policy != policy
             or post_policy_sha256 != policy_sha256
+            or post_catalog_counts != expected_catalog_counts
+            or post_catalog_inventory_digest != expected_catalog_inventory_digest
             or post_preflight != preflight
             or post_preflight_sha256 != preflight_file_sha256
         ):
@@ -1152,6 +1192,11 @@ def verify_target_scan_artifact(
     try:
         policy = load_policy(policy_path, seed_path, masked_path)
         policy_sha256 = digest_file(policy_path)
+        expected_catalog_counts, expected_catalog_inventory_digest = _current_catalog_binding(
+            seed_path=seed_path,
+            masked_path=masked_path,
+            policy_path=policy_path,
+        )
     except GradeRefreshError as exc:
         raise RefreshCandidateError("target scan policy is no longer valid") from exc
     _require_current_denominator(policy, reviewed.catalog_rows)
@@ -1180,11 +1225,18 @@ def verify_target_scan_artifact(
     if len(expected_images) != 5:
         raise RefreshCandidateError("target scan complete image set is no longer current")
     try:
-        validate_ready_preflight_contract(preflight, expected_image_references=expected_images)
+        validate_ready_preflight_contract(
+            preflight,
+            expected_image_references=expected_images,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+        )
         _qualification_revalidator(
             preflight,
             repo_root=repo_root,
             expected_image_references=expected_images,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
             now=fixed_now,
         )
     except GradeRefreshError as exc:
@@ -1236,8 +1288,7 @@ def verify_target_scan_artifact(
         or boundary != expected_boundary
         or preflight_age < 0
         or preflight_age >= DEFAULT_MAX_AGE_HOURS * 3600
-        or qualification.get("preflight_file_sha256")
-        != f"sha256:{preflight_sha256}"
+        or qualification.get("preflight_file_sha256") != f"sha256:{preflight_sha256}"
         or qualification.get("preflight_receipt_digest") != preflight.get("receipt_digest")
         or not isinstance(engine, dict)
         or qualification.get("engine_receipt_digest") != engine.get("receipt_digest")

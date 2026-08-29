@@ -106,6 +106,32 @@ _PREFLIGHT_KEYS = frozenset(
         "receipt_digest",
     }
 )
+_CATALOG_COUNT_KEYS = frozenset(
+    {
+        "scannable",
+        "blocked",
+        "intentionally_masked",
+        "unsupported_upstream",
+        "credential_dependent",
+        "backing_service_dependent",
+        "unsafe_to_execute_unsandboxed",
+        "missing_image_build_source",
+        "unqualified_image_build_source",
+    }
+)
+_READY_CATALOG_KEYS = frozenset(
+    {
+        "seed_digest",
+        "masking_digest",
+        "policy_digest",
+        "inventory_digest",
+        "denominator",
+        "counts",
+        "execution_boundary",
+        "image_build_sources",
+    }
+)
+_CATALOG_SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 _REPEATABILITY_KEYS = frozenset(
     {
         "schema",
@@ -530,9 +556,7 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
         return None
     project_table = project.get("project") if isinstance(project, dict) else None
     optional_dependencies = (
-        project_table.get("optional-dependencies")
-        if isinstance(project_table, dict)
-        else None
+        project_table.get("optional-dependencies") if isinstance(project_table, dict) else None
     )
     if (
         not isinstance(project_table, dict)
@@ -547,8 +571,7 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
     editable_projects = [
         locked_package
         for locked_package in packages
-        if isinstance(locked_package, dict)
-        and locked_package.get("source") == {"editable": "."}
+        if isinstance(locked_package, dict) and locked_package.get("source") == {"editable": "."}
     ]
     if len(editable_projects) != 1:
         return None
@@ -775,9 +798,7 @@ def build_engine_materialization_receipt(
         runtime_version = _package_version("mcp-audits")
     except (AttributeError, OSError, UnicodeError, ValueError):
         runtime_version = "UNKNOWN"
-    distribution_binding = distribution_runtime_binding(
-        "mcp-audits", MCP_AUDIT_RUNTIME_MODULES
-    )
+    distribution_binding = distribution_runtime_binding("mcp-audits", MCP_AUDIT_RUNTIME_MODULES)
     uv_binding = _uv_binding(runner)
     project_environment = repo_root / ".venv"
     python_pin_path = repo_root / ".python-version"
@@ -941,9 +962,7 @@ def _valid_engine_materialization_receipt_shape(receipt: dict[str, Any]) -> bool
         or environment.get("mcp_audits") != EXPECTED_MCP_AUDITS_VERSION
     ):
         return False
-    if status == "READY" and not _valid_engine_lock_receipt_binding(
-        receipt.get("lock_binding")
-    ):
+    if status == "READY" and not _valid_engine_lock_receipt_binding(receipt.get("lock_binding")):
         return False
     distribution_binding = receipt.get("distribution_binding")
     if distribution_binding is None:
@@ -970,11 +989,9 @@ def _valid_engine_materialization_receipt_shape(receipt: dict[str, Any]) -> bool
         distribution.get("name") != "mcp-audits"
         or _STABLE_VERSION.fullmatch(str(distribution_version)) is None
         or (status == "READY" and distribution_version != EXPECTED_MCP_AUDITS_VERSION)
-        or re.fullmatch(r"\d+\.\d+", str(distribution.get("metadata_version")))
-        is None
+        or re.fullmatch(r"\d+\.\d+", str(distribution.get("metadata_version"))) is None
         or distribution.get("installer") != "uv"
-        or distribution.get("record_path")
-        != f"mcp_audits-{distribution_version}.dist-info/RECORD"
+        or distribution.get("record_path") != f"mcp_audits-{distribution_version}.dist-info/RECORD"
         or _SHA256.fullmatch(str(distribution.get("record_sha256"))) is None
         or not isinstance(distribution.get("record_size"), int)
         or isinstance(distribution.get("record_size"), bool)
@@ -1001,8 +1018,7 @@ def _valid_engine_materialization_receipt_shape(receipt: dict[str, Any]) -> bool
             or Path(path).is_absolute()
             or ".." in Path(path).parts
             or origin != path
-            or re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", str(module.get("record_hash")))
-            is None
+            or re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", str(module.get("record_hash"))) is None
             or _SHA256.fullmatch(str(module.get("sha256"))) is None
             or not isinstance(module.get("size"), int)
             or isinstance(module.get("size"), bool)
@@ -1876,9 +1892,8 @@ def _image_build_qualification(
         return None
 
     def valid_build_command(value: object, *, final: bool) -> str | None:
-        if (
-            not isinstance(value, list)
-            or not all(isinstance(token, str) and token for token in value)
+        if not isinstance(value, list) or not all(
+            isinstance(token, str) and token for token in value
         ):
             return None
 
@@ -3766,8 +3781,7 @@ def build_state_card(
         repeat_evidence_present
         and triage is not None
         and not any(
-            isinstance(finding, dict)
-            and finding.get("code") in repeat_failure_codes
+            isinstance(finding, dict) and finding.get("code") in repeat_failure_codes
             for finding in triage.get("findings", [])
         )
     )
@@ -3779,14 +3793,11 @@ def build_state_card(
     catalog = preflight.get("catalog", {})
     scheduler = preflight.get("scheduler", {})
     engine_materialization_blocked = _engine_materialization_gate_required(preflight)
-    image_reconstruction_blocked = _image_reconstruction_gate_required(
-        preflight.get("reasons")
-    )
+    image_reconstruction_blocked = _image_reconstruction_gate_required(preflight.get("reasons"))
     if engine_materialization_blocked:
         blockers.append("engine_materialization_not_ready")
-    if (
-        preflight.get("status") == "BLOCKED"
-        and not _blocked_preflight_engine_contract_valid(preflight)
+    if preflight.get("status") == "BLOCKED" and not _blocked_preflight_engine_contract_valid(
+        preflight
     ):
         blockers.append("blocked_preflight_engine_contract_invalid")
     if triage_valid:
@@ -4005,9 +4016,7 @@ def _blocked_preflight_engine_contract_valid(preflight: object) -> bool:
         or reasons != sorted(set(reasons))
     ):
         return False
-    engine_reasons = [
-        reason for reason in reasons if reason.startswith("engine_materialization_")
-    ]
+    engine_reasons = [reason for reason in reasons if reason.startswith("engine_materialization_")]
     materialization = preflight.get("engine_materialization")
     if materialization is None:
         return engine_reasons in (
@@ -4040,10 +4049,82 @@ def _image_reconstruction_gate_required(reasons: object) -> bool:
     )
 
 
+def _valid_ready_catalog_contract(
+    catalog: object,
+    *,
+    expected_counts: object,
+    expected_inventory_digest: object,
+) -> bool:
+    if (
+        not isinstance(catalog, dict)
+        or set(catalog) != _READY_CATALOG_KEYS
+        or any(
+            not isinstance(catalog.get(key), str) or _SHA256.fullmatch(catalog[key]) is None
+            for key in ("seed_digest", "masking_digest", "policy_digest", "inventory_digest")
+        )
+        or not isinstance(catalog.get("image_build_sources"), dict)
+        or not isinstance(expected_inventory_digest, str)
+        or _SHA256.fullmatch(expected_inventory_digest) is None
+        or catalog.get("inventory_digest") != expected_inventory_digest
+        or not isinstance(expected_counts, dict)
+        or set(expected_counts) != _CATALOG_COUNT_KEYS
+        or any(type(value) is not int or value < 0 for value in expected_counts.values())
+    ):
+        return False
+    denominator = catalog.get("denominator")
+    counts = catalog.get("counts")
+    boundary = catalog.get("execution_boundary")
+    if (
+        type(denominator) is not int
+        or denominator < 0
+        or not isinstance(counts, dict)
+        or set(counts) != _CATALOG_COUNT_KEYS
+        or any(type(value) is not int or value < 0 for value in counts.values())
+        or counts != expected_counts
+        or any(value > denominator for value in counts.values())
+        or counts["scannable"] + counts["blocked"] != denominator
+        or any(
+            counts[key] > counts["blocked"]
+            for key in (
+                "intentionally_masked",
+                "unsupported_upstream",
+                "credential_dependent",
+                "backing_service_dependent",
+            )
+        )
+        or counts["missing_image_build_source"] > counts["unqualified_image_build_source"]
+        or counts["unqualified_image_build_source"] > counts["unsafe_to_execute_unsandboxed"]
+        or not isinstance(boundary, dict)
+        or set(boundary) != {"schema", "scannable", "blocked"}
+        or boundary.get("schema") != "McpTrustRefreshExecutionBoundaryV1"
+    ):
+        return False
+    scannable = boundary.get("scannable")
+    blocked = boundary.get("blocked")
+    if (
+        not isinstance(scannable, list)
+        or not isinstance(blocked, list)
+        or not all(
+            isinstance(slug, str) and _CATALOG_SLUG.fullmatch(slug) is not None
+            for slug in [*scannable, *blocked]
+        )
+        or len(set(scannable)) != len(scannable)
+        or len(set(blocked)) != len(blocked)
+        or not set(scannable).isdisjoint(blocked)
+        or len(scannable) != counts["scannable"]
+        or len(blocked) != counts["blocked"]
+        or len(scannable) + len(blocked) != denominator
+    ):
+        return False
+    return True
+
+
 def validate_ready_preflight_contract(
     preflight: object,
     *,
     expected_image_references: object,
+    expected_catalog_counts: object,
+    expected_catalog_inventory_digest: object,
 ) -> None:
     """Reject internally self-consistent but unqualified READY evidence."""
     if not isinstance(preflight, dict) or not _receipt_integrity_valid(
@@ -4091,6 +4172,12 @@ def validate_ready_preflight_contract(
     sandbox = preflight.get("sandbox")
     catalog = preflight.get("catalog")
     tool_versions = preflight.get("tool_versions")
+    if not _valid_ready_catalog_contract(
+        catalog,
+        expected_counts=expected_catalog_counts,
+        expected_inventory_digest=expected_catalog_inventory_digest,
+    ):
+        raise GradeRefreshError("READY catalog evidence is invalid")
     image_bindings = sandbox.get("image_bindings") if isinstance(sandbox, dict) else None
     image_sources = catalog.get("image_build_sources") if isinstance(catalog, dict) else None
     expected_references = expected_image_references
@@ -4276,6 +4363,8 @@ def revalidate_ready_preflight_qualifications(
     *,
     repo_root: Path,
     expected_image_references: object,
+    expected_catalog_counts: object,
+    expected_catalog_inventory_digest: object,
     now: datetime | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> None:
@@ -4283,10 +4372,10 @@ def revalidate_ready_preflight_qualifications(
     validate_ready_preflight_contract(
         preflight,
         expected_image_references=expected_image_references,
+        expected_catalog_counts=expected_catalog_counts,
+        expected_catalog_inventory_digest=expected_catalog_inventory_digest,
     )
-    if not isinstance(preflight, dict) or not isinstance(
-        expected_image_references, list
-    ):
+    if not isinstance(preflight, dict) or not isinstance(expected_image_references, list):
         raise GradeRefreshError("READY image qualification is invalid")
     materialization_verification = verify_engine_materialization_receipt(
         preflight.get("engine_materialization"),
@@ -4294,16 +4383,14 @@ def revalidate_ready_preflight_qualifications(
         now=now,
         runner=runner,
     )
-    if (
-        materialization_verification.get("materialization_ready") is not True
-        or materialization_verification.get("receipt_digest")
-        != preflight["engine_materialization"].get("receipt_digest")
-    ):
+    if materialization_verification.get(
+        "materialization_ready"
+    ) is not True or materialization_verification.get("receipt_digest") != preflight[
+        "engine_materialization"
+    ].get("receipt_digest"):
         raise GradeRefreshError("READY engine materialization changed")
     catalog = preflight.get("catalog")
-    image_sources = (
-        catalog.get("image_build_sources") if isinstance(catalog, dict) else None
-    )
+    image_sources = catalog.get("image_build_sources") if isinstance(catalog, dict) else None
     if not isinstance(image_sources, dict):
         raise GradeRefreshError("READY image qualification is invalid")
     for reference in expected_image_references:
@@ -4383,9 +4470,7 @@ def build_operator_package_lineage(
     ):
         raise GradeRefreshError("operator package preflight semantics are invalid")
     if preflight_blocked and not _blocked_preflight_engine_contract_valid(preflight):
-        raise GradeRefreshError(
-            "operator package blocked preflight engine contract is invalid"
-        )
+        raise GradeRefreshError("operator package blocked preflight engine contract is invalid")
     if preflight_ready:
         expected_references = (
             catalog_inputs.get("image_references") if isinstance(catalog_inputs, dict) else None
@@ -4394,6 +4479,14 @@ def build_operator_package_lineage(
             validate_ready_preflight_contract(
                 preflight,
                 expected_image_references=expected_references,
+                expected_catalog_counts=(
+                    catalog_inputs.get("counts") if isinstance(catalog_inputs, dict) else None
+                ),
+                expected_catalog_inventory_digest=(
+                    catalog_inputs.get("inventory_digest")
+                    if isinstance(catalog_inputs, dict)
+                    else None
+                ),
             )
         except GradeRefreshError as exc:
             raise GradeRefreshError(f"operator package {exc}") from exc
@@ -4572,9 +4665,7 @@ def build_operator_package_lineage(
                 else "UNKNOWN"
             ),
             "distribution_record_sha256": (
-                distribution.get("record_sha256")
-                if isinstance(distribution, dict)
-                else "UNKNOWN"
+                distribution.get("record_sha256") if isinstance(distribution, dict) else "UNKNOWN"
             ),
             "tool_versions": tool_versions,
             "tool_versions_digest": digest_bytes(canonical_bytes(tool_versions)),
@@ -4615,12 +4706,8 @@ def build_resume_capsule(
     authority_digest = digest_bytes(authority_boundary.encode())
     execution_blocked = state_card.get("safe_to_execute_catalog") is not True
     outstanding_gates = state_card.get("outstanding_gates")
-    engine_materialization_blocked = _engine_materialization_reason_present(
-        outstanding_gates
-    )
-    image_reconstruction_blocked = _image_reconstruction_gate_required(
-        outstanding_gates
-    )
+    engine_materialization_blocked = _engine_materialization_reason_present(outstanding_gates)
+    image_reconstruction_blocked = _image_reconstruction_gate_required(outstanding_gates)
     if engine_materialization_blocked:
         waiting_code = "exact-mcp-audits-materialization-approval-required"
         capsule_id = "mcp-trust-grade-refresh-engine-materialization-gate"

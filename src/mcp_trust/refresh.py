@@ -1114,6 +1114,8 @@ def _qualification_metadata(
     *,
     seed_sha256: str,
     masked_sha256: str,
+    expected_catalog_counts: object,
+    expected_catalog_inventory_digest: object,
     sandbox_evidence: dict[str, object],
     now: datetime,
     current_source_binding: dict[str, Any] | None = None,
@@ -1165,6 +1167,8 @@ def _qualification_metadata(
         validate_ready_preflight_contract(
             receipt,
             expected_image_references=expected_build_source_images,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
         )
     except GradeRefreshError as exc:
         raise RefreshCandidateError(f"qualification receipt {exc}") from exc
@@ -1415,9 +1419,7 @@ def _candidate_execution_binding(
         raise RefreshCandidateError("scan execution profile is unavailable")
     try:
         server_command, server_args = launch_spec(server.source)
-        expected_server_process_digest = sandbox_server_process_digest(
-            server_command, server_args
-        )
+        expected_server_process_digest = sandbox_server_process_digest(server_command, server_args)
     except Exception as exc:  # normalized below; no execution occurs here
         if local_process:
             raise RefreshCandidateError("scan execution command binding is unavailable") from exc
@@ -1942,6 +1944,7 @@ def create_refresh_candidate(
         try:
             from mcp_trust.grade_refresh import (  # noqa: PLC0415
                 GradeRefreshError,
+                catalog_inventory,
                 digest_file,
                 load_policy,
                 revalidate_ready_preflight_qualifications,
@@ -1952,6 +1955,15 @@ def create_refresh_candidate(
                 effective_policy_path,
                 seed_path,
                 masked_path,
+            )
+            expected_catalog_inventory = catalog_inventory(
+                seed_path=seed_path,
+                masked_path=masked_path,
+                policy_path=effective_policy_path,
+            )
+            expected_catalog_counts = expected_catalog_inventory["counts"]
+            expected_catalog_inventory_digest = "sha256:" + _sha256_bytes(
+                _json_bytes(expected_catalog_inventory)
             )
             policy_digest = digest_file(effective_policy_path)
         except (GradeRefreshError, OSError) as exc:
@@ -1994,11 +2006,15 @@ def create_refresh_candidate(
             validate_ready_preflight_contract(
                 qualification_receipt,
                 expected_image_references=expected_image_references,
+                expected_catalog_counts=expected_catalog_counts,
+                expected_catalog_inventory_digest=expected_catalog_inventory_digest,
             )
             (_qualification_revalidator or revalidate_ready_preflight_qualifications)(
                 qualification_receipt,
                 repo_root=repo_root,
                 expected_image_references=expected_image_references,
+                expected_catalog_counts=expected_catalog_counts,
+                expected_catalog_inventory_digest=expected_catalog_inventory_digest,
                 now=fixed_now,
             )
         except GradeRefreshError as exc:
@@ -2030,6 +2046,8 @@ def create_refresh_candidate(
             qualification_receipt,
             seed_sha256=reviewed.seed_sha256,
             masked_sha256=reviewed.masked_sha256,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
             sandbox_evidence=sandbox_evidence,
             now=fixed_now,
             current_source_binding=qualified_source_binding,
@@ -2151,8 +2169,7 @@ def create_refresh_candidate(
                         (
                             profile
                             for profile in sandbox_evidence.get("profiles", [])
-                            if isinstance(profile, dict)
-                            and profile.get("image") == requested_image
+                            if isinstance(profile, dict) and profile.get("image") == requested_image
                         ),
                         None,
                     )
@@ -2192,9 +2209,7 @@ def create_refresh_candidate(
                                 ),
                                 "sandbox_runtime_readback": (
                                     "VERIFIED"
-                                    if isinstance(
-                                        engine_result.sandbox_runtime_readback, dict
-                                    )
+                                    if isinstance(engine_result.sandbox_runtime_readback, dict)
                                     and engine_result.sandbox_runtime_readback.get("state")
                                     == "VERIFIED"
                                     else "UNKNOWN"
@@ -2788,6 +2803,8 @@ def verify_refresh_candidate(
     reviewed_inputs_bound = False
     expected_policy_scannable: frozenset[str] | None = None
     expected_policy_blocked: frozenset[str] | None = None
+    expected_catalog_counts: object = None
+    expected_catalog_inventory_digest: object = None
     if (expected_seed_path is None) != (expected_masked_path is None):
         errors.append("reviewed_inputs_incomplete")
     elif expected_seed_path is not None and expected_masked_path is not None:
@@ -2808,13 +2825,24 @@ def verify_refresh_candidate(
             try:
                 from mcp_trust.grade_refresh import (  # noqa: PLC0415
                     GradeRefreshError,
+                    catalog_inventory,
                     load_policy,
                 )
 
+                expected_policy_path = expected_seed_path.with_name("refresh_policy.json")
                 expected_policy = load_policy(
-                    expected_seed_path.with_name("refresh_policy.json"),
+                    expected_policy_path,
                     expected_seed_path,
                     expected_masked_path,
+                )
+                expected_catalog_inventory = catalog_inventory(
+                    seed_path=expected_seed_path,
+                    masked_path=expected_masked_path,
+                    policy_path=expected_policy_path,
+                )
+                expected_catalog_counts = expected_catalog_inventory["counts"]
+                expected_catalog_inventory_digest = "sha256:" + _sha256_bytes(
+                    _json_bytes(expected_catalog_inventory)
                 )
                 expected_policy_scannable = expected_policy.scannable
                 expected_policy_blocked = expected_policy.blocked
@@ -2947,12 +2975,19 @@ def verify_refresh_candidate(
                     captured,
                     "qualification_receipt.json",
                 )
+                receipt_catalog = (
+                    qualification_receipt.get("catalog")
+                    if isinstance(qualification_receipt, dict)
+                    else None
+                )
                 current_source = (_source_binding_provider or source_binding)(repo_root)
                 expected_image_references = sorted(reviewed_profile_bindings)
                 (_qualification_revalidator or revalidate_ready_preflight_qualifications)(
                     qualification_receipt,
                     repo_root=repo_root,
                     expected_image_references=expected_image_references,
+                    expected_catalog_counts=expected_catalog_counts,
+                    expected_catalog_inventory_digest=expected_catalog_inventory_digest,
                     now=created_at or fixed_now,
                 )
                 if (_source_binding_provider or source_binding)(repo_root) != current_source:
@@ -2963,16 +2998,13 @@ def verify_refresh_candidate(
                     qualification_receipt,
                     seed_sha256=manifest_catalog["seed_sha256"],
                     masked_sha256=manifest_masking["sha256"],
+                    expected_catalog_counts=expected_catalog_counts,
+                    expected_catalog_inventory_digest=expected_catalog_inventory_digest,
                     sandbox_evidence=sandbox_manifest,
                     now=created_at or fixed_now,
                     current_source_binding=current_source,
                 )
                 qualification_valid = qualification_manifest == expected_qualification
-                receipt_catalog = (
-                    qualification_receipt.get("catalog")
-                    if isinstance(qualification_receipt, dict)
-                    else None
-                )
                 receipt_boundary = (
                     receipt_catalog.get("execution_boundary")
                     if isinstance(receipt_catalog, dict)

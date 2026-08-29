@@ -96,9 +96,7 @@ def _runtime_readback(*, image_id: str = IMAGE_DIGEST) -> dict[str, object]:
             "image_environment_names": ["PATH"],
             "injected_dummy_env_names": [],
             "secret_values_emitted_in_readback": False,
-            "server_process_cmdline_digest": sandbox_server_process_digest(
-                "/opt/alpha", []
-            ),
+            "server_process_cmdline_digest": sandbox_server_process_digest("/opt/alpha", []),
             "workdir": "/scan",
             "root_write_denied": True,
             "workdir_write_verified": True,
@@ -297,6 +295,11 @@ def _qualification_receipt(
         _write_refresh_policy(seed_path, masked_path)
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
     policy_digest = "sha256:" + hashlib.sha256(policy_path.read_bytes()).hexdigest()
+    inventory = grade_refresh.catalog_inventory(
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=policy_path,
+    )
     source_files = {
         "src/mcp_trust/catalog/refresh_policy.json": policy_digest,
         **{str(binding["path"]): str(binding["sha256"]) for binding in build_sources.values()},
@@ -323,10 +326,7 @@ def _qualification_receipt(
         ),
         "catalog": {
             "denominator": policy["catalog_denominator"],
-            "counts": {
-                "scannable": len(policy["scannable"]),
-                "blocked": len(policy["blocked"]),
-            },
+            "counts": inventory["counts"],
             "execution_boundary": {
                 "schema": "McpTrustRefreshExecutionBoundaryV1",
                 "scannable": sorted(policy["scannable"]),
@@ -335,6 +335,9 @@ def _qualification_receipt(
             "seed_digest": "sha256:" + hashlib.sha256(seed_path.read_bytes()).hexdigest(),
             "masking_digest": "sha256:" + hashlib.sha256(masked_path.read_bytes()).hexdigest(),
             "policy_digest": policy_digest,
+            "inventory_digest": grade_refresh.digest_bytes(
+                grade_refresh.canonical_bytes(inventory)
+            ),
             "image_build_sources": build_sources,
         },
         "sandbox": {
@@ -373,6 +376,23 @@ def _qualification_source_provider(receipt: dict[str, object]):
     source = receipt["source_binding"]
     assert isinstance(source, dict)
     return lambda _repo_root: source
+
+
+def _expected_catalog_counts(seed_path: Path, masked_path: Path) -> object:
+    return grade_refresh.catalog_inventory(
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=seed_path.with_name("refresh_policy.json"),
+    )["counts"]
+
+
+def _expected_catalog_inventory_digest(seed_path: Path, masked_path: Path) -> str:
+    inventory = grade_refresh.catalog_inventory(
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=seed_path.with_name("refresh_policy.json"),
+    )
+    return grade_refresh.digest_bytes(grade_refresh.canonical_bytes(inventory))
 
 
 def _test_current_source_kwargs(candidate: Path) -> dict[str, object]:
@@ -496,6 +516,10 @@ def test_qualification_rejects_build_digest_not_bound_to_source_tree(
             receipt,
             seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
             masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
             sandbox_evidence={"profiles": [profile]},
             now=FIXED_NOW,
         )
@@ -531,6 +555,10 @@ def test_qualification_requires_exact_build_source_image_coverage(
             receipt,
             seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
             masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
             sandbox_evidence={"profiles": [profile]},
             now=FIXED_NOW,
         )
@@ -596,6 +624,10 @@ def test_qualification_rejects_self_redigested_ready_evidence_tampering(
             receipt,
             seed_sha256=hashlib.sha256(seed_path.read_bytes()).hexdigest(),
             masked_sha256=hashlib.sha256(masked_path.read_bytes()).hexdigest(),
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
             sandbox_evidence={"profiles": [profile]},
             now=FIXED_NOW,
         )
@@ -949,6 +981,10 @@ def test_static_image_qualification_is_recomputed_from_current_bytes(
         receipt,
         repo_root=ROOT,
         expected_image_references=["required:image"],
+        expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+        expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+            seed_path, masked_path
+        ),
         now=FIXED_NOW,
     )
     receipt["catalog"]["image_build_sources"]["required:image"]["qualification"][
@@ -961,6 +997,10 @@ def test_static_image_qualification_is_recomputed_from_current_bytes(
             receipt,
             repo_root=ROOT,
             expected_image_references=["required:image"],
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
             now=FIXED_NOW,
         )
 
@@ -988,6 +1028,10 @@ def test_ready_preflight_revalidation_rejects_engine_materialization_change(
             receipt,
             repo_root=ROOT,
             expected_image_references=[],
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
             now=FIXED_NOW,
         )
 
@@ -1007,6 +1051,151 @@ def test_ready_preflight_rejects_legacy_schema_before_execution(
         grade_refresh.validate_ready_preflight_contract(
             receipt,
             expected_image_references=[],
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
+        )
+
+
+def test_ready_preflight_accepts_complete_dynamic_catalog_contract(tmp_path: Path) -> None:
+    _db, seed_path, masked_path = _inputs(
+        tmp_path,
+        slugs=("alpha", "beta", "gamma"),
+        masked=("gamma",),
+    )
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
+
+    grade_refresh.validate_ready_preflight_contract(
+        receipt,
+        expected_image_references=[],
+        expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+        expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+            seed_path, masked_path
+        ),
+    )
+
+    assert receipt["catalog"]["denominator"] == 3
+    assert receipt["catalog"]["counts"]["scannable"] == 2
+    assert receipt["catalog"]["counts"]["blocked"] == 1
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-key",
+        "extra-key",
+        "boolean",
+        "float",
+        "negative",
+        "denominator-mismatch",
+        "category-exceeds-blocked",
+        "image-source-exceeds-unsafe",
+        "boundary-extra-key",
+        "boundary-duplicate",
+        "boundary-non-string",
+        "boundary-length-mismatch",
+        "boundary-overlap",
+        "boundary-unsafe-slug",
+        "catalog-missing-provenance",
+        "catalog-extra-key",
+        "inventory-digest-mismatch",
+    ],
+)
+def test_ready_preflight_rejects_false_green_catalog_contracts(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    _db, seed_path, masked_path = _inputs(tmp_path)
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
+    catalog = receipt["catalog"]
+    assert isinstance(catalog, dict)
+    counts = catalog["counts"]
+    boundary = catalog["execution_boundary"]
+    assert isinstance(counts, dict)
+    assert isinstance(boundary, dict)
+    if mutation == "missing-key":
+        counts.pop("intentionally_masked")
+    elif mutation == "extra-key":
+        counts["unexpected"] = 0
+    elif mutation == "boolean":
+        counts["missing_image_build_source"] = False
+    elif mutation == "float":
+        counts["scannable"] = 1.0
+    elif mutation == "negative":
+        counts["unsupported_upstream"] = -1
+    elif mutation == "denominator-mismatch":
+        catalog["denominator"] = 2
+    elif mutation == "category-exceeds-blocked":
+        counts["credential_dependent"] = 1
+    elif mutation == "image-source-exceeds-unsafe":
+        counts["unqualified_image_build_source"] = 2
+    elif mutation == "boundary-extra-key":
+        boundary["unexpected"] = []
+    elif mutation == "boundary-duplicate":
+        boundary["scannable"] = ["alpha", "alpha"]
+    elif mutation == "boundary-non-string":
+        boundary["scannable"] = [1]
+    elif mutation == "boundary-length-mismatch":
+        boundary["scannable"] = []
+    elif mutation == "boundary-overlap":
+        catalog["denominator"] = 2
+        counts["blocked"] = 1
+        boundary["blocked"] = ["alpha"]
+    elif mutation == "boundary-unsafe-slug":
+        boundary["scannable"] = ["../alpha"]
+    elif mutation == "catalog-missing-provenance":
+        catalog.pop("inventory_digest")
+    elif mutation == "catalog-extra-key":
+        catalog["unexpected"] = None
+    else:
+        catalog["inventory_digest"] = "sha256:" + "f" * 64
+    _redigest_qualification(receipt)
+
+    with pytest.raises(grade_refresh.GradeRefreshError, match="catalog evidence"):
+        grade_refresh.validate_ready_preflight_contract(
+            receipt,
+            expected_image_references=[],
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
+        )
+
+
+def test_ready_preflight_revalidation_rejects_count_drift_before_engine_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _db, seed_path, masked_path = _inputs(
+        tmp_path,
+        slugs=("alpha", "beta", "gamma"),
+        masked=("gamma",),
+    )
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
+    receipt["catalog"]["counts"]["intentionally_masked"] = 0
+    receipt["catalog"]["counts"]["unsupported_upstream"] = 1
+    _redigest_qualification(receipt)
+
+    def forbidden_engine_check(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("engine materialization must not run")
+
+    monkeypatch.setattr(
+        grade_refresh,
+        "verify_engine_materialization_receipt",
+        forbidden_engine_check,
+    )
+
+    with pytest.raises(grade_refresh.GradeRefreshError, match="catalog evidence"):
+        grade_refresh.revalidate_ready_preflight_qualifications(
+            receipt,
+            repo_root=ROOT,
+            expected_image_references=[],
+            expected_catalog_counts=_expected_catalog_counts(seed_path, masked_path),
+            expected_catalog_inventory_digest=_expected_catalog_inventory_digest(
+                seed_path, masked_path
+            ),
+            now=FIXED_NOW,
         )
 
 
@@ -2329,7 +2518,11 @@ def test_verifier_rejects_qualification_boundary_that_differs_from_live_policy(
         "scannable": [],
         "blocked": ["alpha"],
     }
-    qualification["catalog"]["counts"] = {"scannable": 0, "blocked": 1}
+    qualification["catalog"]["counts"] = {
+        **qualification["catalog"]["counts"],
+        "scannable": 0,
+        "blocked": 1,
+    }
     qualification.pop("receipt_digest")
     qualification["receipt_digest"] = (
         "sha256:" + hashlib.sha256(refresh_module._json_bytes(qualification)).hexdigest()
@@ -2353,7 +2546,7 @@ def test_verifier_rejects_qualification_boundary_that_differs_from_live_policy(
 
     assert verification["structural_valid"] is False
     assert verification["publication_ready"] is False
-    assert "qualification_execution_boundary_mismatch" in verification["errors"]
+    assert "qualification_receipt_invalid" in verification["errors"]
 
 
 def test_failed_rescan_excludes_the_previous_grade_from_static_snapshot(
@@ -2677,9 +2870,7 @@ def test_masked_grade_is_withheld_from_results_and_snapshot(tmp_path: Path) -> N
     assert proof["evidence_present"] is True
     assert proof["format_version"] == 2
     assert proof["execution_binding"]["schema"] == "McpTrustScanExecutionBindingV2"
-    assert proof["execution_binding"]["sandbox"]["runtime_readback"]["state"] == (
-        "NOT_APPLICABLE"
-    )
+    assert proof["execution_binding"]["sandbox"]["runtime_readback"]["state"] == ("NOT_APPLICABLE")
     assert refresh_module._masked_proof_digest_valid(proof) is True
     assert "scan" not in proof
     assert "evidence" not in proof
@@ -2699,13 +2890,11 @@ def test_rebound_masked_proof_cannot_forge_runtime_binding(tmp_path: Path) -> No
     candidate.chmod(0o700)
     proof_path.chmod(0o600)
     proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    proof["execution_binding"]["sandbox"]["runtime_readback"] = {
-        "state": "VERIFIED"
-    }
+    proof["execution_binding"]["sandbox"]["runtime_readback"] = {"state": "VERIFIED"}
     proof.pop("proof_digest")
-    proof["proof_digest"] = "sha256:" + hashlib.sha256(
-        refresh_module._json_bytes(proof)
-    ).hexdigest()
+    proof["proof_digest"] = (
+        "sha256:" + hashlib.sha256(refresh_module._json_bytes(proof)).hexdigest()
+    )
     proof_path.write_bytes(refresh_module._json_bytes(proof))
     _rebind_candidate_artifacts(candidate, f"masked-proofs/{proof_ref}")
 
@@ -3384,9 +3573,10 @@ def test_complete_candidate_requires_reviewed_inputs_for_publication(
         expected_masked_path=masked_path,
     )
 
-    assert unbound["structural_valid"] is True
+    assert unbound["structural_valid"] is False
     assert unbound["reviewed_inputs_bound"] is False
     assert unbound["publication_ready"] is False
+    assert "qualification_receipt_invalid" in unbound["errors"]
     assert bound["structural_valid"] is True
     assert bound["reviewed_inputs_bound"] is True
     assert bound["publication_ready"] is True
