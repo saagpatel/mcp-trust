@@ -69,7 +69,7 @@ from mcp_trust.refresh import (
 )
 from mcp_trust.store.repository import ServerRepository
 
-TARGET_SCAN_SCHEMA = "McpTrustTargetScanArtifactV1"
+TARGET_SCAN_SCHEMA = "McpTrustTargetScanArtifactV2"
 TARGET_SCAN_CLAIM_CEILING = (
     "One controlled local target scan with receipt-bound runtime evidence only; "
     "not an endorsement, production-safety claim, public-freshness claim, "
@@ -141,9 +141,14 @@ _REVIEWED_KEYS = frozenset(
 _SOURCE_KEYS = frozenset({"repository", "revision", "source_tree_digest"})
 _REGISTRY_KEYS = frozenset(
     {
+        "authorized_canonical_path_sha256",
+        "authorized_content_sha256",
+        "required_mode",
+        "observed_mode",
         "pre_sha256",
         "post_sha256",
         "stable_descriptor_identity",
+        "descriptor_bound_query",
         "sidecars_absent",
     }
 )
@@ -215,13 +220,55 @@ class _Engine(Protocol):
 @dataclass(frozen=True)
 class _RegistryRead:
     descriptor: int
+    canonical_path: Path
+    canonical_path_sha256: str
     signature: tuple[int, int, int, int, int, int]
     sha256: str
+    mode: str
     server: Server
 
 
 def _sha256_bytes(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _canonical_registry_path(path: Path) -> tuple[Path, str]:
+    try:
+        canonical = path.resolve(strict=True)
+    except OSError as exc:
+        raise RefreshCandidateError("registry database canonical path is unavailable") from exc
+    return canonical, _sha256_bytes(os.fsencode(canonical))
+
+
+def _require_expected_database_binding(
+    *,
+    canonical_path_sha256: str,
+    content_sha256: str,
+) -> None:
+    if (
+        _SHA256.fullmatch(canonical_path_sha256) is None
+        or _SHA256.fullmatch(content_sha256) is None
+    ):
+        raise RefreshCandidateError("authorized registry database binding is invalid")
+
+
+def _query_registry_snapshot(content: bytes, slug: str, *, failure: str) -> Server | None:
+    """Query only the exact bytes already read from the validated source descriptor."""
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(":memory:")
+        connection.deserialize(content, name="main")
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        query_only = connection.execute("PRAGMA query_only").fetchone()
+        if query_only is None or query_only[0] != 1:
+            raise RefreshCandidateError("registry database query-only mode is unavailable")
+        return ServerRepository(connection).get(slug)
+    except sqlite3.Error as exc:
+        raise RefreshCandidateError(failure) from exc
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _stat_signature(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
@@ -263,26 +310,41 @@ def _require_sidecars_absent(path: Path) -> None:
 
 
 @contextmanager
-def _open_registry_target(path: Path, slug: str) -> Iterator[_RegistryRead]:
-    """Hold a stable owner-private DB descriptor while reading one immutable row."""
-    _require_sidecars_absent(path)
+def _open_registry_target(
+    path: Path,
+    slug: str,
+    *,
+    expected_canonical_path_sha256: str,
+    expected_content_sha256: str,
+) -> Iterator[_RegistryRead]:
+    """Bind authorization and queries to one exact owner-read-only DB descriptor."""
+    _require_expected_database_binding(
+        canonical_path_sha256=expected_canonical_path_sha256,
+        content_sha256=expected_content_sha256,
+    )
+    canonical_path, canonical_path_sha256 = _canonical_registry_path(path)
+    if canonical_path_sha256 != expected_canonical_path_sha256:
+        raise RefreshCandidateError("registry database canonical path is not authorized")
+    _require_sidecars_absent(canonical_path)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
+        descriptor = os.open(canonical_path, flags)
     except OSError as exc:
         raise RefreshCandidateError("registry database cannot be opened safely") from exc
-    connection: sqlite3.Connection | None = None
     try:
         opened = os.fstat(descriptor)
         try:
-            current = os.stat(path, follow_symlinks=False)
+            current = os.stat(canonical_path, follow_symlinks=False)
         except OSError as exc:
             raise RefreshCandidateError("registry database identity is unavailable") from exc
+        opened_mode = stat.S_IMODE(opened.st_mode)
+        current_mode = stat.S_IMODE(current.st_mode)
         if (
             not stat.S_ISREG(opened.st_mode)
             or opened.st_uid != os.geteuid()
             or opened.st_nlink != 1
-            or opened.st_mode & 0o077
+            or opened_mode != 0o400
+            or current_mode != 0o400
             or _stat_signature(opened) != _stat_signature(current)
         ):
             raise RefreshCandidateError("registry database ownership or identity is unsafe")
@@ -291,61 +353,51 @@ def _open_registry_target(path: Path, slug: str) -> Iterator[_RegistryRead]:
         if signature != _stat_signature(opened):
             raise RefreshCandidateError("registry database changed during binding")
         database_sha256 = _sha256_bytes(content)
-        try:
-            connection = sqlite3.connect(
-                f"{path.resolve(strict=True).as_uri()}?mode=ro&immutable=1",
-                uri=True,
-            )
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA query_only = ON")
-            query_only = connection.execute("PRAGMA query_only").fetchone()
-            if query_only is None or query_only[0] != 1:
-                raise RefreshCandidateError("registry database query-only mode is unavailable")
-            server = ServerRepository(connection).get(slug)
-        except (OSError, sqlite3.Error) as exc:
-            raise RefreshCandidateError("registry database immutable read failed") from exc
+        if database_sha256 != expected_content_sha256:
+            raise RefreshCandidateError("registry database content is not authorized")
+        server = _query_registry_snapshot(
+            content,
+            slug,
+            failure="registry database immutable read failed",
+        )
         if server is None:
             raise RefreshCandidateError("target is missing from the registry database")
         yield _RegistryRead(
             descriptor=descriptor,
+            canonical_path=canonical_path,
+            canonical_path_sha256=canonical_path_sha256,
             signature=signature,
             sha256=database_sha256,
+            mode="0400",
             server=server,
         )
     finally:
-        if connection is not None:
-            connection.close()
         os.close(descriptor)
 
 
-def _recheck_registry(path: Path, bound: _RegistryRead, expected_server: Server) -> str:
-    _require_sidecars_absent(path)
+def _recheck_registry(bound: _RegistryRead, expected_server: Server) -> str:
+    _require_sidecars_absent(bound.canonical_path)
     try:
         descriptor_stat = os.fstat(bound.descriptor)
-        current = os.stat(path, follow_symlinks=False)
+        current = os.stat(bound.canonical_path, follow_symlinks=False)
     except OSError as exc:
         raise RefreshCandidateError("registry database identity changed") from exc
     if (
         _stat_signature(descriptor_stat) != bound.signature
         or _stat_signature(current) != bound.signature
+        or stat.S_IMODE(descriptor_stat.st_mode) != 0o400
+        or stat.S_IMODE(current.st_mode) != 0o400
     ):
         raise RefreshCandidateError("registry database identity changed")
-    digest = _sha256_bytes(_read_descriptor(bound.descriptor, limit=64 * 1024 * 1024))
+    content = _read_descriptor(bound.descriptor, limit=64 * 1024 * 1024)
+    digest = _sha256_bytes(content)
     if digest != bound.sha256:
         raise RefreshCandidateError("registry database content changed")
-    try:
-        connection = sqlite3.connect(
-            f"{path.resolve(strict=True).as_uri()}?mode=ro&immutable=1",
-            uri=True,
-        )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
-        reread = ServerRepository(connection).get(expected_server.slug)
-    except sqlite3.Error as exc:
-        raise RefreshCandidateError("registry database immutable reread failed") from exc
-    finally:
-        if "connection" in locals():
-            connection.close()
+    reread = _query_registry_snapshot(
+        content,
+        expected_server.slug,
+        failure="registry database immutable reread failed",
+    )
     if reread is None or _server_identity(reread) != _server_identity(expected_server):
         raise RefreshCandidateError("registry target changed after the scan")
     return digest
@@ -673,9 +725,16 @@ def _validate_artifact_shape(payload: object) -> dict[str, Any]:
         or set(source) != _SOURCE_KEYS
         or not isinstance(registry, dict)
         or set(registry) != _REGISTRY_KEYS
+        or _SHA256.fullmatch(str(registry.get("authorized_canonical_path_sha256")))
+        is None
+        or _SHA256.fullmatch(str(registry.get("authorized_content_sha256"))) is None
+        or registry.get("required_mode") != "0400"
+        or registry.get("observed_mode") != "0400"
         or registry.get("pre_sha256") != registry.get("post_sha256")
+        or registry.get("pre_sha256") != registry.get("authorized_content_sha256")
         or _SHA256.fullmatch(str(registry.get("pre_sha256"))) is None
         or registry.get("stable_descriptor_identity") is not True
+        or registry.get("descriptor_bound_query") is not True
         or registry.get("sidecars_absent") is not True
         or not isinstance(qualification, dict)
         or set(qualification) != _QUALIFICATION_KEYS
@@ -898,6 +957,8 @@ def create_target_scan_artifact(
     *,
     slug: str,
     source_db: Path,
+    expected_db_canonical_path_sha256: str,
+    expected_db_content_sha256: str,
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
@@ -948,7 +1009,12 @@ def create_target_scan_artifact(
     if not isinstance(preflight, dict):
         raise RefreshCandidateError("qualification receipt must be one JSON object")
 
-    with _open_registry_target(source_db, slug) as registry:
+    with _open_registry_target(
+        source_db,
+        slug,
+        expected_canonical_path_sha256=expected_db_canonical_path_sha256,
+        expected_content_sha256=expected_db_content_sha256,
+    ) as registry:
         if _server_identity(registry.server) != _server_identity(target):
             raise RefreshCandidateError("registry target differs from the reviewed catalog")
         scannable_servers = [
@@ -1124,7 +1190,7 @@ def create_target_scan_artifact(
         post_live = _preflight_provider([target], default_image=requested_image)
         if post_live != live:
             raise RefreshCandidateError("target image binding changed after the scan")
-        post_database_sha256 = _recheck_registry(source_db, registry, target)
+        post_database_sha256 = _recheck_registry(registry, target)
 
         artifact: dict[str, Any] = {
             "schema": TARGET_SCAN_SCHEMA,
@@ -1140,9 +1206,14 @@ def create_target_scan_artifact(
             },
             "source_binding": source_projection,
             "registry_read_binding": {
-                "pre_sha256": f"sha256:{registry.sha256}",
-                "post_sha256": f"sha256:{post_database_sha256}",
+                "authorized_canonical_path_sha256": registry.canonical_path_sha256,
+                "authorized_content_sha256": registry.sha256,
+                "required_mode": "0400",
+                "observed_mode": registry.mode,
+                "pre_sha256": registry.sha256,
+                "post_sha256": post_database_sha256,
                 "stable_descriptor_identity": True,
+                "descriptor_bound_query": True,
                 "sidecars_absent": True,
             },
             "qualification_binding": qualification,
@@ -1155,9 +1226,9 @@ def create_target_scan_artifact(
         _validate_artifact_shape(artifact)
         if _source_binding_provider(repo_root) != initial_source:
             raise RefreshCandidateError("source binding changed before finalization")
-        if _recheck_registry(source_db, registry, target) != post_database_sha256:
+        if _recheck_registry(registry, target) != post_database_sha256:
             raise RefreshCandidateError("registry database changed before finalization")
-        _require_sidecars_absent(source_db)
+        _require_sidecars_absent(registry.canonical_path)
         _finalizer(output_path, artifact)
     return output_path
 
@@ -1166,6 +1237,8 @@ def verify_target_scan_artifact(
     artifact_path: Path,
     *,
     source_db: Path,
+    expected_db_canonical_path_sha256: str,
+    expected_db_content_sha256: str,
     seed_path: Path,
     masked_path: Path,
     policy_path: Path,
@@ -1299,7 +1372,12 @@ def verify_target_scan_artifact(
         != preflight.get("tool_versions", {}).get("mcp_audits")
     ):
         raise RefreshCandidateError("target scan qualification binding is no longer current")
-    with _open_registry_target(source_db, str(payload["target_slug"])) as registry:
+    with _open_registry_target(
+        source_db,
+        str(payload["target_slug"]),
+        expected_canonical_path_sha256=expected_db_canonical_path_sha256,
+        expected_content_sha256=expected_db_content_sha256,
+    ) as registry:
         expected = _select_target(
             payload["target_slug"],
             policy=policy,
@@ -1309,15 +1387,18 @@ def verify_target_scan_artifact(
         expected_requested_image = expected.source.sandbox_image or default_image
         if _server_identity(registry.server) != _server_identity(expected):
             raise RefreshCandidateError("target scan registry identity is no longer current")
-        current_db_sha256 = _recheck_registry(source_db, registry, expected)
+        current_db_sha256 = _recheck_registry(registry, expected)
     registry_binding = payload["registry_read_binding"]
     if (
         qualification.get("target_requested_image") != expected_requested_image
-        or registry_binding.get("pre_sha256") != f"sha256:{current_db_sha256}"
-        or registry_binding.get("post_sha256") != f"sha256:{current_db_sha256}"
+        or registry_binding.get("authorized_canonical_path_sha256")
+        != expected_db_canonical_path_sha256
+        or registry_binding.get("authorized_content_sha256") != expected_db_content_sha256
+        or registry_binding.get("pre_sha256") != current_db_sha256
+        or registry_binding.get("post_sha256") != current_db_sha256
     ):
         raise RefreshCandidateError("target scan registry binding is no longer current")
-    _require_sidecars_absent(source_db)
+    _require_sidecars_absent(registry.canonical_path)
     return {
         "schema": TARGET_SCAN_SCHEMA,
         "verified": True,

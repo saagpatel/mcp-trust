@@ -69,7 +69,7 @@ def _database(path: Path) -> Path:
     init_schema(connection)
     ServerRepository(connection).upsert(_target_server())
     connection.close()
-    path.chmod(0o600)
+    path.chmod(0o400)
     return path
 
 
@@ -254,9 +254,12 @@ def _engine_result(**updates: object) -> EngineResult:
 def _creation_kwargs(tmp_path: Path, engine: _Engine) -> dict[str, object]:
     output_parent = tmp_path / "receipts"
     output_parent.mkdir(mode=0o700)
+    database = _database(tmp_path / "registry.db")
     return {
         "slug": TARGET,
-        "source_db": _database(tmp_path / "registry.db"),
+        "source_db": database,
+        "expected_db_canonical_path_sha256": target_scan._canonical_registry_path(database)[1],
+        "expected_db_content_sha256": digest_file(database),
         "seed_path": SEED,
         "masked_path": MASKED,
         "policy_path": POLICY,
@@ -319,6 +322,10 @@ def test_cli_rejects_repeated_target_selector() -> None:
                 "mcp-reference-fetch",
                 "--db",
                 "registry.db",
+                "--expected-db-canonical-path-sha256",
+                "sha256:" + "1" * 64,
+                "--expected-db-content-sha256",
+                "sha256:" + "2" * 64,
                 "--qualification-receipt",
                 "preflight.json",
                 "--out",
@@ -380,13 +387,25 @@ def test_ordinary_scan_receipt_cannot_verify_as_target_artifact() -> None:
 
 def test_registry_read_is_immutable_exact_and_rejects_sidecars(tmp_path: Path) -> None:
     database = _database(tmp_path / "registry.db")
-    with target_scan._open_registry_target(database, TARGET) as bound:
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    with target_scan._open_registry_target(
+        database,
+        TARGET,
+        expected_canonical_path_sha256=expected_path,
+        expected_content_sha256=expected_content,
+    ) as bound:
         assert bound.server.slug == TARGET
-        assert len(bound.sha256) == 64
-        assert target_scan._recheck_registry(database, bound, bound.server) == bound.sha256
+        assert len(bound.sha256) == 71
+        assert target_scan._recheck_registry(bound, bound.server) == bound.sha256
     Path(f"{database}-wal").write_bytes(b"foreign")
     with pytest.raises(RefreshCandidateError, match="sidecar"):
-        with target_scan._open_registry_target(database, TARGET):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=expected_path,
+            expected_content_sha256=expected_content,
+        ):
             pass
 
 
@@ -394,8 +413,125 @@ def test_registry_rejects_group_or_world_permissions(tmp_path: Path) -> None:
     database = _database(tmp_path / "registry.db")
     database.chmod(0o640)
     with pytest.raises(RefreshCandidateError, match="ownership"):
-        with target_scan._open_registry_target(database, TARGET):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=target_scan._canonical_registry_path(database)[1],
+            expected_content_sha256=digest_file(database),
+        ):
             pass
+
+
+def test_registry_requires_exact_mode_0400(tmp_path: Path) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    database.chmod(0o600)
+
+    with pytest.raises(RefreshCandidateError, match="ownership or identity"):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=expected_path,
+            expected_content_sha256=expected_content,
+        ):
+            pass
+
+
+@pytest.mark.parametrize("binding", ["path", "content"])
+def test_registry_rejects_wrong_authorized_digest_before_query(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    binding: str,
+) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    queried = False
+
+    def reject_query(*_args: object, **_kwargs: object) -> None:
+        nonlocal queried
+        queried = True
+        raise AssertionError("unauthorized DB reached the query boundary")
+
+    monkeypatch.setattr(target_scan, "_query_registry_snapshot", reject_query)
+    with pytest.raises(RefreshCandidateError, match="not authorized"):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=(
+                "sha256:" + "0" * 64 if binding == "path" else expected_path
+            ),
+            expected_content_sha256=(
+                "sha256:" + "0" * 64 if binding == "content" else expected_content
+            ),
+        ):
+            pass
+    assert queried is False
+
+
+def test_registry_queries_only_validated_descriptor_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    real_connect = sqlite3.connect
+    connected_to: list[object] = []
+
+    def connect(database_name: object, *args: object, **kwargs: object) -> sqlite3.Connection:
+        connected_to.append(database_name)
+        return real_connect(database_name, *args, **kwargs)
+
+    monkeypatch.setattr(target_scan.sqlite3, "connect", connect)
+    with target_scan._open_registry_target(
+        database,
+        TARGET,
+        expected_canonical_path_sha256=expected_path,
+        expected_content_sha256=expected_content,
+    ) as bound:
+        assert target_scan._recheck_registry(bound, bound.server) == expected_content
+
+    assert connected_to == [":memory:", ":memory:"]
+
+
+def test_registry_path_replacement_cannot_change_queried_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = _database(tmp_path / "registry.db")
+    held_path = tmp_path / "held-original.db"
+    replacement = tmp_path / "replacement.db"
+    connection = connect(replacement)
+    init_schema(connection)
+    connection.close()
+    replacement.chmod(0o400)
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    real_query = target_scan._query_registry_snapshot
+    swapped = False
+
+    def swap_then_query(content: bytes, slug: str, *, failure: str) -> Server | None:
+        nonlocal swapped
+        if not swapped:
+            database.rename(held_path)
+            replacement.rename(database)
+            swapped = True
+        return real_query(content, slug, failure=failure)
+
+    monkeypatch.setattr(target_scan, "_query_registry_snapshot", swap_then_query)
+    with target_scan._open_registry_target(
+        database,
+        TARGET,
+        expected_canonical_path_sha256=expected_path,
+        expected_content_sha256=expected_content,
+    ) as bound:
+        assert bound.server.slug == TARGET
+        with pytest.raises(RefreshCandidateError, match="identity changed"):
+            target_scan._recheck_registry(bound, bound.server)
+
+    assert swapped is True
 
 
 def test_create_scans_one_target_and_seals_receipt(tmp_path: Path) -> None:
@@ -420,6 +556,17 @@ def test_create_scans_one_target_and_seals_receipt(tmp_path: Path) -> None:
         artifact["registry_read_binding"]["pre_sha256"]
         == artifact["registry_read_binding"]["post_sha256"]
     )
+    assert artifact["registry_read_binding"] == {
+        "authorized_canonical_path_sha256": kwargs["expected_db_canonical_path_sha256"],
+        "authorized_content_sha256": kwargs["expected_db_content_sha256"],
+        "required_mode": "0400",
+        "observed_mode": "0400",
+        "pre_sha256": kwargs["expected_db_content_sha256"],
+        "post_sha256": kwargs["expected_db_content_sha256"],
+        "stable_descriptor_identity": True,
+        "descriptor_bound_query": True,
+        "sidecars_absent": True,
+    }
 
 
 def test_full_catalog_count_binding_accepts_exact_producer_shape(tmp_path: Path) -> None:
@@ -635,6 +782,7 @@ def test_database_drift_after_scan_writes_no_artifact(tmp_path: Path) -> None:
         def scan(self, source: object) -> EngineResult:
             database = kwargs["source_db"]
             assert isinstance(database, Path)
+            database.chmod(0o600)
             with database.open("ab") as handle:
                 handle.write(b"drift")
             return super().scan(source)
@@ -735,6 +883,8 @@ def test_verifier_rebinds_source_preflight_and_registry(tmp_path: Path) -> None:
     verification = target_scan.verify_target_scan_artifact(
         artifact,
         source_db=kwargs["source_db"],
+        expected_db_canonical_path_sha256=kwargs["expected_db_canonical_path_sha256"],
+        expected_db_content_sha256=kwargs["expected_db_content_sha256"],
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
@@ -746,3 +896,47 @@ def test_verifier_rebinds_source_preflight_and_registry(tmp_path: Path) -> None:
     )
     assert verification["verified"] is True
     assert verification["receipt_only"] is True
+
+
+@pytest.mark.parametrize("binding", ["path", "content", "mode", "query"])
+def test_verifier_rejects_forged_registry_authorization_binding(
+    tmp_path: Path,
+    binding: str,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    registry = payload["registry_read_binding"]
+    if binding == "path":
+        registry["authorized_canonical_path_sha256"] = "sha256:" + "0" * 64
+    elif binding == "content":
+        registry["authorized_content_sha256"] = "sha256:" + "0" * 64
+        registry["pre_sha256"] = registry["authorized_content_sha256"]
+        registry["post_sha256"] = registry["authorized_content_sha256"]
+    elif binding == "mode":
+        registry["observed_mode"] = "0600"
+    else:
+        registry["descriptor_bound_query"] = False
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings|registry binding"):
+        target_scan.verify_target_scan_artifact(
+            artifact,
+            source_db=kwargs["source_db"],
+            expected_db_canonical_path_sha256=kwargs[
+                "expected_db_canonical_path_sha256"
+            ],
+            expected_db_content_sha256=kwargs["expected_db_content_sha256"],
+            seed_path=SEED,
+            masked_path=MASKED,
+            policy_path=POLICY,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            repo_root=ROOT,
+            now=FIXED_NOW,
+            _source_binding_provider=lambda _root: SOURCE_BINDING,
+            _qualification_revalidator=lambda *_args, **_kwargs: None,
+        )

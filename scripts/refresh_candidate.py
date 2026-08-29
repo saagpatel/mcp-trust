@@ -92,6 +92,16 @@ def _parser() -> argparse.ArgumentParser:
     target.add_argument("--slug", required=True, action=_SingleTargetAction)
     target.add_argument("--db", type=Path, required=True)
     target.add_argument(
+        "--expected-db-canonical-path-sha256",
+        required=True,
+        help="Operator-authorized sha256 of the canonical absolute registry DB path.",
+    )
+    target.add_argument(
+        "--expected-db-content-sha256",
+        required=True,
+        help="Operator-authorized sha256 of the exact registry DB bytes.",
+    )
+    target.add_argument(
         "--seed",
         type=Path,
         default=Path("src/mcp_trust/catalog/seed_servers.json"),
@@ -194,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
             artifact = create_target_scan_artifact(
                 slug=args.slug,
                 source_db=args.db,
+                expected_db_canonical_path_sha256=args.expected_db_canonical_path_sha256,
+                expected_db_content_sha256=args.expected_db_content_sha256,
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
                 policy_path=args.policy,
@@ -204,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
             verification = verify_target_scan_artifact(
                 artifact,
                 source_db=args.db,
+                expected_db_canonical_path_sha256=args.expected_db_canonical_path_sha256,
+                expected_db_content_sha256=args.expected_db_content_sha256,
                 seed_path=args.seed,
                 masked_path=args.masked_grades,
                 policy_path=args.policy,
