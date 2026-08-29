@@ -197,6 +197,34 @@ Docker is the current baseline, not proof against a kernel/runtime compromise.
 If the threat model requires stronger isolation, use a verified microVM/gVisor
 boundary and requalify the same controls before execution.
 
+## Target-scoped controlled receipt
+
+`McpTrustTargetScanArtifactV1` is a separate, receipt-only path for the first
+controlled server scan. It does not add a selector or partial mode to the
+corpus-wide candidate builder. Before inspecting the one target image, it
+validates and reproduces the complete five-image `READY` qualification against
+the exact 31-row policy boundary (18 scannable, 13 blocked). Only one exact
+policy-scannable local target then reaches Docker and `MCPAuditEngine`.
+
+The source registry is never initialized, copied, seeded, vacuumed, or written.
+It is held as an owner-private regular file, opened with SQLite
+`mode=ro&immutable=1` and `query_only`, and bound by stable descriptor identity,
+pre/post SHA-256, exact reviewed target identity, and absent WAL, SHM, and journal
+sidecars. A successful artifact embeds the existing V2 scan receipt, exact
+source/tree/policy/preflight/engine/image/runtime/cleanup bindings, explicit
+no-publication authority, and a recursive privacy decision. Missing evidence,
+timeout, drift, cleanup ambiguity, privacy failure, or a non-`mcpaudit` result
+writes no artifact and no grade.
+
+Finalization accepts only a previously absent file in an existing owner-private
+directory. It uses a retained directory descriptor, exclusive no-follow
+temporary file, file and directory fsync, platform atomic no-replace rename,
+mode `0400`, and independent final readback. The verifier also requires current
+clean source, reviewed inputs, complete preflight qualifications, and the same
+read-only registry row. Receipt verification is not repeatability, candidate
+readiness, publication, deployment, production freshness, safety, or
+endorsement evidence.
+
 ## Grade-diff triage
 
 Review is mandatory for:

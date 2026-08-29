@@ -20,6 +20,25 @@ from mcp_trust.refresh import (
     publish_refresh_candidate,
     verify_refresh_candidate,
 )
+from mcp_trust.target_scan import (
+    create_target_scan_artifact,
+    verify_target_scan_artifact,
+)
+
+
+class _SingleTargetAction(argparse.Action):
+    """Reject repeated target selectors instead of silently taking the last one."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str,
+        option_string: str | None = None,
+    ) -> None:
+        if getattr(namespace, self.dest, None) is not None:
+            parser.error(f"{option_string or self.dest} may be supplied exactly once")
+        setattr(namespace, self.dest, values)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -65,6 +84,27 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("src/mcp_trust/catalog/refresh_policy.json"),
         help="Reviewed execution policy whose scannable rows may run.",
     )
+
+    target = subcommands.add_parser(
+        "target-receipt",
+        help="Create one review-only target receipt without changing the registry.",
+    )
+    target.add_argument("--slug", required=True, action=_SingleTargetAction)
+    target.add_argument("--db", type=Path, required=True)
+    target.add_argument(
+        "--seed",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/seed_servers.json"),
+    )
+    target.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
+    target.add_argument(
+        "--policy",
+        type=Path,
+        default=Path("src/mcp_trust/catalog/refresh_policy.json"),
+    )
+    target.add_argument("--qualification-receipt", type=Path, required=True)
+    target.add_argument("--repo-root", type=Path, default=Path.cwd())
+    target.add_argument("--out", type=Path, required=True)
 
     verify = subcommands.add_parser("verify", help="Verify a candidate without mutation.")
     verify.add_argument("candidate", type=Path)
@@ -150,6 +190,28 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0 if verification["publication_ready"] else 1
+        if args.command == "target-receipt":
+            artifact = create_target_scan_artifact(
+                slug=args.slug,
+                source_db=args.db,
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
+                policy_path=args.policy,
+                qualification_receipt_path=args.qualification_receipt,
+                repo_root=args.repo_root,
+                output_path=args.out,
+            )
+            verification = verify_target_scan_artifact(
+                artifact,
+                source_db=args.db,
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
+                policy_path=args.policy,
+                qualification_receipt_path=args.qualification_receipt,
+                repo_root=args.repo_root,
+            )
+            print(json.dumps(verification, indent=2, sort_keys=True))
+            return 0 if verification["verified"] else 1
         if args.command == "verify":
             verification = verify_refresh_candidate(
                 args.candidate,

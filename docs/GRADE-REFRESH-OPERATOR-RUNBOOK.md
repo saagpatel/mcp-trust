@@ -132,6 +132,35 @@ If any row is blocked, record it and continue independent rows only when their
 dependencies and exact images are separately READY. Do not retain an old grade
 as fresh.
 
+For the first one-target execution, use the separate receipt-only command. The
+database, preflight, output directory, image qualifications, and exact target
+must already exist and be reviewed. The output directory must be owned by the
+operator and have no group or world permissions. Do not use this command to
+build a refresh candidate:
+
+```bash
+mkdir -m 700 ./dist/target-scans
+
+"$PYTHON" scripts/refresh_candidate.py target-receipt \
+  --slug mcp-reference-time \
+  --db ./registry.db \
+  --seed ./src/mcp_trust/catalog/seed_servers.json \
+  --masked-grades ./masked-grades.json \
+  --policy ./src/mcp_trust/catalog/refresh_policy.json \
+  --qualification-receipt ./dist/grade-refresh/preflight.json \
+  --repo-root "$PWD" \
+  --out ./dist/target-scans/mcp-reference-time-<timestamp>.json
+```
+
+The target command validates all five image qualifications but inspects and
+executes only the selected target image. It opens the supplied registry
+immutable and query-only, writes one exclusive `0400` receipt, and never calls
+the registry scan writer. Refusal, timeout, privacy failure, source/DB/image
+drift, missing runtime readback, or uncertain container cleanup writes no
+artifact and no fresh grade. The receipt remains local review evidence only;
+repeatability, the other 17 scannable rows, candidate readiness, public
+freshness, publication, deployment, and scheduler state remain unproved.
+
 ## 4. Candidate creation and verification
 
 ```bash
