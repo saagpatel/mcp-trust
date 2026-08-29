@@ -145,9 +145,11 @@ def _preflight() -> dict[str, object]:
     image_bindings = []
     image_sources = {}
     for index, image in enumerate(images):
-        image_id = IMAGE_ID if image == policy.raw["default_sandbox_image"] else (
-            "sha256:" + f"{index + 1:x}" * 64
-        )[:71]
+        image_id = (
+            IMAGE_ID
+            if image == policy.raw["default_sandbox_image"]
+            else ("sha256:" + f"{index + 1:x}" * 64)[:71]
+        )
         image_bindings.append(
             {
                 "reference": image,
@@ -177,6 +179,15 @@ def _preflight() -> dict[str, object]:
             "seed_digest": digest_file(SEED),
             "masking_digest": digest_file(MASKED),
             "policy_digest": digest_file(POLICY),
+            "inventory_digest": digest_bytes(
+                canonical_bytes(
+                    catalog_inventory(
+                        seed_path=SEED,
+                        masked_path=MASKED,
+                        policy_path=POLICY,
+                    )
+                )
+            ),
             "image_build_sources": image_sources,
         },
         "sandbox": {"image_bindings": image_bindings},
@@ -405,9 +416,10 @@ def test_create_scans_one_target_and_seals_receipt(tmp_path: Path) -> None:
     assert artifact["schema"] == target_scan.TARGET_SCAN_SCHEMA
     assert artifact["target_slug"] == TARGET
     assert artifact["authority"] == target_scan.TARGET_SCAN_AUTHORITY
-    assert artifact["registry_read_binding"]["pre_sha256"] == artifact[
-        "registry_read_binding"
-    ]["post_sha256"]
+    assert (
+        artifact["registry_read_binding"]["pre_sha256"]
+        == artifact["registry_read_binding"]["post_sha256"]
+    )
 
 
 def test_full_catalog_count_binding_accepts_exact_producer_shape(tmp_path: Path) -> None:
@@ -472,10 +484,14 @@ def test_complete_image_set_is_validated_but_live_preflight_is_target_only(
     engine = _Engine(_engine_result())
     kwargs = _creation_kwargs(tmp_path, engine)
     expected_sets: list[list[str]] = []
+    expected_count_sets: list[dict[str, int]] = []
+    expected_inventory_digests: list[str] = []
     live_counts: list[int] = []
 
     def revalidate(_receipt: object, **call: object) -> None:
         expected_sets.append(list(call["expected_image_references"]))
+        expected_count_sets.append(dict(call["expected_catalog_counts"]))
+        expected_inventory_digests.append(str(call["expected_catalog_inventory_digest"]))
 
     def preflight(servers: list[Server], **_kwargs: object) -> dict[str, object]:
         live_counts.append(len(servers))
@@ -486,7 +502,46 @@ def test_complete_image_set_is_validated_but_live_preflight_is_target_only(
     target_scan.create_target_scan_artifact(**kwargs)
     assert len(expected_sets) == 2
     assert all(len(images) == 5 for images in expected_sets)
+    assert expected_count_sets == [EXPECTED_CATALOG_COUNTS] * 2
+    assert expected_inventory_digests == [
+        digest_bytes(
+            canonical_bytes(
+                catalog_inventory(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
+            )
+        )
+    ] * 2
     assert live_counts == [1, 1]
+
+
+def test_target_creation_rejects_current_category_drift_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    drifted_inventory = catalog_inventory(
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+    )
+    drifted_inventory["counts"] = {
+        **drifted_inventory["counts"],
+        "intentionally_masked": 7,
+        "unsupported_upstream": 9,
+    }
+    monkeypatch.setattr(
+        target_scan,
+        "catalog_inventory",
+        lambda **_kwargs: drifted_inventory,
+    )
+
+    with pytest.raises(RefreshCandidateError, match="reviewed V20 catalog counts"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 0
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(

@@ -918,7 +918,10 @@ def test_operator_package_recomputes_catalog_bindings(tmp_path: Path, digest_key
     payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
-    with pytest.raises(OperatorPackageError, match="catalog binding is invalid"):
+    with pytest.raises(
+        OperatorPackageError,
+        match="catalog binding is invalid|catalog evidence is invalid",
+    ):
         build_operator_review_package(
             output_path=tmp_path / "package",
             task_id="task-fixture",
@@ -1176,7 +1179,10 @@ def test_operator_package_converts_malformed_nested_receipt_to_structured_error(
     payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
-    with pytest.raises(OperatorPackageError, match="binding is invalid|semantics are invalid"):
+    with pytest.raises(
+        OperatorPackageError,
+        match="binding is invalid|semantics are invalid|catalog evidence is invalid",
+    ):
         build_operator_review_package(
             output_path=tmp_path / "package",
             task_id="task-fixture",
