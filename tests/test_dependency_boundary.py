@@ -3,6 +3,10 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
+import socket
+import stat
+import subprocess
 from pathlib import Path
 from types import ModuleType
 
@@ -24,6 +28,13 @@ def _script(name: str) -> ModuleType:
 
 def _inputs() -> dict[str, object]:
     return json.loads((ROOT / "docker/refresh/dependency-inputs.json").read_text())
+
+
+def _tool_paths() -> dict[str, Path]:
+    return {
+        "docker": Path("/approved/tools/docker"),
+        "docker-buildx": Path("/approved/tools/docker-buildx"),
+    }
 
 
 def test_current_dependency_descriptors_and_locks_are_admitted() -> None:
@@ -199,7 +210,11 @@ def test_qualify_rejects_unsafe_descriptor_before_any_subprocess(
     )
     with pytest.raises(module.QualificationError):
         module.qualify(
-            "../escape", config, buildx="docker-buildx", receipt_root=module.RECEIPT_ROOT
+            "../escape",
+            config,
+            buildx="docker-buildx",
+            receipt_root=module.RECEIPT_ROOT,
+            tools=_tool_paths(),
         )
 
 
@@ -232,7 +247,13 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
     )
 
     with pytest.raises(ValidationPassed):
-        module.qualify("reference", config, buildx="docker-buildx", receipt_root=tmp_path)
+        module.qualify(
+            "reference",
+            config,
+            buildx="docker-buildx",
+            receipt_root=tmp_path,
+            tools=_tool_paths(),
+        )
 
     assert observed == {
         "cohort": "reference",
@@ -258,7 +279,11 @@ def test_qualify_rejects_unexpected_cohort_keys_before_any_subprocess(
 
     with pytest.raises(module.QualificationError, match="descriptor is invalid"):
         module.qualify(
-            "reference", config, buildx="docker-buildx", receipt_root=module.RECEIPT_ROOT
+            "reference",
+            config,
+            buildx="docker-buildx",
+            receipt_root=module.RECEIPT_ROOT,
+            tools=_tool_paths(),
         )
 
 
@@ -279,7 +304,11 @@ def test_qualify_rejects_missing_or_unsupported_platform_before_any_subprocess(
 
     with pytest.raises(module.QualificationError, match="platform is unsupported"):
         module.qualify(
-            "reference", config, buildx="docker-buildx", receipt_root=module.RECEIPT_ROOT
+            "reference",
+            config,
+            buildx="docker-buildx",
+            receipt_root=module.RECEIPT_ROOT,
+            tools=_tool_paths(),
         )
 
 
@@ -308,12 +337,15 @@ def test_qualification_tool_versions_serialize_only_stable_versions(
 ) -> None:
     module = _script("qualify_refresh_images.py")
 
-    def result(command: list[str], *, capture: bool = False) -> str:
+    def result(
+        command: list[str], *, tools: dict[str, Path], capture: bool = False
+    ) -> str:
+        assert tools == _tool_paths()
         assert capture is True
-        if command[0:2] == ["docker", "version"]:
-            return "29.5.2"
-        if command[-1] == "version":
+        if command[-1] == "version" and command[0] == "docker-buildx":
             return "github.com/docker/buildx v0.30.0-desktop.1 0123456789ab"
+        if command[0] == "docker" and "version" in command:
+            return "29.5.2"
         return (
             "Name: colima\n"
             "Endpoint: unix:///Users/example/.colima/docker.sock\n"
@@ -326,7 +358,7 @@ def test_qualification_tool_versions_serialize_only_stable_versions(
         )
 
     monkeypatch.setattr(module, "_run", result)
-    versions = module._tool_versions("docker-buildx")
+    versions = module._tool_versions("docker-buildx", tools=_tool_paths())
 
     assert versions == {
         "docker_client": "29.5.2",
@@ -418,6 +450,286 @@ def test_qualification_safely_creates_missing_ignored_output_root(
 
     assert output_root.is_dir()
     assert output_root.is_symlink() is False
+    module._require_private_directory(output_root, label="qualification OCI output root")
+
+
+def test_qualification_rejects_nonprivate_or_nonempty_output_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    output_root = root / "tmp/qualification"
+    output_root.mkdir(parents=True, mode=0o700)
+    monkeypatch.setattr(module, "ROOT", root)
+
+    output_root.chmod(0o755)
+    with pytest.raises(module.QualificationError, match="owner-private"):
+        module._require_empty_directory(output_root, label="qualification OCI output root")
+
+    output_root.chmod(0o700)
+    (output_root / "operator-file").write_text("private", encoding="utf-8")
+    with pytest.raises(module.QualificationError, match="must be empty"):
+        module._require_empty_directory(output_root, label="qualification OCI output root")
+
+
+def test_qualification_binds_exact_local_context_and_builder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    socket_path = Path("/tmp") / f"mcp-trust-test-{os.getpid()}.sock"
+    listener = socket.socket(socket.AF_UNIX)
+    try:
+        listener.bind(socket_path.as_posix())
+        expected_host = "unix://" + socket_path.as_posix()
+        monkeypatch.setattr(module, "EXPECTED_DOCKER_HOST", expected_host)
+
+        def result(
+            command: list[str],
+            *,
+            tools: dict[str, Path],
+            capture: bool = False,
+            timeout: int = 60,
+        ) -> str:
+            assert tools == _tool_paths()
+            assert capture is True
+            assert timeout == 60
+            if command[0:3] == ["docker", "context", "inspect"]:
+                return json.dumps(expected_host)
+            return (
+                "Name: colima-mcp-trust-sandbox\n"
+                "Driver: docker\n"
+                "Nodes:\n"
+                "Name: colima-mcp-trust-sandbox\n"
+                "Endpoint: colima-mcp-trust-sandbox\n"
+                "Status: running\n"
+                "BuildKit version: v0.30.0\n"
+            )
+
+        monkeypatch.setattr(module, "_run", result)
+        assert (
+            module._execution_boundary("docker-buildx", tools=_tool_paths())
+            == module.EXECUTION_BOUNDARY
+        )
+    finally:
+        listener.close()
+        socket_path.unlink(missing_ok=True)
+
+
+def test_qualification_rejects_remote_context_before_builder_inspection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    calls: list[list[str]] = []
+
+    def result(
+        command: list[str],
+        *,
+        tools: dict[str, Path],
+        capture: bool = False,
+        timeout: int = 60,
+    ) -> str:
+        assert tools == _tool_paths()
+        calls.append(command)
+        return json.dumps("tcp://builder.example:2376")
+
+    monkeypatch.setattr(module, "_run", result)
+    with pytest.raises(module.QualificationError, match="local Unix"):
+        module._execution_boundary("docker-buildx", tools=_tool_paths())
+    assert len(calls) == 1
+
+
+def test_qualification_subprocess_environment_pins_context_and_clears_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    observed: dict[str, str] = {}
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command[0] == "/approved/tools/docker-buildx"
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        observed.update(environment)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setenv("DOCKER_HOST", "tcp://remote.example:2376")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example")
+    monkeypatch.setattr(module.subprocess, "run", run)
+    module._completed(
+        ["docker-buildx", "version"], tools=_tool_paths(), capture=True
+    )
+
+    assert observed["DOCKER_CONTEXT"] == "colima-mcp-trust-sandbox"
+    assert observed["PATH"] == "/approved/tools"
+    assert "DOCKER_HOST" not in observed
+    assert "HTTP_PROXY" not in observed
+
+
+def test_qualification_snapshots_tools_into_private_digest_pinned_copies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    output_root = root / "tmp/qualification"
+    output_root.mkdir(parents=True, mode=0o700)
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    docker = sources / "docker"
+    buildx = sources / "docker-buildx"
+    docker.write_bytes(b"docker-tool")
+    buildx.write_bytes(b"buildx-tool")
+    docker.chmod(0o500)
+    buildx.chmod(0o500)
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(
+        module,
+        "_resolved_tool",
+        lambda name: {"docker": docker, "docker-buildx": buildx}[name],
+    )
+
+    tools = module._snapshot_tools(output_root, "docker-buildx")
+
+    assert {name: path.read_bytes() for name, path in tools.items()} == {
+        "docker": b"docker-tool",
+        "docker-buildx": b"buildx-tool",
+    }
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o500 for path in tools.values())
+    module._cleanup_tool_snapshot(tools)
+    assert list(output_root.iterdir()) == []
+
+
+def test_qualification_rejects_group_writable_docker_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    socket_path = Path("/tmp") / f"mcp-trust-writable-{os.getpid()}.sock"
+    listener = socket.socket(socket.AF_UNIX)
+    try:
+        listener.bind(socket_path.as_posix())
+        socket_path.chmod(0o770)
+        expected_host = "unix://" + socket_path.as_posix()
+        monkeypatch.setattr(module, "EXPECTED_DOCKER_HOST", expected_host)
+        monkeypatch.setattr(
+            module,
+            "_run",
+            lambda *_args, **_kwargs: json.dumps(expected_host),
+        )
+        with pytest.raises(module.QualificationError, match="owner-bound"):
+            module._execution_boundary("docker-buildx", tools=_tool_paths())
+    finally:
+        listener.close()
+        socket_path.unlink(missing_ok=True)
+
+
+def test_qualification_restores_final_tag_after_post_load_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    payload = _inputs()
+    config = copy.deepcopy(payload["cohorts"]["reference"])
+    config["platform"] = payload["platform"]
+    previous = "sha256:" + "a" * 64
+    rebuilt = "sha256:" + "b" * 64
+    final_reads = iter([previous, rebuilt, rebuilt])
+    first_reads = iter([None, rebuilt])
+    commands: list[list[str]] = []
+    boundary_reads = 0
+
+    def image_id(
+        reference: str, *, tools: dict[str, Path], required: bool = True
+    ) -> str | None:
+        assert tools == _tool_paths()
+        reads = (
+            first_reads
+            if reference.startswith("mcp-trust-qualification:")
+            else final_reads
+        )
+        return next(reads)
+
+    def boundary(_buildx: str, *, tools: dict[str, Path]) -> dict[str, object]:
+        nonlocal boundary_reads
+        assert tools == _tool_paths()
+        boundary_reads += 1
+        if boundary_reads == 2:
+            raise module.QualificationError("post-load boundary failure")
+        return dict(module.EXECUTION_BOUNDARY)
+
+    def run(command: list[str], **_kwargs: object) -> str:
+        commands.append(command)
+        return ""
+
+    monkeypatch.setattr(module, "_require_safe_directory", lambda *_a, **_k: None)
+    monkeypatch.setattr(module, "_require_private_directory", lambda *_a, **_k: None)
+    monkeypatch.setattr(module, "_image_id", image_id)
+    monkeypatch.setattr(module, "_execution_boundary", boundary)
+    monkeypatch.setattr(
+        module,
+        "_tool_digests",
+        lambda *_a, **_k: {"docker": previous, "docker_buildx": rebuilt},
+    )
+    monkeypatch.setattr(
+        module,
+        "_tool_versions",
+        lambda *_a, **_k: {
+            "docker_client": "1.0.0",
+            "docker_server": "1.0.0",
+            "docker_buildx": "v1.0.0",
+            "buildkit_colima": "v1.0.0",
+        },
+    )
+    monkeypatch.setattr(module, "_remove_tag", lambda *_a, **_k: None)
+    monkeypatch.setattr(module, "_run", run)
+
+    with pytest.raises(module.QualificationError, match="post-load"):
+        module.qualify(
+            "reference",
+            config,
+            buildx="docker-buildx",
+            receipt_root=tmp_path,
+            tools=_tool_paths(),
+        )
+
+    assert [
+        "docker",
+        "--context",
+        "colima-mcp-trust-sandbox",
+        "tag",
+        previous,
+        "mcp-trust-scan:corpus-2026-07-03",
+    ] in commands
+
+
+def test_qualification_distinguishes_missing_image_from_daemon_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+
+    def completed(stderr: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            ["docker", "image", "inspect"], 1, stdout="", stderr=stderr
+        )
+
+    monkeypatch.setattr(
+        module,
+        "_completed",
+        lambda *_args, **_kwargs: completed(
+            "Error response from daemon: No such image: mcp-trust:test"
+        ),
+    )
+    assert module._image_id("mcp-trust:test", tools=_tool_paths(), required=False) is None
+
+    monkeypatch.setattr(
+        module,
+        "_completed",
+        lambda *_args, **_kwargs: completed(
+            "Cannot connect to the Docker daemon at unix:///tmp/docker.sock"
+        ),
+    )
+    with pytest.raises(module.QualificationError, match="inspection failed"):
+        module._image_id("mcp-trust:test", tools=_tool_paths(), required=False)
+
+
+def test_docker_context_excludes_qualification_outputs() -> None:
+    assert "tmp/" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 
 
 @pytest.mark.parametrize(
@@ -453,17 +765,20 @@ def test_qualification_tool_versions_fail_closed_on_malformed_or_ambiguous_outpu
 ) -> None:
     module = _script("qualify_refresh_images.py")
 
-    def result(command: list[str], *, capture: bool = False) -> str:
+    def result(
+        command: list[str], *, tools: dict[str, Path], capture: bool = False
+    ) -> str:
+        assert tools == _tool_paths()
         assert capture is True
-        if command[0:2] == ["docker", "version"]:
-            return "29.5.2"
-        if command[-1] == "version":
+        if command[-1] == "version" and command[0] == "docker-buildx":
             return buildx_version
+        if command[0] == "docker" and "version" in command:
+            return "29.5.2"
         return inspect
 
     monkeypatch.setattr(module, "_run", result)
     with pytest.raises(module.QualificationError, match=message):
-        module._tool_versions("docker-buildx")
+        module._tool_versions("docker-buildx", tools=_tool_paths())
 
 
 def test_basic_memory_mutable_base_is_rejected_before_execution() -> None:

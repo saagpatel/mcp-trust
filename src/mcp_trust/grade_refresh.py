@@ -48,7 +48,7 @@ DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV2"
 PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
 PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
-IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV2"
+IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV4"
 ENGINE_MATERIALIZATION_SCHEMA = "McpTrustEngineMaterializationReceiptV1"
 ENGINE_MATERIALIZATION_VERIFICATION_SCHEMA = "McpTrustEngineMaterializationVerificationV1"
 EXPECTED_MCP_AUDITS_VERSION = "2.7.0"
@@ -154,7 +154,9 @@ _IMAGE_BUILD_QUALIFICATION_KEYS = frozenset(
         "build_options",
         "build_commands",
         "load_commands",
+        "execution_boundary",
         "tool_versions",
+        "tool_digests",
         "first_build_image_id",
         "second_build_image_id",
         "repeatable",
@@ -1644,6 +1646,8 @@ def _image_build_qualification(
     network_policy = payload.get("build_network_policy")
     platform_name = payload.get("platform")
     tools = payload.get("tool_versions")
+    tool_digests = payload.get("tool_digests")
+    execution_boundary = payload.get("execution_boundary")
     manifests = payload.get("dependency_manifests")
     locks = payload.get("dependency_locks")
     artifacts = payload.get("dependency_artifacts")
@@ -1661,6 +1665,22 @@ def _image_build_qualification(
         or not isinstance(platform_name, str)
         or re.fullmatch(r"linux/(?:arm64|amd64)", platform_name) is None
         or not _stable_image_build_tool_versions(tools)
+        or not isinstance(tool_digests, dict)
+        or set(tool_digests) != {"docker", "docker_buildx"}
+        or not all(
+            isinstance(value, str) and _SHA256.fullmatch(value) is not None
+            for value in tool_digests.values()
+        )
+        or execution_boundary
+        != {
+            "docker_context": "colima-mcp-trust-sandbox",
+            "docker_transport": "local-unix",
+            "builder_name": "colima-mcp-trust-sandbox",
+            "builder_driver": "docker",
+            "builder_endpoint_matches_context": True,
+            "redirect_environment_policy": "exact-context-no-proxy",
+            "tool_execution_policy": "owner-private-digest-pinned-copies",
+        }
         or not isinstance(manifests, dict)
         or not isinstance(locks, dict)
         or not locks
@@ -1849,6 +1869,7 @@ def _image_build_qualification(
         "dependency_locks": dict(sorted(normalized_locks.items())),
         "dependency_artifacts": normalized_artifacts,
         "build_options": build_options,
+        "execution_boundary": execution_boundary,
     }
     expected_input_digest = digest_bytes(canonical_bytes(build_input))
     if payload.get("build_input_digest") != expected_input_digest:
@@ -1858,20 +1879,8 @@ def _image_build_qualification(
         if (
             not isinstance(value, list)
             or not all(isinstance(token, str) and token for token in value)
-            or value[-1] != "."
-            or any(token.startswith(("--secret", "--ssh", "--allow")) for token in value)
         ):
             return None
-
-        if not (
-            (value[:2] == ["docker-buildx", "build"]) or value[:3] == ["docker", "buildx", "build"]
-        ):
-            return None
-
-        def pair(flag: str, expected: str) -> bool:
-            return any(
-                value[index : index + 2] == [flag, expected] for index in range(len(value) - 1)
-            )
 
         try:
             tag = value[value.index("-t") + 1]
@@ -1890,27 +1899,58 @@ def _image_build_qualification(
             if len(outputs) == 1
             else ""
         )
-        valid = (
-            pair("--network", "none")
-            and pair("--platform", platform_name)
-            and pair("-f", build_source)
-            and "--pull=false" in value
-            and "--no-cache" in value
-            and "--provenance=false" in value
-            and "--sbom=false" in value
-            and "--load" not in value
-            and _safe_relative_path(output_path)
-            and Path(output_path).parts[:2] == ("tmp", "qualification")
-            and (tag == reference if final else tag.startswith("mcp-trust-qualification:"))
-        )
-        return output_path if valid else None
+        if (
+            not _safe_relative_path(output_path)
+            or Path(output_path).parts[:2] != ("tmp", "qualification")
+            or (
+                tag != reference
+                if final
+                else re.fullmatch(
+                    r"mcp-trust-qualification:v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?-[a-z0-9]+(?:-[a-z0-9]+)*-first",
+                    tag,
+                )
+                is None
+            )
+        ):
+            return None
+        expected = [
+            "docker-buildx",
+            "build",
+            "--builder",
+            "colima-mcp-trust-sandbox",
+            "--network",
+            "none",
+            "--pull=false",
+            "--no-cache",
+            "--platform",
+            platform_name,
+            "--provenance=false",
+            "--sbom=false",
+            "--build-arg",
+            "SOURCE_DATE_EPOCH=1710000000",
+            "-f",
+            build_source,
+            f"--output=type=oci,dest={output_path},rewrite-timestamp=true",
+            "-t",
+            tag,
+            ".",
+        ]
+        return output_path if value == expected else None
 
     output_paths = [
         valid_build_command(build_commands[0], final=False),
         valid_build_command(build_commands[1], final=True),
     ]
     if None in output_paths or any(
-        command != ["docker", "load", "-i", output_path]
+        command
+        != [
+            "docker",
+            "--context",
+            "colima-mcp-trust-sandbox",
+            "load",
+            "-i",
+            output_path,
+        ]
         for command, output_path in zip(load_commands, output_paths, strict=True)
     ):
         return None
