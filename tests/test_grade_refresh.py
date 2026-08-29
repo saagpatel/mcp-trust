@@ -1297,11 +1297,22 @@ def _qualification_fixture(
         "dependency_locks": {"package-lock.json": lock_ref["sha256"]},
         "dependency_artifacts": {"npm": normalized_artifact},
         "build_options": build_options,
+        "execution_boundary": {
+            "docker_context": "colima-mcp-trust-sandbox",
+            "docker_transport": "local-unix",
+            "builder_name": "colima-mcp-trust-sandbox",
+            "builder_driver": "docker",
+            "builder_endpoint_matches_context": True,
+            "redirect_environment_policy": "exact-context-no-proxy",
+            "tool_execution_policy": "owner-private-digest-pinned-copies",
+        },
     }
     image_id = "sha256:" + "c" * 64
     command = [
         "docker-buildx",
         "build",
+        "--builder",
+        "colima-mcp-trust-sandbox",
         "--network",
         "none",
         "--pull=false",
@@ -1310,6 +1321,8 @@ def _qualification_fixture(
         "linux/arm64",
         "--provenance=false",
         "--sbom=false",
+        "--build-arg",
+        "SOURCE_DATE_EPOCH=1710000000",
         "-f",
         "Dockerfile",
     ]
@@ -1330,6 +1343,15 @@ def _qualification_fixture(
         "dependency_artifacts": {"npm": artifact_ref},
         "build_network_policy": ["none"],
         "build_options": build_options,
+        "execution_boundary": {
+            "docker_context": "colima-mcp-trust-sandbox",
+            "docker_transport": "local-unix",
+            "builder_name": "colima-mcp-trust-sandbox",
+            "builder_driver": "docker",
+            "builder_endpoint_matches_context": True,
+            "redirect_environment_policy": "exact-context-no-proxy",
+            "tool_execution_policy": "owner-private-digest-pinned-copies",
+        },
         "build_commands": [],
         "load_commands": [],
         "tool_versions": {
@@ -1337,6 +1359,10 @@ def _qualification_fixture(
             "docker_server": "29.5.2",
             "docker_buildx": "v0.30.0",
             "buildkit_colima": "v0.25.1",
+        },
+        "tool_digests": {
+            "docker": "sha256:" + "d" * 64,
+            "docker_buildx": "sha256:" + "e" * 64,
         },
         "first_build_image_id": image_id,
         "second_build_image_id": image_id,
@@ -1348,7 +1374,7 @@ def _qualification_fixture(
             *command,
             f"--output=type=oci,dest={output_paths[0]},rewrite-timestamp=true",
             "-t",
-            "mcp-trust-qualification:test-first",
+            "mcp-trust-qualification:v89-test-first",
             ".",
         ],
         [
@@ -1360,8 +1386,22 @@ def _qualification_fixture(
         ],
     ]
     payload["load_commands"] = [
-        ["docker", "load", "-i", output_paths[0]],
-        ["docker", "load", "-i", output_paths[1]],
+        [
+            "docker",
+            "--context",
+            "colima-mcp-trust-sandbox",
+            "load",
+            "-i",
+            output_paths[0],
+        ],
+        [
+            "docker",
+            "--context",
+            "colima-mcp-trust-sandbox",
+            "load",
+            "-i",
+            output_paths[1],
+        ],
     ]
     payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     receipt.write_text(json.dumps(payload), encoding="utf-8")
@@ -1535,6 +1575,71 @@ def test_image_build_qualification_rejects_non_version_tool_metadata(
 ) -> None:
     receipt, payload, _image_id = _qualification_fixture(tmp_path)
     payload["tool_versions"] = tool_versions
+    _rewrite_receipt(receipt, payload)
+
+    assert _qualification(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("docker_context", "default"),
+        ("docker_transport", "tcp"),
+        ("builder_name", "remote"),
+        ("builder_driver", "remote"),
+        ("builder_endpoint_matches_context", False),
+        ("redirect_environment_policy", "ambient"),
+        ("tool_execution_policy", "ambient-path"),
+    ],
+)
+def test_image_build_qualification_rejects_execution_boundary_drift(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    boundary = payload["execution_boundary"]
+    assert isinstance(boundary, dict)
+    boundary[field] = value
+    _rewrite_receipt(receipt, payload)
+
+    assert _qualification(tmp_path) is None
+
+
+def test_image_build_qualification_rejects_invalid_tool_digest(tmp_path: Path) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    tool_digests = payload["tool_digests"]
+    assert isinstance(tool_digests, dict)
+    tool_digests["docker"] = "UNKNOWN"
+    _rewrite_receipt(receipt, payload)
+
+    assert _qualification(tmp_path) is None
+
+
+def test_image_build_qualification_rejects_ambient_load_context(tmp_path: Path) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    commands = payload["load_commands"]
+    assert isinstance(commands, list)
+    commands[0] = ["docker", "load", "-i", "tmp/qualification/test-first.tar"]
+    _rewrite_receipt(receipt, payload)
+
+    assert _qualification(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "extra_tokens",
+    [
+        ["--network", "host"],
+        ["--progress=plain"],
+        ["--output=type=local,dest=tmp/escape"],
+        ["-t", "mcp-trust-qualification:v89-shadow-first"],
+    ],
+)
+def test_image_build_qualification_rejects_non_exact_build_command(
+    tmp_path: Path, extra_tokens: list[str]
+) -> None:
+    receipt, payload, _image_id = _qualification_fixture(tmp_path)
+    commands = payload["build_commands"]
+    assert isinstance(commands, list) and isinstance(commands[0], list)
+    commands[0][-1:-1] = extra_tokens
     _rewrite_receipt(receipt, payload)
 
     assert _qualification(tmp_path) is None

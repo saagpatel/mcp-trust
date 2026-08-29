@@ -21,22 +21,35 @@ image ID. Then run the exact network-none, no-cache double builds:
 
 ```bash
 uv run --frozen python scripts/qualify_refresh_images.py \
-  --receipt-set v65
+  --receipt-set v89
 ```
 
 Every cohort must produce two identical image IDs and a receipt that passes
 readback. Existing or expired qualification receipts are not overwritten;
 requalification is a reviewed source revision, not an in-place refresh.
-Qualification receipts persist only exact Docker, Buildx, and BuildKit version
-tokens. Raw builder inspection output, host paths, endpoints, UUIDs, addresses,
-and other machine-specific metadata are rejected and must never be landed.
+Qualification is bound to the exact owner-held local Unix Docker context and
+its same-name running `docker` Buildx builder. Redirecting Docker, Buildx, or
+proxy environment variables are stripped; the exact approved context is then
+set internally. The private `tmp/qualification/` output directory must be empty
+before the run. Docker and Buildx are copied into an owner-private, executable-
+only tool directory, the subprocess `PATH` is restricted to those digest-pinned
+copies, and the directory is removed after the run. The approved Docker socket
+must be owner-held and have no group or world write permissions. First-build
+tags must not pre-exist; temporary OCI outputs and tags are removed on success
+or failure; and any failure after a final-tag load restores the exact prior tag
+or removes the newly introduced tag. Qualification receipts persist only the
+abstract execution-boundary assertions, exact-allowlisted logical commands,
+exact Docker, Buildx, and BuildKit version tokens, and Docker/Buildx executable
+digests. Raw builder inspection output, host paths, socket paths, endpoints,
+UUIDs, addresses, and other machine-specific metadata are rejected and must
+never be landed.
 Legacy receipts containing raw builder output are invalid under this contract;
 do not rewrite their digests or describe them as sanitized. Replace them only
 with newly generated, reviewed receipts in a new safe single-component receipt
 set and update policy references in the same later reviewed source revision.
 Absolute, traversal, existing, or symlinked receipt-set paths are refused
 before Docker or Buildx is invoked.
-The current policy points at the tracked `docker/refresh/qualification/v65/`
+The current policy points at the tracked `docker/refresh/qualification/v89/`
 set. All five receipts must remain present, current under their maximum-age
 contract, and locally reviewed; missing or expired receipts make preflight fail
 closed. The legacy top-level receipts are historical only.
