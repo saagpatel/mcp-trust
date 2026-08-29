@@ -25,7 +25,13 @@ from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
     sandbox_server_process_digest,
 )
-from mcp_trust.grade_refresh import canonical_bytes, digest_bytes, digest_file, load_policy
+from mcp_trust.grade_refresh import (
+    canonical_bytes,
+    catalog_inventory,
+    digest_bytes,
+    digest_file,
+    load_policy,
+)
 from mcp_trust.refresh import RefreshCandidateError
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ServerRepository
@@ -45,6 +51,11 @@ SOURCE_BINDING = {
     "repository": "https://example.test/mcp-trust.git",
     "file_digests": {},
 }
+EXPECTED_CATALOG_COUNTS = catalog_inventory(
+    seed_path=SEED,
+    masked_path=MASKED,
+    policy_path=POLICY,
+)["counts"]
 
 
 def _target_server(*, added_at: datetime = FIXED_NOW) -> Server:
@@ -157,7 +168,7 @@ def _preflight() -> dict[str, object]:
         "engine_materialization": {"receipt_digest": "sha256:" + "e" * 64},
         "catalog": {
             "denominator": 31,
-            "counts": {"scannable": 18, "blocked": 13},
+            "counts": dict(EXPECTED_CATALOG_COUNTS),
             "execution_boundary": {
                 "schema": "McpTrustRefreshExecutionBoundaryV1",
                 "scannable": sorted(policy.scannable),
@@ -397,6 +408,52 @@ def test_create_scans_one_target_and_seals_receipt(tmp_path: Path) -> None:
     assert artifact["registry_read_binding"]["pre_sha256"] == artifact[
         "registry_read_binding"
     ]["post_sha256"]
+
+
+def test_full_catalog_count_binding_accepts_exact_producer_shape(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    preflight = json.loads(kwargs["qualification_receipt_path"].read_text(encoding="utf-8"))
+    assert preflight["catalog"]["counts"] == EXPECTED_CATALOG_COUNTS
+
+    target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 1
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "value", "boolean"])
+def test_full_catalog_count_binding_rejects_shape_or_value_drift_before_scan(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    forged = _preflight()
+    catalog = forged["catalog"]
+    assert isinstance(catalog, dict)
+    counts = catalog["counts"]
+    assert isinstance(counts, dict)
+    if mutation == "missing":
+        counts.pop("intentionally_masked")
+    elif mutation == "extra":
+        counts["unexpected"] = 0
+    elif mutation == "value":
+        counts["unsupported_upstream"] = 9
+    else:
+        counts["missing_image_build_source"] = False
+    forged.pop("receipt_digest")
+    forged["receipt_digest"] = digest_bytes(canonical_bytes(forged))
+    qualification = kwargs["qualification_receipt_path"]
+    output = kwargs["output_path"]
+    assert isinstance(qualification, Path)
+    assert isinstance(output, Path)
+    _write_preflight(qualification, forged)
+
+    with pytest.raises(RefreshCandidateError, match="input bindings differ"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 0
+    assert not output.exists()
 
 
 def test_writable_owner_private_preflight_is_accepted(tmp_path: Path) -> None:

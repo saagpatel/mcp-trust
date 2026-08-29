@@ -83,6 +83,17 @@ TARGET_SCAN_AUTHORITY = {
     "deployment": False,
     "scheduler_change": False,
 }
+_EXPECTED_CATALOG_COUNTS = {
+    "scannable": 18,
+    "blocked": 13,
+    "intentionally_masked": 8,
+    "unsupported_upstream": 8,
+    "credential_dependent": 7,
+    "backing_service_dependent": 10,
+    "unsafe_to_execute_unsandboxed": 31,
+    "missing_image_build_source": 0,
+    "unqualified_image_build_source": 0,
+}
 
 _ARTIFACT_KEYS = frozenset(
     {
@@ -429,7 +440,10 @@ def _qualification_binding(
         or catalog.get("masking_digest") != f"sha256:{masked_sha256}"
         or catalog.get("policy_digest") != policy_sha256
         or catalog.get("denominator") != 31
-        or counts != {"scannable": 18, "blocked": 13}
+        or not isinstance(counts, dict)
+        or set(counts) != set(_EXPECTED_CATALOG_COUNTS)
+        or any(type(value) is not int for value in counts.values())
+        or counts != _EXPECTED_CATALOG_COUNTS
         or boundary != expected_boundary
         or not isinstance(engine, dict)
         or not isinstance(engine.get("receipt_digest"), str)
