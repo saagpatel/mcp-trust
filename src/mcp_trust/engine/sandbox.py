@@ -52,8 +52,9 @@ SANDBOX_RUNTIME_READBACK_SCHEMA = "McpTrustSandboxRuntimeReadbackV1"
 SANDBOX_RUNTIME_READBACK_CLAIM_CEILING = (
     "Live MCP server PID 1 identity, its container namespaces/cgroup, and Docker "
     "daemon configuration; filesystem write probes run in a same-namespace "
-    "attestor. Not proof against artifact replay, Docker, VM, or kernel compromise, "
-    "server-side value retention, or an actual egress attempt."
+    "same-UID attestor with isolated Python imports and a read-only working directory. "
+    "Not proof against artifact replay, Docker, VM, or kernel compromise, server-side "
+    "value retention, or an actual egress attempt."
 )
 
 _RUNTIME_CONTROL_KEYS = frozenset(
@@ -415,9 +416,11 @@ class DockerSandbox:
 
     name: ClassVar[str] = "docker"
     isolates: ClassVar[bool] = True
-    # Purpose-built refresh images bind this fixed, non-shell attestor command.
-    # A generic image without it fails closed before scan evidence is returned.
+    # Purpose-built refresh images bind this fixed, non-shell attestor profile.
+    # Execution uses the image contract's absolute interpreter path so a
+    # target-influenced PATH cannot select a writable shim.
     attestor_command: ClassVar[str] = "python"
+    attestor_executable: ClassVar[str] = "/opt/venv/bin/python"
 
     def __post_init__(self) -> None:
         if self.host is not None:
@@ -683,13 +686,22 @@ class DockerSandbox:
         image = self._one_json_object(
             self._runtime_command(runner, deadline, "image", "inspect", self.image)
         )
+        if self.user is None:
+            raise DockerSandboxRuntimeReadbackError(
+                "Docker in-container runtime attestor requires the configured target user"
+            )
         attested = self._runtime_command(
             runner,
             deadline,
             "container",
             "exec",
+            "--user",
+            self.user,
+            "--workdir",
+            "/",
             container_id,
-            self.attestor_command,
+            self.attestor_executable,
+            "-I",
             "-c",
             _IN_CONTAINER_ATTESTOR,
             self.workdir,

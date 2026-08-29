@@ -7,6 +7,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -184,6 +186,59 @@ def test_docker_runtime_readback_is_live_bound_and_privacy_minimized() -> None:
     assert secret not in json.dumps(readback)
 
 
+def test_docker_runtime_attestor_uses_same_uid_readonly_workdir_and_isolated_python() -> None:
+    sandbox = DockerSandbox()
+    base_runner = _runtime_runner(sandbox)
+    commands: list[list[str]] = []
+
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return base_runner(command, **kwargs)
+
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+    sandbox.capture_runtime_readback(runner=runner)
+
+    attestor = next(command for command in commands if "exec" in command)
+    assert attestor[:3] == ["docker", "container", "exec"]
+    assert attestor[3:9] == [
+        "--user",
+        "1000:1000",
+        "--workdir",
+        "/",
+        _CONTAINER_ID,
+        "/opt/venv/bin/python",
+    ]
+    assert attestor[9:11] == ["-I", "-c"]
+
+
+def test_python_isolated_mode_ignores_target_controlled_imports(tmp_path: Path) -> None:
+    (tmp_path / "json.py").write_text("raise RuntimeError('target module imported')\n")
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", "import json; print(json.dumps({'verified': True}))"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == '{"verified": true}'
+
+
+def test_docker_runtime_attestor_does_not_resolve_through_container_path() -> None:
+    assert DockerSandbox.attestor_executable == "/opt/venv/bin/python"
+    assert DockerSandbox.attestor_command == "python"
+
+
+def test_docker_runtime_attestor_requires_configured_target_user() -> None:
+    sandbox = DockerSandbox(user=None)
+    runner = _runtime_runner(sandbox)
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="configured target user"):
+        sandbox.capture_runtime_readback(runner=runner)
+
+
 @pytest.mark.parametrize(
     "process_override",
     [
@@ -240,7 +295,7 @@ def test_docker_runtime_readback_fails_closed_without_bound_attestor() -> None:
 
     def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if "exec" in command:
-            assert "python" in command
+            assert DockerSandbox.attestor_executable in command
             return subprocess.CompletedProcess(command, 127, "", "not found")
         return base_runner(command, **kwargs)
 
