@@ -3,12 +3,39 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from mcp_trust import grade_refresh
 from mcp_trust.engine.runtime import MCP_AUDIT_RUNTIME_MODULES
+from mcp_trust.host_capacity import (
+    HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    HostCapacitySample,
+    build_host_capacity_receipt,
+)
+
+
+def host_capacity_receipt(
+    *,
+    observed_at: datetime,
+    device_id: int = 42,
+    total_bytes: int = 100 * 1024**3,
+    available_bytes: int = HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+) -> dict[str, Any]:
+    """Build an exact READY receipt without sleeping or observing the host."""
+    times = iter((observed_at - timedelta(seconds=30), observed_at))
+    sample = HostCapacitySample(
+        device_id=device_id,
+        total_bytes=total_bytes,
+        available_bytes=available_bytes,
+    )
+    return build_host_capacity_receipt(
+        anchor=Path("/fixture-anchor"),
+        reader=lambda _anchor: sample,
+        clock=lambda: next(times),
+        sleeper=lambda _seconds: None,
+    )
 
 
 def engine_materialization_receipt(

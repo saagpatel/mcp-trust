@@ -50,6 +50,7 @@ from mcp_trust.engine.sandbox import (
     sandbox_server_process_digests,
     valid_sandbox_runtime_readback,
 )
+from mcp_trust.host_capacity import HostCapacityError, require_current_host_capacity
 from mcp_trust.receipts import build_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
@@ -1041,9 +1042,19 @@ def preflight_real_refresh(
     servers: list[Server],
     *,
     default_image: str,
+    host_capacity_receipt: object,
+    capacity_anchor: Path,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, object]:
     """Prove the network-off Docker controls and every pinned image locally."""
+    try:
+        require_current_host_capacity(
+            host_capacity_receipt,
+            anchor=capacity_anchor,
+            now=datetime.now(tz=UTC),
+        )
+    except HostCapacityError as exc:
+        raise RefreshCandidateError("required host capacity is not READY") from exc
     local_servers = [server for server in servers if _requires_local_sandbox(server)]
     images = _required_local_sandbox_images(servers, default_image=default_image)
     profiles: list[dict[str, object]] = []
@@ -1128,6 +1139,7 @@ def _qualification_metadata(
         "exit_classification",
         "source_binding",
         "engine_materialization",
+        "host_capacity",
         "catalog",
         "sandbox",
         "tool_versions",
@@ -1136,7 +1148,7 @@ def _qualification_metadata(
         "authority",
         "receipt_digest",
     }
-    if set(receipt) != required_keys or receipt.get("schema") != "McpTrustGradeRefreshPreflightV2":
+    if set(receipt) != required_keys or receipt.get("schema") != "McpTrustGradeRefreshPreflightV3":
         raise RefreshCandidateError("qualification receipt schema is invalid")
     claimed_digest = receipt.get("receipt_digest")
     unsigned = dict(receipt)
@@ -1885,11 +1897,29 @@ def create_refresh_candidate(
     _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
     _qualification_revalidator: Callable[..., None] | None = None,
 ) -> Path:
-    """Create one immutable candidate; never mutate canonical/public outputs."""
+    """Create one immutable candidate; never mutate canonical/public outputs.
+
+    ``scanner`` is a trusted in-process test-fixture hook, not an isolation
+    boundary. Fixture candidates remain non-publishable and prove no process,
+    network, MCP, Docker, or receipt provenance property of that callback.
+    """
     fixed_now = now or datetime.now(tz=UTC)
     if fixed_now.tzinfo is None:
         fixed_now = fixed_now.replace(tzinfo=UTC)
     fixture_mode = scanner is not None
+    if not fixture_mode:
+        if repo_root is None:
+            raise RefreshCandidateError("real refresh requires the qualified repository root")
+        try:
+            require_current_host_capacity(
+                qualification_receipt.get("host_capacity")
+                if isinstance(qualification_receipt, dict)
+                else None,
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+        except HostCapacityError as exc:
+            raise RefreshCandidateError("real refresh host capacity is not READY") from exc
     if not source_db.is_file():
         raise RefreshCandidateError(f"registry database is missing: {source_db}")
     reviewed = _reviewed_inputs(seed_path, masked_path)
@@ -1905,6 +1935,17 @@ def create_refresh_candidate(
         )
     catalog_by_slug = {row["slug"]: row for row in catalog_rows}
 
+    if not fixture_mode:
+        try:
+            require_current_host_capacity(
+                qualification_receipt.get("host_capacity"),
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+        except HostCapacityError as exc:
+            raise RefreshCandidateError(
+                "real refresh host capacity changed before source database access"
+            ) from exc
     source_conn = sqlite3.connect(f"{source_db.resolve().as_uri()}?mode=ro", uri=True)
     source_conn.row_factory = sqlite3.Row
     try:
@@ -2028,6 +2069,8 @@ def create_refresh_candidate(
         sandbox_evidence = preflight_real_refresh(
             execution_servers,
             default_image=default_image,
+            host_capacity_receipt=qualification_receipt.get("host_capacity"),
+            capacity_anchor=repo_root,
         )
         execution_host = sandbox_evidence.pop("_execution_docker_host", None)
         raw_bindings = sandbox_evidence.pop("_execution_image_bindings", {})
@@ -2094,6 +2137,17 @@ def create_refresh_candidate(
             assert qualification_receipt is not None
             _write_private(temporary / "qualification_receipt.json", qualification_receipt)
         candidate_db = temporary / "registry.db"
+        if not fixture_mode:
+            try:
+                require_current_host_capacity(
+                    qualification_receipt.get("host_capacity"),
+                    anchor=repo_root,
+                    now=datetime.now(tz=UTC),
+                )
+            except HostCapacityError as exc:
+                raise RefreshCandidateError(
+                    "real refresh host capacity changed before candidate database access"
+                ) from exc
         _sqlite_online_copy(source_db, candidate_db)
         conn = connect(str(candidate_db))
         init_schema(conn)
@@ -2148,6 +2202,17 @@ def create_refresh_candidate(
                     )
                     continue
                 try:
+                    if not fixture_mode:
+                        try:
+                            require_current_host_capacity(
+                                qualification_receipt.get("host_capacity"),
+                                anchor=repo_root,
+                                now=datetime.now(tz=UTC),
+                            )
+                        except HostCapacityError as exc:
+                            raise RefreshCandidateError(
+                                "real refresh host capacity changed before scan"
+                            ) from exc
                     engine_result = scanner(server)
                     if not fixture_mode and engine_result.engine_name != "mcpaudit":
                         raise RefreshCandidateError("real refresh returned a non-mcpaudit result")

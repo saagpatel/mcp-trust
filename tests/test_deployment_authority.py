@@ -660,6 +660,8 @@ def test_refresh_and_scheduler_have_no_deployment_authority() -> None:
     installer = INSTALLER.read_text(encoding="utf-8")
     assert "vercel deploy" not in refresh
     assert "MCP_TRUST_AUTO_DEPLOY" not in plist
+    assert '--engine-materialization "${ENGINE_MATERIALIZATION_RECEIPT}"' in refresh
+    assert '--host-capacity "${HOST_CAPACITY_RECEIPT}"' in refresh
     assert "launchctl load" not in installer
     assert "launchctl bootstrap" not in installer
     assert '"${LAUNCHCTL_BIN}" disable' in installer

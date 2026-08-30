@@ -78,9 +78,30 @@ test -x "$PYTHON"
 "$PYTHON" scripts/grade_refresh.py inventory \
   --out dist/grade-refresh/inventory.json
 
+"$PYTHON" scripts/grade_refresh.py host-capacity \
+  --anchor "$PWD" \
+  --out dist/grade-refresh/host-capacity.json
+```
+
+Stop unless the host-capacity receipt says `status: READY` and
+`safe_to_start_runtime: true`. It requires at least 5 GiB available and less
+than 100 percent capacity in two readings at least 30 seconds apart. The receipt
+binds the filesystem device and exact byte counters but no host path. It expires
+after 120 seconds and is revalidated before Docker, MCP, or registry-database
+work. This source contract does not observe Colima state and cannot prove that
+an operator kept Colima stopped until the gate passed; that ordering requires
+fresh operator/runtime evidence. Its SHA-256 is an integrity checksum, not an
+operator signature: observation authenticity and same-user replacement remain
+`UNKNOWN` without a separately sealed operator binding.
+
+Only after that READY decision, start the separately approved Colima instance.
+Then create the preflight while the capacity receipt is still current:
+
+```bash
 "$PYTHON" scripts/grade_refresh.py preflight \
   --repo-root "$PWD" \
   --engine-materialization dist/grade-refresh/engine-materialization.json \
+  --host-capacity dist/grade-refresh/host-capacity.json \
   --out dist/grade-refresh/preflight.json
 ```
 
@@ -88,7 +109,7 @@ Stop unless the engine receipt says `status: READY` and `safe_to_execute: true`.
 `UNKNOWN` means provenance or runtime evidence is missing; `BLOCKED` means a
 known binding or policy mismatch. Neither state authorizes repair or execution.
 The engine receipt is a required preflight input and is embedded in the
-`McpTrustGradeRefreshPreflightV2` receipt. Its digest, current reproducibility,
+`McpTrustGradeRefreshPreflightV3` receipt. Its digest, current reproducibility,
 and exact source binding therefore flow into candidate and operator-package
 evidence instead of remaining a standalone observation. The receipt binds the
 complete frozen lock digest and its PyPI-only source
