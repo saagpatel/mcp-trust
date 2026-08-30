@@ -254,37 +254,42 @@ def test_docker_runtime_attestor_requires_configured_target_user() -> None:
 
 
 @pytest.mark.parametrize(
-    "process_override",
+    ("process_override", "failed_control"),
     [
-        {"network_interfaces": ["eth0", "lo"]},
-        {"cap_eff": "0000000000000001"},
-        {"no_new_privs": "0"},
-        {"root_write_denied": False},
-        {"memory_max": "max"},
-        {"pids_max": "512"},
-        {"uid": 65534},
-        {"server_process_state": "Z (zombie)"},
-        {"same_network_namespace": False},
+        ({"network_interfaces": ["eth0", "lo"]}, "network_none"),
+        ({"cap_eff": "0000000000000001"}, "capabilities_dropped"),
+        ({"no_new_privs": "0"}, "no_new_privileges"),
+        ({"root_write_denied": False}, "read_only_root"),
+        ({"memory_max": str(512 * 1024 * 1024 + 1)}, "memory_limit"),
+        ({"pids_max": "512"}, "pids_limit"),
+        ({"uid": 65534}, "non_root_user"),
+        ({"server_process_state": "Z (zombie)"}, "live_process_observed"),
+        ({"same_network_namespace": False}, "shared_namespaces_and_cgroup"),
     ],
 )
 def test_docker_runtime_readback_rejects_false_green_process_observations(
     process_override: dict[str, object],
+    failed_control: str,
 ) -> None:
     sandbox = DockerSandbox()
     runner = _runtime_runner(sandbox, process_override=process_override)
     sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
 
-    with pytest.raises(DockerSandboxRuntimeReadbackError):
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
         sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == (failed_control,)
+    assert str(caught.value).endswith(f"failed controls: {failed_control}")
 
 
 def test_docker_runtime_readback_rejects_daemon_control_tampering() -> None:
+    private_runtime_value = "private-runtime-network-value-7264c0"
     sandbox = DockerSandbox()
     runner = _runtime_runner(
         sandbox,
         container_override={
             "HostConfig": {
-                "NetworkMode": "bridge",
+                "NetworkMode": private_runtime_value,
                 "ReadonlyRootfs": True,
                 "CapDrop": ["ALL"],
                 "SecurityOpt": ["no-new-privileges"],
@@ -292,6 +297,7 @@ def test_docker_runtime_readback_rejects_daemon_control_tampering() -> None:
                 "MemorySwap": 512 * 1024 * 1024,
                 "NanoCpus": 1_000_000_000,
                 "PidsLimit": 256,
+                "Privileged": False,
                 "Binds": None,
                 "Tmpfs": {"/scan": "rw,size=67108864,mode=1777"},
             }
@@ -299,8 +305,65 @@ def test_docker_runtime_readback_rejects_daemon_control_tampering() -> None:
     )
     sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
 
-    with pytest.raises(DockerSandboxRuntimeReadbackError, match="did not match"):
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="did not match") as caught:
         sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("network_none",)
+    assert str(caught.value).endswith("failed controls: network_none")
+    assert private_runtime_value not in str(caught.value)
+
+
+def test_runtime_control_diagnostics_are_sorted_allowlisted_and_deduplicated() -> None:
+    private_path = "/Users/operator/private/runtime-observation"
+    error = DockerSandboxRuntimeReadbackError.from_failed_controls(
+        ["pids_limit", private_path, "network_none", "pids_limit", 7]
+    )
+
+    assert error.failed_controls == ("network_none", "pids_limit")
+    assert str(error).endswith("failed controls: network_none, pids_limit")
+    assert private_path not in str(error)
+
+
+def test_malformed_runtime_value_has_no_raw_parser_exception_chain() -> None:
+    private_runtime_value = "/Users/operator/private/runtime-numeric-value"
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        process_override={"uid": private_runtime_value},
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(
+        DockerSandboxRuntimeReadbackError, match="numeric readback is invalid"
+    ) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ()
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    assert private_runtime_value not in str(caught.value)
+
+
+def test_invalid_attestor_json_has_no_raw_parser_exception_chain() -> None:
+    private_runtime_value = "/Users/operator/private/invalid-attestor-json"
+    sandbox = DockerSandbox()
+    base_runner = _runtime_runner(sandbox)
+
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "exec" in command:
+            return subprocess.CompletedProcess(command, 0, private_runtime_value, "")
+        return base_runner(command, **kwargs)
+
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+    with pytest.raises(
+        DockerSandboxRuntimeReadbackError, match="attestor returned invalid JSON"
+    ) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ()
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    assert private_runtime_value not in str(caught.value)
 
 
 def test_docker_runtime_readback_fails_closed_without_bound_attestor() -> None:

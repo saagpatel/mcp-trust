@@ -33,7 +33,7 @@ import secrets
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import ClassVar, Protocol, runtime_checkable
@@ -48,6 +48,7 @@ _DOCKER_CREATE_SETTLE_INTERVAL_SECONDS = 0.1
 SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS = 5.0
 _DOCKER_RUNTIME_READBACK_POLLS = 50
 _DOCKER_RUNTIME_READBACK_INTERVAL_SECONDS = 0.05
+_INVALID_JSON_READBACK = object()
 SANDBOX_RUNTIME_READBACK_SCHEMA = "McpTrustSandboxRuntimeReadbackV1"
 SANDBOX_RUNTIME_READBACK_CLAIM_CEILING = (
     "Live MCP server PID 1 identity, its container namespaces/cgroup, and Docker "
@@ -202,6 +203,42 @@ class DockerSandboxCleanupError(RuntimeError):
 
 class DockerSandboxRuntimeReadbackError(RuntimeError):
     """Raised when live Docker sandbox controls cannot be proven."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_controls: Iterable[object] = (),
+    ) -> None:
+        self.failed_controls = tuple(
+            sorted(
+                {
+                    control
+                    for control in failed_controls
+                    if isinstance(control, str) and control in _RUNTIME_CONTROL_KEYS
+                }
+            )
+        )
+        super().__init__(message)
+
+    @classmethod
+    def from_failed_controls(
+        cls, failed_controls: Iterable[object]
+    ) -> DockerSandboxRuntimeReadbackError:
+        """Build a deterministic diagnostic containing only static control names."""
+        sanitized = tuple(
+            sorted(
+                {
+                    control
+                    for control in failed_controls
+                    if isinstance(control, str) and control in _RUNTIME_CONTROL_KEYS
+                }
+            )
+        )
+        message = "Docker live runtime controls did not match the locked scan profile"
+        if sanitized:
+            message += "; failed controls: " + ", ".join(sanitized)
+        return cls(message, failed_controls=sanitized)
 
 
 def _memory_bytes(value: str) -> int:
@@ -664,7 +701,7 @@ class DockerSandbox:
                 "Docker runtime readback exceeded its bounded deadline"
             )
         try:
-            return runner(
+            completed = runner(
                 self._docker_command(*args),
                 text=True,
                 capture_output=True,
@@ -672,10 +709,13 @@ class DockerSandbox:
                 timeout=min(SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS, remaining),
                 env=self._docker_cli_env(),
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (OSError, subprocess.TimeoutExpired):
+            completed = None
+        if completed is None:
             raise DockerSandboxRuntimeReadbackError(
                 "Docker runtime readback command did not complete"
-            ) from exc
+            )
+        return completed
 
     @staticmethod
     def _one_json_object(completed: subprocess.CompletedProcess[str]) -> dict[str, object]:
@@ -683,10 +723,12 @@ class DockerSandbox:
             raise DockerSandboxRuntimeReadbackError("Docker runtime readback failed")
         try:
             payload = json.loads(completed.stdout)
-        except (json.JSONDecodeError, TypeError) as exc:
+        except (json.JSONDecodeError, TypeError):
+            payload = _INVALID_JSON_READBACK
+        if payload is _INVALID_JSON_READBACK:
             raise DockerSandboxRuntimeReadbackError(
                 "Docker runtime readback returned invalid JSON"
-            ) from exc
+            )
         if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
             raise DockerSandboxRuntimeReadbackError(
                 "Docker runtime readback returned an ambiguous object"
@@ -760,10 +802,12 @@ class DockerSandbox:
             )
         try:
             process = json.loads(attested.stdout)
-        except (json.JSONDecodeError, TypeError) as exc:
+        except (json.JSONDecodeError, TypeError):
+            process = _INVALID_JSON_READBACK
+        if process is _INVALID_JSON_READBACK:
             raise DockerSandboxRuntimeReadbackError(
                 "Docker in-container runtime attestor returned invalid JSON"
-            ) from exc
+            )
         if not isinstance(process, dict):
             raise DockerSandboxRuntimeReadbackError(
                 "Docker in-container runtime attestor returned an invalid object"
@@ -789,8 +833,10 @@ class DockerSandbox:
         expected_memory = _memory_bytes(self.memory)
         try:
             expected_nano_cpus = int(Decimal(self.cpus) * Decimal(1_000_000_000))
-        except (InvalidOperation, ValueError) as exc:
-            raise DockerSandboxRuntimeReadbackError("Docker CPU limit is unsupported") from exc
+        except (InvalidOperation, ValueError):
+            expected_nano_cpus = None
+        if expected_nano_cpus is None:
+            raise DockerSandboxRuntimeReadbackError("Docker CPU limit is unsupported")
         if expected_nano_cpus <= 0:
             raise DockerSandboxRuntimeReadbackError("Docker CPU limit is unsupported")
 
@@ -838,11 +884,14 @@ class DockerSandbox:
                     "Docker in-container numeric readback is invalid"
                 )
             try:
-                return int(value)
-            except (TypeError, ValueError) as exc:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                parsed = None
+            if parsed is None:
                 raise DockerSandboxRuntimeReadbackError(
                     "Docker in-container numeric readback is invalid"
-                ) from exc
+                )
+            return parsed
 
         uid = _process_int("uid")
         gid = _process_int("gid")
@@ -923,8 +972,8 @@ class DockerSandbox:
             ),
         }
         if not all(value is True for value in controls.values()):
-            raise DockerSandboxRuntimeReadbackError(
-                "Docker live runtime controls did not match the locked scan profile"
+            raise DockerSandboxRuntimeReadbackError.from_failed_controls(
+                name for name, passed in controls.items() if passed is not True
             )
         if (
             not isinstance(image_id, str)

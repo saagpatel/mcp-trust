@@ -13,13 +13,18 @@ import json
 import os
 import subprocess
 import time
+import traceback
 
 import pytest
 
 from mcp_trust.core.models import ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import ScanError, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for
-from mcp_trust.engine.sandbox import DockerSandbox, sandbox_server_process_digest
+from mcp_trust.engine.sandbox import (
+    DockerSandbox,
+    DockerSandboxRuntimeReadbackError,
+    sandbox_server_process_digest,
+)
 
 _HAS_ENGINE = importlib.util.find_spec("mcp_audit") is not None
 
@@ -30,7 +35,11 @@ def _empty_cleanup_runner(
     return subprocess.CompletedProcess(command, 0, "", "")
 
 
-def _docker_lifecycle_runner(sandbox: DockerSandbox):  # noqa: ANN202
+def _docker_lifecycle_runner(
+    sandbox: DockerSandbox,
+    *,
+    process_override: dict[str, object] | None = None,
+):  # noqa: ANN202
     container_id = "d" * 64
     image_id = "sha256:" + "1" * 64
     present = False
@@ -105,6 +114,8 @@ def _docker_lifecycle_runner(sandbox: DockerSandbox):  # noqa: ANN202
                 "same_mount_namespace": True,
                 "same_cgroup": True,
             }
+            if process_override:
+                process.update(process_override)
             return subprocess.CompletedProcess(command, 0, json.dumps(process), "")
         if "ls" in command:
             assert "--no-trunc" in command
@@ -191,17 +202,18 @@ def test_runtime_probe_failure_does_not_wait_for_connector_deadline() -> None:
 
     sandbox = DockerSandbox()
     base_runner = _docker_lifecycle_runner(sandbox)
+    private_error = "/Users/operator/private/runtime-command-error"
 
     def failed_probe_runner(
         command: list[str], **kwargs: object
     ) -> subprocess.CompletedProcess[str]:
         if "exec" in command:
-            return subprocess.CompletedProcess(command, 1, "", "attestor failed")
+            raise OSError(private_error)
         return base_runner(command, **kwargs)
 
     sandbox.prepare_owned_container("npx", ["server"], runner=failed_probe_runner)
     started = time.monotonic()
-    with pytest.raises(ScanError, match="runtime controls could not be attested"):
+    with pytest.raises(ScanError, match="runtime controls could not be attested") as caught:
         MCPAuditEngine(
             timeout=5.0,
             cleanup_runner=failed_probe_runner,
@@ -210,6 +222,59 @@ def test_runtime_probe_failure_does_not_wait_for_connector_deadline() -> None:
         )
 
     assert time.monotonic() - started < 1.0
+    assert private_error not in "".join(traceback.format_exception(caught.value))
+    assert isinstance(caught.value.__cause__, DockerSandboxRuntimeReadbackError)
+    assert caught.value.__cause__.__cause__ is None
+    assert caught.value.__cause__.__context__ is None
+
+
+def test_runtime_control_failure_preserves_only_sanitized_names_to_direct_caller() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            return object()
+
+    private_runtime_value = "/Users/operator/private/network-observation"
+    sandbox = DockerSandbox()
+    runner = _docker_lifecycle_runner(
+        sandbox,
+        process_override={"network_interfaces": ["lo", private_runtime_value]},
+    )
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    with pytest.raises(ScanError, match="failed controls: network_none") as caught:
+        MCPAuditEngine(timeout=1.0, cleanup_runner=runner)._connect_with_lifecycle(
+            _Connector(), object(), sandbox, launches_process=True
+        )
+
+    assert private_runtime_value not in str(caught.value)
+    assert isinstance(caught.value.__cause__, DockerSandboxRuntimeReadbackError)
+    assert caught.value.__cause__.failed_controls == ("network_none",)
+
+
+def test_malformed_runtime_value_is_absent_from_direct_caller_exception_chain() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            return object()
+
+    private_runtime_value = "/Users/operator/private/runtime-numeric-value"
+    sandbox = DockerSandbox()
+    runner = _docker_lifecycle_runner(
+        sandbox,
+        process_override={"uid": private_runtime_value},
+    )
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    with pytest.raises(ScanError, match="runtime controls could not be attested") as caught:
+        MCPAuditEngine(timeout=1.0, cleanup_runner=runner)._connect_with_lifecycle(
+            _Connector(), object(), sandbox, launches_process=True
+        )
+
+    rendered = "".join(traceback.format_exception(caught.value))
+    assert private_runtime_value not in rendered
+    assert isinstance(caught.value.__cause__, DockerSandboxRuntimeReadbackError)
+    assert caught.value.__cause__.failed_controls == ()
+    assert caught.value.__cause__.__cause__ is None
+    assert caught.value.__cause__.__context__ is None
 
 
 @pytest.mark.parametrize(
