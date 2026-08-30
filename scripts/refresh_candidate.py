@@ -104,13 +104,13 @@ def _parser() -> argparse.ArgumentParser:
     target.add_argument(
         "--seed",
         type=Path,
-        default=Path("src/mcp_trust/catalog/seed_servers.json"),
+        default=None,
     )
-    target.add_argument("--masked-grades", type=Path, default=Path("masked-grades.json"))
+    target.add_argument("--masked-grades", type=Path, default=None)
     target.add_argument(
         "--policy",
         type=Path,
-        default=Path("src/mcp_trust/catalog/refresh_policy.json"),
+        default=None,
     )
     target.add_argument("--qualification-receipt", type=Path, required=True)
     target.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -165,6 +165,29 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _target_receipt_inputs(
+    args: argparse.Namespace,
+) -> tuple[Path, Path, Path, Path]:
+    """Bind omitted reviewed inputs to the exact target-receipt source root."""
+    repo_root = args.repo_root.resolve()
+    seed_path = (
+        args.seed
+        if args.seed is not None
+        else repo_root / "src/mcp_trust/catalog/seed_servers.json"
+    )
+    masked_path = (
+        args.masked_grades
+        if args.masked_grades is not None
+        else repo_root / "masked-grades.json"
+    )
+    policy_path = (
+        args.policy
+        if args.policy is not None
+        else repo_root / "src/mcp_trust/catalog/refresh_policy.json"
+    )
+    return repo_root, seed_path, masked_path, policy_path
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -201,16 +224,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0 if verification["publication_ready"] else 1
         if args.command == "target-receipt":
+            repo_root, seed_path, masked_path, policy_path = _target_receipt_inputs(args)
             artifact = create_target_scan_artifact(
                 slug=args.slug,
                 source_db=args.db,
                 expected_db_canonical_path_sha256=args.expected_db_canonical_path_sha256,
                 expected_db_content_sha256=args.expected_db_content_sha256,
-                seed_path=args.seed,
-                masked_path=args.masked_grades,
-                policy_path=args.policy,
+                seed_path=seed_path,
+                masked_path=masked_path,
+                policy_path=policy_path,
                 qualification_receipt_path=args.qualification_receipt,
-                repo_root=args.repo_root,
+                repo_root=repo_root,
                 output_path=args.out,
             )
             verification = verify_target_scan_artifact(
@@ -218,11 +242,11 @@ def main(argv: list[str] | None = None) -> int:
                 source_db=args.db,
                 expected_db_canonical_path_sha256=args.expected_db_canonical_path_sha256,
                 expected_db_content_sha256=args.expected_db_content_sha256,
-                seed_path=args.seed,
-                masked_path=args.masked_grades,
-                policy_path=args.policy,
+                seed_path=seed_path,
+                masked_path=masked_path,
+                policy_path=policy_path,
                 qualification_receipt_path=args.qualification_receipt,
-                repo_root=args.repo_root,
+                repo_root=repo_root,
             )
             print(json.dumps(verification, indent=2, sort_keys=True))
             return 0 if verification["verified"] else 1

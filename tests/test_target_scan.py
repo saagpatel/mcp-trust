@@ -335,6 +335,119 @@ def test_cli_rejects_repeated_target_selector() -> None:
         )
 
 
+def test_target_cli_binds_omitted_reviewed_inputs_to_repo_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    foreign_cwd = tmp_path / "foreign-cwd"
+    foreign_cwd.mkdir()
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def create(**kwargs: object) -> Path:
+        calls.append(("create", kwargs))
+        return tmp_path / "target-receipt.json"
+
+    def verify(_artifact: Path, **kwargs: object) -> dict[str, object]:
+        calls.append(("verify", kwargs))
+        return {"verified": True}
+
+    monkeypatch.setattr(refresh_cli, "create_target_scan_artifact", create)
+    monkeypatch.setattr(refresh_cli, "verify_target_scan_artifact", verify)
+    monkeypatch.chdir(foreign_cwd)
+
+    base_args = [
+        "target-receipt",
+        "--slug",
+        TARGET,
+        "--db",
+        "registry.db",
+        "--expected-db-canonical-path-sha256",
+        "sha256:" + "1" * 64,
+        "--expected-db-content-sha256",
+        "sha256:" + "2" * 64,
+        "--qualification-receipt",
+        "preflight.json",
+        "--out",
+        "receipt.json",
+    ]
+    assert refresh_cli.main([*base_args, "--repo-root", str(ROOT)]) == 0
+    assert refresh_cli.main(base_args) == 0
+
+    expected_by_call = [ROOT.resolve(), ROOT.resolve(), foreign_cwd, foreign_cwd]
+    assert [kind for kind, _kwargs in calls] == ["create", "verify", "create", "verify"]
+    for (_kind, kwargs), expected_root in zip(calls, expected_by_call, strict=True):
+        assert kwargs["repo_root"] == expected_root
+        assert kwargs["seed_path"] == expected_root / "src/mcp_trust/catalog/seed_servers.json"
+        assert kwargs["masked_path"] == expected_root / "masked-grades.json"
+        assert kwargs["policy_path"] == expected_root / "src/mcp_trust/catalog/refresh_policy.json"
+
+
+def test_target_cli_preserves_explicit_reviewed_input_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    foreign_cwd = tmp_path / "foreign-cwd"
+    foreign_cwd.mkdir()
+    relative_root = Path("../source-root")
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def create(**kwargs: object) -> Path:
+        calls.append(("create", kwargs))
+        return tmp_path / "target-receipt.json"
+
+    def verify(_artifact: Path, **kwargs: object) -> dict[str, object]:
+        calls.append(("verify", kwargs))
+        return {"verified": True}
+
+    monkeypatch.setattr(refresh_cli, "create_target_scan_artifact", create)
+    monkeypatch.setattr(refresh_cli, "verify_target_scan_artifact", verify)
+    monkeypatch.chdir(foreign_cwd)
+
+    base_args = [
+        "target-receipt",
+        "--slug",
+        TARGET,
+        "--db",
+        "registry.db",
+        "--expected-db-canonical-path-sha256",
+        "sha256:" + "1" * 64,
+        "--expected-db-content-sha256",
+        "sha256:" + "2" * 64,
+        "--qualification-receipt",
+        "preflight.json",
+        "--repo-root",
+        str(relative_root),
+        "--out",
+        "receipt.json",
+    ]
+    relative_inputs = (Path("seed.json"), Path("masked.json"), Path("policy.json"))
+    absolute_inputs = (SEED, MASKED, POLICY)
+    for seed_path, masked_path, policy_path in (relative_inputs, absolute_inputs):
+        assert (
+            refresh_cli.main(
+                [
+                    *base_args,
+                    "--seed",
+                    str(seed_path),
+                    "--masked-grades",
+                    str(masked_path),
+                    "--policy",
+                    str(policy_path),
+                ]
+            )
+            == 0
+        )
+
+    expected_root = (foreign_cwd / relative_root).resolve()
+    assert [kind for kind, _kwargs in calls] == ["create", "verify"] * 2
+    for index, expected_inputs in enumerate((relative_inputs, absolute_inputs)):
+        for _kind, kwargs in calls[index * 2 : index * 2 + 2]:
+            assert kwargs["repo_root"] == expected_root
+            assert kwargs["seed_path"] == expected_inputs[0]
+            assert kwargs["masked_path"] == expected_inputs[1]
+            assert kwargs["policy_path"] == expected_inputs[2]
+
+
 @pytest.mark.parametrize(
     "hostile",
     [
