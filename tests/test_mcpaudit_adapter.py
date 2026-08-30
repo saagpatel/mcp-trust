@@ -107,6 +107,7 @@ def _docker_lifecycle_runner(sandbox: DockerSandbox):  # noqa: ANN202
             }
             return subprocess.CompletedProcess(command, 0, json.dumps(process), "")
         if "ls" in command:
+            assert "--no-trunc" in command
             stdout = container_id + "\n" if present else ""
             return subprocess.CompletedProcess(command, 0, stdout, "")
         if "rm" in command:

@@ -30,6 +30,20 @@ _IMAGE_ID = "sha256:" + "1" * 64
 _CONTAINER_ID = "c" * 64
 
 
+def _owned_container_inspect(
+    sandbox: DockerSandbox,
+    container_id: str,
+    **overrides: object,
+) -> str:
+    container: dict[str, object] = {
+        "Id": container_id,
+        "Name": f"/{sandbox.container_name}",
+        "Config": {"Labels": {"com.mcp-trust.scan-owner": sandbox._owner_token}},
+    }
+    container.update(overrides)
+    return json.dumps([container])
+
+
 def _runtime_runner(
     sandbox: DockerSandbox,
     *,
@@ -325,6 +339,25 @@ def test_docker_prepares_immutable_container_before_connector_launch() -> None:
     ]
 
 
+def test_docker_prepare_rejects_a_short_container_id() -> None:
+    sandbox = DockerSandbox()
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "create" in command:
+            return subprocess.CompletedProcess(command, 0, "c" * 12 + "\n", "")
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="immutable scan container ID"):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert all("--no-trunc" in command for command in calls if "ls" in command)
+    assert not any("rm" in command for command in calls)
+
+
 def test_docker_create_timeout_cleans_delayed_daemon_materialization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -344,6 +377,10 @@ def test_docker_create_timeout_cleans_delayed_daemon_materialization(
             list_queries += 1
             stdout = container_id + "\n" if list_queries == 7 and not removed else ""
             return subprocess.CompletedProcess(command, 0, stdout, "")
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, container_id), ""
+            )
         if "rm" in command:
             removed = True
             return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
@@ -354,6 +391,96 @@ def test_docker_create_timeout_cleans_delayed_daemon_materialization(
 
     assert any("rm" in command and container_id in command for command in calls)
     assert "ls" in calls[-1]
+    assert all("--no-trunc" in command for command in calls if "ls" in command)
+
+
+@pytest.mark.parametrize("delayed_id", ["e" * 12, "E" * 64, "not-an-id"])
+def test_docker_create_timeout_rejects_non_full_delayed_identity(
+    delayed_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sandbox = DockerSandbox()
+    calls: list[list[str]] = []
+    monkeypatch.setattr("mcp_trust.engine.sandbox.time.sleep", lambda _seconds: None)
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "create" in command:
+            raise subprocess.TimeoutExpired(command, 10.0)
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, delayed_id + "\n", "")
+        if "rm" in command:
+            raise AssertionError("non-full delayed identities must never be removed")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="cleanup could not prove"):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert all("--no-trunc" in command for command in calls if "ls" in command)
+    assert not any("rm" in command for command in calls)
+
+
+def test_docker_cleanup_requires_untruncated_identity() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    container_id = "f" * 64
+    present = False
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal present
+        calls.append(command)
+        if "create" in command:
+            present = True
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "ls" in command:
+            listed_id = container_id if "--no-trunc" in command else container_id[:12]
+            return subprocess.CompletedProcess(
+                command, 0, listed_id + "\n" if present else "", ""
+            )
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, container_id), ""
+            )
+        if "rm" in command:
+            assert command[-1] == container_id
+            present = False
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        raise AssertionError(command)
+
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert (
+        sandbox.cleanup_owned_container(runner=runner)
+        == "CONTAINER_ABSENCE_VERIFIED"
+    )
+    list_queries = [command for command in calls if "ls" in command]
+    assert len(list_queries) == 2
+    assert all("--no-trunc" in command for command in list_queries)
+    assert any("rm" in command and command[-1] == container_id for command in calls)
+
+
+def test_docker_cleanup_rejects_short_prefix_without_removal() -> None:
+    sandbox = DockerSandbox()
+    container_id = "f" * 64
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "create" in command:
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "ls" in command:
+            assert "--no-trunc" in command
+            return subprocess.CompletedProcess(command, 0, container_id[:12] + "\n", "")
+        if "rm" in command:
+            raise AssertionError("a short prefix must never be removed")
+        raise AssertionError(command)
+
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    with pytest.raises(DockerSandboxCleanupError, match="ambiguous"):
+        sandbox.cleanup_owned_container(runner=runner)
+
+    assert not any("rm" in command for command in calls)
 
 
 def test_docker_cleanup_removes_only_owned_container_id_and_proves_absence() -> None:
@@ -366,19 +493,61 @@ def test_docker_cleanup_removes_only_owned_container_id_and_proves_absence() -> 
         calls.append(command)
         if "ls" in command:
             return subprocess.CompletedProcess(command, 0, next(list_results), "")
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, container_id), ""
+            )
         return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
 
     assert (
         sandbox.cleanup_owned_container(runner=runner)
         == "CONTAINER_ABSENCE_VERIFIED"
     )
-    assert calls[1][-4:] == ["container", "rm", "--force", container_id]
-    for query in (calls[0], calls[2]):
+    assert calls[1][-3:] == ["container", "inspect", container_id]
+    assert calls[2][-4:] == ["container", "rm", "--force", container_id]
+    for query in (calls[0], calls[3]):
         assert query[:3] == ["docker", "--host", "unix:///tmp/controlled-docker.sock"]
+        assert "--no-trunc" in query
         assert f"name=^/{sandbox.container_name}$" in query
         assert any(
             value.startswith("label=com.mcp-trust.scan-owner=") for value in query
         )
+
+
+@pytest.mark.parametrize(
+    "inspect_overrides",
+    [
+        {"Id": "b" * 64},
+        {"Name": "/another-container"},
+        {"Config": {"Labels": {"com.mcp-trust.scan-owner": "another-owner"}}},
+    ],
+)
+def test_docker_cleanup_rejects_inspected_identity_tampering(
+    inspect_overrides: dict[str, object],
+) -> None:
+    sandbox = DockerSandbox()
+    container_id = "a" * 64
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                _owned_container_inspect(sandbox, container_id, **inspect_overrides),
+                "",
+            )
+        if "rm" in command:
+            raise AssertionError("a mismatched inspected identity must never be removed")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="owned container identity"):
+        sandbox.cleanup_owned_container(runner=runner)
+
+    assert not any("rm" in command for command in calls)
 
 
 def test_docker_cleanup_empty_readback_is_verified_without_removal() -> None:
@@ -393,6 +562,7 @@ def test_docker_cleanup_empty_readback_is_verified_without_removal() -> None:
     )
     assert len(calls) == 2
     assert all("ls" in command for command in calls)
+    assert all("--no-trunc" in command for command in calls)
 
 
 @pytest.mark.parametrize("stdout", ["not-an-id\n", "a" * 12 + "\n" + "b" * 12 + "\n"])

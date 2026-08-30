@@ -41,7 +41,7 @@ from typing import ClassVar, Protocol, runtime_checkable
 logger = logging.getLogger(__name__)
 _DOCKER_HOST_ENV = "MCP_TRUST_DOCKER_HOST"
 _SCAN_OWNER_LABEL = "com.mcp-trust.scan-owner"
-_CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
+_FULL_CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
 _DOCKER_CLEANUP_TIMEOUT_SECONDS = 10.0
 _DOCKER_CREATE_SETTLE_POLLS = 20
 _DOCKER_CREATE_SETTLE_INTERVAL_SECONDS = 0.1
@@ -509,6 +509,7 @@ class DockerSandbox:
                     "container",
                     "ls",
                     "--all",
+                    "--no-trunc",
                     "--filter",
                     f"label={_SCAN_OWNER_LABEL}={self._owner_token}",
                     "--filter",
@@ -532,12 +533,59 @@ class DockerSandbox:
             )
         container_ids = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
         if len(container_ids) > 1 or any(
-            _CONTAINER_ID.fullmatch(container_id) is None for container_id in container_ids
+            _FULL_CONTAINER_ID.fullmatch(container_id) is None
+            for container_id in container_ids
         ):
             raise DockerSandboxCleanupError(
                 "Docker cleanup readback returned an ambiguous owned-container identity"
             )
         return container_ids
+
+    def _verify_owned_container_identity(
+        self,
+        container_id: str,
+        *,
+        runner: Callable[..., subprocess.CompletedProcess[str]],
+    ) -> None:
+        try:
+            completed = runner(
+                self._docker_command("container", "inspect", container_id),
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=_DOCKER_CLEANUP_TIMEOUT_SECONDS,
+                env=self._docker_cli_env(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise DockerSandboxCleanupError(
+                "Docker cleanup could not inspect the owned scan container"
+            ) from exc
+        if completed.returncode != 0:
+            raise DockerSandboxCleanupError(
+                "Docker cleanup could not inspect the owned scan container"
+            )
+        try:
+            payload = json.loads(completed.stdout)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise DockerSandboxCleanupError(
+                "Docker cleanup inspection returned an ambiguous container identity"
+            ) from exc
+        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+            raise DockerSandboxCleanupError(
+                "Docker cleanup inspection returned an ambiguous container identity"
+            )
+        container = payload[0]
+        config = container.get("Config")
+        labels = config.get("Labels") if isinstance(config, dict) else None
+        if not (
+            container.get("Id") == container_id
+            and container.get("Name") == f"/{self.container_name}"
+            and isinstance(labels, dict)
+            and labels.get(_SCAN_OWNER_LABEL) == self._owner_token
+        ):
+            raise DockerSandboxCleanupError(
+                "Docker cleanup inspection did not match the owned container identity"
+            )
 
     def prepare_owned_container(
         self,
@@ -590,7 +638,7 @@ class DockerSandbox:
         if (
             completed.returncode != 0
             or len(created_ids) != 1
-            or _CONTAINER_ID.fullmatch(created_ids[0]) is None
+            or _FULL_CONTAINER_ID.fullmatch(created_ids[0]) is None
         ):
             # A failed CLI can still have created a daemon object. Query by the
             # unique identity and remove it before returning the preparation error.
@@ -657,7 +705,7 @@ class DockerSandbox:
         The raw inspect payloads and environment values never leave this method.
         """
         container_id = self._container_id
-        if container_id is None or _CONTAINER_ID.fullmatch(container_id) is None:
+        if container_id is None or _FULL_CONTAINER_ID.fullmatch(container_id) is None:
             raise DockerSandboxRuntimeReadbackError(
                 "Docker runtime readback has no prepared immutable container"
             )
@@ -960,6 +1008,7 @@ class DockerSandbox:
                 "Docker cleanup readback did not match the prepared container ID"
             )
         if container_ids:
+            self._verify_owned_container_identity(container_ids[0], runner=runner)
             try:
                 removed = runner(
                     self._docker_command("container", "rm", "--force", container_ids[0]),
