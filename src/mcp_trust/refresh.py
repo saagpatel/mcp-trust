@@ -47,7 +47,7 @@ from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
     DockerSandbox,
     normalize_local_docker_host,
-    sandbox_server_process_digest,
+    sandbox_server_process_digests,
     valid_sandbox_runtime_readback,
 )
 from mcp_trust.receipts import build_scan_receipt
@@ -1419,11 +1419,17 @@ def _candidate_execution_binding(
         raise RefreshCandidateError("scan execution profile is unavailable")
     try:
         server_command, server_args = launch_spec(server.source)
-        expected_server_process_digest = sandbox_server_process_digest(server_command, server_args)
+        expected_server_process_digests = sandbox_server_process_digests(
+            server_command,
+            server_args,
+            allow_python_console_script=(
+                server.source.kind == SourceKind.PYPI and server.source.command is not None
+            ),
+        )
     except Exception as exc:  # normalized below; no execution occurs here
         if local_process:
             raise RefreshCandidateError("scan execution command binding is unavailable") from exc
-        expected_server_process_digest = "NOT_APPLICABLE"
+        expected_server_process_digests = ("NOT_APPLICABLE",)
     if fixture_mode:
         source = {
             "revision": None,
@@ -1453,7 +1459,7 @@ def _candidate_execution_binding(
                     expected_image_id=expected_image,
                     expected_profile=configured_profile,
                     expected_dummy_env_names=list(server.source.env_keys),
-                    expected_server_process_digest=expected_server_process_digest,
+                    expected_server_process_digests=expected_server_process_digests,
                 )
                 or runtime_readback.get("schema") != SANDBOX_RUNTIME_READBACK_SCHEMA
             ):
@@ -2174,11 +2180,15 @@ def create_refresh_candidate(
                         None,
                     )
                     try:
-                        expected_server_process_digest = sandbox_server_process_digest(
-                            *launch_spec(server.source)
+                        expected_server_process_digests = sandbox_server_process_digests(
+                            *launch_spec(server.source),
+                            allow_python_console_script=(
+                                server.source.kind == SourceKind.PYPI
+                                and server.source.command is not None
+                            ),
                         )
                     except Exception:  # invalid launch spec is classified as UNKNOWN
-                        expected_server_process_digest = None
+                        expected_server_process_digests = None
                     if (
                         not fixture_mode
                         and _requires_local_sandbox(server)
@@ -2188,13 +2198,13 @@ def create_refresh_candidate(
                             != "CONTAINER_ABSENCE_VERIFIED"
                             or not isinstance(expected_image, str)
                             or not isinstance(runtime_profile, dict)
-                            or not isinstance(expected_server_process_digest, str)
+                            or not isinstance(expected_server_process_digests, tuple)
                             or not valid_sandbox_runtime_readback(
                                 engine_result.sandbox_runtime_readback,
                                 expected_image_id=expected_image,
                                 expected_profile=runtime_profile,
                                 expected_dummy_env_names=list(server.source.env_keys),
-                                expected_server_process_digest=expected_server_process_digest,
+                                expected_server_process_digests=expected_server_process_digests,
                             )
                         )
                     ):

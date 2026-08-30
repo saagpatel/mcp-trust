@@ -408,7 +408,12 @@ class MCPAuditEngine:
             command, args = self._launch_spec(source)
             try:
                 prepared_launch = sandbox.prepare_owned_container(
-                    command, args, runner=self._cleanup_runner
+                    command,
+                    args,
+                    allow_python_console_script=(
+                        source.kind == SourceKind.PYPI and source.command is not None
+                    ),
+                    runner=self._cleanup_runner,
                 )
             except DockerSandboxCleanupError as exc:
                 raise ScanError(

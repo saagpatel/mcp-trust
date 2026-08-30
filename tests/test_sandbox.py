@@ -23,6 +23,7 @@ from mcp_trust.engine.sandbox import (
     NoSandbox,
     Sandbox,
     sandbox_server_process_digest,
+    sandbox_server_process_digests,
     select_sandbox,
 )
 
@@ -48,11 +49,22 @@ def _runtime_runner(
     sandbox: DockerSandbox,
     *,
     container_override: dict[str, object] | None = None,
+    container_env_override: list[str] | None = None,
     process_override: dict[str, object] | None = None,
 ):  # noqa: ANN202
     present = False
     server_process_digest = ""
-    image_env = ["PATH=/usr/local/bin"]
+    image_env = [
+        "HOME=/scan",
+        "NODE_ENV=production",
+        "PATH=/opt/venv/bin:/opt/npm/node_modules/.bin:/usr/local/bin:/usr/bin:/bin",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "SOURCE_DATE_EPOCH=1710000000",
+    ]
+    configured_env = {
+        key: value for key, value in (item.split("=", 1) for item in image_env)
+    }
+    configured_env.update({"HOME": sandbox.workdir, "TMPDIR": sandbox.workdir, **sandbox.env})
     container = {
         "Id": _CONTAINER_ID,
         "Name": f"/{sandbox.container_name}",
@@ -60,10 +72,11 @@ def _runtime_runner(
         "State": {"Running": True},
         "Config": {
             "Env": [
-                *image_env,
-                f"HOME={sandbox.workdir}",
-                f"TMPDIR={sandbox.workdir}",
-                *[f"{key}={value}" for key, value in sandbox.env.items()],
+                *(
+                    container_env_override
+                    if container_env_override is not None
+                    else [f"{key}={value}" for key, value in configured_env.items()]
+                ),
             ],
             "User": sandbox.user,
             "WorkingDir": sandbox.workdir,
@@ -89,7 +102,9 @@ def _runtime_runner(
     process = {
         "uid": 1000,
         "gid": 1000,
-        "environment_names": sorted({"PATH", "HOME", "TMPDIR", *sandbox.env}),
+        "environment_names": sorted(
+            {*configured_env, "HOSTNAME"}
+        ),
         "network_interfaces": ["lo"],
         "cap_eff": "0000000000000000",
         "no_new_privs": "1",
@@ -119,7 +134,8 @@ def _runtime_runner(
             server_process_digest = sandbox_server_process_digest(
                 command[image_index + 1], command[image_index + 2 :]
             )
-            process["server_process_cmdline_digest"] = server_process_digest
+            if not process_override or "server_process_cmdline_digest" not in process_override:
+                process["server_process_cmdline_digest"] = server_process_digest
             return subprocess.CompletedProcess(command, 0, _CONTAINER_ID + "\n", "")
         if "inspect" in command and "container" in command:
             return subprocess.CompletedProcess(command, 0, json.dumps([container]), "")
@@ -195,6 +211,8 @@ def test_docker_runtime_readback_is_live_bound_and_privacy_minimized() -> None:
     assert readback["image_id"] == _IMAGE_ID
     assert readback["controls"] == {key: True for key in readback["controls"]}
     assert readback["observed"]["injected_dummy_env_names"] == ["API_TOKEN"]
+    assert readback["observed"]["runtime_managed_environment_names"] == ["HOSTNAME"]
+    assert "HOSTNAME" in readback["observed"]["environment_names"]
     assert readback["observed"]["secret_values_emitted_in_readback"] is False
     assert readback["claim_ceiling"] == SANDBOX_RUNTIME_READBACK_CLAIM_CEILING
     assert secret not in json.dumps(readback)
@@ -251,6 +269,116 @@ def test_docker_runtime_attestor_requires_configured_target_user() -> None:
 
     with pytest.raises(DockerSandboxRuntimeReadbackError, match="configured target user"):
         sandbox.capture_runtime_readback(runner=runner)
+
+
+def test_python_console_script_pid1_identity_is_exactly_authorized() -> None:
+    sandbox = DockerSandbox()
+    console_script_digest = sandbox_server_process_digest(
+        "/opt/venv/bin/python", ["/opt/venv/bin/mcp-server-time"]
+    )
+    runner = _runtime_runner(
+        sandbox,
+        process_override={"server_process_cmdline_digest": console_script_digest},
+    )
+    sandbox.prepare_owned_container(
+        "mcp-server-time", [], allow_python_console_script=True, runner=runner
+    )
+
+    readback = sandbox.capture_runtime_readback(runner=runner)
+
+    assert readback["controls"]["server_process_identity"] is True
+    assert readback["observed"]["server_process_cmdline_digest"] == console_script_digest
+    assert console_script_digest in sandbox_server_process_digests(
+        "mcp-server-time", [], allow_python_console_script=True
+    )
+    assert console_script_digest not in sandbox_server_process_digests(
+        "mcp-server-time", [], allow_python_console_script=False
+    )
+
+
+@pytest.mark.parametrize(
+    "observed_argv",
+    [
+        ["/opt/venv/bin/python", "/opt/venv/bin/unrelated-server"],
+        ["/usr/local/bin/python", "/opt/venv/bin/mcp-server-time"],
+        ["/bin/sh", "/opt/venv/bin/mcp-server-time"],
+        ["/opt/venv/bin/python", "/opt/venv/bin/mcp-server-time", "--drift"],
+        ["/opt/venv/bin/python", "/scan/mcp-server-time"],
+    ],
+)
+def test_python_console_script_identity_rejects_false_green_aliases(
+    observed_argv: list[str],
+) -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        process_override={
+            "server_process_cmdline_digest": sandbox_server_process_digest(
+                observed_argv[0], observed_argv[1:]
+            )
+        },
+    )
+    sandbox.prepare_owned_container(
+        "mcp-server-time", [], allow_python_console_script=True, runner=runner
+    )
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("server_process_identity",)
+
+
+@pytest.mark.parametrize(
+    "process_environment_names",
+    [
+        ["HOME", "NODE_ENV", "PATH", "PYTHONDONTWRITEBYTECODE", "SOURCE_DATE_EPOCH", "TMPDIR"],
+        [
+            "HOME",
+            "HOSTNAME",
+            "NODE_ENV",
+            "PATH",
+            "PYTHONDONTWRITEBYTECODE",
+            "SOURCE_DATE_EPOCH",
+            "TMPDIR",
+            "UNEXPECTED_HOST_VALUE",
+        ],
+    ],
+)
+def test_runtime_environment_contract_rejects_missing_or_added_names(
+    process_environment_names: list[str],
+) -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        process_override={"environment_names": process_environment_names},
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("environment_policy",)
+
+
+def test_runtime_environment_contract_rejects_config_value_drift() -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        container_env_override=[
+            "HOME=/unexpected",
+            "NODE_ENV=production",
+            "PATH=/opt/venv/bin:/opt/npm/node_modules/.bin:/usr/local/bin:/usr/bin:/bin",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "SOURCE_DATE_EPOCH=1710000000",
+            "TMPDIR=/scan",
+        ],
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("environment_policy",)
 
 
 @pytest.mark.parametrize(

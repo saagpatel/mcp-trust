@@ -28,13 +28,13 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from mcp_trust.core import grading
-from mcp_trust.core.models import ScanRecord, Server
+from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine, launch_spec
 from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_SCHEMA,
     normalize_local_docker_host,
-    sandbox_server_process_digest,
+    sandbox_server_process_digests,
     valid_sandbox_runtime_readback,
 )
 from mcp_trust.grade_refresh import (
@@ -1098,7 +1098,13 @@ def create_target_scan_artifact(
                     or result.sandbox_cleanup_evidence != "CONTAINER_ABSENCE_VERIFIED"
                 ):
                     raise RefreshCandidateError("target scan evidence is incomplete")
-                expected_process = sandbox_server_process_digest(*launch_spec(target.source))
+                expected_processes = sandbox_server_process_digests(
+                    *launch_spec(target.source),
+                    allow_python_console_script=(
+                        target.source.kind == SourceKind.PYPI
+                        and target.source.command is not None
+                    ),
+                )
                 profile = profiles[0]
                 if (
                     not isinstance(profile, dict)
@@ -1107,7 +1113,7 @@ def create_target_scan_artifact(
                         expected_image_id=immutable_image_id,
                         expected_profile=profile,
                         expected_dummy_env_names=list(target.source.env_keys),
-                        expected_server_process_digest=expected_process,
+                        expected_server_process_digests=expected_processes,
                     )
                     or result.sandbox_runtime_readback.get("schema")
                     != SANDBOX_RUNTIME_READBACK_SCHEMA
