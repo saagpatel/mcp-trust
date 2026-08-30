@@ -95,7 +95,7 @@ def _docker_lifecycle_runner(
             process = {
                 "uid": 1000,
                 "gid": 1000,
-                "environment_names": ["HOME", "PATH", "TMPDIR"],
+                "environment_names": ["HOME", "HOSTNAME", "PATH", "TMPDIR"],
                 "network_interfaces": ["lo"],
                 "cap_eff": "0000000000000000",
                 "no_new_privs": "1",
@@ -154,6 +154,58 @@ def test_docker_lifecycle_success_requires_verified_absence() -> None:
     assert evidence == "CONTAINER_ABSENCE_VERIFIED"
     assert runtime_readback is not None
     assert runtime_readback["state"] == "VERIFIED"
+
+
+def test_docker_lifecycle_accepts_source_qualified_python_console_identity() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            return object()
+
+    sandbox = DockerSandbox()
+    process_digest = sandbox_server_process_digest(
+        "/opt/venv/bin/python", ["/opt/venv/bin/mcp-server-time"]
+    )
+    runner = _docker_lifecycle_runner(
+        sandbox,
+        process_override={"server_process_cmdline_digest": process_digest},
+    )
+    sandbox.prepare_owned_container(
+        "mcp-server-time", [], allow_python_console_script=True, runner=runner
+    )
+
+    _, _, runtime_readback = MCPAuditEngine(
+        timeout=1.0, cleanup_runner=runner
+    )._connect_with_lifecycle(_Connector(), object(), sandbox, launches_process=True)
+
+    assert runtime_readback is not None
+    assert runtime_readback["observed"]["server_process_cmdline_digest"] == process_digest
+
+
+def test_docker_lifecycle_rejects_unrelated_python_console_identity() -> None:
+    class _Connector:
+        async def connect(self, _cfg: object) -> object:
+            return object()
+
+    sandbox = DockerSandbox()
+    runner = _docker_lifecycle_runner(
+        sandbox,
+        process_override={
+            "server_process_cmdline_digest": sandbox_server_process_digest(
+                "/opt/venv/bin/python", ["/opt/venv/bin/unrelated-server"]
+            )
+        },
+    )
+    sandbox.prepare_owned_container(
+        "mcp-server-time", [], allow_python_console_script=True, runner=runner
+    )
+
+    with pytest.raises(ScanError, match="failed controls: server_process_identity") as caught:
+        MCPAuditEngine(timeout=1.0, cleanup_runner=runner)._connect_with_lifecycle(
+            _Connector(), object(), sandbox, launches_process=True
+        )
+
+    assert isinstance(caught.value.__cause__, DockerSandboxRuntimeReadbackError)
+    assert caught.value.__cause__.failed_controls == ("server_process_identity",)
 
 
 def test_docker_outer_deadline_verifies_absence_before_timeout_result() -> None:

@@ -61,7 +61,7 @@ IMAGE_DIGEST = "sha256:" + ("a" * 64)
 
 def _runtime_readback(*, image_id: str = IMAGE_DIGEST) -> dict[str, object]:
     return {
-        "schema": "McpTrustSandboxRuntimeReadbackV1",
+        "schema": "McpTrustSandboxRuntimeReadbackV2",
         "state": "VERIFIED",
         "proof_boundary": "live-mcp-server-process-and-docker-daemon-config",
         "image_id": image_id,
@@ -92,8 +92,9 @@ def _runtime_readback(*, image_id: str = IMAGE_DIGEST) -> dict[str, object]:
             "pids_max": 256,
             "cpu_quota": 100000,
             "cpu_period": 100000,
-            "environment_names": ["HOME", "PATH", "TMPDIR"],
+            "environment_names": ["HOME", "HOSTNAME", "PATH", "TMPDIR"],
             "image_environment_names": ["PATH"],
+            "runtime_managed_environment_names": ["HOSTNAME"],
             "injected_dummy_env_names": [],
             "secret_values_emitted_in_readback": False,
             "server_process_cmdline_digest": sandbox_server_process_digest("/opt/alpha", []),
@@ -1497,6 +1498,84 @@ def test_local_execution_binding_refuses_missing_or_false_green_runtime_readback
             server,
             runtime_readback=tampered,
             **arguments,
+        )
+
+
+def test_refresh_gate_accepts_exact_python_console_script_identity() -> None:
+    server = _server("alpha")
+    server = server.model_copy(
+        update={
+            "source": server.source.model_copy(
+                update={
+                    "kind": SourceKind.PYPI,
+                    "reference": "mcp-server-time",
+                    "command": "mcp-server-time",
+                }
+            )
+        }
+    )
+    readback = _runtime_readback()
+    readback["observed"]["server_process_cmdline_digest"] = sandbox_server_process_digest(
+        "/opt/venv/bin/python", ["/opt/venv/bin/mcp-server-time"]
+    )
+
+    binding = refresh_module._candidate_execution_binding(
+        server,
+        qualification={},
+        sandbox_evidence={
+            "profiles": [
+                refresh_module._sandbox_profile(
+                    "required:image",
+                    image_digest=IMAGE_DIGEST,
+                )
+            ]
+        },
+        default_image="required:image",
+        expected_image=IMAGE_DIGEST,
+        fixture_mode=False,
+        cleanup_evidence="CONTAINER_ABSENCE_VERIFIED",
+        runtime_readback=readback,
+    )
+
+    assert binding["sandbox"]["runtime_readback"]["state"] == "VERIFIED"
+
+
+def test_refresh_gate_rejects_python_console_script_argument_drift() -> None:
+    server = _server("alpha")
+    server = server.model_copy(
+        update={
+            "source": server.source.model_copy(
+                update={
+                    "kind": SourceKind.PYPI,
+                    "reference": "mcp-server-time",
+                    "command": "mcp-server-time",
+                }
+            )
+        }
+    )
+    readback = _runtime_readback()
+    readback["observed"]["server_process_cmdline_digest"] = sandbox_server_process_digest(
+        "/opt/venv/bin/python",
+        ["/opt/venv/bin/mcp-server-time", "--drift"],
+    )
+
+    with pytest.raises(RefreshCandidateError, match="runtime controls"):
+        refresh_module._candidate_execution_binding(
+            server,
+            qualification={},
+            sandbox_evidence={
+                "profiles": [
+                    refresh_module._sandbox_profile(
+                        "required:image",
+                        image_digest=IMAGE_DIGEST,
+                    )
+                ]
+            },
+            default_image="required:image",
+            expected_image=IMAGE_DIGEST,
+            fixture_mode=False,
+            cleanup_evidence="CONTAINER_ABSENCE_VERIFIED",
+            runtime_readback=readback,
         )
 
 

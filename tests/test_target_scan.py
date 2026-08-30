@@ -86,7 +86,7 @@ def _profile() -> dict[str, object]:
 def _runtime_readback(server: Server) -> dict[str, object]:
     command, args = launch_spec(server.source)
     return {
-        "schema": "McpTrustSandboxRuntimeReadbackV1",
+        "schema": "McpTrustSandboxRuntimeReadbackV2",
         "state": "VERIFIED",
         "proof_boundary": "live-mcp-server-process-and-docker-daemon-config",
         "image_id": IMAGE_ID,
@@ -117,8 +117,9 @@ def _runtime_readback(server: Server) -> dict[str, object]:
             "pids_max": 256,
             "cpu_quota": 100000,
             "cpu_period": 100000,
-            "environment_names": ["HOME", "PATH", "TMPDIR"],
+            "environment_names": ["HOME", "HOSTNAME", "PATH", "TMPDIR"],
             "image_environment_names": ["PATH"],
+            "runtime_managed_environment_names": ["HOSTNAME"],
             "injected_dummy_env_names": [],
             "secret_values_emitted_in_readback": False,
             "server_process_cmdline_digest": sandbox_server_process_digest(command, args),
@@ -567,6 +568,42 @@ def test_create_scans_one_target_and_seals_receipt(tmp_path: Path) -> None:
         "descriptor_bound_query": True,
         "sidecars_absent": True,
     }
+
+
+def test_target_gate_accepts_only_exact_python_console_script_identity(
+    tmp_path: Path,
+) -> None:
+    server = _target_server()
+    readback = _runtime_readback(server)
+    readback["observed"]["server_process_cmdline_digest"] = sandbox_server_process_digest(
+        "/opt/venv/bin/python", ["/opt/venv/bin/mcp-server-time"]
+    )
+    engine = _Engine(_engine_result(sandbox_runtime_readback=readback))
+    kwargs = _creation_kwargs(tmp_path, engine)
+
+    output = target_scan.create_target_scan_artifact(**kwargs)
+
+    assert output.is_file()
+    assert engine.calls == 1
+
+
+def test_target_gate_rejects_python_console_script_argument_drift(tmp_path: Path) -> None:
+    server = _target_server()
+    readback = _runtime_readback(server)
+    readback["observed"]["server_process_cmdline_digest"] = sandbox_server_process_digest(
+        "/opt/venv/bin/python",
+        ["/opt/venv/bin/mcp-server-time", "--drift"],
+    )
+    engine = _Engine(_engine_result(sandbox_runtime_readback=readback))
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+
+    with pytest.raises(RefreshCandidateError, match="runtime evidence is incomplete"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 1
+    assert not output.exists()
 
 
 def test_full_catalog_count_binding_accepts_exact_producer_shape(tmp_path: Path) -> None:

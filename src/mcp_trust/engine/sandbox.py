@@ -49,7 +49,11 @@ SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS = 5.0
 _DOCKER_RUNTIME_READBACK_POLLS = 50
 _DOCKER_RUNTIME_READBACK_INTERVAL_SECONDS = 0.05
 _INVALID_JSON_READBACK = object()
-SANDBOX_RUNTIME_READBACK_SCHEMA = "McpTrustSandboxRuntimeReadbackV1"
+_DOCKER_RUNTIME_ENVIRONMENT_NAMES = frozenset({"HOSTNAME"})
+_PYTHON_CONSOLE_SCRIPT_DIRECTORY = "/opt/venv/bin"
+_PYTHON_CONSOLE_SCRIPT_INTERPRETER = f"{_PYTHON_CONSOLE_SCRIPT_DIRECTORY}/python"
+_BARE_EXECUTABLE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+SANDBOX_RUNTIME_READBACK_SCHEMA = "McpTrustSandboxRuntimeReadbackV2"
 SANDBOX_RUNTIME_READBACK_CLAIM_CEILING = (
     "Live MCP server PID 1 identity, its container namespaces/cgroup, and Docker "
     "daemon configuration; filesystem write probes run in a same-namespace "
@@ -89,6 +93,7 @@ _RUNTIME_OBSERVED_KEYS = frozenset(
         "cpu_period",
         "environment_names",
         "image_environment_names",
+        "runtime_managed_environment_names",
         "injected_dummy_env_names",
         "secret_values_emitted_in_readback",
         "server_process_cmdline_digest",
@@ -270,13 +275,37 @@ def sandbox_server_process_digest(command: str, args: list[str]) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def sandbox_server_process_digests(
+    command: str,
+    args: list[str],
+    *,
+    allow_python_console_script: bool = False,
+) -> tuple[str, ...]:
+    """Return the exact PID 1 argv digests authorized by one launch spec.
+
+    The direct form covers native executables and explicit interpreter launches.
+    Purpose-built Python images install console scripts only in ``/opt/venv/bin``;
+    Linux exposes those scripts as the pinned interpreter plus absolute script path
+    in ``/proc/1/cmdline``. No PATH alias, shell wrapper, basename-only match, or
+    alternate interpreter is accepted.
+    """
+    direct = sandbox_server_process_digest(command, args)
+    if not allow_python_console_script or _BARE_EXECUTABLE.fullmatch(command) is None:
+        return (direct,)
+    python_console_script = sandbox_server_process_digest(
+        _PYTHON_CONSOLE_SCRIPT_INTERPRETER,
+        [f"{_PYTHON_CONSOLE_SCRIPT_DIRECTORY}/{command}", *args],
+    )
+    return (direct, python_console_script)
+
+
 def valid_sandbox_runtime_readback(
     value: object,
     *,
     expected_image_id: str,
     expected_profile: dict[str, object],
     expected_dummy_env_names: list[str],
-    expected_server_process_digest: str,
+    expected_server_process_digests: Iterable[str],
 ) -> bool:
     """Validate the stable, privacy-minimized receipt projection."""
     if not isinstance(value, dict) or set(value) != _RUNTIME_READBACK_KEYS:
@@ -299,12 +328,22 @@ def valid_sandbox_runtime_readback(
         observed.get("image_environment_names") if isinstance(observed, dict) else None
     )
     expected_dummy_names = sorted(set(expected_dummy_env_names))
+    runtime_managed_environment_names = sorted(_DOCKER_RUNTIME_ENVIRONMENT_NAMES)
     expected_environment_names = (
-        sorted(set(image_environment_names) | {"HOME", "TMPDIR"} | set(expected_dummy_names))
+        sorted(
+            set(image_environment_names)
+            | {"HOME", "TMPDIR"}
+            | set(expected_dummy_names)
+            | _DOCKER_RUNTIME_ENVIRONMENT_NAMES
+        )
         if isinstance(image_environment_names, list)
         and all(isinstance(name, str) and name for name in image_environment_names)
         else None
     )
+    try:
+        expected_process_digests = tuple(expected_server_process_digests)
+    except TypeError:
+        return False
     return bool(
         expected_profile.get("network") == "none"
         and expected_profile.get("read_only_root") is True
@@ -342,14 +381,21 @@ def valid_sandbox_runtime_readback(
         and observed["environment_names"] == expected_environment_names
         and all(isinstance(name, str) and name for name in observed["environment_names"])
         and image_environment_names == sorted(set(image_environment_names))
+        and observed.get("runtime_managed_environment_names")
+        == runtime_managed_environment_names
         and isinstance(observed.get("injected_dummy_env_names"), list)
         and observed["injected_dummy_env_names"] == expected_dummy_names
         and set(observed["injected_dummy_env_names"]).issubset(
             observed["environment_names"]
         )
         and observed.get("secret_values_emitted_in_readback") is False
-        and observed.get("server_process_cmdline_digest")
-        == expected_server_process_digest
+        and expected_process_digests
+        and all(
+            isinstance(digest, str)
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is not None
+            for digest in expected_process_digests
+        )
+        and observed.get("server_process_cmdline_digest") in expected_process_digests
         and re.fullmatch(
             r"sha256:[0-9a-f]{64}", str(observed["server_process_cmdline_digest"])
         )
@@ -449,7 +495,9 @@ class DockerSandbox:
         default_factory=lambda: secrets.token_hex(16), init=False, repr=False
     )
     _container_id: str | None = field(default=None, init=False, repr=False)
-    _server_process_digest: str | None = field(default=None, init=False, repr=False)
+    _server_process_digests: tuple[str, ...] | None = field(
+        default=None, init=False, repr=False
+    )
 
     name: ClassVar[str] = "docker"
     isolates: ClassVar[bool] = True
@@ -629,6 +677,7 @@ class DockerSandbox:
         command: str,
         args: list[str],
         *,
+        allow_python_console_script: bool = False,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     ) -> tuple[str, list[str]]:
         """Create the exact scan container before the connector worker starts.
@@ -684,7 +733,11 @@ class DockerSandbox:
                 "Docker did not return one immutable scan container ID"
             )
         self._container_id = created_ids[0]
-        self._server_process_digest = sandbox_server_process_digest(command, args)
+        self._server_process_digests = sandbox_server_process_digests(
+            command,
+            args,
+            allow_python_console_script=allow_python_console_script,
+        )
         return docker_command, self._docker_command(
             "container", "start", "--attach", "--interactive", self._container_id
         )[1:]
@@ -844,8 +897,12 @@ class DockerSandbox:
         image_environment_names = sorted(expected_env)
         expected_env.update({"HOME": self.workdir, "TMPDIR": self.workdir, **self.env})
         actual_env = _env_map(config.get("Env", []))
-        environment_names = sorted(actual_env)
+        configured_environment_names = sorted(actual_env)
         dummy_names = sorted(self.env)
+        runtime_managed_environment_names = sorted(_DOCKER_RUNTIME_ENVIRONMENT_NAMES)
+        expected_process_environment_names = sorted(
+            set(configured_environment_names) | _DOCKER_RUNTIME_ENVIRONMENT_NAMES
+        )
 
         tmpfs = host_config.get("Tmpfs")
         tmpfs_value = tmpfs.get(self.workdir) if isinstance(tmpfs, dict) else None
@@ -902,7 +959,7 @@ class DockerSandbox:
         process_env_names = process.get("environment_names")
         interfaces = process.get("network_interfaces")
         server_process_digest = process.get("server_process_cmdline_digest")
-        expected_server_process_digest = self._server_process_digest
+        expected_server_process_digests = self._server_process_digests
         cpu_valid = (
             cpu_period > 0
             and Decimal(cpu_quota) / Decimal(cpu_period) == Decimal(self.cpus)
@@ -953,8 +1010,8 @@ class DockerSandbox:
             "not_privileged": host_config.get("Privileged") is False,
             "environment_policy": (
                 actual_env == expected_env
-                and process_env_names == environment_names
-                and set(dummy_names).issubset(environment_names)
+                and process_env_names == expected_process_environment_names
+                and set(dummy_names).issubset(process_env_names)
             ),
             "live_process_observed": (
                 exact_identity
@@ -962,8 +1019,8 @@ class DockerSandbox:
                 and not process["server_process_state"].startswith("Z")
             ),
             "server_process_identity": (
-                isinstance(expected_server_process_digest, str)
-                and server_process_digest == expected_server_process_digest
+                isinstance(expected_server_process_digests, tuple)
+                and server_process_digest in expected_server_process_digests
             ),
             "shared_namespaces_and_cgroup": (
                 process.get("same_network_namespace") is True
@@ -1000,8 +1057,9 @@ class DockerSandbox:
                 "pids_max": pids_max,
                 "cpu_quota": cpu_quota,
                 "cpu_period": cpu_period,
-                "environment_names": environment_names,
+                "environment_names": expected_process_environment_names,
                 "image_environment_names": image_environment_names,
+                "runtime_managed_environment_names": runtime_managed_environment_names,
                 "injected_dummy_env_names": dummy_names,
                 "secret_values_emitted_in_readback": False,
                 "server_process_cmdline_digest": server_process_digest,
@@ -1011,7 +1069,7 @@ class DockerSandbox:
             },
             "claim_ceiling": SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
         }
-        if not isinstance(expected_server_process_digest, str) or not (
+        if not isinstance(expected_server_process_digests, tuple) or not (
             valid_sandbox_runtime_readback(
                 readback,
                 expected_image_id=image_id,
@@ -1028,7 +1086,7 @@ class DockerSandbox:
                     "runtime_attestor": self.attestor_command,
                 },
                 expected_dummy_env_names=dummy_names,
-                expected_server_process_digest=expected_server_process_digest,
+                expected_server_process_digests=expected_server_process_digests,
             )
         ):
             raise DockerSandboxRuntimeReadbackError(
