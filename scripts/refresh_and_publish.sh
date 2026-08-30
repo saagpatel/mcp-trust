@@ -25,10 +25,24 @@ CANDIDATES="${MCP_TRUST_CANDIDATES_DIR:-./dist/refresh-candidates}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 PREFLIGHT="${CANDIDATES}/preflight-${RUN_ID}.json"
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+ENGINE_MATERIALIZATION_RECEIPT="${MCP_TRUST_ENGINE_MATERIALIZATION_RECEIPT:-./dist/grade-refresh/engine-materialization.json}"
+HOST_CAPACITY_RECEIPT="${MCP_TRUST_HOST_CAPACITY_RECEIPT:-./dist/grade-refresh/host-capacity.json}"
 
 if [ ! -x "${PYTHON_BIN}" ]; then
   printf '%s\n' \
     "ERROR: frozen engine environment is absent; prepare .venv in a separately approved dependency lane." >&2
+  exit 1
+fi
+
+if [ ! -f "${ENGINE_MATERIALIZATION_RECEIPT}" ]; then
+  printf '%s\n' \
+    "ERROR: current engine-materialization receipt is absent; create and review it separately." >&2
+  exit 1
+fi
+
+if [ ! -f "${HOST_CAPACITY_RECEIPT}" ]; then
+  printf '%s\n' \
+    "ERROR: pre-start host-capacity receipt is absent; create and review it before Colima start." >&2
   exit 1
 fi
 
@@ -40,6 +54,8 @@ fi
   --seed "./src/mcp_trust/catalog/seed_servers.json" \
   --masked-grades "./masked-grades.json" \
   --policy "./src/mcp_trust/catalog/refresh_policy.json" \
+  --engine-materialization "${ENGINE_MATERIALIZATION_RECEIPT}" \
+  --host-capacity "${HOST_CAPACITY_RECEIPT}" \
   --out "${PREFLIGHT}"
 
 exec "${PYTHON_BIN}" scripts/refresh_candidate.py create \

@@ -28,6 +28,7 @@ from mcp_trust.grade_refresh import (
     triage_candidate,
     verify_engine_materialization_receipt,
 )
+from mcp_trust.host_capacity import build_host_capacity_receipt
 from mcp_trust.operator_package import (
     build_operator_review_package,
     verify_operator_review_package,
@@ -91,6 +92,13 @@ def _parser() -> argparse.ArgumentParser:
     _common_inputs(inventory)
     inventory.add_argument("--out", type=Path)
 
+    capacity = subcommands.add_parser(
+        "host-capacity",
+        help="Observe the host twice before any Colima, Docker, MCP, or DB action.",
+    )
+    capacity.add_argument("--anchor", type=Path, default=_ROOT)
+    capacity.add_argument("--out", type=Path)
+
     preflight = subcommands.add_parser(
         "preflight", help="Bind source/tool/image state without executing a catalog server."
     )
@@ -101,6 +109,12 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="Verified current engine-materialization receipt to bind into preflight.",
+    )
+    preflight.add_argument(
+        "--host-capacity",
+        type=Path,
+        required=True,
+        help="Fresh READY host-capacity receipt created before Colima start.",
     )
     preflight.add_argument("--out", type=Path)
 
@@ -200,6 +214,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             _emit(payload, args.out)
             return 0
+        if args.command == "host-capacity":
+            payload = build_host_capacity_receipt(anchor=args.anchor)
+            _emit(payload, args.out)
+            return 0 if payload["safe_to_start_runtime"] else 2
         if args.command == "preflight":
             payload = build_preflight_receipt(
                 repo_root=args.repo_root,
@@ -207,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
                 masked_path=args.masked_grades,
                 policy_path=args.policy,
                 engine_materialization_receipt=load_json(args.engine_materialization),
+                host_capacity_receipt=load_json(args.host_capacity),
                 now=now,
                 include_scheduler_readback=True,
             )

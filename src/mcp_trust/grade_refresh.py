@@ -36,8 +36,13 @@ from mcp_trust.engine.runtime import (
 )
 from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
 from mcp_trust.engine.stub import StubEngine
+from mcp_trust.host_capacity import (
+    HostCapacityError,
+    require_current_host_capacity,
+    validate_host_capacity_receipt,
+)
 
-PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV2"
+PREFLIGHT_SCHEMA = "McpTrustGradeRefreshPreflightV3"
 REPEATABILITY_SCHEMA = "McpTrustFixtureRepeatabilityV1"
 TRIAGE_SCHEMA = "McpTrustGradeDiffTriageV1"
 STATE_CARD_SCHEMA = "McpTrustGradeRefreshStateCardV1"
@@ -97,6 +102,7 @@ _PREFLIGHT_KEYS = frozenset(
         "exit_classification",
         "source_binding",
         "engine_materialization",
+        "host_capacity",
         "catalog",
         "sandbox",
         "tool_versions",
@@ -2011,6 +2017,7 @@ def build_preflight_receipt(
     masked_path: Path,
     policy_path: Path,
     engine_materialization_receipt: object | None = None,
+    host_capacity_receipt: object | None = None,
     now: datetime | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     include_scheduler_readback: bool = False,
@@ -2026,6 +2033,19 @@ def build_preflight_receipt(
         reasons.append("source_revision_unknown")
     if source.get("worktree_state") != "clean":
         reasons.append("source_worktree_not_clean")
+    capacity_ready = False
+    if host_capacity_receipt is None:
+        reasons.append("host_capacity_receipt_missing")
+    else:
+        try:
+            require_current_host_capacity(
+                host_capacity_receipt,
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+            capacity_ready = True
+        except HostCapacityError:
+            reasons.append("host_capacity_receipt_invalid")
     engine_materialization: dict[str, Any] | None = None
     if engine_materialization_receipt is None:
         reasons.append("engine_materialization_receipt_missing")
@@ -2044,11 +2064,13 @@ def build_preflight_receipt(
                 reasons.append("engine_materialization_not_ready")
             elif engine_materialization.get("source_binding") != source:
                 reasons.append("engine_materialization_source_mismatch")
-    docker = shutil.which("docker")
+    docker = shutil.which("docker") if capacity_ready else None
     host: str | None = None
     docker_versions: dict[str, Any] = {"client": "UNKNOWN", "server": "UNKNOWN"}
     image_bindings: list[dict[str, Any]] = []
-    if docker is None:
+    if not capacity_ready:
+        pass
+    elif docker is None:
         reasons.append("docker_executable_missing")
     else:
         host, host_error = _docker_host(runner)
@@ -2240,6 +2262,7 @@ def build_preflight_receipt(
         "exit_classification": "ready" if execution_ready else "preflight-blocked",
         "source_binding": source,
         "engine_materialization": engine_materialization,
+        "host_capacity": host_capacity_receipt,
         "catalog": {
             "seed_digest": digest_file(seed_path),
             "masking_digest": digest_file(masked_path),
@@ -3936,7 +3959,7 @@ def build_state_card(
         "next_action": (
             "Approve exact frozen mcp-audits==2.7.0 materialization from the complete "
             "uv.lock PyPI-only source boundary, generate and independently verify "
-            "engine-materialization.json, then feed that exact receipt into V2 preflight. "
+            "engine-materialization.json, then feed that exact receipt into V3 preflight. "
             "Docker, MCP scans, publication, deployment, and scheduling remain separate."
             if engine_materialization_blocked
             else "Approve deterministic reconstruction of all five image cohorts from the "
@@ -4151,6 +4174,11 @@ def validate_ready_preflight_contract(
         or scheduler.get("mutation_performed") is not False
     ):
         raise GradeRefreshError("READY preflight semantics are invalid")
+
+    try:
+        validate_host_capacity_receipt(preflight.get("host_capacity"))
+    except HostCapacityError as exc:
+        raise GradeRefreshError("READY host capacity evidence is invalid") from exc
 
     engine_materialization = preflight.get("engine_materialization")
     if (
@@ -4377,6 +4405,14 @@ def revalidate_ready_preflight_qualifications(
     )
     if not isinstance(preflight, dict) or not isinstance(expected_image_references, list):
         raise GradeRefreshError("READY image qualification is invalid")
+    try:
+        require_current_host_capacity(
+            preflight.get("host_capacity"),
+            anchor=repo_root,
+            now=datetime.now(tz=UTC),
+        )
+    except HostCapacityError as exc:
+        raise GradeRefreshError("READY host capacity changed") from exc
     materialization_verification = verify_engine_materialization_receipt(
         preflight.get("engine_materialization"),
         repo_root=repo_root,

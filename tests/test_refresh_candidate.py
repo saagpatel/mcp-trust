@@ -31,6 +31,7 @@ from mcp_trust.engine.sandbox import (
     sandbox_server_process_digest,
 )
 from mcp_trust.engine.stub import StubEngine
+from mcp_trust.host_capacity import HostCapacityError
 from mcp_trust.refresh import (
     RefreshCandidateError,
     _real_scan_mode,
@@ -52,7 +53,7 @@ from mcp_trust.refresh import (
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 from scripts import refresh_candidate as refresh_cli
-from tests.receipt_fixtures import engine_materialization_receipt
+from tests.receipt_fixtures import engine_materialization_receipt, host_capacity_receipt
 
 FIXED_NOW = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,6 +123,16 @@ def _reproduce_fixture_engine_materialization(
         "verify_engine_materialization_receipt",
         verify,
     )
+    monkeypatch.setattr(
+        grade_refresh,
+        "require_current_host_capacity",
+        lambda receipt, **_kwargs: grade_refresh.validate_host_capacity_receipt(receipt),
+    )
+    monkeypatch.setattr(
+        refresh_module,
+        "require_current_host_capacity",
+        lambda receipt, **_kwargs: grade_refresh.validate_host_capacity_receipt(receipt),
+    )
 
 
 def _server(slug: str) -> Server:
@@ -135,6 +146,13 @@ def _server(slug: str) -> Server:
         ),
         added_at=FIXED_NOW,
     )
+
+
+def _host_capacity_kwargs() -> dict[str, object]:
+    return {
+        "host_capacity_receipt": host_capacity_receipt(observed_at=FIXED_NOW),
+        "capacity_anchor": ROOT,
+    }
 
 
 def _write_refresh_policy(
@@ -314,7 +332,7 @@ def _qualification_receipt(
         "file_digests": source_files,
     }
     payload: dict[str, object] = {
-        "schema": "McpTrustGradeRefreshPreflightV2",
+        "schema": "McpTrustGradeRefreshPreflightV3",
         "observed_at": FIXED_NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
@@ -325,6 +343,7 @@ def _qualification_receipt(
             observed_at=FIXED_NOW,
             repo_root=ROOT,
         ),
+        "host_capacity": host_capacity_receipt(observed_at=FIXED_NOW),
         "catalog": {
             "denominator": policy["catalog_denominator"],
             "counts": inventory["counts"],
@@ -676,6 +695,79 @@ def test_invalid_ready_receipt_is_rejected_before_docker_preflight(
     assert not (tmp_path / "candidates").exists()
 
 
+def test_real_candidate_rejects_capacity_before_database_or_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "registry.db"
+    touched = {"database": False, "preflight": False}
+
+    def forbidden_connect(*_args: object, **_kwargs: object) -> None:
+        touched["database"] = True
+        raise AssertionError("database must not be opened before capacity admission")
+
+    def forbidden_preflight(*_args: object, **_kwargs: object) -> None:
+        touched["preflight"] = True
+        raise AssertionError("Docker preflight must not run before capacity admission")
+
+    monkeypatch.setattr(refresh_module.sqlite3, "connect", forbidden_connect)
+    monkeypatch.setattr(refresh_module, "preflight_real_refresh", forbidden_preflight)
+
+    with pytest.raises(RefreshCandidateError, match="host capacity is not READY"):
+        create_refresh_candidate(
+            source_db=database,
+            seed_path=tmp_path / "seed.json",
+            masked_path=tmp_path / "masked.json",
+            output_parent=tmp_path / "candidate",
+            default_image="required:image",
+            qualification_receipt={},
+            repo_root=ROOT,
+            now=FIXED_NOW,
+        )
+
+    assert touched == {"database": False, "preflight": False}
+
+
+def test_real_candidate_rechecks_capacity_immediately_before_source_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, seed_path, masked_path = _inputs(tmp_path)
+    receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
+    calls = 0
+    database_touched = False
+
+    def capacity_gate(receipt_value: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise HostCapacityError("capacity regressed")
+        return grade_refresh.validate_host_capacity_receipt(receipt_value)
+
+    def forbidden_connect(*_args: object, **_kwargs: object) -> None:
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("source database must remain unopened")
+
+    monkeypatch.setattr(refresh_module, "require_current_host_capacity", capacity_gate)
+    monkeypatch.setattr(refresh_module.sqlite3, "connect", forbidden_connect)
+
+    with pytest.raises(RefreshCandidateError, match="before source database access"):
+        create_refresh_candidate(
+            source_db=database,
+            seed_path=seed_path,
+            masked_path=masked_path,
+            output_parent=tmp_path / "candidates",
+            default_image="required:image",
+            qualification_receipt=receipt,
+            repo_root=ROOT,
+            now=FIXED_NOW,
+        )
+
+    assert calls == 2
+    assert database_touched is False
+
+
 def _candidate(
     tmp_path: Path,
     *,
@@ -749,7 +841,7 @@ def _complete_remote_candidate(
 
     monkeypatch.setattr(
         "mcp_trust.refresh.preflight_real_refresh",
-        lambda servers, *, default_image: {
+        lambda servers, *, default_image, **_kwargs: {
             "docker_daemon": "not_required",
             "default_image": default_image,
             "profiles": [],
@@ -1037,12 +1129,12 @@ def test_ready_preflight_revalidation_rejects_engine_materialization_change(
         )
 
 
-def test_ready_preflight_rejects_legacy_schema_before_execution(
+def test_ready_preflight_rejects_v2_schema_before_execution(
     tmp_path: Path,
 ) -> None:
     _db, seed_path, masked_path = _inputs(tmp_path)
     receipt = _qualification_receipt(seed_path, masked_path, profiles=[])
-    receipt["schema"] = "McpTrustGradeRefreshPreflightV1"
+    receipt["schema"] = "McpTrustGradeRefreshPreflightV2"
     _redigest_qualification(receipt)
 
     with pytest.raises(
@@ -2381,7 +2473,7 @@ def test_masked_real_entry_is_blocked_without_preflight_or_scanner_execution(
 
     monkeypatch.setattr(
         "mcp_trust.refresh.preflight_real_refresh",
-        lambda servers, *, default_image: {
+        lambda servers, *, default_image, **_kwargs: {
             "docker_daemon": "not_required",
             "default_image": default_image,
             "profiles": [],
@@ -2453,7 +2545,9 @@ def test_policy_blocked_server_is_never_preflighted_or_scanned(
     preflighted: list[str] = []
     scanned: list[str] = []
 
-    def preflight(servers: list[Server], *, default_image: str) -> dict[str, object]:
+    def preflight(
+        servers: list[Server], *, default_image: str, **_kwargs: object
+    ) -> dict[str, object]:
         preflighted.extend(server.slug for server in servers)
         return {
             "docker_daemon": "available",
@@ -3354,7 +3448,28 @@ def test_real_preflight_refuses_when_required_sandbox_is_unavailable(
     monkeypatch.setattr("mcp_trust.refresh.shutil.which", lambda _name: None)
 
     with pytest.raises(RefreshCandidateError, match="Docker executable"):
-        preflight_real_refresh([_server("alpha")], default_image="required:image")
+        preflight_real_refresh(
+            [_server("alpha")],
+            default_image="required:image",
+            **_host_capacity_kwargs(),
+        )
+
+
+def test_real_preflight_rejects_capacity_before_docker_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_lookup(_name: str) -> str | None:
+        raise AssertionError("Docker lookup must not run before capacity admission")
+
+    monkeypatch.setattr(refresh_module.shutil, "which", forbidden_lookup)
+
+    with pytest.raises(RefreshCandidateError, match="host capacity is not READY"):
+        preflight_real_refresh(
+            [_server("alpha")],
+            default_image="required:image",
+            host_capacity_receipt={},
+            capacity_anchor=ROOT,
+        )
 
 
 def test_real_preflight_refuses_missing_pinned_image(
@@ -3376,6 +3491,7 @@ def test_real_preflight_refuses_missing_pinned_image(
         preflight_real_refresh(
             [_server("alpha")],
             default_image="required:image",
+            **_host_capacity_kwargs(),
             runner=runner,
         )
 
@@ -3400,6 +3516,7 @@ def test_real_preflight_refuses_missing_mcpaudit_engine(
         preflight_real_refresh(
             [_server("alpha")],
             default_image="required:image",
+            **_host_capacity_kwargs(),
             runner=runner,
         )
 
@@ -3426,6 +3543,7 @@ def test_real_preflight_binds_one_explicit_local_docker_endpoint(
     evidence = preflight_real_refresh(
         [_server("alpha")],
         default_image="required:image",
+        **_host_capacity_kwargs(),
         runner=runner,
     )
 
@@ -3464,6 +3582,7 @@ def test_real_preflight_resolves_and_binds_the_current_local_docker_context(
     evidence = preflight_real_refresh(
         [_server("alpha")],
         default_image="required:image",
+        **_host_capacity_kwargs(),
         runner=runner,
     )
 
@@ -3498,6 +3617,7 @@ def test_real_preflight_rejects_remote_docker_daemon_authority(
         preflight_real_refresh(
             [_server("alpha")],
             default_image="required:image",
+            **_host_capacity_kwargs(),
         )
 
 
@@ -3521,6 +3641,7 @@ def test_remote_only_preflight_does_not_require_docker(
     evidence = preflight_real_refresh(
         [remote],
         default_image="not-needed:image",
+        **_host_capacity_kwargs(),
     )
 
     assert evidence == {
@@ -3576,7 +3697,7 @@ def test_remote_only_real_candidate_records_sandbox_not_applicable(
 
     monkeypatch.setattr(
         "mcp_trust.refresh.preflight_real_refresh",
-        lambda servers, *, default_image: {
+        lambda servers, *, default_image, **_kwargs: {
             "docker_daemon": "not_required",
             "default_image": default_image,
             "profiles": [],
@@ -3870,7 +3991,7 @@ def test_complete_candidate_rejects_rebound_unreviewed_sandbox_image(
 
     monkeypatch.setattr(
         "mcp_trust.refresh.preflight_real_refresh",
-        lambda servers, *, default_image: {
+        lambda servers, *, default_image, **_kwargs: {
             "docker_daemon": "available",
             "default_image": default_image,
             "profiles": [

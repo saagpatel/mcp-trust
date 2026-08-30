@@ -49,6 +49,7 @@ from mcp_trust.grade_refresh import (
     source_binding,
     validate_ready_preflight_contract,
 )
+from mcp_trust.host_capacity import HostCapacityError, require_current_host_capacity
 from mcp_trust.refresh import (
     DEFAULT_MAX_AGE_HOURS,
     SCAN_TIMEOUT_SECONDS,
@@ -1008,6 +1009,14 @@ def create_target_scan_artifact(
     preflight, preflight_file_sha256 = _load_json_with_digest(qualification_receipt_path)
     if not isinstance(preflight, dict):
         raise RefreshCandidateError("qualification receipt must be one JSON object")
+    try:
+        require_current_host_capacity(
+            preflight.get("host_capacity"),
+            anchor=repo_root,
+            now=datetime.now(tz=UTC),
+        )
+    except HostCapacityError as exc:
+        raise RefreshCandidateError("target host capacity is not READY") from exc
 
     with _open_registry_target(
         source_db,
@@ -1053,7 +1062,12 @@ def create_target_scan_artifact(
         if not _requires_local_sandbox(target):
             raise RefreshCandidateError("target receipt requires a local sandboxed process")
         requested_image = target.source.sandbox_image or default_image
-        live = _preflight_provider([target], default_image=requested_image)
+        live = _preflight_provider(
+            [target],
+            default_image=requested_image,
+            host_capacity_receipt=preflight.get("host_capacity"),
+            capacity_anchor=repo_root,
+        )
         qualification = _qualification_binding(
             preflight,
             preflight_file_sha256=preflight_file_sha256,
@@ -1080,6 +1094,14 @@ def create_target_scan_artifact(
             if not key.startswith("_execution_")
         }
         execution_source = target.source.model_copy(update={"sandbox_image": immutable_image_id})
+        try:
+            require_current_host_capacity(
+                preflight.get("host_capacity"),
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+        except HostCapacityError as exc:
+            raise RefreshCandidateError("target host capacity changed before scan") from exc
         engine = (_engine_factory or (lambda: MCPAuditEngine(timeout=SCAN_TIMEOUT_SECONDS)))()
         tool_versions = preflight.get("tool_versions")
         expected_engine_version = (
@@ -1193,9 +1215,24 @@ def create_target_scan_artifact(
             or post_preflight_sha256 != preflight_file_sha256
         ):
             raise RefreshCandidateError("reviewed inputs changed after the scan")
-        post_live = _preflight_provider([target], default_image=requested_image)
+        post_live = _preflight_provider(
+            [target],
+            default_image=requested_image,
+            host_capacity_receipt=preflight.get("host_capacity"),
+            capacity_anchor=repo_root,
+        )
         if post_live != live:
             raise RefreshCandidateError("target image binding changed after the scan")
+        try:
+            require_current_host_capacity(
+                preflight.get("host_capacity"),
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+        except HostCapacityError as exc:
+            raise RefreshCandidateError(
+                "target host capacity changed before final database readback"
+            ) from exc
         post_database_sha256 = _recheck_registry(registry, target)
 
         artifact: dict[str, Any] = {

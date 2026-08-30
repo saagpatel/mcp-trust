@@ -22,13 +22,22 @@ from mcp_trust.grade_refresh import (
     triage_candidate,
 )
 from scripts import grade_refresh as grade_refresh_cli
-from tests.receipt_fixtures import engine_materialization_receipt
+from tests.receipt_fixtures import engine_materialization_receipt, host_capacity_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
 MASKED = ROOT / "masked-grades.json"
 POLICY = ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 NOW = datetime(2026, 8, 23, 13, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _admit_fixture_host_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        grade_refresh,
+        "require_current_host_capacity",
+        lambda receipt, **_kwargs: grade_refresh.validate_host_capacity_receipt(receipt),
+    )
 
 
 def test_repeat_projection_ignores_only_per_run_container_identity() -> None:
@@ -741,6 +750,7 @@ def test_preflight_binds_verified_engine_materialization(
         masked_path=MASKED,
         policy_path=POLICY,
         engine_materialization_receipt=materialization,
+        host_capacity_receipt=host_capacity_receipt(observed_at=NOW),
         now=NOW,
     )
 
@@ -758,11 +768,35 @@ def test_preflight_fails_closed_without_engine_materialization(
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
+        host_capacity_receipt=host_capacity_receipt(observed_at=NOW),
         now=NOW,
     )
 
     assert receipt["engine_materialization"] is None
     assert "engine_materialization_receipt_missing" in receipt["reasons"]
+    assert receipt["safe_to_execute_catalog"] is False
+
+
+def test_preflight_missing_capacity_never_probes_docker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materialization = _ready_engine_receipt(monkeypatch)
+
+    def forbidden_docker_lookup(_name: str) -> str | None:
+        raise AssertionError("Docker lookup must not run before capacity admission")
+
+    monkeypatch.setattr(grade_refresh.shutil, "which", forbidden_docker_lookup)
+
+    receipt = build_preflight_receipt(
+        repo_root=ROOT,
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        engine_materialization_receipt=materialization,
+        now=NOW,
+    )
+
+    assert "host_capacity_receipt_missing" in receipt["reasons"]
     assert receipt["safe_to_execute_catalog"] is False
 
 
@@ -791,6 +825,7 @@ def test_preflight_reports_every_missing_catalog_image(
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
+        host_capacity_receipt=host_capacity_receipt(observed_at=NOW),
         now=NOW,
         runner=runner,
     )
@@ -818,6 +853,7 @@ def test_preflight_rejects_mcp_audits_runtime_lock_mismatch(
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
+        host_capacity_receipt=host_capacity_receipt(observed_at=NOW),
         now=NOW,
     )
 
@@ -844,6 +880,7 @@ def test_preflight_rejects_metadata_without_distribution_owned_module(
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
+        host_capacity_receipt=host_capacity_receipt(observed_at=NOW),
         now=NOW,
     )
 
@@ -1160,6 +1197,7 @@ def test_preflight_binds_images_by_content_id(
         seed_path=SEED,
         masked_path=MASKED,
         policy_path=POLICY,
+        host_capacity_receipt=host_capacity_receipt(observed_at=NOW),
         now=NOW,
         runner=runner,
     )
@@ -1756,7 +1794,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
         encoding="utf-8",
     )
     preflight = {
-        "schema": "McpTrustGradeRefreshPreflightV2",
+        "schema": "McpTrustGradeRefreshPreflightV3",
         "observed_at": NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
@@ -1767,6 +1805,7 @@ def test_triage_flags_upgrades_masks_and_unknown_policy_baseline(tmp_path: Path)
             "worktree_state": "clean",
         },
         "engine_materialization": None,
+        "host_capacity": host_capacity_receipt(observed_at=NOW),
         "catalog": {
             "policy_digest": "sha256:" + "2" * 64,
             "seed_digest": grade_refresh.digest_file(SEED),
@@ -1863,7 +1902,7 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
     first.mkdir()
     second.mkdir()
     preflight = {
-        "schema": "McpTrustGradeRefreshPreflightV2",
+        "schema": "McpTrustGradeRefreshPreflightV3",
         "observed_at": NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
@@ -1874,6 +1913,7 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
             "worktree_state": "clean",
         },
         "engine_materialization": None,
+        "host_capacity": host_capacity_receipt(observed_at=NOW),
         "catalog": {
             "policy_digest": "sha256:" + "2" * 64,
             "seed_digest": grade_refresh.digest_file(SEED),

@@ -282,14 +282,33 @@ part of preflight or candidate creation:
 PYTHON=./.venv/bin/python
 test -x "$PYTHON"
 
+"$PYTHON" scripts/grade_refresh.py engine-materialization \
+  --repo-root "$PWD" \
+  --out ./dist/grade-refresh/engine-materialization.json
 "$PYTHON" scripts/grade_refresh.py inventory \
   --out ./dist/grade-refresh/inventory.json
+"$PYTHON" scripts/grade_refresh.py host-capacity \
+  --anchor "$PWD" \
+  --out ./dist/grade-refresh/host-capacity.json
+
+# Stop unless the two-reading receipt is READY. Start the separately approved
+# Colima instance only after this point, then create the bound preflight.
 "$PYTHON" scripts/grade_refresh.py preflight \
-  --repo-root "$PWD" --out ./dist/grade-refresh/preflight.json
+  --repo-root "$PWD" \
+  --engine-materialization ./dist/grade-refresh/engine-materialization.json \
+  --host-capacity ./dist/grade-refresh/host-capacity.json \
+  --out ./dist/grade-refresh/preflight.json
 uv run --frozen --extra dev python scripts/grade_refresh.py fixture-repeat \
   --out ./dist/grade-refresh/fixture-repeatability.json
 ```
 
+The capacity receipt requires at least 5 GiB available and less than 100 percent
+capacity in two readings at least 30 seconds apart. It is revalidated before
+Docker, MCP, or registry-database work, expires after 120 seconds, and binds the
+host filesystem device without recording a host path. The source contract does
+not itself prove that an operator kept Colima stopped until the receipt passed,
+or authenticate the observation against same-user replacement; provenance
+without a separately sealed operator binding remains `UNKNOWN`.
 Do not execute a catalog server unless preflight returns `READY`. The receipt
 binds the 31-entry classification, including the exact derived 18 scannable and
 13 blocked execution boundary, source and policy digests, tool versions,

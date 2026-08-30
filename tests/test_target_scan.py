@@ -6,7 +6,7 @@ import inspect
 import json
 import os
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -32,10 +32,17 @@ from mcp_trust.grade_refresh import (
     digest_file,
     load_policy,
 )
+from mcp_trust.host_capacity import (
+    HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    HostCapacitySample,
+    require_current_host_capacity,
+    validate_host_capacity_receipt,
+)
 from mcp_trust.refresh import RefreshCandidateError
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ServerRepository
 from scripts import refresh_candidate as refresh_cli
+from tests.receipt_fixtures import host_capacity_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
@@ -162,13 +169,14 @@ def _preflight() -> dict[str, object]:
             "qualification": {"receipt_digest": "sha256:" + f"{index + 6:x}" * 64}
         }
     payload: dict[str, object] = {
-        "schema": "McpTrustGradeRefreshPreflightV2",
+        "schema": "McpTrustGradeRefreshPreflightV3",
         "observed_at": FIXED_NOW.isoformat(),
         "status": "READY",
         "safe_to_execute_catalog": True,
         "exit_classification": "ready",
         "source_binding": SOURCE_BINDING,
         "engine_materialization": {"receipt_digest": "sha256:" + "e" * 64},
+        "host_capacity": host_capacity_receipt(observed_at=FIXED_NOW),
         "catalog": {
             "denominator": 31,
             "counts": dict(EXPECTED_CATALOG_COUNTS),
@@ -282,6 +290,11 @@ def _admit_fixture_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
         "validate_ready_preflight_contract",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(
+        target_scan,
+        "require_current_host_capacity",
+        lambda receipt, **_kwargs: validate_host_capacity_receipt(receipt),
+    )
 
 
 def test_target_selection_rejects_unsafe_and_blocked_before_execution() -> None:
@@ -302,6 +315,75 @@ def test_target_selection_rejects_unsafe_and_blocked_before_execution() -> None:
                 target_scan._select_target(
                     sorted(category)[0], policy=policy, rows=rows, added_at=FIXED_NOW
                 )
+
+
+def test_target_capacity_rejection_precedes_database_and_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    receipt_path = kwargs["qualification_receipt_path"]
+    assert isinstance(receipt_path, Path)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt.pop("host_capacity")
+    receipt_path.chmod(0o600)
+    receipt_path.write_bytes(canonical_bytes(receipt))
+    receipt_path.chmod(0o400)
+    touched = {"database": False, "runtime": False}
+
+    def forbidden_database(*_args: object, **_kwargs: object) -> None:
+        touched["database"] = True
+        raise AssertionError("database must not open before capacity admission")
+
+    def forbidden_runtime(*_args: object, **_kwargs: object) -> None:
+        touched["runtime"] = True
+        raise AssertionError("runtime must not start before capacity admission")
+
+    monkeypatch.setattr(target_scan, "_open_registry_target", forbidden_database)
+    kwargs["_preflight_provider"] = forbidden_runtime
+
+    with pytest.raises(RefreshCandidateError, match="host capacity is not READY"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert touched == {"database": False, "runtime": False}
+
+
+def test_target_rechecks_actual_time_before_scan_after_receipt_expiry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    times = iter((FIXED_NOW, FIXED_NOW + timedelta(seconds=121)))
+
+    class BoundaryClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = next(times)
+            return value if tz is None else value.astimezone(tz)
+
+    sample = HostCapacitySample(
+        device_id=42,
+        total_bytes=100 * 1024**3,
+        available_bytes=HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    )
+
+    def enforce(receipt: object, *, anchor: Path, now: datetime) -> dict[str, object]:
+        return require_current_host_capacity(
+            receipt,
+            anchor=anchor,
+            now=now,
+            reader=lambda _anchor: sample,
+        )
+
+    monkeypatch.setattr(target_scan, "datetime", BoundaryClock)
+    monkeypatch.setattr(target_scan, "require_current_host_capacity", enforce)
+
+    with pytest.raises(RefreshCandidateError, match="changed before scan"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 0
+    assert not kwargs["output_path"].exists()
 
 
 def test_corpus_candidate_contract_remains_31_18_13_and_has_no_selector() -> None:

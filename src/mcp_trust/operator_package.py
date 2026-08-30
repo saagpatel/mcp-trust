@@ -278,6 +278,7 @@ def _current_preflight_evidence(
         masked_path=masked_path,
         policy_path=policy_path,
         engine_materialization_receipt=supplied_preflight.get("engine_materialization"),
+        host_capacity_receipt=supplied_preflight.get("host_capacity"),
         now=now,
         include_scheduler_readback=True,
     )

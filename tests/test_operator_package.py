@@ -14,7 +14,7 @@ from mcp_trust.operator_package import (
     build_operator_review_package,
     verify_operator_review_package,
 )
-from tests.receipt_fixtures import engine_materialization_receipt
+from tests.receipt_fixtures import engine_materialization_receipt, host_capacity_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
@@ -50,6 +50,11 @@ def _stable_source_binding(monkeypatch: pytest.MonkeyPatch) -> None:
                 receipt.get("receipt_digest") if isinstance(receipt, dict) else None
             ),
         },
+    )
+    monkeypatch.setattr(
+        grade_refresh,
+        "require_current_host_capacity",
+        lambda receipt, **_kwargs: grade_refresh.validate_host_capacity_receipt(receipt),
     )
 
 
@@ -143,6 +148,7 @@ def _receipts(
             observed_at=NOW - timedelta(minutes=1),
             repo_root=ROOT,
         ),
+        "host_capacity": host_capacity_receipt(observed_at=NOW - timedelta(minutes=1)),
         "catalog": {
             "policy_digest": grade_refresh.digest_file(POLICY),
             "seed_digest": grade_refresh.digest_file(SEED),
