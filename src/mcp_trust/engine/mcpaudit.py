@@ -324,9 +324,15 @@ class MCPAuditEngine:
                     ),
                 ) from connect_error
             if isinstance(connect_error, DockerSandboxRuntimeReadbackError):
+                failed_controls = connect_error.failed_controls
+                diagnostic = (
+                    "; failed controls: " + ", ".join(failed_controls)
+                    if failed_controls
+                    else ""
+                )
                 raise ScanError(
-                    "Docker live runtime controls could not be attested; refusing to "
-                    "return scan evidence."
+                    "Docker live runtime controls could not be attested"
+                    f"{diagnostic}; refusing to return scan evidence."
                 ) from connect_error
             raise connect_error
         if audit is None:
