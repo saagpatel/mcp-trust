@@ -20,13 +20,27 @@ the locally built preparation image is executed only by its inspected immutable
 image ID. Then run the exact network-none, no-cache double builds:
 
 ```bash
+uv run --frozen python scripts/grade_refresh.py host-capacity \
+  --anchor "$PWD" \
+  --out dist/grade-refresh/host-capacity.json
 uv run --frozen python scripts/qualify_refresh_images.py \
+  --host-capacity dist/grade-refresh/host-capacity.json \
   --receipt-set v89
 ```
 
 Every cohort must produce two identical image IDs and a receipt that passes
 readback. Existing or expired qualification receipts are not overwritten;
 requalification is a reviewed source revision, not an in-place refresh.
+The qualifier loads one exact host-capacity receipt and revalidates its
+integrity, 120-second freshness, filesystem-device binding, 5 GiB floor, and
+less-than-100-percent policy immediately before every Docker or Buildx
+subprocess. It never creates, refreshes, or replaces that receipt. A long build
+may outlive the receipt; the next Docker or Buildx call then fails closed,
+including any Docker-side tag inspection, removal, or restoration. Filesystem
+OCI outputs are still removed, no qualification receipt is emitted, and any
+remaining Docker-side cleanup is `UNKNOWN` until a newly authorized, freshly
+gated operator action reads it back. Do not reuse the existing receipt-set path
+or infer that another cohort remained admitted.
 Qualification is bound to the exact owner-held local Unix Docker context and
 its same-name running `docker` Buildx builder. Redirecting Docker, Buildx, or
 proxy environment variables are stripped; the exact approved context is then

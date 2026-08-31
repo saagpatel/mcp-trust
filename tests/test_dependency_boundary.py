@@ -7,14 +7,24 @@ import os
 import socket
 import stat
 import subprocess
+import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
 from mcp_trust import dependency_boundary
+from mcp_trust.host_capacity import (
+    HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    HostCapacitySample,
+)
+from tests.receipt_fixtures import host_capacity_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
+CAPACITY_NOW = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
+CAPACITY_DEVICE = 42
+CAPACITY_TOTAL = 100 * 1024**3
 
 
 def _script(name: str) -> ModuleType:
@@ -35,6 +45,30 @@ def _tool_paths() -> dict[str, Path]:
         "docker": Path("/approved/tools/docker"),
         "docker-buildx": Path("/approved/tools/docker-buildx"),
     }
+
+
+def _capacity_gate(
+    module: ModuleType,
+    *,
+    receipt: object | None = None,
+    now: datetime = CAPACITY_NOW,
+    available_bytes: int = HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+) -> object:
+    payload = (
+        receipt
+        if receipt is not None
+        else host_capacity_receipt(
+            observed_at=CAPACITY_NOW,
+            device_id=CAPACITY_DEVICE,
+            total_bytes=CAPACITY_TOTAL,
+        )
+    )
+    return module.QualificationCapacityGate(
+        receipt=payload,
+        anchor=ROOT,
+        clock=lambda: now,
+        reader=lambda _anchor: HostCapacitySample(CAPACITY_DEVICE, CAPACITY_TOTAL, available_bytes),
+    )
 
 
 def test_current_dependency_descriptors_and_locks_are_admitted() -> None:
@@ -215,6 +249,7 @@ def test_qualify_rejects_unsafe_descriptor_before_any_subprocess(
             buildx="docker-buildx",
             receipt_root=module.RECEIPT_ROOT,
             tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
         )
 
 
@@ -253,6 +288,7 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
             buildx="docker-buildx",
             receipt_root=tmp_path,
             tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
         )
 
     assert observed == {
@@ -284,6 +320,7 @@ def test_qualify_rejects_unexpected_cohort_keys_before_any_subprocess(
             buildx="docker-buildx",
             receipt_root=module.RECEIPT_ROOT,
             tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
         )
 
 
@@ -309,6 +346,7 @@ def test_qualify_rejects_missing_or_unsupported_platform_before_any_subprocess(
             buildx="docker-buildx",
             receipt_root=module.RECEIPT_ROOT,
             tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
         )
 
 
@@ -338,9 +376,10 @@ def test_qualification_tool_versions_serialize_only_stable_versions(
     module = _script("qualify_refresh_images.py")
 
     def result(
-        command: list[str], *, tools: dict[str, Path], capture: bool = False
+        command: list[str], *, tools: dict[str, Path], capture: bool = False, capacity_gate: object
     ) -> str:
         assert tools == _tool_paths()
+        assert capacity_gate is not None
         assert capture is True
         if command[-1] == "version" and command[0] == "docker-buildx":
             return "github.com/docker/buildx v0.30.0-desktop.1 0123456789ab"
@@ -358,7 +397,9 @@ def test_qualification_tool_versions_serialize_only_stable_versions(
         )
 
     monkeypatch.setattr(module, "_run", result)
-    versions = module._tool_versions("docker-buildx", tools=_tool_paths())
+    versions = module._tool_versions(
+        "docker-buildx", tools=_tool_paths(), capacity_gate=_capacity_gate(module)
+    )
 
     assert versions == {
         "docker_client": "29.5.2",
@@ -487,10 +528,12 @@ def test_qualification_binds_exact_local_context_and_builder(
             command: list[str],
             *,
             tools: dict[str, Path],
+            capacity_gate: object,
             capture: bool = False,
             timeout: int = 60,
         ) -> str:
             assert tools == _tool_paths()
+            assert capacity_gate is not None
             assert capture is True
             assert timeout == 60
             if command[0:3] == ["docker", "context", "inspect"]:
@@ -507,7 +550,11 @@ def test_qualification_binds_exact_local_context_and_builder(
 
         monkeypatch.setattr(module, "_run", result)
         assert (
-            module._execution_boundary("docker-buildx", tools=_tool_paths())
+            module._execution_boundary(
+                "docker-buildx",
+                tools=_tool_paths(),
+                capacity_gate=_capacity_gate(module),
+            )
             == module.EXECUTION_BOUNDARY
         )
     finally:
@@ -525,16 +572,22 @@ def test_qualification_rejects_remote_context_before_builder_inspection(
         command: list[str],
         *,
         tools: dict[str, Path],
+        capacity_gate: object,
         capture: bool = False,
         timeout: int = 60,
     ) -> str:
         assert tools == _tool_paths()
+        assert capacity_gate is not None
         calls.append(command)
         return json.dumps("tcp://builder.example:2376")
 
     monkeypatch.setattr(module, "_run", result)
     with pytest.raises(module.QualificationError, match="local Unix"):
-        module._execution_boundary("docker-buildx", tools=_tool_paths())
+        module._execution_boundary(
+            "docker-buildx",
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+        )
     assert len(calls) == 1
 
 
@@ -555,13 +608,188 @@ def test_qualification_subprocess_environment_pins_context_and_clears_redirects(
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.example")
     monkeypatch.setattr(module.subprocess, "run", run)
     module._completed(
-        ["docker-buildx", "version"], tools=_tool_paths(), capture=True
+        ["docker-buildx", "version"],
+        tools=_tool_paths(),
+        capacity_gate=_capacity_gate(module),
+        capture=True,
     )
 
     assert observed["DOCKER_CONTEXT"] == "colima-mcp-trust-sandbox"
     assert observed["PATH"] == "/approved/tools"
     assert "DOCKER_HOST" not in observed
     assert "HTTP_PROXY" not in observed
+
+
+def test_qualification_cli_requires_host_capacity_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("subprocess ran without capacity receipt"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["qualify_refresh_images.py", "--receipt-set", "v116-test"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("receipt", "now", "available_bytes"),
+    [
+        (None, CAPACITY_NOW, HOST_CAPACITY_MIN_AVAILABLE_BYTES),
+        ({}, CAPACITY_NOW, HOST_CAPACITY_MIN_AVAILABLE_BYTES),
+        (
+            host_capacity_receipt(
+                observed_at=CAPACITY_NOW - timedelta(seconds=121),
+                device_id=CAPACITY_DEVICE,
+                total_bytes=CAPACITY_TOTAL,
+            ),
+            CAPACITY_NOW,
+            HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+        ),
+        (
+            host_capacity_receipt(
+                observed_at=CAPACITY_NOW,
+                device_id=CAPACITY_DEVICE,
+                total_bytes=CAPACITY_TOTAL,
+            ),
+            CAPACITY_NOW,
+            HOST_CAPACITY_MIN_AVAILABLE_BYTES - 1,
+        ),
+        (
+            host_capacity_receipt(
+                observed_at=CAPACITY_NOW,
+                device_id=CAPACITY_DEVICE,
+                total_bytes=CAPACITY_TOTAL,
+            ),
+            CAPACITY_NOW,
+            0,
+        ),
+    ],
+    ids=("missing", "malformed", "stale", "below-floor", "full"),
+)
+def test_qualification_capacity_gate_blocks_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    receipt: object,
+    now: datetime,
+    available_bytes: int,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    calls: list[list[str]] = []
+    gate = module.QualificationCapacityGate(
+        receipt=receipt,
+        anchor=ROOT,
+        clock=lambda: now,
+        reader=lambda _anchor: HostCapacitySample(CAPACITY_DEVICE, CAPACITY_TOTAL, available_bytes),
+    )
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    with pytest.raises(module.QualificationError, match="host capacity is not READY"):
+        module._completed(
+            ["docker-buildx", "version"],
+            tools=_tool_paths(),
+            capacity_gate=gate,
+            capture=True,
+        )
+    assert calls == []
+
+
+def test_qualification_rejects_noop_capacity_gate_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    calls: list[list[str]] = []
+
+    class NoopGate:
+        def require_current(self) -> None:
+            return None
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    with pytest.raises(module.QualificationError, match="gate is not bound"):
+        module._completed(
+            ["docker-buildx", "version"],
+            tools=_tool_paths(),
+            capacity_gate=NoopGate(),
+            capture=True,
+        )
+    assert calls == []
+
+
+def test_qualification_capacity_gate_accepts_exact_age_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    calls: list[list[str]] = []
+    gate = _capacity_gate(module, now=CAPACITY_NOW + timedelta(seconds=120))
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    completed = module._completed(
+        ["docker-buildx", "version"],
+        tools=_tool_paths(),
+        capacity_gate=gate,
+        capture=True,
+    )
+    assert completed.returncode == 0
+    assert calls == [["/approved/tools/docker-buildx", "version"]]
+
+
+def test_qualification_capacity_gate_rechecks_before_each_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    calls: list[list[str]] = []
+    times = iter((CAPACITY_NOW, CAPACITY_NOW + timedelta(seconds=121)))
+    gate = module.QualificationCapacityGate(
+        receipt=host_capacity_receipt(
+            observed_at=CAPACITY_NOW,
+            device_id=CAPACITY_DEVICE,
+            total_bytes=CAPACITY_TOTAL,
+        ),
+        anchor=ROOT,
+        clock=lambda: next(times),
+        reader=lambda _anchor: HostCapacitySample(
+            CAPACITY_DEVICE, CAPACITY_TOTAL, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+        ),
+    )
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    module._completed(
+        ["docker-buildx", "version"],
+        tools=_tool_paths(),
+        capacity_gate=gate,
+        capture=True,
+    )
+    with pytest.raises(module.QualificationError, match="host capacity is not READY"):
+        module._completed(
+            ["docker", "--context", module.DOCKER_CONTEXT, "info"],
+            tools=_tool_paths(),
+            capacity_gate=gate,
+            capture=True,
+        )
+    assert calls == [["/approved/tools/docker-buildx", "version"]]
 
 
 def test_qualification_snapshots_tools_into_private_digest_pinned_copies(
@@ -614,7 +842,11 @@ def test_qualification_rejects_group_writable_docker_socket(
             lambda *_args, **_kwargs: json.dumps(expected_host),
         )
         with pytest.raises(module.QualificationError, match="owner-bound"):
-            module._execution_boundary("docker-buildx", tools=_tool_paths())
+            module._execution_boundary(
+                "docker-buildx",
+                tools=_tool_paths(),
+                capacity_gate=_capacity_gate(module),
+            )
     finally:
         listener.close()
         socket_path.unlink(missing_ok=True)
@@ -635,9 +867,14 @@ def test_qualification_restores_final_tag_after_post_load_failure(
     boundary_reads = 0
 
     def image_id(
-        reference: str, *, tools: dict[str, Path], required: bool = True
+        reference: str,
+        *,
+        tools: dict[str, Path],
+        capacity_gate: object,
+        required: bool = True,
     ) -> str | None:
         assert tools == _tool_paths()
+        assert capacity_gate is gate
         reads = (
             first_reads
             if reference.startswith("mcp-trust-qualification:")
@@ -645,9 +882,12 @@ def test_qualification_restores_final_tag_after_post_load_failure(
         )
         return next(reads)
 
-    def boundary(_buildx: str, *, tools: dict[str, Path]) -> dict[str, object]:
+    def boundary(
+        _buildx: str, *, tools: dict[str, Path], capacity_gate: object
+    ) -> dict[str, object]:
         nonlocal boundary_reads
         assert tools == _tool_paths()
+        assert capacity_gate is gate
         boundary_reads += 1
         if boundary_reads == 2:
             raise module.QualificationError("post-load boundary failure")
@@ -678,6 +918,7 @@ def test_qualification_restores_final_tag_after_post_load_failure(
     )
     monkeypatch.setattr(module, "_remove_tag", lambda *_a, **_k: None)
     monkeypatch.setattr(module, "_run", run)
+    gate = _capacity_gate(module)
 
     with pytest.raises(module.QualificationError, match="post-load"):
         module.qualify(
@@ -686,6 +927,7 @@ def test_qualification_restores_final_tag_after_post_load_failure(
             buildx="docker-buildx",
             receipt_root=tmp_path,
             tools=_tool_paths(),
+            capacity_gate=gate,
         )
 
     assert [
@@ -715,7 +957,15 @@ def test_qualification_distinguishes_missing_image_from_daemon_failure(
             "Error response from daemon: No such image: mcp-trust:test"
         ),
     )
-    assert module._image_id("mcp-trust:test", tools=_tool_paths(), required=False) is None
+    assert (
+        module._image_id(
+            "mcp-trust:test",
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+            required=False,
+        )
+        is None
+    )
 
     monkeypatch.setattr(
         module,
@@ -725,7 +975,12 @@ def test_qualification_distinguishes_missing_image_from_daemon_failure(
         ),
     )
     with pytest.raises(module.QualificationError, match="inspection failed"):
-        module._image_id("mcp-trust:test", tools=_tool_paths(), required=False)
+        module._image_id(
+            "mcp-trust:test",
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+            required=False,
+        )
 
 
 def test_docker_context_excludes_qualification_outputs() -> None:
@@ -766,9 +1021,14 @@ def test_qualification_tool_versions_fail_closed_on_malformed_or_ambiguous_outpu
     module = _script("qualify_refresh_images.py")
 
     def result(
-        command: list[str], *, tools: dict[str, Path], capture: bool = False
+        command: list[str],
+        *,
+        tools: dict[str, Path],
+        capacity_gate: object,
+        capture: bool = False,
     ) -> str:
         assert tools == _tool_paths()
+        assert capacity_gate is not None
         assert capture is True
         if command[-1] == "version" and command[0] == "docker-buildx":
             return buildx_version
@@ -778,7 +1038,11 @@ def test_qualification_tool_versions_fail_closed_on_malformed_or_ambiguous_outpu
 
     monkeypatch.setattr(module, "_run", result)
     with pytest.raises(module.QualificationError, match=message):
-        module._tool_versions("docker-buildx", tools=_tool_paths())
+        module._tool_versions(
+            "docker-buildx",
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+        )
 
 
 def test_basic_memory_mutable_base_is_rejected_before_execution() -> None:
