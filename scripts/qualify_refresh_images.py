@@ -14,12 +14,20 @@ import re
 import shutil
 import stat
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from mcp_trust import dependency_boundary, grade_refresh
 from mcp_trust.engine.sandbox import normalize_local_docker_host
+from mcp_trust.host_capacity import (
+    HostCapacityError,
+    HostCapacitySample,
+    read_host_capacity,
+    require_current_host_capacity,
+    validate_host_capacity_receipt,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / "docker/refresh/dependency-inputs.json"
@@ -89,13 +97,57 @@ class QualificationError(RuntimeError):
     pass
 
 
+class QualificationCapacityGate:
+    """Revalidate one bound host-capacity receipt at each process boundary."""
+
+    __slots__ = ("_anchor", "_clock", "_reader", "_receipt")
+
+    def __init__(
+        self,
+        *,
+        receipt: object,
+        anchor: Path,
+        clock: Callable[[], datetime] = lambda: datetime.now(tz=UTC),
+        reader: Callable[[Path], HostCapacitySample] = read_host_capacity,
+    ) -> None:
+        self._receipt = receipt
+        self._anchor = anchor
+        self._clock = clock
+        self._reader = reader
+
+    def require_current(self) -> dict[str, Any]:
+        try:
+            return require_current_host_capacity(
+                self._receipt,
+                anchor=self._anchor,
+                now=self._clock(),
+                reader=self._reader,
+            )
+        except HostCapacityError as exc:
+            raise QualificationError(
+                "host capacity is not READY for Docker/Buildx execution"
+            ) from exc
+
+
+def _load_capacity_gate(path: Path) -> QualificationCapacityGate:
+    try:
+        receipt = grade_refresh.load_json(path)
+        validate_host_capacity_receipt(receipt)
+    except (grade_refresh.GradeRefreshError, HostCapacityError) as exc:
+        raise QualificationError("host-capacity receipt is unreadable or invalid") from exc
+    return QualificationCapacityGate(receipt=receipt, anchor=ROOT)
+
+
 def _completed(
     command: list[str],
     *,
     tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
     capture: bool = False,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
+    if type(capacity_gate) is not QualificationCapacityGate:
+        raise QualificationError("qualification capacity gate is not bound")
     executable = tools.get(command[0])
     if executable is None:
         raise QualificationError(f"unbound qualification executable: {command[0]}")
@@ -105,6 +157,7 @@ def _completed(
         environment.pop(key, None)
     environment["DOCKER_CONTEXT"] = DOCKER_CONTEXT
     environment["PATH"] = executable.parent.as_posix()
+    capacity_gate.require_current()
     try:
         return subprocess.run(
             runtime_command,
@@ -125,10 +178,17 @@ def _run(
     command: list[str],
     *,
     tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
     capture: bool = False,
     timeout: int = 60,
 ) -> str:
-    completed = _completed(command, tools=tools, capture=capture, timeout=timeout)
+    completed = _completed(
+        command,
+        tools=tools,
+        capacity_gate=capacity_gate,
+        capture=capture,
+        timeout=timeout,
+    )
     if completed.returncode != 0:
         detail = completed.stderr.strip() if capture else "see command output"
         raise QualificationError(
@@ -317,7 +377,12 @@ def _tool_digests(tools: dict[str, Path], buildx: str) -> dict[str, str]:
     }
 
 
-def _execution_boundary(buildx: str, *, tools: dict[str, Path]) -> dict[str, object]:
+def _execution_boundary(
+    buildx: str,
+    *,
+    tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
+) -> dict[str, object]:
     context_host_raw = _run(
         [
             "docker",
@@ -328,6 +393,7 @@ def _execution_boundary(buildx: str, *, tools: dict[str, Path]) -> dict[str, obj
             "{{json .Endpoints.docker.Host}}",
         ],
         tools=tools,
+        capacity_gate=capacity_gate,
         capture=True,
     )
     try:
@@ -349,7 +415,10 @@ def _execution_boundary(buildx: str, *, tools: dict[str, Path]) -> dict[str, obj
         raise QualificationError("approved Docker endpoint is not an owner-bound Unix socket")
 
     inspected = _run(
-        [buildx, "inspect", DOCKER_CONTEXT], tools=tools, capture=True
+        [buildx, "inspect", DOCKER_CONTEXT],
+        tools=tools,
+        capacity_gate=capacity_gate,
+        capture=True,
     )
     header = _BUILDER_HEADER.search(inspected)
     endpoints = _BUILDER_ENDPOINT_LINE.findall(inspected)
@@ -365,7 +434,12 @@ def _execution_boundary(buildx: str, *, tools: dict[str, Path]) -> dict[str, obj
     return dict(EXECUTION_BOUNDARY)
 
 
-def _tool_versions(buildx: str, *, tools: dict[str, Path]) -> dict[str, str]:
+def _tool_versions(
+    buildx: str,
+    *,
+    tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
+) -> dict[str, str]:
     docker_client = _run(
         [
             "docker",
@@ -376,6 +450,7 @@ def _tool_versions(buildx: str, *, tools: dict[str, Path]) -> dict[str, str]:
             "{{.Client.Version}}",
         ],
         tools=tools,
+        capacity_gate=capacity_gate,
         capture=True,
     )
     docker_server = _run(
@@ -388,11 +463,20 @@ def _tool_versions(buildx: str, *, tools: dict[str, Path]) -> dict[str, str]:
             "{{.Server.Version}}",
         ],
         tools=tools,
+        capacity_gate=capacity_gate,
         capture=True,
     )
-    buildx_version = _run([buildx, "version"], tools=tools, capture=True)
+    buildx_version = _run(
+        [buildx, "version"],
+        tools=tools,
+        capacity_gate=capacity_gate,
+        capture=True,
+    )
     buildkit_inspect = _run(
-        [buildx, "inspect", DOCKER_CONTEXT], tools=tools, capture=True
+        [buildx, "inspect", DOCKER_CONTEXT],
+        tools=tools,
+        capacity_gate=capacity_gate,
+        capture=True,
     )
     return {
         "docker_client": _exact_version(
@@ -464,7 +548,11 @@ def _dependency_inputs(
 
 
 def _image_id(
-    reference: str, *, tools: dict[str, Path], required: bool = True
+    reference: str,
+    *,
+    tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
+    required: bool = True,
 ) -> str | None:
     completed = _completed(
         [
@@ -478,6 +566,7 @@ def _image_id(
             reference,
         ],
         tools=tools,
+        capacity_gate=capacity_gate,
         capture=True,
     )
     if completed.returncode != 0:
@@ -496,23 +585,33 @@ def _image_id(
     return image_id
 
 
-def _remove_tag(reference: str, *, tools: dict[str, Path]) -> None:
-    if _image_id(reference, tools=tools, required=False) is None:
+def _remove_tag(
+    reference: str,
+    *,
+    tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
+) -> None:
+    if _image_id(reference, tools=tools, capacity_gate=capacity_gate, required=False) is None:
         return
     _run(
         ["docker", "--context", DOCKER_CONTEXT, "image", "rm", reference],
         tools=tools,
+        capacity_gate=capacity_gate,
         capture=True,
     )
 
 
 def _restore_final_tag(
-    reference: str, previous_image_id: str | None, *, tools: dict[str, Path]
+    reference: str,
+    previous_image_id: str | None,
+    *,
+    tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
 ) -> None:
-    current = _image_id(reference, tools=tools, required=False)
+    current = _image_id(reference, tools=tools, capacity_gate=capacity_gate, required=False)
     if previous_image_id is None:
         if current is not None:
-            _remove_tag(reference, tools=tools)
+            _remove_tag(reference, tools=tools, capacity_gate=capacity_gate)
         return
     if current != previous_image_id:
         _run(
@@ -525,6 +624,7 @@ def _restore_final_tag(
                 reference,
             ],
             tools=tools,
+            capacity_gate=capacity_gate,
             capture=True,
         )
 
@@ -536,6 +636,7 @@ def qualify(
     buildx: str,
     receipt_root: Path,
     tools: dict[str, Path],
+    capacity_gate: QualificationCapacityGate,
 ) -> Path:
     platform = config.get("platform")
     cohort_config = dict(config)
@@ -597,9 +698,22 @@ def qualify(
     if _lstat(ROOT / first_output) is not None or _lstat(ROOT / second_output) is not None:
         raise QualificationError(f"qualification output already exists: {cohort}")
     first_reference = f"mcp-trust-qualification:{receipt_root.name}-{cohort}-first"
-    if _image_id(first_reference, tools=tools, required=False) is not None:
+    if (
+        _image_id(
+            first_reference,
+            tools=tools,
+            capacity_gate=capacity_gate,
+            required=False,
+        )
+        is not None
+    ):
         raise QualificationError(f"qualification tag already exists: {first_reference}")
-    previous_final_id = _image_id(image_reference, tools=tools, required=False)
+    previous_final_id = _image_id(
+        image_reference,
+        tools=tools,
+        capacity_gate=capacity_gate,
+        required=False,
+    )
     first_command = [
         *common,
         f"--output=type=oci,dest={first_output},rewrite-timestamp=true",
@@ -616,20 +730,20 @@ def qualify(
     ]
     first_load = ["docker", "--context", DOCKER_CONTEXT, "load", "-i", first_output]
     second_load = ["docker", "--context", DOCKER_CONTEXT, "load", "-i", second_output]
-    boundary_before = _execution_boundary(buildx, tools=tools)
+    boundary_before = _execution_boundary(buildx, tools=tools, capacity_gate=capacity_gate)
     tools_before = _tool_digests(tools, buildx)
-    versions_before = _tool_versions(buildx, tools=tools)
+    versions_before = _tool_versions(buildx, tools=tools, capacity_gate=capacity_gate)
     first_id: str | None = None
     second_id: str | None = None
     succeeded = False
     try:
         try:
-            _run(first_command, tools=tools, timeout=900)
-            _run(first_load, tools=tools, timeout=300)
-            first_id = _image_id(first_reference, tools=tools)
-            _run(second_command, tools=tools, timeout=900)
-            _run(second_load, tools=tools, timeout=300)
-            second_id = _image_id(image_reference, tools=tools)
+            _run(first_command, tools=tools, capacity_gate=capacity_gate, timeout=900)
+            _run(first_load, tools=tools, capacity_gate=capacity_gate, timeout=300)
+            first_id = _image_id(first_reference, tools=tools, capacity_gate=capacity_gate)
+            _run(second_command, tools=tools, capacity_gate=capacity_gate, timeout=900)
+            _run(second_load, tools=tools, capacity_gate=capacity_gate, timeout=300)
+            second_id = _image_id(image_reference, tools=tools, capacity_gate=capacity_gate)
             if first_id != second_id:
                 raise QualificationError(
                     f"repeat builds differed for {cohort}: {first_id} != {second_id}"
@@ -640,10 +754,10 @@ def qualify(
                     if output.is_symlink() or not output.is_file():
                         raise QualificationError("qualification output cleanup target is unsafe")
                     output.unlink()
-            _remove_tag(first_reference, tools=tools)
-        boundary_after = _execution_boundary(buildx, tools=tools)
+            _remove_tag(first_reference, tools=tools, capacity_gate=capacity_gate)
+        boundary_after = _execution_boundary(buildx, tools=tools, capacity_gate=capacity_gate)
         tools_after = _tool_digests(tools, buildx)
-        versions_after = _tool_versions(buildx, tools=tools)
+        versions_after = _tool_versions(buildx, tools=tools, capacity_gate=capacity_gate)
         if (
             boundary_before != boundary_after
             or tools_before != tools_after
@@ -702,7 +816,12 @@ def qualify(
         return receipt
     finally:
         if not succeeded:
-            _restore_final_tag(image_reference, previous_final_id, tools=tools)
+            _restore_final_tag(
+                image_reference,
+                previous_final_id,
+                tools=tools,
+                capacity_gate=capacity_gate,
+            )
 
 
 def main() -> int:
@@ -718,7 +837,14 @@ def main() -> int:
         required=True,
         help="new versioned receipt-set directory below docker/refresh/qualification",
     )
+    parser.add_argument(
+        "--host-capacity",
+        required=True,
+        type=Path,
+        help="fresh READY host-capacity receipt revalidated before every Docker/Buildx call",
+    )
     args = parser.parse_args()
+    capacity_gate = _load_capacity_gate(args.host_capacity)
     receipt_root = _new_receipt_set_root(args.receipt_set)
     try:
         payload = dependency_boundary.validate_preparation_inputs(
@@ -753,6 +879,7 @@ def main() -> int:
                 buildx="docker-buildx",
                 receipt_root=receipt_root,
                 tools=tools,
+                capacity_gate=capacity_gate,
             )
             print(f"QUALIFIED {name} {receipt.relative_to(ROOT)}")
     finally:

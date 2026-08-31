@@ -309,6 +309,20 @@ host filesystem device without recording a host path. The source contract does
 not itself prove that an operator kept Colima stopped until the receipt passed,
 or authenticate the observation against same-user replacement; provenance
 without a separately sealed operator binding remains `UNKNOWN`.
+Offline image qualification must pass the same receipt explicitly:
+
+```bash
+uv run --frozen python scripts/qualify_refresh_images.py \
+  --host-capacity ./dist/grade-refresh/host-capacity.json \
+  --receipt-set v89
+```
+
+The qualifier revalidates the bound receipt immediately before every Docker or
+Buildx subprocess. It does not renew the receipt. If the receipt expires or
+capacity regresses during a long build, the next Docker/Buildx action—including
+Docker-side cleanup or tag restoration—is blocked, no qualification receipt is
+emitted, and the remaining Docker state is `UNKNOWN` pending a separately
+authorized, freshly gated readback.
 Do not execute a catalog server unless preflight returns `READY`. The receipt
 binds the 31-entry classification, including the exact derived 18 scannable and
 13 blocked execution boundary, source and policy digests, tool versions,
