@@ -312,10 +312,15 @@ without a separately sealed operator binding remains `UNKNOWN`.
 Offline image qualification must pass the same receipt explicitly:
 
 ```bash
+: "${MCP_TRUST_QUALIFICATION_RECEIPT_SET:?set a new reviewed task-owned receipt-set name}"
 uv run --frozen python scripts/qualify_refresh_images.py \
   --host-capacity ./dist/grade-refresh/host-capacity.json \
-  --receipt-set v89
+  --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
 ```
+
+The five exact `qualification_receipt` paths in
+`src/mcp_trust/catalog/refresh_policy.json` are authoritative; a version label
+in documentation is never authority.
 
 The qualifier revalidates the bound receipt immediately before every Docker or
 Buildx subprocess. It does not renew the receipt. If the receipt expires or

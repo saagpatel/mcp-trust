@@ -7,6 +7,13 @@
 # the separate refresh_candidate.py approve + publish commands.
 set -euo pipefail
 
+if [ -n "${LAUNCH_JOBKEY_LABEL:-}" ] || [ "${XPC_SERVICE_NAME:-0}" != "0" ] \
+    || [ "${MCP_TRUST_SCHEDULER_CONTEXT:-0}" != "0" ]; then
+  printf '%s\n' \
+    "ERROR: review-candidate refresh is forbidden from scheduler context." >&2
+  exit 1
+fi
+
 if [ "${MCP_TRUST_AUTO_DEPLOY+x}" = "x" ]; then
   printf '%s\n' \
     "ERROR: MCP_TRUST_AUTO_DEPLOY no longer authorizes deployment; refresh creates a review candidate only." >&2

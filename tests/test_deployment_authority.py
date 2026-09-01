@@ -24,6 +24,8 @@ REFRESH = ROOT / "scripts/refresh_and_publish.sh"
 DEPLOY = ROOT / "scripts/deploy_production.sh"
 VALIDATOR = ROOT / "scripts/validate_deploy_authorization.py"
 DEPLOY_DOC = ROOT / "DEPLOY-VERCEL.md"
+OPERATOR_RUNBOOK = ROOT / "docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md"
+README = ROOT / "README.md"
 PLIST = ROOT / "deploy/launchd/com.d.mcp-trust-refresh.plist"
 INSTALLER = ROOT / "deploy/launchd/install.sh"
 PROJECT_ID = "prj_ugC28dxX9xAGYnYjIkQXigxZB672"
@@ -625,7 +627,12 @@ def _deploy_command(
 
 def _deploy_env(tmp_path: Path, record: Path) -> dict[str, str]:
     env = os.environ.copy()
-    for key in ("XPC_SERVICE_NAME", "LAUNCH_JOBKEY_LABEL", "MCP_TRUST_AUTO_DEPLOY"):
+    for key in (
+        "XPC_SERVICE_NAME",
+        "LAUNCH_JOBKEY_LABEL",
+        "MCP_TRUST_AUTO_DEPLOY",
+        "MCP_TRUST_SCHEDULER_CONTEXT",
+    ):
         env.pop(key, None)
     # deploy_production.sh rejects every VERCEL_*/NOW_* except VERCEL_TOKEN, and
     # reports whichever it meets FIRST. Any such variable inherited from the
@@ -656,10 +663,23 @@ def _record_values(record: Path) -> dict[str, list[str]]:
 
 def test_refresh_and_scheduler_have_no_deployment_authority() -> None:
     refresh = REFRESH.read_text(encoding="utf-8")
+    deploy = DEPLOY.read_text(encoding="utf-8")
     plist = PLIST.read_text(encoding="utf-8")
     installer = INSTALLER.read_text(encoding="utf-8")
     assert "vercel deploy" not in refresh
     assert "MCP_TRUST_AUTO_DEPLOY" not in plist
+    assert plistlib.loads(PLIST.read_bytes())["EnvironmentVariables"][
+        "MCP_TRUST_SCHEDULER_CONTEXT"
+    ] == "1"
+    scheduler_guard = (
+        'if [ -n "${LAUNCH_JOBKEY_LABEL:-}" ] || '
+        '[ "${XPC_SERVICE_NAME:-0}" != "0" ] \\\n'
+        '    || [ "${MCP_TRUST_SCHEDULER_CONTEXT:-0}" != "0" ]; then'
+    )
+    assert scheduler_guard in refresh
+    assert scheduler_guard in deploy
+    assert refresh.index(scheduler_guard) < refresh.index("MCP_TRUST_AUTO_DEPLOY+x")
+    assert refresh.index(scheduler_guard) < refresh.index("SCRIPT_DIR=")
     assert '--engine-materialization "${ENGINE_MATERIALIZATION_RECEIPT}"' in refresh
     assert '--host-capacity "${HOST_CAPACITY_RECEIPT}"' in refresh
     assert "launchctl load" not in installer
@@ -690,6 +710,12 @@ def test_refresh_rejects_legacy_auto_deploy_before_prerequisites(tmp_path: Path)
         _write_executable(fake_bin / name, f'#!/bin/sh\necho {name} >> "$CALLS"\nexit 99\n')
     calls = tmp_path / "calls"
     env = os.environ.copy()
+    for key in (
+        "LAUNCH_JOBKEY_LABEL",
+        "MCP_TRUST_SCHEDULER_CONTEXT",
+        "XPC_SERVICE_NAME",
+    ):
+        env.pop(key, None)
     env.update(
         {
             "PATH": f"{fake_bin}:/usr/bin:/bin",
@@ -703,6 +729,166 @@ def test_refresh_rejects_legacy_auto_deploy_before_prerequisites(tmp_path: Path)
     assert result.returncode != 0
     assert "no longer authorizes deployment" in result.stdout + result.stderr
     assert not calls.exists()
+
+
+def _refresh_guard_harness(
+    tmp_path: Path,
+) -> tuple[dict[str, str], Path, Path, dict[Path, bytes]]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "calls"
+    for name in (
+        "colima",
+        "date",
+        "dirname",
+        "docker",
+        "python",
+        "sqlite3",
+        "uv",
+        "vercel",
+    ):
+        _write_executable(
+            fake_bin / name,
+            f'#!/bin/sh\nprintf "%s\\n" "{name}" >> "$CALLS"\nexit 99\n',
+        )
+
+    db = tmp_path / "registry.db"
+    engine_receipt = tmp_path / "engine-materialization.json"
+    host_receipt = tmp_path / "host-capacity.json"
+    sentinels = {
+        db: b"registry-sentinel\n",
+        engine_receipt: b"engine-sentinel\n",
+        host_receipt: b"capacity-sentinel\n",
+    }
+    for path, content in sentinels.items():
+        path.write_bytes(content)
+
+    candidates = tmp_path / "refresh-candidates"
+    env = os.environ.copy()
+    for key in (
+        "LAUNCH_JOBKEY_LABEL",
+        "MCP_TRUST_AUTO_DEPLOY",
+        "MCP_TRUST_SCHEDULER_CONTEXT",
+        "XPC_SERVICE_NAME",
+    ):
+        env.pop(key, None)
+    env.update(
+        {
+            "CALLS": str(calls),
+            "HOME": str(tmp_path / "home"),
+            "MCP_TRUST_CANDIDATES_DIR": str(candidates),
+            "MCP_TRUST_DB": str(db),
+            "MCP_TRUST_ENGINE_MATERIALIZATION_RECEIPT": str(engine_receipt),
+            "MCP_TRUST_HOST_CAPACITY_RECEIPT": str(host_receipt),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+        }
+    )
+    return env, calls, candidates, sentinels
+
+
+@pytest.mark.parametrize(
+    "scheduler_values",
+    [
+        {"LAUNCH_JOBKEY_LABEL": "com.d.mcp-trust-refresh"},
+        {"LAUNCH_JOBKEY_LABEL": "0"},
+        {"XPC_SERVICE_NAME": "com.d.mcp-trust-refresh"},
+        {"XPC_SERVICE_NAME": "1"},
+        {"MCP_TRUST_SCHEDULER_CONTEXT": "1"},
+        {"MCP_TRUST_SCHEDULER_CONTEXT": "scheduler"},
+        {
+            "LAUNCH_JOBKEY_LABEL": "",
+            "XPC_SERVICE_NAME": "0",
+            "MCP_TRUST_SCHEDULER_CONTEXT": "1",
+        },
+        {
+            "LAUNCH_JOBKEY_LABEL": "job",
+            "XPC_SERVICE_NAME": "service",
+            "MCP_TRUST_SCHEDULER_CONTEXT": "scheduler",
+        },
+    ],
+)
+def test_refresh_rejects_scheduler_context_before_any_candidate_work(
+    tmp_path: Path,
+    scheduler_values: dict[str, str],
+) -> None:
+    env, calls, candidates, sentinels = _refresh_guard_harness(tmp_path)
+    env.update(scheduler_values)
+    env["MCP_TRUST_AUTO_DEPLOY"] = "1"
+
+    result = _run(["bash", str(REFRESH)], cwd=ROOT, env=env, check=False)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "ERROR: review-candidate refresh is forbidden from scheduler context.\n"
+    )
+    assert not calls.exists()
+    assert not candidates.exists()
+    for path, content in sentinels.items():
+        assert path.read_bytes() == content
+
+
+@pytest.mark.parametrize(
+    ("scheduler_values", "auto_deploy_value"),
+    [
+        ({}, "1"),
+        ({"LAUNCH_JOBKEY_LABEL": ""}, ""),
+        ({"XPC_SERVICE_NAME": ""}, "1"),
+        ({"XPC_SERVICE_NAME": "0"}, ""),
+        ({"MCP_TRUST_SCHEDULER_CONTEXT": ""}, "1"),
+        ({"MCP_TRUST_SCHEDULER_CONTEXT": "0"}, ""),
+        (
+            {
+                "LAUNCH_JOBKEY_LABEL": "",
+                "XPC_SERVICE_NAME": "0",
+                "MCP_TRUST_SCHEDULER_CONTEXT": "0",
+            },
+            "1",
+        ),
+    ],
+)
+def test_refresh_scheduler_guard_allows_only_absent_empty_or_exact_zero_semantics(
+    tmp_path: Path,
+    scheduler_values: dict[str, str],
+    auto_deploy_value: str,
+) -> None:
+    env, calls, candidates, sentinels = _refresh_guard_harness(tmp_path)
+    env.update(scheduler_values)
+    env["MCP_TRUST_AUTO_DEPLOY"] = auto_deploy_value
+
+    result = _run(["bash", str(REFRESH)], cwd=ROOT, env=env, check=False)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "ERROR: MCP_TRUST_AUTO_DEPLOY no longer authorizes deployment; "
+        "refresh creates a review candidate only.\n"
+    )
+    assert not calls.exists()
+    assert not candidates.exists()
+    for path, content in sentinels.items():
+        assert path.read_bytes() == content
+
+
+def test_qualification_docs_require_an_evergreen_receipt_set_name() -> None:
+    for path in (OPERATOR_RUNBOOK, README):
+        documentation = path.read_text(encoding="utf-8")
+        assert re.search(r"--receipt-set\s+['\"]?v\d+\b", documentation) is None
+        assert re.search(
+            r"docker/refresh/qualification/v\d+\b", documentation
+        ) is None
+        assert "v89" not in documentation
+        assert "v104" not in documentation
+        assert (
+            ': "${MCP_TRUST_QUALIFICATION_RECEIPT_SET:'
+            '?set a new reviewed task-owned receipt-set name}"'
+        ) in documentation
+        assert (
+            '--receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"'
+            in documentation
+        )
+        assert "src/mcp_trust/catalog/refresh_policy.json" in documentation
 
 
 def test_installer_writes_disabled_refresh_only_plist(tmp_path: Path) -> None:
