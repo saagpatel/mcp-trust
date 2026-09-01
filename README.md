@@ -309,25 +309,47 @@ host filesystem device without recording a host path. The source contract does
 not itself prove that an operator kept Colima stopped until the receipt passed,
 or authenticate the observation against same-user replacement; provenance
 without a separately sealed operator binding remains `UNKNOWN`.
-Offline image qualification must pass the same receipt explicitly:
+Offline image qualification requires one newly observed, cohort-scoped receipt
+per invocation. The set is append-only; use the same new reviewed set name for
+all five cohorts, but never reuse a capacity receipt across cohorts:
 
 ```bash
 : "${MCP_TRUST_QUALIFICATION_RECEIPT_SET:?set a new reviewed task-owned receipt-set name}"
-uv run --frozen python scripts/qualify_refresh_images.py \
-  --host-capacity ./dist/grade-refresh/host-capacity.json \
-  --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
+for cohort in reference live-batch batch3 batch4 basic-memory; do
+  uv run --frozen python scripts/grade_refresh.py qualification-capacity \
+    --operation qualification \
+    --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}" \
+    --cohort "$cohort" \
+    --out "./dist/grade-refresh/qualification-capacity-$cohort.json"
+  uv run --frozen python scripts/qualify_refresh_images.py \
+    --cohort "$cohort" \
+    --host-capacity "./dist/grade-refresh/qualification-capacity-$cohort.json" \
+    --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
+done
 ```
 
 The five exact `qualification_receipt` paths in
 `src/mcp_trust/catalog/refresh_policy.json` are authoritative; a version label
 in documentation is never authority.
 
-The qualifier revalidates the bound receipt immediately before every Docker or
-Buildx subprocess. It does not renew the receipt. If the receipt expires or
-capacity regresses during a long build, the next Docker/Buildx action—including
-Docker-side cleanup or tag restoration—is blocked, no qualification receipt is
-emitted, and the remaining Docker state is `UNKNOWN` pending a separately
-authorized, freshly gated readback.
+The qualifier creates an immutable source/input-bound set manifest and writes a
+pessimistic append-only attempt intent before the first Docker mutation. It
+revalidates the bound receipt immediately before every Docker or Buildx
+subprocess and never renews it. If capacity expires or regresses, no
+qualification receipt is emitted and the intent remains unresolved, so Docker
+state and qualification are `UNKNOWN`. Before retrying that cohort, issue a new
+receipt with `--operation cleanup` and run the qualifier with
+`--cleanup-cohort "$cohort"`; cleanup acts only on the exact recorded tags and
+outputs and must append a successful readback receipt. Existing sets without
+the immutable manifest, unknown artifacts, overwritten receipts, and source or
+input drift are refused. A successful build appends a qualification completion
+binding; cleanup completion is required only for an interrupted attempt. A
+per-set process lock and attempt-unique temporary tag prevent concurrent
+qualification from sharing mutation state. Interruption cleanup removes only
+the intent-recorded OCI, validation-receipt, and digest-bound tool-snapshot
+residue. It never rewrites the final tag: readback must show either the recorded
+baseline or the exact task-owned image ID, and any other value remains
+ambiguous and blocked.
 Do not execute a catalog server unless preflight returns `READY`. The receipt
 binds the 31-entry classification, including the exact derived 18 scannable and
 13 blocked execution boundary, source and policy digests, tool versions,

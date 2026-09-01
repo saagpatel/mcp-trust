@@ -14,8 +14,10 @@ from mcp_trust.host_capacity import (
     HostCapacityError,
     HostCapacitySample,
     build_host_capacity_receipt,
+    build_qualification_capacity_receipt,
     require_current_host_capacity,
     validate_host_capacity_receipt,
+    validate_qualification_capacity_receipt,
 )
 from tests.receipt_fixtures import host_capacity_receipt
 
@@ -192,4 +194,69 @@ def test_current_device_or_capacity_regression_is_rejected(
             anchor=Path("/fixture"),
             now=NOW,
             reader=lambda _anchor: sample,
+        )
+
+
+def test_qualification_capacity_binds_exact_operation_set_and_cohort() -> None:
+    times = iter((NOW - timedelta(seconds=30), NOW))
+    receipt = build_qualification_capacity_receipt(
+        anchor=Path("/fixture"),
+        operation="qualification",
+        receipt_set="v122-r1",
+        cohort="reference",
+        reader=lambda _anchor: HostCapacitySample(
+            DEVICE_ID, TOTAL_BYTES, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+        ),
+        clock=lambda: next(times),
+        sleeper=lambda _seconds: None,
+    )
+
+    assert (
+        validate_qualification_capacity_receipt(
+            receipt,
+            operation="qualification",
+            receipt_set="v122-r1",
+            cohort="reference",
+        )
+        == receipt
+    )
+    for operation, receipt_set, cohort in (
+        ("cleanup", "v122-r1", "reference"),
+        ("qualification", "v122-r2", "reference"),
+        ("qualification", "v122-r1", "batch3"),
+    ):
+        with pytest.raises(HostCapacityError, match="scope differs"):
+            validate_qualification_capacity_receipt(
+                receipt,
+                operation=operation,
+                receipt_set=receipt_set,
+                cohort=cohort,
+            )
+
+
+def test_generic_capacity_receipt_cannot_cross_scoped_boundary() -> None:
+    with pytest.raises(HostCapacityError, match="fields are invalid"):
+        validate_qualification_capacity_receipt(
+            host_capacity_receipt(observed_at=NOW),
+            operation="qualification",
+            receipt_set="v122-r1",
+            cohort="reference",
+        )
+
+
+@pytest.mark.parametrize("receipt_set", ["legacy", "../v122", "/v122", "v122/path"])
+def test_qualification_capacity_builder_rejects_unsafe_set_names(
+    receipt_set: str,
+) -> None:
+    with pytest.raises(HostCapacityError, match="receipt set is invalid"):
+        build_qualification_capacity_receipt(
+            anchor=Path("/fixture"),
+            operation="qualification",
+            receipt_set=receipt_set,
+            cohort="reference",
+            reader=lambda _anchor: HostCapacitySample(
+                DEVICE_ID, TOTAL_BYTES, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+            ),
+            clock=lambda: NOW,
+            sleeper=lambda _seconds: None,
         )

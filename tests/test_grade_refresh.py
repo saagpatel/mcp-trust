@@ -738,6 +738,29 @@ def test_preflight_cli_requires_engine_materialization_receipt() -> None:
         grade_refresh_cli._parser().parse_args(["preflight"])
 
 
+def test_qualification_capacity_cli_requires_exact_scope() -> None:
+    parsed = grade_refresh_cli._parser().parse_args(  # noqa: SLF001
+        [
+            "qualification-capacity",
+            "--operation",
+            "qualification",
+            "--receipt-set",
+            "v122-test",
+            "--cohort",
+            "reference",
+        ]
+    )
+    assert (parsed.operation, parsed.receipt_set, parsed.cohort) == (
+        "qualification",
+        "v122-test",
+        "reference",
+    )
+    with pytest.raises(SystemExit):
+        grade_refresh_cli._parser().parse_args(  # noqa: SLF001
+            ["qualification-capacity", "--receipt-set", "v122-test"]
+        )
+
+
 def test_preflight_binds_verified_engine_materialization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

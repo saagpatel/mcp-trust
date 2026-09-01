@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 HOST_CAPACITY_SCHEMA = "McpTrustHostCapacityReceiptV1"
+QUALIFICATION_CAPACITY_SCHEMA = "McpTrustQualificationCapacityReceiptV1"
 HOST_CAPACITY_MIN_AVAILABLE_BYTES = 5 * 1024**3
 HOST_CAPACITY_MIN_INTERVAL_SECONDS = 30
 HOST_CAPACITY_MAX_AGE_SECONDS = 120
@@ -73,6 +75,35 @@ _AUTHORITY = {
     "deployment_performed": False,
     "scheduler_change_performed": False,
 }
+_QUALIFICATION_OPERATIONS = frozenset({"qualification", "cleanup"})
+_SAFE_QUALIFICATION_RECEIPT_SET = re.compile(
+    r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$"
+)
+_QUALIFICATION_COHORTS = frozenset(
+    {"reference", "live-batch", "batch3", "batch4", "basic-memory"}
+)
+_QUALIFICATION_RECEIPT_KEYS = frozenset(
+    {
+        "schema",
+        "operation",
+        "receipt_set",
+        "cohort",
+        "host_capacity",
+        "authority",
+        "claim_ceiling",
+        "receipt_digest",
+    }
+)
+_QUALIFICATION_AUTHORITY = {
+    **_AUTHORITY,
+    "qualification_scope_only": True,
+}
+QUALIFICATION_CAPACITY_CLAIM_CEILING = (
+    "One fresh host-capacity observation scoped to one local image-qualification or "
+    "interruption-cleanup invocation. It does not prove Docker cleanup, image "
+    "qualification, MCP execution, publication, deployment, scheduler operation, "
+    "production freshness, or endorsement."
+)
 
 
 class HostCapacityError(RuntimeError):
@@ -220,6 +251,79 @@ def build_host_capacity_receipt(
     }
     payload["receipt_digest"] = _digest(payload)
     return payload
+
+
+def build_qualification_capacity_receipt(
+    *,
+    anchor: Path,
+    operation: str,
+    receipt_set: str,
+    cohort: str,
+    reader: Callable[[Path], HostCapacitySample] = read_host_capacity,
+    clock: Callable[[], datetime] = lambda: datetime.now(tz=UTC),
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Build one generic capacity receipt and bind it to one cohort operation."""
+    if operation not in _QUALIFICATION_OPERATIONS:
+        raise HostCapacityError("qualification capacity operation is invalid")
+    if cohort not in _QUALIFICATION_COHORTS:
+        raise HostCapacityError("qualification capacity cohort is invalid")
+    if (
+        not isinstance(receipt_set, str)
+        or _SAFE_QUALIFICATION_RECEIPT_SET.fullmatch(receipt_set) is None
+    ):
+        raise HostCapacityError("qualification capacity receipt set is invalid")
+    payload: dict[str, Any] = {
+        "schema": QUALIFICATION_CAPACITY_SCHEMA,
+        "operation": operation,
+        "receipt_set": receipt_set,
+        "cohort": cohort,
+        "host_capacity": build_host_capacity_receipt(
+            anchor=anchor,
+            reader=reader,
+            clock=clock,
+            sleeper=sleeper,
+        ),
+        "authority": dict(_QUALIFICATION_AUTHORITY),
+        "claim_ceiling": QUALIFICATION_CAPACITY_CLAIM_CEILING,
+    }
+    payload["receipt_digest"] = _digest(payload)
+    return payload
+
+
+def validate_qualification_capacity_receipt(
+    receipt: object,
+    *,
+    operation: str,
+    receipt_set: str,
+    cohort: str,
+) -> dict[str, Any]:
+    """Validate integrity and exact set/cohort/operation scope without widening it."""
+    if (
+        operation not in _QUALIFICATION_OPERATIONS
+        or cohort not in _QUALIFICATION_COHORTS
+        or _SAFE_QUALIFICATION_RECEIPT_SET.fullmatch(receipt_set) is None
+    ):
+        raise HostCapacityError("qualification capacity expected scope is invalid")
+    if not isinstance(receipt, dict) or set(receipt) != _QUALIFICATION_RECEIPT_KEYS:
+        raise HostCapacityError("qualification capacity receipt fields are invalid")
+    unsigned = dict(receipt)
+    claimed = unsigned.pop("receipt_digest", None)
+    if receipt.get("schema") != QUALIFICATION_CAPACITY_SCHEMA or claimed != _digest(unsigned):
+        raise HostCapacityError("qualification capacity receipt integrity is invalid")
+    if (
+        receipt.get("operation") != operation
+        or receipt.get("receipt_set") != receipt_set
+        or receipt.get("cohort") != cohort
+    ):
+        raise HostCapacityError("qualification capacity receipt scope differs")
+    if (
+        receipt.get("authority") != _QUALIFICATION_AUTHORITY
+        or receipt.get("claim_ceiling") != QUALIFICATION_CAPACITY_CLAIM_CEILING
+    ):
+        raise HostCapacityError("qualification capacity receipt authority is invalid")
+    validate_host_capacity_receipt(receipt.get("host_capacity"))
+    return receipt
 
 
 def validate_host_capacity_receipt(receipt: object) -> dict[str, Any]:

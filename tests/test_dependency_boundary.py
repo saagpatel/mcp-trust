@@ -18,6 +18,7 @@ from mcp_trust import dependency_boundary
 from mcp_trust.host_capacity import (
     HOST_CAPACITY_MIN_AVAILABLE_BYTES,
     HostCapacitySample,
+    build_qualification_capacity_receipt,
 )
 from tests.receipt_fixtures import host_capacity_receipt
 
@@ -68,6 +69,26 @@ def _capacity_gate(
         anchor=ROOT,
         clock=lambda: now,
         reader=lambda _anchor: HostCapacitySample(CAPACITY_DEVICE, CAPACITY_TOTAL, available_bytes),
+    )
+
+
+def _scoped_capacity(
+    *,
+    operation: str = "qualification",
+    cohort: str = "reference",
+    receipt_set: str = "v122-test",
+) -> dict[str, object]:
+    times = iter((CAPACITY_NOW - timedelta(seconds=30), CAPACITY_NOW))
+    return build_qualification_capacity_receipt(
+        anchor=ROOT,
+        operation=operation,
+        receipt_set=receipt_set,
+        cohort=cohort,
+        reader=lambda _anchor: HostCapacitySample(
+            CAPACITY_DEVICE, CAPACITY_TOTAL, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+        ),
+        clock=lambda: next(times),
+        sleeper=lambda _seconds: None,
     )
 
 
@@ -248,6 +269,7 @@ def test_qualify_rejects_unsafe_descriptor_before_any_subprocess(
             config,
             buildx="docker-buildx",
             receipt_root=module.RECEIPT_ROOT,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
             tools=_tool_paths(),
             capacity_gate=_capacity_gate(module),
         )
@@ -280,15 +302,23 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
         "_run",
         lambda *_args, **_kwargs: pytest.fail("subprocess ran during validation"),
     )
+    receipt_root = tmp_path / "v122-test"
+    scoped = _scoped_capacity(receipt_set=receipt_root.name)
+    gate = module.QualificationCapacityGate(
+        receipt=scoped["host_capacity"],
+        scope_receipt=scoped,
+        anchor=ROOT,
+    )
 
     with pytest.raises(ValidationPassed):
         module.qualify(
             "reference",
             config,
             buildx="docker-buildx",
-            receipt_root=tmp_path,
+            receipt_root=receipt_root,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
             tools=_tool_paths(),
-            capacity_gate=_capacity_gate(module),
+            capacity_gate=gate,
         )
 
     assert observed == {
@@ -319,6 +349,7 @@ def test_qualify_rejects_unexpected_cohort_keys_before_any_subprocess(
             config,
             buildx="docker-buildx",
             receipt_root=module.RECEIPT_ROOT,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
             tools=_tool_paths(),
             capacity_gate=_capacity_gate(module),
         )
@@ -345,6 +376,7 @@ def test_qualify_rejects_missing_or_unsupported_platform_before_any_subprocess(
             config,
             buildx="docker-buildx",
             receipt_root=module.RECEIPT_ROOT,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
             tools=_tool_paths(),
             capacity_gate=_capacity_gate(module),
         )
@@ -436,10 +468,10 @@ def test_qualification_receipt_set_rejects_unsafe_names_before_execution(
     monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
 
     with pytest.raises(module.QualificationError, match="safe versioned"):
-        module._new_receipt_set_root(receipt_set)
+        module._receipt_set_root(receipt_set)
 
 
-def test_qualification_receipt_set_refuses_existing_or_symlink_targets(
+def test_qualification_receipt_set_refuses_legacy_or_symlink_targets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -447,16 +479,17 @@ def test_qualification_receipt_set_refuses_existing_or_symlink_targets(
     root = tmp_path / "repo"
     receipt_root = root / "docker/refresh/qualification"
     receipt_root.mkdir(parents=True)
-    (receipt_root / "v65-existing").mkdir()
+    (receipt_root / "v65-existing").mkdir(mode=0o700)
     (receipt_root / "v65-link").symlink_to(tmp_path / "outside", target_is_directory=True)
     monkeypatch.setattr(module, "ROOT", root)
     monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
 
-    with pytest.raises(module.QualificationError, match="already exists"):
-        module._new_receipt_set_root("v65-existing")
-    with pytest.raises(module.QualificationError, match="already exists"):
-        module._new_receipt_set_root("v65-link")
-    assert module._new_receipt_set_root("v65-new") == receipt_root / "v65-new"
+    monkeypatch.setattr(module, "_expected_set_manifest", lambda **_kwargs: {})
+    with pytest.raises(module.QualificationError, match="file is unsafe"):
+        module._open_receipt_set("v65-existing", cohorts={}, platform="linux/arm64")
+    with pytest.raises(module.QualificationError, match="symlink"):
+        module._open_receipt_set("v65-link", cohorts={}, platform="linux/arm64")
+    assert module._receipt_set_root("v65-new") == receipt_root / "v65-new"
 
 
 def test_qualification_receipt_set_refuses_symlinked_parent(
@@ -474,7 +507,612 @@ def test_qualification_receipt_set_refuses_symlinked_parent(
     monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
 
     with pytest.raises(module.QualificationError, match="symlink"):
-        module._new_receipt_set_root("v65-new")
+        module._receipt_set_root("v65-new")
+
+
+def test_qualification_capacity_loader_rejects_generic_and_wrong_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    generic = tmp_path / "generic.json"
+    generic.write_text(
+        json.dumps(host_capacity_receipt(observed_at=CAPACITY_NOW)), encoding="utf-8"
+    )
+    with pytest.raises(module.QualificationError, match="unreadable or invalid"):
+        module._load_capacity_gate(
+            generic,
+            operation="qualification",
+            receipt_set="v122-test",
+            cohort="reference",
+        )
+
+    scoped = tmp_path / "scoped.json"
+    scoped.write_text(json.dumps(_scoped_capacity()), encoding="utf-8")
+    with pytest.raises(module.QualificationError, match="unreadable or invalid"):
+        module._load_capacity_gate(
+            scoped,
+            operation="cleanup",
+            receipt_set="v122-test",
+            cohort="reference",
+        )
+    monkeypatch.setattr(module, "ROOT", ROOT)
+    assert isinstance(
+        module._load_capacity_gate(
+            scoped,
+            operation="qualification",
+            receipt_set="v122-test",
+            cohort="reference",
+        ),
+        module.QualificationCapacityGate,
+    )
+
+
+def test_direct_qualifier_rejects_unscoped_gate_before_docker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    payload = _inputs()
+    config = {**payload["cohorts"]["reference"], "platform": payload["platform"]}
+    monkeypatch.setattr(module, "_require_safe_directory", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        module,
+        "_image_id",
+        lambda *_a, **_k: pytest.fail("Docker boundary crossed an unscoped gate"),
+    )
+
+    with pytest.raises(module.QualificationError, match="not scope-bound"):
+        module.qualify(
+            "reference",
+            config,
+            buildx="docker-buildx",
+            receipt_root=tmp_path,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+        )
+
+
+def test_capacity_gate_rejects_divergent_scoped_and_dynamic_receipts() -> None:
+    module = _script("qualify_refresh_images.py")
+    scoped = _scoped_capacity()
+    different = host_capacity_receipt(
+        observed_at=CAPACITY_NOW,
+        device_id=CAPACITY_DEVICE + 1,
+        total_bytes=CAPACITY_TOTAL,
+    )
+
+    with pytest.raises(module.QualificationError, match="receipts differ"):
+        module.QualificationCapacityGate(
+            receipt=different,
+            scope_receipt=scoped,
+            anchor=ROOT,
+        )
+
+
+def test_append_only_set_blocks_retry_until_attempt_is_resolved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    manifest = {
+        "schema": module.QUALIFICATION_SET_SCHEMA,
+        "receipt_digest": "sha256:" + "1" * 64,
+        "cohort_bindings": {
+            "reference": {"image_reference": "mcp-trust:test"}
+        },
+    }
+    module._write_new(root / "qualification-set.json", manifest)
+    scoped = _scoped_capacity()
+    gate = module.QualificationCapacityGate(
+        receipt=scoped["host_capacity"],
+        scope_receipt=scoped,
+        anchor=ROOT,
+        clock=lambda: CAPACITY_NOW,
+        reader=lambda _anchor: HostCapacitySample(
+            CAPACITY_DEVICE, CAPACITY_TOTAL, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+        ),
+    )
+    tool_root = tmp_path / "tmp/qualification/tools"
+    tool_root.mkdir(parents=True, mode=0o700)
+    tools = {
+        "docker": tool_root / "docker",
+        "docker-buildx": tool_root / "docker-buildx",
+    }
+    for path in tools.values():
+        path.write_bytes(path.name.encode())
+        path.chmod(0o500)
+    attempt_id = module._attempt_id(
+        set_manifest=manifest, cohort="reference", capacity_gate=gate
+    )
+    temporary_reference = f"mcp-trust-qualification:v0-{attempt_id}-first"
+
+    attempt_path, attempt = module._begin_attempt(
+        root=root,
+        set_manifest=manifest,
+        cohort="reference",
+        attempt_id=attempt_id,
+        capacity_gate=gate,
+        image_reference="mcp-trust:test",
+        temporary_reference=temporary_reference,
+        previous_final_image_id=None,
+        output_paths=[
+            "tmp/qualification/reference-first.oci.tar",
+            "tmp/qualification/reference-second.oci.tar",
+        ],
+        tools=tools,
+    )
+
+    assert attempt_path.is_file()
+    assert attempt["exit_classification"] == "PENDING_DOCKER_MUTATION_CLEANUP"
+    before = {path.name for path in root.iterdir()}
+    with pytest.raises(module.QualificationError, match="cleanup is required"):
+        module._begin_attempt(
+            root=root,
+            set_manifest=manifest,
+            cohort="reference",
+            attempt_id=attempt_id,
+            capacity_gate=gate,
+            image_reference="mcp-trust:test",
+            temporary_reference=temporary_reference,
+            previous_final_image_id=None,
+            output_paths=[
+                "tmp/qualification/reference-first.oci.tar",
+                "tmp/qualification/reference-second.oci.tar",
+            ],
+            tools=tools,
+        )
+    assert {path.name for path in root.iterdir()} == before
+
+
+def test_append_only_set_rejects_unknown_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    unknown = root / "surprise.json"
+    unknown.write_text("{}", encoding="utf-8")
+    unknown.chmod(0o600)
+
+    with pytest.raises(module.QualificationError, match="unknown artifact"):
+        module._validated_set_attempts(
+            root,
+            cohort="reference",
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
+        )
+
+
+def test_append_only_set_rejects_reused_underlying_capacity_observation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    for cohort in ("reference", "batch3"):
+        capacity = _scoped_capacity(cohort=cohort)
+        digest = capacity["receipt_digest"].removeprefix("sha256:")
+        module._write_new(root / f"capacity-{cohort}-{digest}.json", capacity)
+
+    with pytest.raises(module.QualificationError, match="observation was reused"):
+        module._validated_set_attempts(
+            root,
+            cohort="reference",
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
+        )
+
+
+def test_set_graph_rejects_orphan_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    receipt = root / "reference.json"
+    receipt.write_text("{}", encoding="utf-8")
+    receipt.chmod(0o600)
+
+    with pytest.raises(module.QualificationError, match="lacks one completion graph"):
+        module._validate_set_graph(
+            root,
+            set_manifest={
+                "receipt_digest": "sha256:" + "1" * 64,
+                "cohort_bindings": {},
+            },
+        )
+
+
+def test_set_graph_rejects_orphan_completion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    attempt_id = "1" * 64
+    payload = {
+        "schema": module.QUALIFICATION_COMPLETION_SCHEMA,
+        "cohort": "reference",
+        "attempt_id": attempt_id,
+        "attempt_path": f"attempt-reference-{attempt_id}.json",
+        "attempt_sha256": "sha256:" + "2" * 64,
+        "qualification_receipt": "reference.json",
+        "qualification_receipt_sha256": "sha256:" + "3" * 64,
+        "qualification_receipt_digest": "sha256:" + "4" * 64,
+        "exit_classification": "QUALIFIED_REPEATABLE",
+    }
+    payload["receipt_digest"] = module._unsigned_digest(payload)
+    module._write_new(root / f"complete-reference-{attempt_id}.json", payload)
+
+    with pytest.raises(module.QualificationError, match="orphan completion"):
+        module._validate_set_graph(
+            root,
+            set_manifest={
+                "receipt_digest": "sha256:" + "5" * 64,
+                "cohort_bindings": {},
+            },
+        )
+
+
+def test_set_graph_rejects_orphan_capacity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    capacity = _scoped_capacity(receipt_set="v122-test")
+    digest = capacity["receipt_digest"].removeprefix("sha256:")
+    module._write_new(root / f"capacity-reference-{digest}.json", capacity)
+
+    with pytest.raises(module.QualificationError, match="orphan capacity"):
+        module._validate_set_graph(
+            root,
+            set_manifest={
+                "receipt_digest": "sha256:" + "1" * 64,
+                "cohort_bindings": {},
+            },
+        )
+
+
+def test_set_graph_rejects_completion_without_ownership(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    attempt_id = "1" * 64
+    attempt_path = root / f"attempt-reference-{attempt_id}.json"
+    attempt_path.write_text("{}\n", encoding="utf-8")
+    attempt_path.chmod(0o600)
+    attempt = {
+        "cohort": "reference",
+        "attempt_id": attempt_id,
+        "capacity_receipt": "capacity-reference-test.json",
+    }
+
+    def artifacts(
+        _root: Path, *, cohort: str, set_manifest: dict[str, object]
+    ) -> tuple[
+        list[tuple[Path, dict[str, object]]], set[str], set[str], set[str]
+    ]:
+        assert set_manifest["receipt_digest"] == "sha256:" + "5" * 64
+        attempts = [(attempt_path, attempt)] if cohort == "reference" else []
+        return attempts, {attempt_id}, set(), set()
+
+    monkeypatch.setattr(module, "_validated_set_attempts", artifacts)
+
+    with pytest.raises(module.QualificationError, match="lacks final-tag ownership"):
+        module._validate_set_graph(
+            root,
+            set_manifest={
+                "receipt_digest": "sha256:" + "5" * 64,
+                "cohort_bindings": {},
+            },
+        )
+
+
+def test_owned_final_image_id_rejects_malformed_marker(tmp_path: Path) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    attempt_id = "1" * 64
+    attempt_path = root / f"attempt-reference-{attempt_id}.json"
+    attempt_path.write_text("{}\n", encoding="utf-8")
+    attempt_path.chmod(0o600)
+    attempt = {"cohort": "reference", "attempt_id": attempt_id}
+    ownership = {
+        "schema": module.QUALIFICATION_OWNERSHIP_SCHEMA,
+        "cohort": "reference",
+        "attempt_id": attempt_id,
+        "attempt_path": attempt_path.name,
+        "attempt_sha256": "sha256:" + "2" * 64,
+        "owned_final_image_id": "sha256:" + "3" * 64,
+        "exit_classification": "FINAL_TAG_MUTATION_AUTHORIZED",
+    }
+    ownership["receipt_digest"] = module._unsigned_digest(ownership)
+    module._write_new(
+        root / f"ownership-reference-{attempt_id}.json", ownership
+    )
+
+    with pytest.raises(module.QualificationError, match="ownership receipt is invalid"):
+        module._owned_final_image_id(
+            root, attempt_path=attempt_path, attempt=attempt
+        )
+
+
+@pytest.mark.parametrize("name", ["../outside.json", "/tmp/outside.json", "a/b.json"])
+def test_set_artifact_references_must_be_contained_children(
+    tmp_path: Path, name: str
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    with pytest.raises(module.QualificationError, match="contained set file"):
+        module._safe_set_child(tmp_path, name, label="fixture")
+
+
+def test_final_tag_containment_refuses_concurrent_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    previous = "sha256:" + "a" * 64
+    owned = "sha256:" + "b" * 64
+    concurrent = "sha256:" + "c" * 64
+    monkeypatch.setattr(module, "_image_id", lambda *_a, **_k: concurrent)
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_a, **_k: pytest.fail("ambiguous final tag was overwritten"),
+    )
+
+    with pytest.raises(module.QualificationError, match="ownership is ambiguous"):
+        module._final_tag_state(
+            "mcp-trust:test",
+            previous,
+            owned_final_image_id=owned,
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+        )
+
+
+def test_interruption_residue_cleanup_is_exact_and_complete(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    output_root = tmp_path / "tmp/qualification"
+    tools_root = output_root / "tools"
+    tools_root.mkdir(parents=True, mode=0o700)
+    snapshot: dict[str, dict[str, str]] = {}
+    for name in ("docker", "docker-buildx"):
+        path = tools_root / name
+        path.write_bytes(name.encode())
+        path.chmod(0o500)
+        snapshot[name] = {
+            "path": f"tmp/qualification/tools/{name}",
+            "sha256": module.grade_refresh.digest_file(path),
+        }
+    for name in (
+        "reference-first.oci.tar",
+        "reference-second.oci.tar",
+        "reference-receipt.json",
+    ):
+        path = output_root / name
+        path.write_bytes(b"task-owned")
+        path.chmod(0o600)
+    attempt = {
+        "cohort": "reference",
+        "oci_outputs": [
+            "tmp/qualification/reference-first.oci.tar",
+            "tmp/qualification/reference-second.oci.tar",
+        ],
+        "validation_receipt": "tmp/qualification/reference-receipt.json",
+        "tool_snapshot": snapshot,
+    }
+
+    module._remove_attempt_outputs(attempt)
+
+    assert list(output_root.iterdir()) == []
+
+
+def test_cohort_lock_rejects_concurrent_invocation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    with module._cohort_lock("v122-test", "reference"):
+        with pytest.raises(module.QualificationError, match="already active"):
+            with module._cohort_lock("v122-test", "reference"):
+                pytest.fail("concurrent cohort lock was admitted")
+
+
+def test_cohort_lock_rejects_symlink_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    lock_root = tmp_path / "tmp/qualification-locks"
+    lock_root.mkdir(parents=True, mode=0o700)
+    lock_id = module.grade_refresh.digest_bytes(
+        module.grade_refresh.canonical_bytes({"receipt_set": "v122-test"})
+    ).removeprefix("sha256:")
+    (lock_root / f"{lock_id}.lock").symlink_to(tmp_path / "outside")
+
+    with pytest.raises(module.QualificationError, match="lock is a symlink"):
+        with module._cohort_lock("v122-test", "reference"):
+            pytest.fail("symlinked lock was admitted")
+
+
+def test_cleanup_residue_waits_for_dynamic_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    gate = _capacity_gate(module, now=CAPACITY_NOW + timedelta(seconds=121))
+    monkeypatch.setattr(
+        module,
+        "_remove_attempt_outputs",
+        lambda _attempt: pytest.fail("residue changed before dynamic capacity"),
+    )
+
+    with pytest.raises(module.QualificationError, match="not READY"):
+        module._admit_cleanup_residue(capacity_gate=gate, attempt={})
+
+
+def test_expired_cleanup_capacity_emits_no_completion_or_docker_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    attempt_path = root / ("attempt-reference-" + "1" * 64 + ".json")
+    attempt_path.write_text("{}", encoding="utf-8")
+    attempt_path.chmod(0o600)
+    attempt = {
+        "cohort": "reference",
+        "attempt_id": "1" * 64,
+        "set_receipt_digest": "sha256:" + "2" * 64,
+        "image_reference": "mcp-trust:test",
+        "temporary_reference": "mcp-trust-qualification:v0-" + "1" * 64 + "-first",
+        "exit_classification": "PENDING_DOCKER_MUTATION_CLEANUP",
+    }
+    monkeypatch.setattr(
+        module,
+        "_unresolved_attempts",
+        lambda *_a, **_k: [(attempt_path, attempt)],
+    )
+    scoped = _scoped_capacity(
+        operation="cleanup", receipt_set="v122-test"
+    )
+    gate = module.QualificationCapacityGate(
+        receipt=scoped["host_capacity"],
+        scope_receipt=scoped,
+        anchor=tmp_path,
+        clock=lambda: CAPACITY_NOW + timedelta(seconds=121),
+        reader=lambda _anchor: HostCapacitySample(
+            CAPACITY_DEVICE, CAPACITY_TOTAL, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+        ),
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_a, **_k: pytest.fail("Docker subprocess crossed expired cleanup gate"),
+    )
+
+    with pytest.raises(module.QualificationError, match="not READY"):
+        module.cleanup_interrupted(
+            "reference",
+            receipt_root=root,
+            set_manifest={
+                "receipt_digest": "sha256:" + "2" * 64,
+                "cohort_bindings": {
+                    "reference": {"image_reference": "mcp-trust:test"}
+                },
+            },
+            tools=_tool_paths(),
+            capacity_gate=gate,
+            buildx="docker-buildx",
+        )
+    assert list(root.glob("cleanup-*.json")) == []
+
+
+def test_cleanup_success_binds_owned_final_tag_and_appends_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    root = tmp_path / "v122-test"
+    root.mkdir(mode=0o700)
+    attempt_id = "1" * 64
+    attempt_path = root / f"attempt-reference-{attempt_id}.json"
+    attempt_path.write_text("{}", encoding="utf-8")
+    attempt_path.chmod(0o600)
+    previous = "sha256:" + "a" * 64
+    owned = "sha256:" + "b" * 64
+    attempt = {
+        "cohort": "reference",
+        "attempt_id": attempt_id,
+        "set_receipt_digest": "sha256:" + "2" * 64,
+        "image_reference": "mcp-trust:test",
+        "temporary_reference": f"mcp-trust-qualification:v0-{attempt_id}-first",
+        "previous_final_image_id": previous,
+        "oci_outputs": [
+            "tmp/qualification/reference-first.oci.tar",
+            "tmp/qualification/reference-second.oci.tar",
+        ],
+        "exit_classification": "PENDING_DOCKER_MUTATION_CLEANUP",
+    }
+    monkeypatch.setattr(
+        module,
+        "_unresolved_attempts",
+        lambda *_a, **_k: [(attempt_path, attempt)],
+    )
+    scoped = _scoped_capacity(operation="cleanup", receipt_set="v122-test")
+    capacity_path = root / "capacity-cleanup.json"
+    capacity_path.write_text(json.dumps(scoped), encoding="utf-8")
+    capacity_path.chmod(0o600)
+    monkeypatch.setattr(
+        module, "_capacity_snapshot", lambda **_kwargs: (capacity_path, scoped)
+    )
+    monkeypatch.setattr(
+        module,
+        "_execution_boundary",
+        lambda *_a, **_k: dict(module.EXECUTION_BOUNDARY),
+    )
+    versions = {
+        "docker_client": "1.0.0",
+        "docker_server": "1.0.0",
+        "docker_buildx": "v1.0.0",
+        "buildkit_colima": "v1.0.0",
+    }
+    digests = {
+        "docker": "sha256:" + "c" * 64,
+        "docker_buildx": "sha256:" + "d" * 64,
+    }
+    monkeypatch.setattr(module, "_tool_versions", lambda *_a, **_k: versions)
+    monkeypatch.setattr(module, "_tool_digests", lambda *_a, **_k: digests)
+    monkeypatch.setattr(module, "_remove_tag", lambda *_a, **_k: None)
+    monkeypatch.setattr(module, "_owned_final_image_id", lambda *_a, **_k: owned)
+    observed: list[tuple[str | None, str | None]] = []
+    monkeypatch.setattr(
+        module,
+        "_final_tag_state",
+        lambda _reference, prior, *, owned_final_image_id, **_kwargs: (
+            observed.append((prior, owned_final_image_id))
+            or "TASK_OWNED_RETAINED"
+        ),
+    )
+    reads = iter((None,))
+    monkeypatch.setattr(module, "_image_id", lambda *_a, **_k: next(reads))
+    gate = module.QualificationCapacityGate(
+        receipt=scoped["host_capacity"],
+        scope_receipt=scoped,
+        anchor=tmp_path,
+    )
+
+    receipt = module.cleanup_interrupted(
+        "reference",
+        receipt_root=root,
+        set_manifest={
+            "receipt_digest": "sha256:" + "2" * 64,
+            "cohort_bindings": {
+                "reference": {"image_reference": "mcp-trust:test"}
+            },
+        },
+        tools=_tool_paths(),
+        capacity_gate=gate,
+        buildx="docker-buildx",
+    )
+
+    assert observed == [(previous, owned)]
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    assert payload["exit_classification"] == "CLEANUP_CONFIRMED"
+    assert payload["temporary_tag_absent"] is True
+    assert payload["final_tag_state"] == "TASK_OWNED_RETAINED"
 
 
 def test_qualification_safely_creates_missing_ignored_output_root(
@@ -632,7 +1270,13 @@ def test_qualification_cli_requires_host_capacity_before_subprocess(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["qualify_refresh_images.py", "--receipt-set", "v116-test"],
+        [
+            "qualify_refresh_images.py",
+            "--cohort",
+            "reference",
+            "--receipt-set",
+            "v116-test",
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -825,6 +1469,33 @@ def test_qualification_snapshots_tools_into_private_digest_pinned_copies(
     assert list(output_root.iterdir()) == []
 
 
+def test_qualification_cleans_only_exact_pre_intent_tool_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    output_root = root / "tmp/qualification"
+    snapshot_root = output_root / "tools"
+    snapshot_root.mkdir(parents=True, mode=0o700)
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    source_paths: dict[str, Path] = {}
+    for name in ("docker", "docker-buildx"):
+        source = sources / name
+        source.write_bytes(name.encode())
+        source.chmod(0o500)
+        snapshot = snapshot_root / name
+        snapshot.write_bytes(source.read_bytes())
+        snapshot.chmod(0o500)
+        source_paths[name] = source
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(module, "_resolved_tool", lambda name: source_paths[name])
+
+    module._cleanup_orphan_tool_snapshot(output_root, "docker-buildx")
+
+    assert list(output_root.iterdir()) == []
+
+
 def test_qualification_rejects_group_writable_docker_socket(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -852,7 +1523,7 @@ def test_qualification_rejects_group_writable_docker_socket(
         socket_path.unlink(missing_ok=True)
 
 
-def test_qualification_restores_final_tag_after_post_load_failure(
+def test_qualification_retains_only_owned_final_tag_after_post_load_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     module = _script("qualify_refresh_images.py")
@@ -917,15 +1588,35 @@ def test_qualification_restores_final_tag_after_post_load_failure(
         },
     )
     monkeypatch.setattr(module, "_remove_tag", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        module,
+        "_begin_attempt",
+        lambda **_kwargs: (
+            tmp_path / "attempt.json",
+            {"cohort": "reference", "attempt_id": "1" * 64},
+        ),
+    )
+    monkeypatch.setattr(module, "_write_ownership", lambda **_kwargs: tmp_path)
     monkeypatch.setattr(module, "_run", run)
-    gate = _capacity_gate(module)
+    receipt_root = tmp_path / "v122-test"
+    scoped = _scoped_capacity(receipt_set=receipt_root.name)
+    gate = module.QualificationCapacityGate(
+        receipt=scoped["host_capacity"],
+        scope_receipt=scoped,
+        anchor=ROOT,
+        clock=lambda: CAPACITY_NOW,
+        reader=lambda _anchor: HostCapacitySample(
+            CAPACITY_DEVICE, CAPACITY_TOTAL, HOST_CAPACITY_MIN_AVAILABLE_BYTES
+        ),
+    )
 
     with pytest.raises(module.QualificationError, match="post-load"):
         module.qualify(
             "reference",
             config,
             buildx="docker-buildx",
-            receipt_root=tmp_path,
+            receipt_root=receipt_root,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
             tools=_tool_paths(),
             capacity_gate=gate,
         )
@@ -937,7 +1628,7 @@ def test_qualification_restores_final_tag_after_post_load_failure(
         "tag",
         previous,
         "mcp-trust-scan:corpus-2026-07-03",
-    ] in commands
+    ] not in commands
 
 
 def test_qualification_distinguishes_missing_image_from_daemon_failure(
