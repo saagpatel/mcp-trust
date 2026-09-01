@@ -20,12 +20,13 @@ the locally built preparation image is executed only by its inspected immutable
 image ID. Then run the exact network-none, no-cache double builds:
 
 ```bash
+: "${MCP_TRUST_QUALIFICATION_RECEIPT_SET:?set a new reviewed task-owned receipt-set name}"
 uv run --frozen python scripts/grade_refresh.py host-capacity \
   --anchor "$PWD" \
   --out dist/grade-refresh/host-capacity.json
 uv run --frozen python scripts/qualify_refresh_images.py \
   --host-capacity dist/grade-refresh/host-capacity.json \
-  --receipt-set v89
+  --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
 ```
 
 Every cohort must produce two identical image IDs and a receipt that passes
@@ -63,10 +64,12 @@ with newly generated, reviewed receipts in a new safe single-component receipt
 set and update policy references in the same later reviewed source revision.
 Absolute, traversal, existing, or symlinked receipt-set paths are refused
 before Docker or Buildx is invoked.
-The current policy points at the tracked `docker/refresh/qualification/v89/`
-set. All five receipts must remain present, current under their maximum-age
-contract, and locally reviewed; missing or expired receipts make preflight fail
-closed. The legacy top-level receipts are historical only.
+The five exact `qualification_receipt` paths in
+`src/mcp_trust/catalog/refresh_policy.json` are authoritative. All five receipts
+must remain present, current under their maximum-age contract, and locally
+reviewed; missing or expired receipts make preflight fail closed. A version
+label in documentation is never authority. Legacy top-level receipts are
+historical only.
 
 ## 1. Inventory and preflight (no server execution)
 
