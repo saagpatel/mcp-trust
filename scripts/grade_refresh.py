@@ -28,7 +28,10 @@ from mcp_trust.grade_refresh import (
     triage_candidate,
     verify_engine_materialization_receipt,
 )
-from mcp_trust.host_capacity import build_host_capacity_receipt
+from mcp_trust.host_capacity import (
+    build_host_capacity_receipt,
+    build_qualification_capacity_receipt,
+)
 from mcp_trust.operator_package import (
     build_operator_review_package,
     verify_operator_review_package,
@@ -98,6 +101,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     capacity.add_argument("--anchor", type=Path, default=_ROOT)
     capacity.add_argument("--out", type=Path)
+
+    qualification_capacity = subcommands.add_parser(
+        "qualification-capacity",
+        help="Observe and bind fresh capacity to exactly one qualification or cleanup cohort.",
+    )
+    qualification_capacity.add_argument("--anchor", type=Path, default=_ROOT)
+    qualification_capacity.add_argument(
+        "--operation", choices=("qualification", "cleanup"), required=True
+    )
+    qualification_capacity.add_argument("--receipt-set", required=True)
+    qualification_capacity.add_argument(
+        "--cohort",
+        choices=("reference", "live-batch", "batch3", "batch4", "basic-memory"),
+        required=True,
+    )
+    qualification_capacity.add_argument("--out", type=Path)
 
     preflight = subcommands.add_parser(
         "preflight", help="Bind source/tool/image state without executing a catalog server."
@@ -218,6 +237,15 @@ def main(argv: list[str] | None = None) -> int:
             payload = build_host_capacity_receipt(anchor=args.anchor)
             _emit(payload, args.out)
             return 0 if payload["safe_to_start_runtime"] else 2
+        if args.command == "qualification-capacity":
+            payload = build_qualification_capacity_receipt(
+                anchor=args.anchor,
+                operation=args.operation,
+                receipt_set=args.receipt_set,
+                cohort=args.cohort,
+            )
+            _emit(payload, args.out)
+            return 0 if payload["host_capacity"]["safe_to_start_runtime"] else 2
         if args.command == "preflight":
             payload = build_preflight_receipt(
                 repo_root=args.repo_root,

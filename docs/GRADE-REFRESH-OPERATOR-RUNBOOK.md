@@ -24,24 +24,64 @@ image ID. Then run the exact network-none, no-cache double builds:
 uv run --frozen python scripts/grade_refresh.py host-capacity \
   --anchor "$PWD" \
   --out dist/grade-refresh/host-capacity.json
-uv run --frozen python scripts/qualify_refresh_images.py \
-  --host-capacity dist/grade-refresh/host-capacity.json \
-  --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
+for cohort in reference live-batch batch3 batch4 basic-memory; do
+  uv run --frozen python scripts/grade_refresh.py qualification-capacity \
+    --anchor "$PWD" \
+    --operation qualification \
+    --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}" \
+    --cohort "$cohort" \
+    --out "dist/grade-refresh/qualification-capacity-$cohort.json"
+  uv run --frozen python scripts/qualify_refresh_images.py \
+    --cohort "$cohort" \
+    --host-capacity "dist/grade-refresh/qualification-capacity-$cohort.json" \
+    --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
+done
 ```
 
 Every cohort must produce two identical image IDs and a receipt that passes
 readback. Existing or expired qualification receipts are not overwritten;
 requalification is a reviewed source revision, not an in-place refresh.
-The qualifier loads one exact host-capacity receipt and revalidates its
+The generic preflight capacity receipt above does not authorize qualification.
+For each cohort, the qualifier requires a distinct wrapper binding one exact
+host-capacity receipt to the set name, cohort, and `qualification` operation. It
+revalidates its
 integrity, 120-second freshness, filesystem-device binding, 5 GiB floor, and
 less-than-100-percent policy immediately before every Docker or Buildx
 subprocess. It never creates, refreshes, or replaces that receipt. A long build
 may outlive the receipt; the next Docker or Buildx call then fails closed,
 including any Docker-side tag inspection, removal, or restoration. Filesystem
 OCI outputs are still removed, no qualification receipt is emitted, and any
-remaining Docker-side cleanup is `UNKNOWN` until a newly authorized, freshly
-gated operator action reads it back. Do not reuse the existing receipt-set path
-or infer that another cohort remained admitted.
+remaining Docker-side cleanup is `UNKNOWN`. A pessimistic immutable attempt
+intent exists before the first Docker mutation and blocks retry of that cohort.
+Do not infer that another cohort remained admitted and do not reuse any scoped
+capacity receipt.
+
+After separately authorizing cleanup, bind a new two-reading receipt to the
+exact interrupted cohort and run only its cleanup mode:
+
+```bash
+cohort=reference # replace with the one exact unresolved cohort
+uv run --frozen python scripts/grade_refresh.py qualification-capacity \
+  --anchor "$PWD" \
+  --operation cleanup \
+  --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}" \
+  --cohort "$cohort" \
+  --out "dist/grade-refresh/cleanup-capacity-$cohort.json"
+uv run --frozen python scripts/qualify_refresh_images.py \
+  --cleanup-cohort "$cohort" \
+  --host-capacity "dist/grade-refresh/cleanup-capacity-$cohort.json" \
+  --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
+```
+
+Cleanup is exact-intent-only: it removes the recorded temporary tag and OCI
+outputs plus any recorded validation receipt and digest-bound tool snapshot,
+re-reads the final tag, and appends a cleanup completion receipt. Cleanup never
+rewrites the final tag: the current value must be either the recorded baseline
+or the exact task-owned image ID written before final-tag mutation; any other
+concurrent or ambiguous value is refused. Expiry
+or ambiguous readback appends no cleanup completion and leaves the attempt
+unresolved and `UNKNOWN`. A normal successful qualification instead appends a
+qualification completion binding and does not require cleanup.
 Qualification is bound to the exact owner-held local Unix Docker context and
 its same-name running `docker` Buildx builder. Redirecting Docker, Buildx, or
 proxy environment variables are stripped; the exact approved context is then
@@ -51,8 +91,10 @@ only tool directory, the subprocess `PATH` is restricted to those digest-pinned
 copies, and the directory is removed after the run. The approved Docker socket
 must be owner-held and have no group or world write permissions. First-build
 tags must not pre-exist; temporary OCI outputs and tags are removed on success
-or failure; and any failure after a final-tag load restores the exact prior tag
-or removes the newly introduced tag. Qualification receipts persist only the
+or failure. A failure after final-tag load never triggers an automatic rewrite;
+the append-only ownership evidence and later cleanup readback must classify the
+tag as baseline-unchanged or task-owned-retained. Qualification receipts
+persist only the
 abstract execution-boundary assertions, exact-allowlisted logical commands,
 exact Docker, Buildx, and BuildKit version tokens, and Docker/Buildx executable
 digests. Raw builder inspection output, host paths, socket paths, endpoints,
@@ -62,8 +104,21 @@ Legacy receipts containing raw builder output are invalid under this contract;
 do not rewrite their digests or describe them as sanitized. Replace them only
 with newly generated, reviewed receipts in a new safe single-component receipt
 set and update policy references in the same later reviewed source revision.
-Absolute, traversal, existing, or symlinked receipt-set paths are refused
-before Docker or Buildx is invoked.
+The first cohort creates one immutable set manifest binding the tracked source,
+dependency inputs, ordered five-cohort denominator, and every cohort build
+input. Later cohorts may append only when that manifest matches exactly.
+An owner-private nonblocking lock serializes every invocation in one set, and the
+temporary tag is attempt-specific, so two processes cannot share cohort
+mutation state. The lock is released by the operating system after interruption;
+the append-only attempt intent remains the durable recovery authority.
+If a process stops after tool snapshotting but before its attempt intent, a
+later invocation removes that residue only when both files are exact
+owner-private, executable-only, digest-identical copies of the currently
+resolved approved tools; any mismatch remains blocked as ambiguous.
+Absolute, traversal, symlinked, legacy/unmanifested, source-drifted, collision,
+overwritten, and unknown-artifact sets are refused before Docker or Buildx is
+invoked. A partial valid set is resumable only for an absent cohort with no
+unresolved attempt; the set is never repaired or rewritten in place.
 The five exact `qualification_receipt` paths in
 `src/mcp_trust/catalog/refresh_policy.json` are authoritative. All five receipts
 must remain present, current under their maximum-age contract, and locally
