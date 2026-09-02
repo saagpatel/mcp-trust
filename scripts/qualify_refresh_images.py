@@ -48,6 +48,35 @@ QUALIFICATION_COMPLETION_SCHEMA = "McpTrustImageQualificationCompletionV1"
 QUALIFICATION_CLEANUP_SCHEMA = "McpTrustImageQualificationCleanupV1"
 QUALIFICATION_OWNERSHIP_SCHEMA = "McpTrustImageQualificationOwnershipV1"
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_QUALIFICATION_STATIC_SOURCE_PATHS = frozenset(
+    {
+        ".dockerignore",
+        ".python-version",
+        "docker/refresh/dependency-inputs.json",
+        "pyproject.toml",
+        "scripts/build_legacy_python_wheels.py",
+        "scripts/grade_refresh.py",
+        "scripts/prepare_basic_memory_dependencies.py",
+        "scripts/qualify_refresh_images.py",
+        "src/mcp_trust/__init__.py",
+        "src/mcp_trust/core/__init__.py",
+        "src/mcp_trust/core/grading.py",
+        "src/mcp_trust/core/models.py",
+        "src/mcp_trust/dependency_boundary.py",
+        "src/mcp_trust/engine/__init__.py",
+        "src/mcp_trust/engine/base.py",
+        "src/mcp_trust/engine/runtime.py",
+        "src/mcp_trust/engine/sandbox.py",
+        "src/mcp_trust/engine/stub.py",
+        "src/mcp_trust/grade_refresh.py",
+        "src/mcp_trust/host_capacity.py",
+        "uv.lock",
+    }
+)
+_QUALIFICATION_EXCLUDED_PREFIX = "docker/refresh/qualification/"
+_QUALIFICATION_EXCLUDED_EXACT = frozenset(
+    {"src/mcp_trust/catalog/refresh_policy.json"}
+)
 _ATTEMPT_KEYS = frozenset(
     {
         "schema",
@@ -798,7 +827,50 @@ def _cohort_binding(cohort: str, config: dict[str, Any], *, platform: str) -> di
     }
 
 
-def _tracked_source_binding() -> dict[str, str]:
+def _qualification_source_paths(cohorts: dict[str, Any]) -> set[str]:
+    paths = set(_QUALIFICATION_STATIC_SOURCE_PATHS)
+    for cohort, config in cohorts.items():
+        if not isinstance(config, dict):
+            raise QualificationError(f"dependency cohort is unavailable: {cohort}")
+        dockerfile = config.get("dockerfile")
+        if not isinstance(dockerfile, str):
+            raise QualificationError(f"dependency cohort Dockerfile is unavailable: {cohort}")
+        paths.add(dockerfile)
+        preparer = config.get("source_build_preparer")
+        if isinstance(preparer, str):
+            paths.add(preparer)
+        for kind in ("npm", "python"):
+            if not config.get(kind):
+                continue
+            if kind == "npm":
+                paths.add(f"docker/refresh/locks/{cohort}/package.json")
+                paths.add(f"docker/refresh/locks/{cohort}/package-lock.json")
+            else:
+                paths.add(f"docker/refresh/locks/{cohort}/requirements.in")
+                paths.add(f"docker/refresh/locks/{cohort}/requirements.lock")
+            descriptor_path = f"docker/refresh/artifact-manifests/{cohort}/{kind}.json"
+            paths.add(descriptor_path)
+            descriptor = grade_refresh.load_json(ROOT / descriptor_path)
+            source_build = descriptor.get("source_build_receipt")
+            if isinstance(source_build, dict) and isinstance(source_build.get("path"), str):
+                source_build_path = str(source_build["path"])
+                paths.add(source_build_path)
+                source_receipt = grade_refresh.load_json(ROOT / source_build_path)
+                for key in ("builder", "input_descriptor"):
+                    reference = source_receipt.get(key)
+                    if isinstance(reference, dict) and isinstance(reference.get("path"), str):
+                        paths.add(str(reference["path"]))
+    for path in paths:
+        if path in _QUALIFICATION_EXCLUDED_EXACT or path.startswith(
+            _QUALIFICATION_EXCLUDED_PREFIX
+        ):
+            raise QualificationError(
+                "qualification source input resolves inside excluded adoption evidence"
+            )
+    return paths
+
+
+def _tracked_source_binding(cohorts: dict[str, Any]) -> dict[str, Any]:
     status = subprocess.run(
         ["git", "-C", ROOT.as_posix(), "status", "--porcelain=v1", "--untracked-files=no"],
         text=True,
@@ -813,10 +885,25 @@ def _tracked_source_binding() -> dict[str, str]:
     except grade_refresh.GradeRefreshError as exc:
         raise QualificationError("tracked source binding is unavailable") from exc
     revision = source.get("revision")
-    tree = source.get("source_tree_digest")
-    if not isinstance(revision, str) or not revision or not isinstance(tree, str):
+    file_digests = source.get("file_digests")
+    if not isinstance(revision, str) or not revision or not isinstance(file_digests, dict):
         raise QualificationError("tracked source binding is incomplete")
-    return {"revision": revision, "source_tree_digest": tree}
+    paths = _qualification_source_paths(cohorts)
+    if not paths <= set(file_digests):
+        raise QualificationError("qualification source inventory is not fully tracked")
+    selected = {path: file_digests[path] for path in sorted(paths)}
+    if not all(
+        isinstance(value, str) and value.startswith("sha256:")
+        for value in selected.values()
+    ):
+        raise QualificationError("qualification source inventory digest is invalid")
+    return {
+        "origin_revision": revision,
+        "source_digest": grade_refresh.digest_bytes(
+            grade_refresh.canonical_bytes(selected)
+        ),
+        "file_digests": selected,
+    }
 
 
 def _expected_set_manifest(
@@ -833,7 +920,7 @@ def _expected_set_manifest(
         "receipt_set": receipt_set,
         "cohorts": list(COHORTS),
         "cohort_bindings": bindings,
-        "source_binding": _tracked_source_binding(),
+        "source_binding": _tracked_source_binding(cohorts),
         "qualification_script": _reference("scripts/qualify_refresh_images.py"),
         "dependency_inputs": _reference("docker/refresh/dependency-inputs.json"),
         "authority": {
@@ -870,6 +957,63 @@ def _set_file_names(root: Path) -> set[str]:
     return names
 
 
+def _set_manifest_matches(actual: object, expected: object) -> bool:
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    actual_contract = dict(actual)
+    expected_contract = dict(expected)
+    actual_source = actual_contract.pop("source_binding", None)
+    expected_source = expected_contract.pop("source_binding", None)
+    actual_contract.pop("receipt_digest", None)
+    expected_contract.pop("receipt_digest", None)
+    source_matches = (
+        isinstance(actual_source, dict)
+        and isinstance(expected_source, dict)
+        and set(actual_source) == {"origin_revision", "source_digest", "file_digests"}
+        and set(expected_source) == {"origin_revision", "source_digest", "file_digests"}
+        and actual_source.get("source_digest") == expected_source.get("source_digest")
+        and actual_source.get("file_digests") == expected_source.get("file_digests")
+    )
+    return actual_contract == expected_contract and source_matches
+
+
+def _origin_source_binding_matches(source: object) -> bool:
+    if not isinstance(source, dict):
+        return False
+    revision = source.get("origin_revision")
+    file_digests = source.get("file_digests")
+    if not isinstance(revision, str) or not isinstance(file_digests, dict):
+        return False
+    for path, expected_digest in file_digests.items():
+        if not isinstance(path, str) or not isinstance(expected_digest, str):
+            return False
+        completed = subprocess.run(
+            ["git", "-C", ROOT.as_posix(), "show", f"{revision}:{path}"],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+        if (
+            completed.returncode != 0
+            or grade_refresh.digest_bytes(completed.stdout) != expected_digest
+        ):
+            return False
+    return True
+
+
+def _require_current_set_source(
+    set_manifest: dict[str, Any], cohorts: dict[str, Any]
+) -> None:
+    current = _tracked_source_binding(cohorts)
+    recorded = set_manifest.get("source_binding")
+    if (
+        not isinstance(recorded, dict)
+        or recorded.get("source_digest") != current["source_digest"]
+        or recorded.get("file_digests") != current["file_digests"]
+    ):
+        raise QualificationError("qualification set source changed during execution")
+
+
 def _open_receipt_set(
     receipt_set: str, *, cohorts: dict[str, Any], platform: str
 ) -> tuple[Path, dict[str, Any]]:
@@ -890,7 +1034,9 @@ def _open_receipt_set(
     actual = _read_bound_json(
         root / "qualification-set.json", schema=QUALIFICATION_SET_SCHEMA
     )
-    if actual != expected:
+    if not _set_manifest_matches(actual, expected) or not _origin_source_binding_matches(
+        actual.get("source_binding")
+    ):
         raise QualificationError("qualification set source or input binding differs")
     for cohort, binding in expected["cohort_bindings"].items():
         receipt = root / f"{cohort}.json"
@@ -1501,6 +1647,7 @@ def qualify(
     set_manifest: dict[str, Any],
     tools: dict[str, Path],
     capacity_gate: QualificationCapacityGate,
+    cohorts: dict[str, Any] | None = None,
 ) -> Path:
     platform = config.get("platform")
     cohort_config = dict(config)
@@ -1514,6 +1661,17 @@ def qualify(
         )
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
+    if cohorts is not None:
+        _require_current_set_source(set_manifest, cohorts)
+    expected_cohort_binding = set_manifest.get("cohort_bindings", {}).get(cohort)
+    current_cohort_binding = _cohort_binding(
+        cohort, cohort_config, platform=str(platform)
+    )
+    if (
+        isinstance(expected_cohort_binding, dict)
+        and current_cohort_binding != expected_cohort_binding
+    ):
+        raise QualificationError("qualification cohort input changed during execution")
     _require_safe_directory(receipt_root, label="qualification receipt set")
     receipt = receipt_root / f"{cohort}.json"
     if _lstat(receipt) is not None:
@@ -1656,6 +1814,12 @@ def qualify(
             raise QualificationError("qualification execution boundary changed during build")
         if first_id is None or second_id is None:
             raise QualificationError("qualification image IDs are unavailable")
+        if cohorts is not None:
+            _require_current_set_source(set_manifest, cohorts)
+        if isinstance(expected_cohort_binding, dict) and _cohort_binding(
+            cohort, cohort_config, platform=platform_name
+        ) != expected_cohort_binding:
+            raise QualificationError("qualification cohort input changed during execution")
         payload: dict[str, Any] = {
             "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
             "observed_at": datetime.now(tz=UTC).isoformat(),
@@ -1957,6 +2121,7 @@ def _main_locked(
     receipt_root, set_manifest = _open_receipt_set(
         args.receipt_set, cohorts=cohorts, platform=platform
     )
+    _require_current_set_source(set_manifest, cohorts)
     if args.cohort:
         if _lstat(receipt_root / f"{cohort}.json") is not None:
             raise QualificationError(f"qualification receipt already exists: {cohort}.json")
@@ -1997,6 +2162,7 @@ def _main_locked(
                 buildx="docker-buildx",
                 receipt_root=receipt_root,
                 set_manifest=set_manifest,
+                cohorts=cohorts,
                 tools=tools,
                 capacity_gate=capacity_gate,
             )
@@ -2011,6 +2177,7 @@ def _main_locked(
                 buildx="docker-buildx",
             )
             print(f"CLEANUP_CONFIRMED {cohort} {receipt.relative_to(ROOT)}")
+        _require_current_set_source(set_manifest, cohorts)
     finally:
         _cleanup_tool_snapshot(tools)
     print("NO_PUBLICATION NO_DEPLOYMENT NO_SCHEDULER_MUTATION")

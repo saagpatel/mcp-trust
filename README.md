@@ -344,6 +344,16 @@ outputs and must append a successful readback receipt. Existing sets without
 the immutable manifest, unknown artifacts, overwritten receipts, and source or
 input drift are refused. A successful build appends a qualification completion
 binding; cleanup completion is required only for an interrupted attempt. A
+qualification manifest preserves its originating revision as provenance but
+reopens against a qualification-specific digest map. That map includes the
+qualifier and its runtime modules, Dockerfiles, dependency inputs, locks,
+artifact descriptors, and nested source-build evidence. Generated
+`docker/refresh/qualification/` evidence and `refresh_policy.json` receipt
+pointers are adoption metadata, so tracking them does not self-invalidate a
+completed set; dependency-bundle bytes are independently revalidated against
+their descriptor digests before each build, and receipt and graph integrity
+remains independently mandatory.
+Any executable or build-input drift still fails closed. A
 per-set process lock and attempt-unique temporary tag prevent concurrent
 qualification from sharing mutation state. Interruption cleanup removes only
 the intent-recorded OCI, validation-receipt, and digest-bound tool-snapshot
