@@ -36,6 +36,10 @@ ENV HOME=/scan \
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY --from=npm-dependencies /opt/npm/node_modules /opt/npm/node_modules
 COPY --from=python-dependencies /opt/venv /opt/venv
+RUN readlink /opt/npm/node_modules/.bin/mcp-server-everything | grep -Fqx -- "../@modelcontextprotocol/server-everything/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/mcp-server-filesystem | grep -Fqx -- "../@modelcontextprotocol/server-filesystem/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/mcp-server-memory | grep -Fqx -- "../@modelcontextprotocol/server-memory/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/mcp-server-sequential-thinking | grep -Fqx -- "../@modelcontextprotocol/server-sequential-thinking/dist/index.js"
 RUN mkdir -p /fixtures/repo \
     && git init /fixtures/repo \
     && git -C /fixtures/repo config user.email "scan-fixture@example.invalid" \

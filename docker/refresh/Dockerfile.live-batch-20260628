@@ -36,4 +36,11 @@ ENV HOME=/scan \
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY --from=npm-dependencies /opt/npm/node_modules /opt/npm/node_modules
 COPY --from=python-dependencies /opt/venv /opt/venv
+RUN readlink /opt/npm/node_modules/.bin/adeu-mcp-server | grep -Fqx -- "../@adeu/mcp-server/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/kage-graph-mcp | grep -Fqx -- "../@kage-core/kage-graph-mcp/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/image-diff-mcp-server | grep -Fqx -- "../@pulsemcp/image-diff-mcp-server/build/index.js" \
+    && readlink /opt/npm/node_modules/.bin/intent-engineering-mcp | grep -Fqx -- "../@swins/intent-engineering-mcp/build/index.js" \
+    && readlink /opt/npm/node_modules/.bin/mythsensus-mcp | grep -Fqx -- "../mythsensus-mcp/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/raven-mcp | grep -Fqx -- "../raven-mcp/dist/index.js" \
+    && readlink /opt/npm/node_modules/.bin/sovereign-ai-act-mcp | grep -Fqx -- "../sovereign-ai-act-mcp/index.js"
 WORKDIR /scan

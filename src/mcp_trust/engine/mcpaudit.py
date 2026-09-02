@@ -32,6 +32,7 @@ import json
 import logging
 import math
 import os
+import re
 import subprocess
 import threading
 import time
@@ -63,6 +64,27 @@ logger = logging.getLogger(__name__)
 # a server's required secret env keys so the cloud-API tier reaches tool
 # enumeration. "none" (default) leaves env empty; "dummy" enables injection.
 _CREDENTIALS_ENV = "MCP_TRUST_SCAN_CREDENTIALS"
+_NPM_CONSOLE_SCRIPT_DIRECTORY = "/opt/npm/node_modules/.bin"
+_NPM_CONSOLE_SCRIPT_INTERPRETER = "/usr/local/bin/node"
+_BARE_NPM_CONSOLE_SCRIPT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+NPM_CONSOLE_SCRIPT_BINDINGS = {
+    "@adeu/mcp-server": ("adeu-mcp-server", "dist/index.js"),
+    "@kage-core/kage-graph-mcp": ("kage-graph-mcp", "dist/index.js"),
+    "@modelcontextprotocol/server-everything": ("mcp-server-everything", "dist/index.js"),
+    "@modelcontextprotocol/server-filesystem": ("mcp-server-filesystem", "dist/index.js"),
+    "@modelcontextprotocol/server-memory": ("mcp-server-memory", "dist/index.js"),
+    "@modelcontextprotocol/server-sequential-thinking": (
+        "mcp-server-sequential-thinking",
+        "dist/index.js",
+    ),
+    "@pulsemcp/image-diff-mcp-server": ("image-diff-mcp-server", "build/index.js"),
+    "@swins/intent-engineering-mcp": ("intent-engineering-mcp", "build/index.js"),
+    "@ui5/webcomponents-react-mcp": ("ui5-wcr-mcp", "dist/index.js"),
+    "mythsensus-mcp": ("mythsensus-mcp", "dist/index.js"),
+    "raven-mcp": ("raven-mcp", "dist/index.js"),
+    "redacta-mcp": ("redacta-mcp", "dist/index.js"),
+    "sovereign-ai-act-mcp": ("sovereign-ai-act-mcp", "index.js"),
+}
 
 
 def _credentials_mode() -> str:
@@ -226,6 +248,30 @@ def launch_spec(source: ServerSource) -> tuple[str, list[str]]:
     raise ScanError(
         f"Cannot infer a launch command for {source.reference!r} "
         f"(kind={source.kind}); set an explicit `command` on the source."
+    )
+
+
+def docker_launch_spec(source: ServerSource) -> tuple[str, list[str]]:
+    """Resolve one PATH-independent PID 1 argv for the qualified Docker image.
+
+    An explicit command on an npm source names the package's installed console
+    script.  Invoking that shebang script directly changes PID 1 to Node and
+    makes ``/proc/1/cmdline`` differ from the configured alias.  Launch Node
+    explicitly against the image-qualified absolute ``.bin`` path instead.
+    """
+    command, args = launch_spec(source)
+    if source.kind != SourceKind.NPM or source.command is None:
+        return command, args
+    binding = NPM_CONSOLE_SCRIPT_BINDINGS.get(source.reference)
+    if binding is None:
+        return command, args
+    if binding[0] != command:
+        raise ScanError("The npm source and console-script command are not qualified")
+    if _BARE_NPM_CONSOLE_SCRIPT.fullmatch(command) is None:
+        raise ScanError("An npm console-script command must be one bare executable name")
+    return (
+        _NPM_CONSOLE_SCRIPT_INTERPRETER,
+        [f"{_NPM_CONSOLE_SCRIPT_DIRECTORY}/{command}", *args],
     )
 
 
@@ -405,7 +451,7 @@ class MCPAuditEngine:
         launches_process = self._launches_local_process(source)
         prepared_launch: tuple[str, list[str]] | None = None
         if launches_process and isinstance(sandbox, DockerSandbox):
-            command, args = self._launch_spec(source)
+            command, args = docker_launch_spec(source)
             try:
                 prepared_launch = sandbox.prepare_owned_container(
                     command,

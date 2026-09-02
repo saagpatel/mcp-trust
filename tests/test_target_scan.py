@@ -21,7 +21,7 @@ from mcp_trust.core.models import (
     ToolEvidence,
 )
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
-from mcp_trust.engine.mcpaudit import launch_spec
+from mcp_trust.engine.mcpaudit import docker_launch_spec
 from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
     sandbox_server_process_digest,
@@ -92,7 +92,7 @@ def _profile() -> dict[str, object]:
 
 
 def _runtime_readback(server: Server) -> dict[str, object]:
-    command, args = launch_spec(server.source)
+    command, args = docker_launch_spec(server.source)
     return {
         "schema": "McpTrustSandboxRuntimeReadbackV2",
         "state": "VERIFIED",
