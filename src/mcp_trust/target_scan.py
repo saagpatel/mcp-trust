@@ -49,8 +49,15 @@ from mcp_trust.grade_refresh import (
     source_binding,
     validate_ready_preflight_contract,
 )
-from mcp_trust.host_capacity import HostCapacityError, require_current_host_capacity
+from mcp_trust.host_capacity import (
+    HOST_CAPACITY_MAX_AGE_SECONDS,
+    HostCapacityError,
+    require_current_host_capacity,
+    validate_host_capacity_receipt,
+)
 from mcp_trust.refresh import (
+    _BASE_RECEIPT_CAVEATS,
+    _DUMMY_CREDENTIAL_CAVEAT,
     DEFAULT_MAX_AGE_HOURS,
     SCAN_TIMEOUT_SECONDS,
     RefreshCandidateError,
@@ -71,6 +78,7 @@ from mcp_trust.refresh import (
 from mcp_trust.store.repository import ServerRepository
 
 TARGET_SCAN_SCHEMA = "McpTrustTargetScanArtifactV2"
+TARGET_SCAN_HISTORICAL_VERIFICATION_SCHEMA = "McpTrustTargetScanHistoricalVerificationV1"
 TARGET_SCAN_CLAIM_CEILING = (
     "One controlled local target scan with receipt-bound runtime evidence only; "
     "not an endorsement, production-safety claim, public-freshness claim, "
@@ -85,6 +93,12 @@ TARGET_SCAN_AUTHORITY = {
     "deployment": False,
     "scheduler_change": False,
 }
+TARGET_SCAN_HISTORICAL_CLAIM_CEILING = (
+    "Immutable local artifact integrity and creation-time binding consistency only; "
+    "not current execution admission, artifact-writer authenticity, repeatability, "
+    "endorsement, production safety or freshness, publication, deployment, scheduler "
+    "operation, egress success, or a claim about any other target."
+)
 _EXPECTED_CATALOG_COUNTS = {
     "scannable": 18,
     "blocked": 13,
@@ -661,9 +675,24 @@ def _scan_receipt_valid(receipt: object, *, slug: str, image_id: str) -> bool:
     server_payload = receipt.get("server")
     execution = receipt.get("execution_binding")
     sandbox = execution.get("sandbox") if isinstance(execution, dict) else None
+    execution_source = execution.get("source") if isinstance(execution, dict) else None
+    timeout = execution.get("timeout") if isinstance(execution, dict) else None
+    configured_profile = (
+        sandbox.get("configured_launch_controls") if isinstance(sandbox, dict) else None
+    )
+    runtime_readback = sandbox.get("runtime_readback") if isinstance(sandbox, dict) else None
     try:
         parsed_scan = ScanRecord.model_validate(scan)
         parsed_server = Server.model_validate(server_payload)
+        server_command, server_args = launch_spec(parsed_server.source)
+        expected_server_process_digests = sandbox_server_process_digests(
+            server_command,
+            server_args,
+            allow_python_console_script=(
+                parsed_server.source.kind == SourceKind.PYPI
+                and parsed_server.source.command is not None
+            ),
+        )
     except Exception:
         return False
     return bool(
@@ -671,10 +700,14 @@ def _scan_receipt_valid(receipt: object, *, slug: str, image_id: str) -> bool:
         and claimed == digest_bytes(canonical_bytes(unsigned))
         and receipt.get("server_slug") == slug
         and isinstance(scanner, dict)
+        and set(scanner) == {"engine_name", "engine_version", "scanner_git_ref"}
         and scanner.get("engine_name") == "mcpaudit"
+        and scanner.get("engine_version") == parsed_scan.engine_version
         and scanner.get("scanner_git_ref") is None
         and approval == {"approval_ref": None}
         and isinstance(scan, dict)
+        and parsed_scan.model_dump(mode="json") == scan
+        and parsed_server.model_dump(mode="json") == server_payload
         and parsed_server.slug == slug
         and parsed_scan.id == receipt.get("scan_id")
         and parsed_scan.server_slug == slug
@@ -682,15 +715,60 @@ def _scan_receipt_valid(receipt: object, *, slug: str, image_id: str) -> bool:
         and parsed_scan.transparency == grading.transparency(parsed_scan.risk)
         and receipt.get("danger_score") == grading.danger_score(parsed_scan.risk)
         and receipt.get("evidence") == scan.get("evidence")
+        and receipt.get("caveats")
+        == [
+            *_BASE_RECEIPT_CAVEATS,
+            *([_DUMMY_CREDENTIAL_CAVEAT] if parsed_server.source.env_keys else []),
+        ]
         and scan.get("server_slug") == slug
         and scan.get("engine_name") == "mcpaudit"
         and scan.get("report_ref") is None
         and scan.get("sandbox_image") == image_id
         and isinstance(execution, dict)
+        and set(execution) == {"schema", "target_slug", "source", "sandbox", "timeout"}
         and execution.get("target_slug") == slug
+        and isinstance(execution_source, dict)
+        and set(execution_source)
+        == {"revision", "source_tree_digest", "policy_digest", "preflight_receipt_digest"}
         and isinstance(sandbox, dict)
+        and set(sandbox)
+        == {
+            "mode",
+            "requested_image",
+            "immutable_image_id",
+            "configured_launch_controls",
+            "runtime_readback",
+            "container_cleanup_evidence",
+        }
+        and sandbox.get("mode") == "docker"
         and sandbox.get("immutable_image_id") == image_id
         and sandbox.get("container_cleanup_evidence") == "CONTAINER_ABSENCE_VERIFIED"
+        and isinstance(configured_profile, dict)
+        and valid_sandbox_runtime_readback(
+            runtime_readback,
+            expected_image_id=image_id,
+            expected_profile=configured_profile,
+            expected_dummy_env_names=list(parsed_server.source.env_keys),
+            expected_server_process_digests=expected_server_process_digests,
+        )
+        and isinstance(timeout, dict)
+        and set(timeout)
+        == {
+            "configured_seconds",
+            "repository_outer_deadline_seconds",
+            "runtime_readback_deadline_seconds",
+            "outcome",
+            "hard_termination_evidence",
+        }
+        and timeout.get("outcome") == "completed"
+        and timeout.get("hard_termination_evidence") == "NOT_APPLICABLE"
+        and receipt.get("sandbox")
+        == {
+            "MCP_TRUST_SANDBOX": "docker",
+            "MCP_TRUST_SANDBOX_IMAGE": image_id,
+            "MCP_TRUST_SANDBOX_NETWORK": "none",
+            "MCP_TRUST_SCAN_CREDENTIALS": "dummy",
+        }
     )
 
 
@@ -1449,4 +1527,168 @@ def verify_target_scan_artifact(
         "artifact_digest": payload["artifact_digest"],
         "receipt_only": True,
         "claim_ceiling": TARGET_SCAN_CLAIM_CEILING,
+    }
+
+
+def verify_target_scan_artifact_history(
+    artifact_path: Path,
+    *,
+    qualification_receipt_path: Path,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Verify immutable creation-time bindings without granting current admission."""
+    supplied_now = now or datetime.now(tz=UTC)
+    if supplied_now.tzinfo is None:
+        raise RefreshCandidateError("historical verification time must include a timezone")
+    fixed_now = supplied_now.astimezone(UTC)
+    artifact, artifact_file_sha256 = _load_read_only_json_with_digest(artifact_path)
+    try:
+        artifact_stat = artifact_path.lstat()
+    except OSError as exc:
+        raise RefreshCandidateError("target scan artifact readback is unavailable") from exc
+    if stat.S_IMODE(artifact_stat.st_mode) != 0o400:
+        raise RefreshCandidateError("target scan artifact mode is not 0400")
+    payload = _validate_artifact_shape(artifact)
+
+    preflight, preflight_file_sha256 = _load_json_with_digest(qualification_receipt_path)
+    if not isinstance(preflight, dict):
+        raise RefreshCandidateError("historical target scan preflight is invalid")
+    catalog = preflight.get("catalog")
+    sandbox = preflight.get("sandbox")
+    image_bindings = sandbox.get("image_bindings") if isinstance(sandbox, dict) else None
+    image_sources = catalog.get("image_build_sources") if isinstance(catalog, dict) else None
+    counts = catalog.get("counts") if isinstance(catalog, dict) else None
+    inventory_digest = catalog.get("inventory_digest") if isinstance(catalog, dict) else None
+    if (
+        not isinstance(image_bindings, list)
+        or not isinstance(image_sources, dict)
+        or not isinstance(counts, dict)
+        or counts != _EXPECTED_CATALOG_COUNTS
+        or not isinstance(inventory_digest, str)
+        or _SHA256.fullmatch(inventory_digest) is None
+    ):
+        raise RefreshCandidateError("historical target scan preflight bindings are invalid")
+    if any(
+        not isinstance(row, dict)
+        or not isinstance(row.get("reference"), str)
+        or not isinstance(row.get("image_id"), str)
+        for row in image_bindings
+    ):
+        raise RefreshCandidateError("historical target scan image bindings are invalid")
+    image_ids = {row["reference"]: row["image_id"] for row in image_bindings}
+    if len(image_ids) != len(image_bindings):
+        raise RefreshCandidateError("historical target scan image bindings are invalid")
+    expected_images = sorted(image_ids)
+    if len(expected_images) != 5:
+        raise RefreshCandidateError("historical target scan image set is incomplete")
+    try:
+        validate_ready_preflight_contract(
+            preflight,
+            expected_image_references=expected_images,
+            expected_catalog_counts=counts,
+            expected_catalog_inventory_digest=inventory_digest,
+        )
+        capacity = validate_host_capacity_receipt(preflight.get("host_capacity"))
+        raw_timestamps = (
+            payload.get("observed_at"),
+            preflight.get("observed_at"),
+            capacity.get("observed_at"),
+        )
+        parsed_timestamps = tuple(datetime.fromisoformat(str(value)) for value in raw_timestamps)
+        if any(value.tzinfo is None for value in parsed_timestamps):
+            raise ValueError("historical timestamps must include timezones")
+        scan_observed, preflight_observed, capacity_observed = (
+            value.astimezone(UTC) for value in parsed_timestamps
+        )
+    except (GradeRefreshError, HostCapacityError, OverflowError, TypeError, ValueError) as exc:
+        raise RefreshCandidateError("historical target scan preflight is invalid") from exc
+
+    capacity_age_at_scan = (scan_observed - capacity_observed).total_seconds()
+    preflight_age_at_scan = (scan_observed - preflight_observed).total_seconds()
+    capacity_age_at_preflight = (preflight_observed - capacity_observed).total_seconds()
+    if (
+        capacity_age_at_scan < 0
+        or capacity_age_at_scan > HOST_CAPACITY_MAX_AGE_SECONDS
+        or capacity_age_at_preflight < 0
+        or preflight_age_at_scan < 0
+        or preflight_age_at_scan >= DEFAULT_MAX_AGE_HOURS * 3600
+    ):
+        raise RefreshCandidateError("target scan was not creation-time admitted")
+
+    reviewed = payload["reviewed_inputs"]
+    source = preflight.get("source_binding")
+    engine = preflight.get("engine_materialization")
+    qualification = payload["qualification_binding"]
+    projected_source = _source_projection(source) if isinstance(source, dict) else None
+    if (
+        projected_source != payload["source_binding"]
+        or catalog.get("denominator") != reviewed.get("catalog_denominator")
+        or counts.get("scannable") != reviewed.get("scannable_count")
+        or counts.get("blocked") != reviewed.get("blocked_count")
+        or catalog.get("seed_digest") != reviewed.get("seed_sha256")
+        or catalog.get("masking_digest") != reviewed.get("masking_sha256")
+        or catalog.get("policy_digest") != reviewed.get("policy_sha256")
+        or qualification.get("preflight_file_sha256") != f"sha256:{preflight_file_sha256}"
+        or qualification.get("preflight_receipt_digest") != preflight.get("receipt_digest")
+        or not isinstance(engine, dict)
+        or qualification.get("engine_receipt_digest") != engine.get("receipt_digest")
+        or payload["scan_receipt"].get("scanner", {}).get("engine_version")
+        != preflight.get("tool_versions", {}).get("mcp_audits")
+    ):
+        raise RefreshCandidateError("historical target scan duplicated bindings differ")
+
+    complete: list[dict[str, str]] = []
+    for reference in expected_images:
+        image_id = image_ids.get(reference)
+        source_row = image_sources.get(reference)
+        receipt_row = source_row.get("qualification") if isinstance(source_row, dict) else None
+        receipt_digest = (
+            receipt_row.get("receipt_digest") if isinstance(receipt_row, dict) else None
+        )
+        if (
+            not isinstance(image_id, str)
+            or _SHA256.fullmatch(image_id) is None
+            or not isinstance(receipt_digest, str)
+            or _SHA256.fullmatch(receipt_digest) is None
+        ):
+            raise RefreshCandidateError("historical target scan image lineage is invalid")
+        complete.append(
+            {
+                "reference": reference,
+                "image_id": image_id,
+                "qualification_receipt_digest": receipt_digest,
+            }
+        )
+    target_requested_image = qualification.get("target_requested_image")
+    if (
+        qualification.get("complete_qualified_image_set_digest")
+        != digest_bytes(canonical_bytes(complete))
+        or image_ids.get(target_requested_image)
+        != qualification.get("target_immutable_image_id")
+    ):
+        raise RefreshCandidateError("historical target scan qualification binding differs")
+
+    capacity_age_now = (fixed_now - capacity_observed).total_seconds()
+    if fixed_now < scan_observed:
+        raise RefreshCandidateError("historical verification time predates the target scan")
+    verdict = (
+        "VALID_AT_CREATION_CURRENTLY_EXPIRED"
+        if capacity_age_now > HOST_CAPACITY_MAX_AGE_SECONDS
+        else "VALID_AT_CREATION_CAPACITY_WINDOW_UNEXPIRED"
+    )
+    return {
+        "schema": TARGET_SCAN_HISTORICAL_VERIFICATION_SCHEMA,
+        "verdict": verdict,
+        "historical_integrity_verified": True,
+        "current_admission_verified": False,
+        "receipt_only": True,
+        "execution_performed": False,
+        "registry_accessed": False,
+        "target_slug": payload["target_slug"],
+        "artifact_file_sha256": f"sha256:{artifact_file_sha256}",
+        "artifact_digest": payload["artifact_digest"],
+        "scan_receipt_digest": payload["scan_receipt"]["receipt_digest"],
+        "verification_observed_at": fixed_now.isoformat().replace("+00:00", "Z"),
+        "capacity_age_at_scan_seconds": capacity_age_at_scan,
+        "claim_ceiling": TARGET_SCAN_HISTORICAL_CLAIM_CEILING,
     }

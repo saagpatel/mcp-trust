@@ -201,7 +201,7 @@ boundary and requalify the same controls before execution.
 
 ## Target-scoped controlled receipt
 
-`McpTrustTargetScanArtifactV1` is a separate, receipt-only path for the first
+`McpTrustTargetScanArtifactV2` is a separate, receipt-only path for the first
 controlled server scan. It does not add a selector or partial mode to the
 corpus-wide candidate builder. Before inspecting the one target image, it
 validates and reproduces the complete five-image `READY` qualification against
@@ -226,6 +226,15 @@ clean source, reviewed inputs, complete preflight qualifications, and the same
 read-only registry row. Receipt verification is not repeatability, candidate
 readiness, publication, deployment, production freshness, safety, or
 endorsement evidence.
+
+The separate `McpTrustTargetScanHistoricalVerificationV1` projection can
+recheck an immutable artifact and its exact bound preflight after the short
+host-capacity window expires. It checks self-digests, duplicated source,
+catalog, engine, image, receipt, and creation-time timestamp bindings only. It
+does not inspect current Docker or registry state, authenticate the artifact
+writer, renew the preflight, or grant current execution admission. Its maximum
+claim is `VALID_AT_CREATION_CURRENTLY_EXPIRED` historical integrity for that one
+local target receipt.
 
 ## Grade-diff triage
 

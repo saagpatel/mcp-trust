@@ -279,6 +279,25 @@ artifact and no fresh grade. The receipt remains local review evidence only;
 repeatability, the other 17 scannable rows, candidate readiness, public
 freshness, publication, deployment, and scheduler state remain unproved.
 
+After the 120-second host-capacity gate expires, the current-admission verifier
+must continue to fail closed. To check only the immutable creation-time history,
+without Docker, MCP execution, registry access, or renewed admission, use:
+
+```bash
+"$PYTHON" scripts/refresh_candidate.py verify-target-history \
+  ./dist/target-scans/mcp-reference-time-<timestamp>.json \
+  --qualification-receipt ./dist/grade-refresh/preflight.json
+```
+
+`VALID_AT_CREATION_CURRENTLY_EXPIRED` means the artifact and its bound preflight
+remain internally consistent and the scan timestamp fell inside the original
+capacity window. It is historical integrity evidence only. It does not make the
+preflight current, authorize another scan, access or validate current registry
+bytes, authenticate the artifact writer, or support candidate, publication,
+deployment, freshness, safety, repeatability, scheduler, egress, endorsement, or
+other-target claims. Current execution admission still requires the existing
+freshness-sensitive verifier and a fresh separately authorized capacity gate.
+
 ## 4. Candidate creation and verification
 
 ```bash
