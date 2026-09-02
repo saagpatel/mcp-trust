@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -328,6 +329,40 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
     assert config["platform"] == "linux/arm64"
 
 
+def test_direct_qualifier_rechecks_set_source_before_any_runtime_action(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    payload = _inputs()
+    cohorts = payload["cohorts"]
+    assert isinstance(cohorts, dict)
+    config = {**cohorts["reference"], "platform": payload["platform"]}
+    monkeypatch.setattr(
+        module,
+        "_require_current_set_source",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            module.QualificationError("qualification set source changed during execution")
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("runtime crossed source recheck"),
+    )
+
+    with pytest.raises(module.QualificationError, match="source changed during execution"):
+        module.qualify(
+            "reference",
+            config,
+            buildx="docker-buildx",
+            receipt_root=tmp_path,
+            set_manifest={"receipt_digest": "sha256:" + "1" * 64},
+            tools=_tool_paths(),
+            capacity_gate=_capacity_gate(module),
+            cohorts=cohorts,
+        )
+
+
 @pytest.mark.parametrize("field", ["command", "extra", "source_date_epoch"])
 def test_qualify_rejects_unexpected_cohort_keys_before_any_subprocess(
     monkeypatch: pytest.MonkeyPatch, field: str
@@ -508,6 +543,213 @@ def test_qualification_receipt_set_refuses_symlinked_parent(
 
     with pytest.raises(module.QualificationError, match="symlink"):
         module._receipt_set_root("v65-new")
+
+
+def test_qualification_source_binding_survives_adoption_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    cohorts = _inputs()["cohorts"]
+    assert isinstance(cohorts, dict)
+    paths = module._qualification_source_paths(cohorts)
+    assert "docker/refresh/source-builds/basic-memory.json" in paths
+    assert "docker/refresh/source-build-inputs/basic-memory.json" in paths
+    assert "scripts/build_legacy_python_wheels.py" in paths
+    assert "scripts/prepare_basic_memory_dependencies.py" in paths
+    file_digests = {path: "sha256:" + "1" * 64 for path in paths}
+    file_digests.update(
+        {
+            "docker/refresh/qualification/v125/reference.json": "sha256:" + "2" * 64,
+            "src/mcp_trust/catalog/refresh_policy.json": "sha256:" + "3" * 64,
+        }
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(
+        module.grade_refresh,
+        "source_binding",
+        lambda _root: {
+            "revision": "before-adoption",
+            "file_digests": dict(file_digests),
+        },
+    )
+    before = module._tracked_source_binding(cohorts)
+    file_digests["docker/refresh/qualification/v125/reference.json"] = (
+        "sha256:" + "4" * 64
+    )
+    file_digests["src/mcp_trust/catalog/refresh_policy.json"] = "sha256:" + "5" * 64
+    monkeypatch.setattr(
+        module.grade_refresh,
+        "source_binding",
+        lambda _root: {
+            "revision": "after-adoption",
+            "file_digests": dict(file_digests),
+        },
+    )
+    after = module._tracked_source_binding(cohorts)
+
+    assert before["origin_revision"] != after["origin_revision"]
+    assert before["source_digest"] == after["source_digest"]
+    assert before["file_digests"] == after["file_digests"]
+
+
+def test_qualification_source_binding_fails_closed_on_execution_input_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    cohorts = _inputs()["cohorts"]
+    assert isinstance(cohorts, dict)
+    paths = module._qualification_source_paths(cohorts)
+    file_digests = {path: "sha256:" + "1" * 64 for path in paths}
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(
+        module.grade_refresh,
+        "source_binding",
+        lambda _root: {"revision": "one", "file_digests": dict(file_digests)},
+    )
+    before = module._tracked_source_binding(cohorts)
+    for path in sorted(paths):
+        changed = dict(file_digests)
+        changed[path] = "sha256:" + "2" * 64
+        monkeypatch.setattr(
+            module.grade_refresh,
+            "source_binding",
+            lambda _root, value=changed: {
+                "revision": "two",
+                "file_digests": value,
+            },
+        )
+        after = module._tracked_source_binding(cohorts)
+        assert before["source_digest"] != after["source_digest"], path
+
+
+def test_real_git_adoption_commit_preserves_qualification_source_binding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    cohorts = _inputs()["cohorts"]
+    assert isinstance(cohorts, dict)
+    paths = module._qualification_source_paths(cohorts)
+    repo = tmp_path / "repo"
+    for relative in paths:
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "V125 Fixture"], check=True
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", "qualification source"],
+        check=True,
+    )
+    monkeypatch.setattr(module, "ROOT", repo)
+    before = module._tracked_source_binding(cohorts)
+
+    adopted = repo / "docker/refresh/qualification/v125-test/reference.json"
+    adopted.parent.mkdir(parents=True)
+    adopted.write_text('{"schema":"fixture"}\n', encoding="utf-8")
+    policy = repo / "src/mcp_trust/catalog/refresh_policy.json"
+    policy.parent.mkdir(parents=True, exist_ok=True)
+    policy.write_text(
+        '{"qualification_receipt":"docker/refresh/qualification/v125-test/reference.json"}\n',
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-q", "-m", "adopt receipts"], check=True
+    )
+    after = module._tracked_source_binding(cohorts)
+
+    assert before["origin_revision"] != after["origin_revision"]
+    assert before["source_digest"] == after["source_digest"]
+    assert before["file_digests"] == after["file_digests"]
+    assert module._origin_source_binding_matches(before)
+    tampered_origin = copy.deepcopy(before)
+    tampered_origin["origin_revision"] = "0" * 40
+    assert not module._origin_source_binding_matches(tampered_origin)
+    actual = {
+        "schema": module.QUALIFICATION_SET_SCHEMA,
+        "receipt_set": "v125-test",
+        "source_binding": before,
+        "receipt_digest": "sha256:" + "1" * 64,
+    }
+    expected = copy.deepcopy(actual)
+    expected["source_binding"] = after
+    expected["receipt_digest"] = "sha256:" + "2" * 64
+    assert module._set_manifest_matches(actual, expected)
+
+
+def test_completed_set_reopens_after_revision_only_adoption_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    root = tmp_path / "repo"
+    receipt_root = root / "docker/refresh/qualification"
+    set_root = receipt_root / "v125-test"
+    set_root.mkdir(parents=True, mode=0o700)
+    monkeypatch.setattr(module, "ROOT", root)
+    monkeypatch.setattr(module, "RECEIPT_ROOT", receipt_root)
+    source_digest = "sha256:" + "1" * 64
+    file_digests = {"scripts/qualify_refresh_images.py": "sha256:" + "2" * 64}
+    actual = {
+        "schema": module.QUALIFICATION_SET_SCHEMA,
+        "receipt_set": "v125-test",
+        "cohort_bindings": {},
+        "source_binding": {
+            "origin_revision": "before-adoption",
+            "source_digest": source_digest,
+            "file_digests": file_digests,
+        },
+    }
+    actual["receipt_digest"] = module._unsigned_digest(actual)
+    module._write_new(set_root / "qualification-set.json", actual)
+    expected = copy.deepcopy(actual)
+    expected["source_binding"]["origin_revision"] = "after-adoption"
+    expected["receipt_digest"] = module._unsigned_digest(
+        {key: value for key, value in expected.items() if key != "receipt_digest"}
+    )
+    monkeypatch.setattr(module, "_expected_set_manifest", lambda **_kwargs: expected)
+    monkeypatch.setattr(module, "_validate_set_graph", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_origin_source_binding_matches", lambda _source: True)
+
+    reopened_root, reopened_manifest = module._open_receipt_set(
+        "v125-test", cohorts={}, platform="linux/arm64"
+    )
+    assert reopened_root == set_root
+    assert reopened_manifest == actual
+    expected["source_binding"]["file_digests"]["scripts/qualify_refresh_images.py"] = (
+        "sha256:" + "5" * 64
+    )
+    expected["source_binding"]["source_digest"] = "sha256:" + "6" * 64
+    assert not module._set_manifest_matches(actual, expected)
+    expected = copy.deepcopy(actual)
+    expected["receipt_set"] = "v125-other"
+    assert not module._set_manifest_matches(actual, expected)
+
+
+def test_qualification_source_inventory_rejects_excluded_dynamic_input() -> None:
+    module = _script("qualify_refresh_images.py")
+    cohorts = copy.deepcopy(_inputs()["cohorts"])
+    assert isinstance(cohorts, dict)
+    cohorts["reference"]["dockerfile"] = (
+        "docker/refresh/qualification/v125-test/Dockerfile"
+    )
+
+    with pytest.raises(module.QualificationError, match="excluded adoption evidence"):
+        module._qualification_source_paths(cohorts)
 
 
 def test_qualification_capacity_loader_rejects_generic_and_wrong_scope(

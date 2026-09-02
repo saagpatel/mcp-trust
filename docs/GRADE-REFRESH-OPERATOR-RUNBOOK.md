@@ -104,9 +104,21 @@ Legacy receipts containing raw builder output are invalid under this contract;
 do not rewrite their digests or describe them as sanitized. Replace them only
 with newly generated, reviewed receipts in a new safe single-component receipt
 set and update policy references in the same later reviewed source revision.
-The first cohort creates one immutable set manifest binding the tracked source,
-dependency inputs, ordered five-cohort denominator, and every cohort build
-input. Later cohorts may append only when that manifest matches exactly.
+The first cohort creates one immutable set manifest binding the qualification
+execution-source digest map, originating revision, dependency inputs, ordered
+five-cohort denominator, and every cohort build input. Later cohorts may append
+only when the execution-source digest map and all non-revision manifest fields
+match exactly. The originating revision is immutable provenance, not a reopen
+equality field. The digest map includes qualifier/runtime code, Dockerfiles,
+locks, artifact descriptors, and nested source-build evidence. It excludes only
+generated `docker/refresh/qualification/` evidence and
+`src/mcp_trust/catalog/refresh_policy.json`, whose receipt pointers change when
+reviewed evidence is adopted. If a dynamic executable or build input resolves
+inside either exclusion, qualification fails closed. Receipt integrity and the
+append-only attempt/ownership/completion graph are always revalidated
+independently. Dependency-bundle bytes are not part of the tracked-source map;
+the qualifier revalidates each bundle against its descriptor `bundle_sha256`
+before every build and records the bound artifact independently.
 An owner-private nonblocking lock serializes every invocation in one set, and the
 temporary tag is attempt-specific, so two processes cannot share cohort
 mutation state. The lock is released by the operating system after interruption;
