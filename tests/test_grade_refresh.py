@@ -11,6 +11,8 @@ import pytest
 
 import mcp_trust.engine.runtime as engine_runtime
 import mcp_trust.grade_refresh as grade_refresh
+from mcp_trust.core.models import ServerSource, SourceKind
+from mcp_trust.engine.mcpaudit import docker_launch_spec
 from mcp_trust.grade_refresh import (
     GradeRefreshError,
     build_fixture_repeatability_receipt,
@@ -22,6 +24,7 @@ from mcp_trust.grade_refresh import (
     triage_candidate,
 )
 from scripts import grade_refresh as grade_refresh_cli
+from scripts import qualify_refresh_images
 from tests.receipt_fixtures import engine_materialization_receipt, host_capacity_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +63,50 @@ def test_repeat_projection_ignores_only_per_run_container_identity() -> None:
     assert binding["sandbox"]["runtime_readback"]["container_identity_digest"] == (
         "sha256:" + "a" * 64
     )
+
+
+def test_scannable_npm_console_scripts_are_bound_to_exact_image_paths() -> None:
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    scannable = set(policy["scannable"])
+    rows = json.loads(SEED.read_text(encoding="utf-8"))
+
+    checked = 0
+    for row in rows:
+        source_payload = row["source"]
+        if row["slug"] not in scannable or source_payload["kind"] != "npm":
+            continue
+        source = ServerSource.model_validate(source_payload)
+        assert source.kind == SourceKind.NPM
+        assert source.command is not None
+        image = source.sandbox_image or policy["default_sandbox_image"]
+        descriptor = policy["image_build_sources"][image]
+        qualification = json.loads(
+            (ROOT / descriptor["qualification_receipt"]).read_text(encoding="utf-8")
+        )
+        lock_path = qualification["dependency_locks"]["npm"]["path"]
+        package_lock = json.loads((ROOT / lock_path).read_text(encoding="utf-8"))
+        package = package_lock["packages"][f"node_modules/{source.reference}"]
+        bin_mapping = package["bin"]
+        script = bin_mapping[source.command] if isinstance(bin_mapping, dict) else bin_mapping
+
+        command, args = docker_launch_spec(source)
+        assert command == "/usr/local/bin/node"
+        assert args[0] == f"/opt/npm/node_modules/.bin/{source.command}"
+        expected_link = f"../{source.reference}/{script}"
+        dockerfile = (ROOT / descriptor["path"]).read_text(encoding="utf-8")
+        assert (
+            f'readlink {args[0]} | grep -Fqx -- "{expected_link}"' in dockerfile
+        )
+        checked += 1
+
+    assert checked == 13
+
+
+def test_qualification_enforces_all_npm_console_script_bindings() -> None:
+    inputs = json.loads(
+        (ROOT / "docker/refresh/dependency-inputs.json").read_text(encoding="utf-8")
+    )
+    qualify_refresh_images._validate_console_script_contract(inputs["cohorts"])
 
 
 def test_triage_cli_requires_repeat_candidate() -> None:

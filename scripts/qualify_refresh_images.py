@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_trust import dependency_boundary, grade_refresh
+from mcp_trust.engine.mcpaudit import NPM_CONSOLE_SCRIPT_BINDINGS
 from mcp_trust.engine.sandbox import normalize_local_docker_host
 from mcp_trust.host_capacity import (
     HostCapacityError,
@@ -787,6 +788,47 @@ def _dependency_inputs(
         normalized_locks[lock_path] = lock_ref["sha256"]
         normalized_artifacts[kind] = normalized
     return manifests, locks, artifacts, normalized_locks, normalized_artifacts
+
+
+def _validate_console_script_contract(cohorts: dict[str, Any]) -> None:
+    observed: set[str] = set()
+    for cohort, config in cohorts.items():
+        if not isinstance(config, dict):
+            raise QualificationError(f"dependency cohort is unavailable: {cohort}")
+        npm = config.get("npm")
+        if not isinstance(npm, dict):
+            raise QualificationError(f"npm dependency cohort is unavailable: {cohort}")
+        bindings = {
+            reference: binding
+            for reference, binding in NPM_CONSOLE_SCRIPT_BINDINGS.items()
+            if reference in npm
+        }
+        if not bindings:
+            continue
+        try:
+            dependency_boundary.validate_npm_console_script_bindings(
+                ROOT / f"docker/refresh/locks/{cohort}/package.json",
+                ROOT / f"docker/refresh/locks/{cohort}/package-lock.json",
+                bindings,
+            )
+        except dependency_boundary.DependencyBoundaryError as exc:
+            raise QualificationError(
+                f"npm console-script contract failed: {cohort}"
+            ) from exc
+        dockerfile_path = dependency_boundary.repository_file(ROOT, config["dockerfile"])
+        dockerfile = (ROOT / dockerfile_path).read_text(encoding="utf-8")
+        for reference, (command, target) in bindings.items():
+            assertion = (
+                f"readlink /opt/npm/node_modules/.bin/{command} | grep -Fqx -- "
+                f'"../{reference}/{target}"'
+            )
+            if assertion not in dockerfile:
+                raise QualificationError(
+                    f"Dockerfile does not assert npm console-script binding: {reference}"
+                )
+            observed.add(reference)
+    if observed != set(NPM_CONSOLE_SCRIPT_BINDINGS):
+        raise QualificationError("npm console-script qualification coverage differs")
 
 
 def _cohort_binding(cohort: str, config: dict[str, Any], *, platform: str) -> dict[str, str]:
@@ -2115,6 +2157,7 @@ def _main_locked(
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
     cohorts = payload["cohorts"]
+    _validate_console_script_contract(cohorts)
     platform = payload.get("platform")
     if not isinstance(platform, str):
         raise QualificationError("qualification platform is unavailable")

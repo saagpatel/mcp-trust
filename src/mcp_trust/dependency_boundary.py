@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -258,6 +258,59 @@ def validate_npm_lock(manifest_path: Path, lock_path: Path) -> None:
         found.add(path.rsplit("node_modules/", 1)[-1])
     if not dependencies or not set(dependencies) <= found:
         raise DependencyBoundaryError("npm lock is incomplete")
+
+
+def validate_npm_console_script_bindings(
+    manifest_path: Path,
+    lock_path: Path,
+    bindings: dict[str, tuple[str, str]],
+) -> None:
+    """Bind qualified npm source references to one exact JS console script."""
+    validate_npm_lock(manifest_path, lock_path)
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DependencyBoundaryError("npm dependency inputs are unreadable") from exc
+    dependencies = npm_dependencies(manifest.get("dependencies"))
+    packages = lock["packages"]
+    for reference, binding in bindings.items():
+        if (
+            _NPM_NAME.fullmatch(reference) is None
+            or not isinstance(binding, tuple)
+            or len(binding) != 2
+        ):
+            raise DependencyBoundaryError("npm console-script binding is invalid")
+        command, target = binding
+        target_path = PurePosixPath(target) if isinstance(target, str) else None
+        if (
+            not isinstance(command, str)
+            or _COMPONENT.fullmatch(command) is None
+            or target_path is None
+            or target_path.is_absolute()
+            or any(part in {"", ".", ".."} for part in target_path.parts)
+            or target_path.suffix not in {".js", ".mjs", ".cjs"}
+        ):
+            raise DependencyBoundaryError("npm console-script binding is unsafe")
+        package = packages.get(f"node_modules/{reference}")
+        if (
+            reference not in dependencies
+            or not isinstance(package, dict)
+            or package.get("version") != dependencies[reference]
+            or not isinstance(package.get("bin"), dict)
+            or package["bin"].get(command) != target
+        ):
+            raise DependencyBoundaryError(
+                "npm console-script binding differs from the exact package lock"
+            )
+        providers = []
+        for dependency in dependencies:
+            candidate = packages.get(f"node_modules/{dependency}")
+            if isinstance(candidate, dict) and isinstance(candidate.get("bin"), dict):
+                if command in candidate["bin"]:
+                    providers.append(dependency)
+        if providers != [reference]:
+            raise DependencyBoundaryError("npm console-script binding is ambiguous")
 
 
 def validate_cohort(

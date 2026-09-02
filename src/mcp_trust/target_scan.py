@@ -30,7 +30,7 @@ from urllib.parse import urlsplit
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
-from mcp_trust.engine.mcpaudit import MCPAuditEngine, launch_spec
+from mcp_trust.engine.mcpaudit import MCPAuditEngine, docker_launch_spec
 from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_SCHEMA,
     normalize_local_docker_host,
@@ -684,7 +684,7 @@ def _scan_receipt_valid(receipt: object, *, slug: str, image_id: str) -> bool:
     try:
         parsed_scan = ScanRecord.model_validate(scan)
         parsed_server = Server.model_validate(server_payload)
-        server_command, server_args = launch_spec(parsed_server.source)
+        server_command, server_args = docker_launch_spec(parsed_server.source)
         expected_server_process_digests = sandbox_server_process_digests(
             server_command,
             server_args,
@@ -1199,7 +1199,7 @@ def create_target_scan_artifact(
                 ):
                     raise RefreshCandidateError("target scan evidence is incomplete")
                 expected_processes = sandbox_server_process_digests(
-                    *launch_spec(target.source),
+                    *docker_launch_spec(target.source),
                     allow_python_console_script=(
                         target.source.kind == SourceKind.PYPI
                         and target.source.command is not None

@@ -20,4 +20,5 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
     SOURCE_DATE_EPOCH=1710000000
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY --from=npm-dependencies /opt/npm/node_modules /opt/npm/node_modules
+RUN readlink /opt/npm/node_modules/.bin/redacta-mcp | grep -Fqx -- "../redacta-mcp/dist/index.js"
 WORKDIR /scan

@@ -35,7 +35,7 @@ from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import (
     MCPAuditEngine,
-    launch_spec,
+    docker_launch_spec,
     repository_outer_timeout_seconds,
 )
 from mcp_trust.engine.runtime import (
@@ -1430,7 +1430,7 @@ def _candidate_execution_binding(
     if local_process and configured_profile is None:
         raise RefreshCandidateError("scan execution profile is unavailable")
     try:
-        server_command, server_args = launch_spec(server.source)
+        server_command, server_args = docker_launch_spec(server.source)
         expected_server_process_digests = sandbox_server_process_digests(
             server_command,
             server_args,
@@ -2246,7 +2246,7 @@ def create_refresh_candidate(
                     )
                     try:
                         expected_server_process_digests = sandbox_server_process_digests(
-                            *launch_spec(server.source),
+                            *docker_launch_spec(server.source),
                             allow_python_console_script=(
                                 server.source.kind == SourceKind.PYPI
                                 and server.source.command is not None

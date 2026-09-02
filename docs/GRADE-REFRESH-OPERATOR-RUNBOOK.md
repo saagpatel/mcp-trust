@@ -333,8 +333,13 @@ an outer-deadline worker cannot create a replacement after cleanup. A timeout
 emits no receipt or fresh grade; it records
 `CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT` only after that readback and otherwise
 records `UNKNOWN`. A successful local receipt requires live, privacy-minimized
-process readback: PID 1 must match the digest-bound MCP server command, and its
-identity, immutable image, environment names, `/proc` capability state, shared
+process readback: PID 1 must match the digest-bound MCP server command. Qualified
+npm console scripts use the fixed `/usr/local/bin/node` interpreter and absolute
+`/opt/npm/node_modules/.bin/<command>` path; qualified Python console scripts use
+the fixed `/opt/venv` interpreter and script path. Image qualification rejects
+an npm binding unless the source package, exact locked version, unique `bin`
+provider, JavaScript target, and Dockerfile symlink assertion all agree. The process identity,
+immutable image, environment names, `/proc` capability state, shared
 network/mount namespaces and cgroup must agree with daemon configuration and
 the exact locked profile. A same-namespace helper performs the behavioral
 root/tmpfs write probes. Environment values are never emitted; this does not

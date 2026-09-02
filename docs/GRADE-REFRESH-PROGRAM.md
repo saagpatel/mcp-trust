@@ -179,7 +179,11 @@ receipt's full source binding with a fresh current-worktree binding.
 Each successful local scan must also carry a privacy-minimized
 `McpTrustSandboxRuntimeReadbackV2` inside its execution binding. The collector
 observes the exact pre-created container while PID 1 is the digest-bound MCP
-server command or a source-qualified `/opt/venv` Python console-script form,
+server command, a source-qualified `/opt/venv` Python console-script form, or
+the fixed `/usr/local/bin/node` interpreter with the image-qualified absolute
+`/opt/npm/node_modules/.bin/<command>` npm console-script path,
+whose package, exact lock version, unique `bin` provider, JavaScript target, and
+Dockerfile symlink assertion must agree during image qualification,
 reads PID 1 status and environment names, proves the helper
 shares its network/mount namespaces and cgroup, and compares daemon
 configuration with `/proc`, mount, interface, and cgroup observations. The

@@ -19,7 +19,7 @@ import pytest
 
 from mcp_trust.core.models import ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import ScanError, ScanTimeoutError
-from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for
+from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for, docker_launch_spec
 from mcp_trust.engine.sandbox import (
     DockerSandbox,
     DockerSandboxRuntimeReadbackError,
@@ -363,6 +363,46 @@ def test_launch_spec_binary() -> None:
 def test_launch_spec_explicit_command_wins() -> None:
     src = ServerSource(kind=SourceKind.NPM, reference="@acme/server", command="node", args=["x.js"])
     assert MCPAuditEngine._launch_spec(src) == ("node", ["x.js"])
+
+
+def test_docker_launch_spec_uses_exact_node_console_script_path() -> None:
+    src = ServerSource(
+        kind=SourceKind.NPM,
+        reference="@adeu/mcp-server",
+        command="adeu-mcp-server",
+        args=["--flag"],
+    )
+
+    assert docker_launch_spec(src) == (
+        "/usr/local/bin/node",
+        ["/opt/npm/node_modules/.bin/adeu-mcp-server", "--flag"],
+    )
+
+
+def test_docker_launch_spec_rejects_npm_path_alias() -> None:
+    src = ServerSource(
+        kind=SourceKind.NPM,
+        reference="@adeu/mcp-server",
+        command="/opt/npm/node_modules/.bin/adeu-mcp-server",
+    )
+
+    with pytest.raises(ScanError, match="not qualified"):
+        docker_launch_spec(src)
+
+
+@pytest.mark.parametrize(
+    ("reference", "command"),
+    [
+        ("@adeu/mcp-server", "wrong-command"),
+        ("@adeu/mcp-server", "npx"),
+    ],
+)
+def test_docker_launch_spec_rejects_unqualified_npm_binding(
+    reference: str, command: str
+) -> None:
+    src = ServerSource(kind=SourceKind.NPM, reference=reference, command=command)
+    with pytest.raises(ScanError, match="not qualified"):
+        docker_launch_spec(src)
 
 
 def test_launch_spec_git_without_command_raises() -> None:

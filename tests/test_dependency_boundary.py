@@ -111,6 +111,68 @@ def test_current_dependency_descriptors_and_locks_are_admitted() -> None:
     assert dependency_boundary.validate_source_build_inputs(source) is source
 
 
+def test_npm_console_script_binding_matches_exact_direct_package(tmp_path: Path) -> None:
+    manifest = tmp_path / "package.json"
+    lock = tmp_path / "package-lock.json"
+    manifest.write_text(json.dumps({"dependencies": {"example": "1.2.3"}}))
+    lock.write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"dependencies": {"example": "1.2.3"}},
+                    "node_modules/example": {
+                        "version": "1.2.3",
+                        "resolved": "https://registry.npmjs.org/example/-/example-1.2.3.tgz",
+                        "integrity": "sha512-AAAA",
+                        "bin": {"example-mcp": "dist/index.js"},
+                    },
+                },
+            }
+        )
+    )
+
+    dependency_boundary.validate_npm_console_script_bindings(
+        manifest, lock, {"example": ("example-mcp", "dist/index.js")}
+    )
+
+
+@pytest.mark.parametrize(
+    ("binding", "message"),
+    [
+        ({"example": ("wrong", "dist/index.js")}, "exact package lock"),
+        ({"example": ("example-mcp", "../escape.js")}, "unsafe"),
+        ({"example": ("example-mcp", "dist/native")}, "unsafe"),
+        ({"example@1.2.3": ("example-mcp", "dist/index.js")}, "invalid"),
+    ],
+)
+def test_npm_console_script_binding_rejects_drift(
+    tmp_path: Path, binding: dict[str, tuple[str, str]], message: str
+) -> None:
+    manifest = tmp_path / "package.json"
+    lock = tmp_path / "package-lock.json"
+    manifest.write_text(json.dumps({"dependencies": {"example": "1.2.3"}}))
+    lock.write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"dependencies": {"example": "1.2.3"}},
+                    "node_modules/example": {
+                        "version": "1.2.3",
+                        "resolved": "https://registry.npmjs.org/example/-/example-1.2.3.tgz",
+                        "integrity": "sha512-AAAA",
+                        "bin": {"example-mcp": "dist/index.js"},
+                    },
+                },
+            }
+        )
+    )
+
+    with pytest.raises(dependency_boundary.DependencyBoundaryError, match=message):
+        dependency_boundary.validate_npm_console_script_bindings(manifest, lock, binding)
+
+
 @pytest.mark.parametrize("name", ["../escape", "/tmp/escape", "nested/name", "", "."])
 def test_cohort_names_cannot_escape_output_roots(name: str) -> None:
     payload = _inputs()
