@@ -23,6 +23,7 @@ from mcp_trust.refresh import (
 from mcp_trust.target_scan import (
     create_target_scan_artifact,
     verify_target_scan_artifact,
+    verify_target_scan_artifact_history,
 )
 
 
@@ -115,6 +116,13 @@ def _parser() -> argparse.ArgumentParser:
     target.add_argument("--qualification-receipt", type=Path, required=True)
     target.add_argument("--repo-root", type=Path, default=Path.cwd())
     target.add_argument("--out", type=Path, required=True)
+
+    target_history = subcommands.add_parser(
+        "verify-target-history",
+        help="Verify immutable target-receipt history without granting current admission.",
+    )
+    target_history.add_argument("artifact", type=Path)
+    target_history.add_argument("--qualification-receipt", type=Path, required=True)
 
     verify = subcommands.add_parser("verify", help="Verify a candidate without mutation.")
     verify.add_argument("candidate", type=Path)
@@ -250,6 +258,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(json.dumps(verification, indent=2, sort_keys=True))
             return 0 if verification["verified"] else 1
+        if args.command == "verify-target-history":
+            verification = verify_target_scan_artifact_history(
+                args.artifact,
+                qualification_receipt_path=args.qualification_receipt,
+            )
+            print(json.dumps(verification, indent=2, sort_keys=True))
+            return 0 if verification["historical_integrity_verified"] else 1
         if args.command == "verify":
             verification = verify_refresh_candidate(
                 args.candidate,

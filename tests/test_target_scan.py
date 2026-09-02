@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from mcp_trust import grade_refresh as grade_refresh_module
 from mcp_trust import refresh as refresh_module
 from mcp_trust import target_scan
 from mcp_trust.core.models import (
@@ -529,6 +530,42 @@ def test_target_cli_preserves_explicit_reviewed_input_overrides(
             assert kwargs["masked_path"] == expected_inputs[1]
             assert kwargs["policy_path"] == expected_inputs[2]
 
+
+def test_historical_verifier_cli_has_no_execution_or_registry_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Path, Path]] = []
+
+    def verify(artifact: Path, *, qualification_receipt_path: Path) -> dict[str, object]:
+        calls.append((artifact, qualification_receipt_path))
+        return {"historical_integrity_verified": True}
+
+    monkeypatch.setattr(refresh_cli, "verify_target_scan_artifact_history", verify)
+    artifact = tmp_path / "target.json"
+    preflight = tmp_path / "preflight.json"
+
+    assert (
+        refresh_cli.main(
+            [
+                "verify-target-history",
+                str(artifact),
+                "--qualification-receipt",
+                str(preflight),
+            ]
+        )
+        == 0
+    )
+    assert calls == [(artifact, preflight)]
+    parsed = refresh_cli._parser().parse_args(
+        [
+            "verify-target-history",
+            str(artifact),
+            "--qualification-receipt",
+            str(preflight),
+        ]
+    )
+    assert set(vars(parsed)) == {"command", "artifact", "qualification_receipt"}
 
 @pytest.mark.parametrize(
     "hostile",
@@ -1128,6 +1165,235 @@ def test_verifier_rebinds_source_preflight_and_registry(tmp_path: Path) -> None:
     )
     assert verification["verified"] is True
     assert verification["receipt_only"] is True
+
+
+def test_historical_verifier_reports_expired_without_current_admission(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    verification = target_scan.verify_target_scan_artifact_history(
+        artifact,
+        qualification_receipt_path=kwargs["qualification_receipt_path"],
+        now=FIXED_NOW + timedelta(seconds=121),
+    )
+
+    assert verification == {
+        "schema": "McpTrustTargetScanHistoricalVerificationV1",
+        "verdict": "VALID_AT_CREATION_CURRENTLY_EXPIRED",
+        "historical_integrity_verified": True,
+        "current_admission_verified": False,
+        "receipt_only": True,
+        "execution_performed": False,
+        "registry_accessed": False,
+        "target_slug": TARGET,
+        "artifact_file_sha256": digest_file(artifact),
+        "artifact_digest": json.loads(artifact.read_text(encoding="utf-8"))[
+            "artifact_digest"
+        ],
+        "scan_receipt_digest": json.loads(artifact.read_text(encoding="utf-8"))[
+            "scan_receipt"
+        ]["receipt_digest"],
+        "verification_observed_at": (FIXED_NOW + timedelta(seconds=121))
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "capacity_age_at_scan_seconds": 0.0,
+        "claim_ceiling": target_scan.TARGET_SCAN_HISTORICAL_CLAIM_CEILING,
+    }
+
+
+def test_historical_verifier_never_labels_unexpired_capacity_as_current_admission(
+    tmp_path: Path,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    verification = target_scan.verify_target_scan_artifact_history(
+        artifact,
+        qualification_receipt_path=kwargs["qualification_receipt_path"],
+        now=FIXED_NOW + timedelta(seconds=120),
+    )
+
+    assert verification["verdict"] == "VALID_AT_CREATION_CAPACITY_WINDOW_UNEXPIRED"
+    assert verification["current_admission_verified"] is False
+    assert verification["execution_performed"] is False
+    assert verification["registry_accessed"] is False
+
+
+def test_historical_verifier_rejects_capacity_stale_at_scan(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    preflight_path = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight_path, Path)
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["host_capacity"] = host_capacity_receipt(
+        observed_at=FIXED_NOW - timedelta(seconds=121)
+    )
+    preflight.pop("receipt_digest")
+    preflight["receipt_digest"] = digest_bytes(canonical_bytes(preflight))
+    _write_preflight(preflight_path, preflight)
+
+    with pytest.raises(RefreshCandidateError, match="not creation-time admitted"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=preflight_path,
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_tampered_artifact(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    payload["scan_receipt"]["scan"]["grade"] = "F"
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings are invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_redigested_unknown_nested_claim(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    receipt = payload["scan_receipt"]
+    receipt["scan"]["publication_ready"] = True
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = digest_bytes(canonical_bytes(receipt))
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings are invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+@pytest.mark.parametrize("field", ["scanner_version", "scan_version", "caveats"])
+def test_historical_verifier_rejects_redigested_known_claim_drift(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    receipt = payload["scan_receipt"]
+    if field == "scanner_version":
+        receipt["scanner"]["engine_version"] = "9.9.9"
+    elif field == "scan_version":
+        receipt["scan"]["engine_version"] = "9.9.9"
+    else:
+        receipt["caveats"] = ["Locally rewritten claim."]
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = digest_bytes(canonical_bytes(receipt))
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings are invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_timezone_naive_preflight(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    preflight_path = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight_path, Path)
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["observed_at"] = FIXED_NOW.replace(tzinfo=None).isoformat()
+    preflight.pop("receipt_digest")
+    preflight["receipt_digest"] = digest_bytes(canonical_bytes(preflight))
+    _write_preflight(preflight_path, preflight)
+
+    with pytest.raises(RefreshCandidateError, match="preflight is invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=preflight_path,
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_timezone_naive_artifact(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    naive = FIXED_NOW.replace(tzinfo=None).isoformat()
+    payload["observed_at"] = naive
+    receipt = payload["scan_receipt"]
+    receipt["scan"]["scanned_at"] = naive
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = digest_bytes(canonical_bytes(receipt))
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="preflight is invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_timezone_naive_now(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    with pytest.raises(RefreshCandidateError, match="time must include a timezone"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW.replace(tzinfo=None),
+        )
+
+
+def test_historical_verifier_fails_before_current_or_registry_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("historical verification must not use current or registry checks")
+
+    preflight_path = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight_path, Path)
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["status"] = "BLOCKED"
+    preflight.pop("receipt_digest")
+    preflight["receipt_digest"] = digest_bytes(canonical_bytes(preflight))
+    _write_preflight(preflight_path, preflight)
+
+    monkeypatch.setattr(
+        target_scan,
+        "validate_ready_preflight_contract",
+        grade_refresh_module.validate_ready_preflight_contract,
+    )
+    monkeypatch.setattr(target_scan, "require_current_host_capacity", forbidden)
+    monkeypatch.setattr(target_scan, "_open_registry_target", forbidden)
+
+    with pytest.raises(RefreshCandidateError, match="preflight is invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=preflight_path,
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
 
 
 @pytest.mark.parametrize("binding", ["path", "content", "mode", "query"])
