@@ -14,6 +14,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 IMAGE_TAG = "mcp-trust-scan:corpus-2026-07-03"
+BATCH4_BROWSER_EXECUTABLE = (
+    "/ms-playwright/chromium_headless_shell-1234/chrome-linux/headless_shell"
+)
 
 SANDBOX_ENV = {
     "MCP_TRUST_ENGINE": "mcpaudit",
@@ -524,6 +527,13 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         kind="npm",
         reference="@playwright/mcp",
         command="playwright-mcp",
+        args=(
+            "--headless",
+            "--isolated",
+            "--executable-path",
+            BATCH4_BROWSER_EXECUTABLE,
+            "--no-sandbox",
+        ),
         description=(
             "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
             "limited to controlled first-pass scan evidence and receipt caveats. "
@@ -546,6 +556,15 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         kind="npm",
         reference="chrome-devtools-mcp",
         command="chrome-devtools-mcp",
+        args=(
+            "--headless",
+            "--isolated",
+            "--executablePath",
+            BATCH4_BROWSER_EXECUTABLE,
+            "--chromeArg=--no-sandbox",
+            "--no-usage-statistics",
+            "--no-performance-crux",
+        ),
         description=(
             "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
             "limited to controlled first-pass scan evidence and receipt caveats. "

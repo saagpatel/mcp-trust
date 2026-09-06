@@ -61,6 +61,32 @@ def test_seed_catalog_matches_reference_scan_plan() -> None:
     assert seed == [candidate.seed_preview() for candidate in plan.REFERENCE_SCAN_CANDIDATES]
 
 
+def test_browser_candidates_bind_the_hermetic_headless_shell() -> None:
+    plan = _load_module("reference_scan_plan_browser", SCRIPTS / "reference_scan_plan.py")
+    by_slug = {candidate.slug: candidate for candidate in plan.REFERENCE_SCAN_CANDIDATES}
+    executable = plan.BATCH4_BROWSER_EXECUTABLE
+
+    playwright = by_slug["io-github-microsoft-playwright-mcp-0-0-77"]
+    assert playwright.args == (
+        "--headless",
+        "--isolated",
+        "--executable-path",
+        executable,
+        "--no-sandbox",
+    )
+
+    devtools = by_slug["io-github-chromedevtools-chrome-devtools-mcp-1-5-0"]
+    assert devtools.args == (
+        "--headless",
+        "--isolated",
+        "--executablePath",
+        executable,
+        "--chromeArg=--no-sandbox",
+        "--no-usage-statistics",
+        "--no-performance-crux",
+    )
+
+
 def test_registry_derived_candidates_pin_their_batch_sandbox_image() -> None:
     # These servers are baked only into a purpose-built batch image, not the
     # corpus image. Without a per-server pin, a whole-corpus refresh launches

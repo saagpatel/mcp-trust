@@ -79,6 +79,7 @@
       "dockerfile": "docker/refresh/Dockerfile.batch4-20260703",
       "node_base": "node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03",
       "python_base": "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91",
+      "browser_base": "mcr.microsoft.com/playwright@sha256:5361940f845a5077926d54746122f7b68a121cc2aa27df6241087b774203fc44",
       "python_version": "3.11",
       "npm": {
         "@discourse/mcp": "0.2.9",

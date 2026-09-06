@@ -202,6 +202,24 @@ def test_cohort_rejects_mutable_images_and_external_dockerfiles(
         dependency_boundary.validate_preparation_inputs(payload, repo_root=ROOT)
 
 
+@pytest.mark.parametrize(
+    "browser_base",
+    [
+        "mcr.microsoft.com/playwright:latest",
+        "example.invalid/playwright@sha256:" + "a" * 64,
+        "mcr.microsoft.com/playwright@sha256:not-a-digest",
+    ],
+)
+def test_browser_base_requires_the_approved_immutable_repository(
+    browser_base: str,
+) -> None:
+    payload = _inputs()
+    payload["cohorts"]["batch4"]["browser_base"] = browser_base
+
+    with pytest.raises(dependency_boundary.DependencyBoundaryError, match="immutable"):
+        dependency_boundary.validate_preparation_inputs(payload, repo_root=ROOT)
+
+
 def test_repository_file_rejects_symlinks(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside-Dockerfile"
     outside.write_text("FROM python@sha256:" + "a" * 64 + "\n")
