@@ -7,31 +7,31 @@
       "path": "Dockerfile.scan",
       "provenance_status": "SOURCE_CONTROLLED",
       "reproducibility_status": "VERIFIED",
-      "qualification_receipt": "docker/refresh/qualification/v124-r1/reference.json"
+      "qualification_receipt": "docker/refresh/qualification/v126-r1/reference.json"
     },
     "mcp-trust-live-batch:20260628": {
       "path": "docker/refresh/Dockerfile.live-batch-20260628",
       "provenance_status": "SOURCE_CONTROLLED",
       "reproducibility_status": "VERIFIED",
-      "qualification_receipt": "docker/refresh/qualification/v124-r1/live-batch.json"
+      "qualification_receipt": "docker/refresh/qualification/v126-r1/live-batch.json"
     },
     "mcp-trust-batch3:20260703": {
       "path": "docker/refresh/Dockerfile.batch3-20260703",
       "provenance_status": "SOURCE_CONTROLLED",
       "reproducibility_status": "VERIFIED",
-      "qualification_receipt": "docker/refresh/qualification/v124-r1/batch3.json"
+      "qualification_receipt": "docker/refresh/qualification/v126-r1/batch3.json"
     },
     "mcp-trust-batch4:20260703": {
       "path": "docker/refresh/Dockerfile.batch4-20260703",
       "provenance_status": "SOURCE_CONTROLLED",
       "reproducibility_status": "VERIFIED",
-      "qualification_receipt": "docker/refresh/qualification/v124-r1/batch4.json"
+      "qualification_receipt": "docker/refresh/qualification/v126-r1/batch4.json"
     },
     "mcp-trust-basic-memory:20260823": {
       "path": "docker/refresh/Dockerfile.basic-memory-20260823",
       "provenance_status": "SOURCE_CONTROLLED",
       "reproducibility_status": "VERIFIED",
-      "qualification_receipt": "docker/refresh/qualification/v124-r1/basic-memory.json"
+      "qualification_receipt": "docker/refresh/qualification/v126-r1/basic-memory.json"
     }
   },
   "scannable": [
