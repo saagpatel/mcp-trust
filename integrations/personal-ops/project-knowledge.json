@@ -1,0 +1,53 @@
+{
+  "schema_version": "personal_ops_project_knowledge_authority.v1",
+  "admitted": true,
+  "authority_id": "mcp-trust-repository",
+  "project_key": "saagpatel/mcp-trust",
+  "owner": "MCP Trust Registry repository",
+  "generated_at": "2026-09-06T07:16:46Z",
+  "aging_after_ms": 604800000,
+  "stale_after_ms": 2592000000,
+  "canonicality": "Canonical only for the stable repository-owned product and interface facts declared here. Scan records, grades, deployment state, external adoption, and portfolio projections remain outside this authority.",
+  "correction_deletion": "The repository owner corrects a fact by replacing it in this file and deletes it by removing it. Personal Ops must observe the current file on each query and retain no shadow copy of prior fact content.",
+  "facts": [
+    {
+      "fact_id": "product-loop-v1",
+      "fact_key": "project.product_loop",
+      "source_item_id": "SPEC.md#the-one-loop-that-must-work-mvp-definition-of-done",
+      "observed_at": "2026-09-06T07:16:46Z",
+      "metadata": {
+        "kind": "owner-declared-product-contract",
+        "scope": "register, scan, grade, persist, serve"
+      },
+      "content": "The product loop registers a public MCP server, scans it through a replaceable engine, derives a danger grade, persists the scan record, and serves the grade and findings through stable interfaces."
+    },
+    {
+      "fact_id": "grading-boundary-v1",
+      "fact_key": "project.grading_boundary",
+      "source_item_id": "SPEC.md#architecture-boundaries-owned-by-lead-do-not-cross",
+      "observed_at": "2026-09-06T07:16:46Z",
+      "metadata": {
+        "kind": "owner-declared-architecture-boundary",
+        "scanner_role": "replaceable input",
+        "registry_role": "catalog, normalization, persistence, and serving"
+      },
+      "content": "MCP Trust Registry owns the public catalog and trust-grade normalization. Detection remains the responsibility of a replaceable scan engine."
+    },
+    {
+      "fact_id": "readonly-mcp-interface-v1",
+      "fact_key": "project.readonly_mcp_interface",
+      "source_item_id": "README.md#use-as-an-mcp-server",
+      "observed_at": "2026-09-06T07:16:46Z",
+      "metadata": {
+        "kind": "owner-declared-interface",
+        "tools": [
+          "list_servers",
+          "check_server",
+          "get_methodology"
+        ],
+        "mutation_authority": false
+      },
+      "content": "The packaged MCP interface is read-only and exposes catalog listing, exact server lookup, and grading methodology tools."
+    }
+  ]
+}
