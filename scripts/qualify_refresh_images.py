@@ -1708,15 +1708,6 @@ def qualify(
         raise QualificationError(str(exc)) from exc
     if cohorts is not None:
         _require_current_set_source(set_manifest, cohorts)
-    expected_cohort_binding = set_manifest.get("cohort_bindings", {}).get(cohort)
-    current_cohort_binding = _cohort_binding(
-        cohort, cohort_config, platform=str(platform)
-    )
-    if (
-        isinstance(expected_cohort_binding, dict)
-        and current_cohort_binding != expected_cohort_binding
-    ):
-        raise QualificationError("qualification cohort input changed during execution")
     _require_safe_directory(receipt_root, label="qualification receipt set")
     receipt = receipt_root / f"{cohort}.json"
     if _lstat(receipt) is not None:
@@ -1724,6 +1715,13 @@ def qualify(
     capacity_gate.require_scope(
         operation="qualification", receipt_set=receipt_root.name, cohort=cohort
     )
+    expected_cohort_binding = set_manifest.get("cohort_bindings", {}).get(cohort)
+    if isinstance(expected_cohort_binding, dict):
+        current_cohort_binding = _cohort_binding(
+            cohort, cohort_config, platform=str(platform)
+        )
+        if current_cohort_binding != expected_cohort_binding:
+            raise QualificationError("qualification cohort input changed during execution")
     image_reference = dependency_boundary.local_image_tag(config["image_reference"])
     dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
     build_source_sha256 = grade_refresh.digest_file(ROOT / dockerfile)
