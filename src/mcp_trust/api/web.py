@@ -1174,7 +1174,15 @@ def render_detail(
         "one or more stored historical records are unreadable. The latest readable "
         "scan remains shown, but no grade-change claim is available.</p></div>"
         if unknown_history
-        else _history_section(grade_timeline(history), masked=masked, generated_at=now)
+        else (
+            '<div class="card"><h2 style="font-size:1rem;font-weight:600;'
+            'margin-bottom:0.75rem">Scan history</h2>'
+            '<p style="color:#57606a;font-size:0.9rem"><strong>SCAN HISTORY UNKNOWN:'
+            "</strong> the newest scan has unknown freshness, so no grade timeline "
+            "or grade-change claim is served.</p></div>"
+            if unknown_scan
+            else _history_section(grade_timeline(history), masked=masked, generated_at=now)
+        )
     )
 
     # --- Badge embed box ---

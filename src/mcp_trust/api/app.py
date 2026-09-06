@@ -287,17 +287,23 @@ def create_app(
             }
         operator_masked = slug in _masked
         scan_masked = operator_masked and scan is not None
+        observed_at = _clock()
+        public_scan = _public_scan_payload(
+            scan,
+            masked=operator_masked,
+            now=observed_at,
+        )
+        freshness_unknown = bool(
+            public_scan
+            and public_scan.get("freshness_state") == str(FreshnessState.UNKNOWN)
+        )
         readable_grade_change = latest_grade_change(history)
         return {
             "server": _public_server_payload(server, masked=operator_masked),
-            "latest_scan": _public_scan_payload(
-                scan,
-                masked=operator_masked,
-                now=_clock(),
-            ),
+            "latest_scan": public_scan,
             "grade_change": (
                 None
-                if scan_masked
+                if scan_masked or freshness_unknown
                 else grade_change
                 or (
                     readable_grade_change.model_dump(mode="json")

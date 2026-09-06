@@ -1153,6 +1153,8 @@ class DockerSandbox:
             raise DockerSandboxCleanupError(
                 "Docker owned scan container remained after forced cleanup"
             )
+        self._container_id = None
+        self._server_process_digests = None
         return "CONTAINER_ABSENCE_VERIFIED"
 
 
