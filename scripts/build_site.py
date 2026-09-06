@@ -281,12 +281,16 @@ def main(argv: list[str] | None = None) -> int:
                     "(--demo-fill: grades are demo data, labelled on every page)."
                 )
 
+        # Demo scans are created after the initial admission timestamp. Render
+        # against a fresh clock value so those just-written records cannot be
+        # misclassified as future-dated evidence by a few microseconds.
+        render_now = datetime.now(tz=UTC)
         corrections = _load_corrections(args.corrections)
         build = generate_site(
             conn,
             args.out,
             base_url=args.base_url,
-            now=now,
+            now=render_now,
             corrections=corrections,
             masked_slugs=masked_slugs,
             masked_scan_succeeded_slugs=masked_scan_succeeded_slugs,

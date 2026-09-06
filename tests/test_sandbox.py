@@ -727,6 +727,41 @@ def test_docker_cleanup_removes_only_owned_container_id_and_proves_absence() -> 
         )
 
 
+def test_docker_sandbox_can_prepare_again_after_verified_cleanup() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    created_ids = iter(("a" * 64, "b" * 64))
+    present: str | None = None
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal present
+        if "create" in command:
+            present = next(created_ids)
+            return subprocess.CompletedProcess(command, 0, present + "\n", "")
+        if "ls" in command:
+            return subprocess.CompletedProcess(
+                command, 0, present + "\n" if present is not None else "", ""
+            )
+        if "inspect" in command:
+            assert present is not None
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, present), ""
+            )
+        if "rm" in command:
+            removed = present
+            present = None
+            return subprocess.CompletedProcess(command, 0, f"{removed}\n", "")
+        raise AssertionError(command)
+
+    for expected_id in ("a" * 64, "b" * 64):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+        assert sandbox._container_id == expected_id
+        assert sandbox.cleanup_owned_container(runner=runner) == (
+            "CONTAINER_ABSENCE_VERIFIED"
+        )
+        assert sandbox._container_id is None
+        assert sandbox._server_process_digests is None
+
+
 @pytest.mark.parametrize(
     "inspect_overrides",
     [

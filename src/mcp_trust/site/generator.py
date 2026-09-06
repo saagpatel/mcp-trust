@@ -176,6 +176,7 @@ def generate_site(
             scan_exists=scan is not None,
         )
         stale = freshness.state is FreshnessState.STALE
+        freshness_unknown = freshness.state is FreshnessState.UNKNOWN
         if stale:
             stale_count += 1
         operator_masked = srv.slug in masked_slugs
@@ -229,12 +230,16 @@ def generate_site(
             badge_path,
             json.dumps(
                 badge_payload(
-                    grade,
-                    provenance,
+                    "unknown" if freshness_unknown else grade,
+                    ScanProvenance.UNKNOWN if freshness_unknown else provenance,
                     stale=stale,
                     masked=scan_masked,
                     masked_scan_succeeded=masked_scan_succeeded,
-                    historical_at=scan.scanned_at if scan is not None else None,
+                    historical_at=(
+                        scan.scanned_at
+                        if scan is not None and not freshness_unknown
+                        else None
+                    ),
                 ),
                 indent=2,
             )

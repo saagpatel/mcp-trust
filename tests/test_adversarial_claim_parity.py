@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -110,6 +110,62 @@ def test_stale_state_is_explicit_across_api_web_static_and_badge(tmp_path) -> No
     assert "pending re-scan" in live_html
     assert "pending re-scan" in static_html
     assert static_badge["message"] == badge["message"]
+
+
+def test_future_scan_withholds_grade_and_history_across_public_surfaces(tmp_path) -> None:
+    conn, server = _catalog()
+    now = datetime(2026, 8, 14, tzinfo=UTC)
+    scans = ScanRepository(conn)
+    scans.record(
+        ScanRecord(
+            id="synthetic-older",
+            server_slug=server.slug,
+            engine_name="mcpaudit",
+            engine_version="synthetic-record-only",
+            grade=TrustGrade.A,
+            transparency=TransparencyLevel.HIGH,
+            risk=RiskSummary(composite=1),
+            scanned_at=now - timedelta(days=1),
+        )
+    )
+    scans.record(
+        ScanRecord(
+            id="synthetic-future",
+            server_slug=server.slug,
+            engine_name="mcpaudit",
+            engine_version="synthetic-record-only",
+            grade=TrustGrade.F,
+            transparency=TransparencyLevel.LOW,
+            risk=RiskSummary(composite=9),
+            scanned_at=now + timedelta(seconds=1),
+        )
+    )
+    client = TestClient(create_app(conn=conn, engine=StubEngine(), clock=lambda: now))
+
+    summary = client.get("/servers").json()[0]
+    detail = client.get("/servers/synthetic-server").json()
+    live_badge = client.get("/servers/synthetic-server/badge.json").json()
+    live_html = client.get("/ui/servers/synthetic-server").text
+    build = generate_site(
+        conn,
+        tmp_path / "site",
+        base_url="https://example.invalid",
+        now=now,
+    )
+    static_html = (build.out_dir / "ui/servers/synthetic-server/index.html").read_text()
+    static_badge = json.loads(
+        (build.out_dir / "servers/synthetic-server/badge.json").read_text()
+    )
+
+    assert summary["grade"] == "unknown"
+    assert detail["latest_scan"]["grade"] == "unknown"
+    assert detail["grade_change"] is None
+    assert live_badge["message"] == "unknown"
+    assert static_badge["message"] == "unknown"
+    assert "SCAN HISTORY UNKNOWN" in live_html
+    assert "SCAN HISTORY UNKNOWN" in static_html
+    assert "grade-pill" not in live_html
+    assert "grade-pill" not in static_html
 
 
 def test_corrupt_latest_scan_is_unknown_everywhere_without_older_grade_fallback(
