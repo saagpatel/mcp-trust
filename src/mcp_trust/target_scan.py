@@ -104,12 +104,12 @@ TARGET_SCAN_HISTORICAL_CLAIM_CEILING = (
     "operation, egress success, or a claim about any other target."
 )
 _EXPECTED_CATALOG_COUNTS = {
-    "scannable": 20,
-    "blocked": 11,
-    "intentionally_masked": 6,
+    "scannable": 22,
+    "blocked": 9,
+    "intentionally_masked": 4,
     "unsupported_upstream": 8,
     "credential_dependent": 7,
-    "backing_service_dependent": 10,
+    "backing_service_dependent": 8,
     "unsafe_to_execute_unsandboxed": 31,
     "missing_image_build_source": 0,
     "unqualified_image_build_source": 0,
@@ -129,7 +129,7 @@ def _current_catalog_binding(
     )
     counts = inventory.get("counts")
     if counts != _EXPECTED_CATALOG_COUNTS:
-        raise RefreshCandidateError("target receipt requires the reviewed V20 catalog counts")
+        raise RefreshCandidateError("target receipt requires the reviewed V132 catalog counts")
     return dict(counts), digest_bytes(canonical_bytes(inventory))
 
 _ARTIFACT_KEYS = frozenset(
@@ -484,12 +484,12 @@ def _require_current_denominator(policy: RefreshPolicy, rows: list[dict[str, Any
     if (
         len(rows) != 31
         or policy.raw.get("catalog_denominator") != 31
-        or len(policy.scannable) != 20
-        or len(policy.blocked) != 11
+        or len(policy.scannable) != 22
+        or len(policy.blocked) != 9
         or policy.scannable & policy.blocked
         or policy.scannable | policy.blocked != {str(row.get("slug")) for row in rows}
     ):
-        raise RefreshCandidateError("target receipt requires the reviewed 31/18/13 boundary")
+        raise RefreshCandidateError("target receipt requires the reviewed 31/22/9 boundary")
 
 
 def _qualification_binding(
@@ -799,8 +799,8 @@ def _validate_artifact_shape(payload: object) -> dict[str, Any]:
         or not isinstance(reviewed, dict)
         or set(reviewed) != _REVIEWED_KEYS
         or reviewed.get("catalog_denominator") != 31
-        or reviewed.get("scannable_count") != 20
-        or reviewed.get("blocked_count") != 11
+        or reviewed.get("scannable_count") != 22
+        or reviewed.get("blocked_count") != 9
         or any(
             _SHA256.fullmatch(str(reviewed.get(key))) is None
             for key in ("seed_sha256", "masking_sha256", "policy_sha256")
@@ -1325,8 +1325,8 @@ def create_target_scan_artifact(
             "target_slug": slug,
             "reviewed_inputs": {
                 "catalog_denominator": 31,
-                "scannable_count": 20,
-                "blocked_count": 11,
+                "scannable_count": 22,
+                "blocked_count": 9,
                 "seed_sha256": f"sha256:{reviewed.seed_sha256}",
                 "masking_sha256": f"sha256:{reviewed.masked_sha256}",
                 "policy_sha256": policy_sha256,
@@ -1402,8 +1402,8 @@ def verify_target_scan_artifact(
     _require_current_denominator(policy, reviewed.catalog_rows)
     expected_reviewed = {
         "catalog_denominator": 31,
-        "scannable_count": 20,
-        "blocked_count": 11,
+        "scannable_count": 22,
+        "blocked_count": 9,
         "seed_sha256": f"sha256:{reviewed.seed_sha256}",
         "masking_sha256": f"sha256:{reviewed.masked_sha256}",
         "policy_sha256": policy_sha256,

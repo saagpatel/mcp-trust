@@ -99,7 +99,7 @@ def test_scannable_npm_console_scripts_are_bound_to_exact_image_paths() -> None:
         )
         checked += 1
 
-    assert checked == 15
+    assert checked == 17
 
 
 def test_qualification_enforces_all_npm_console_script_bindings() -> None:
@@ -217,18 +217,26 @@ def test_inventory_classifies_every_catalog_entry() -> None:
     assert inventory["catalog_denominator"] == 31
     assert len(inventory["entries"]) == 31
     assert inventory["counts"] == {
-        "scannable": 20,
-        "blocked": 11,
-        "intentionally_masked": 6,
+        "scannable": 22,
+        "blocked": 9,
+        "intentionally_masked": 4,
         "unsupported_upstream": 8,
         "credential_dependent": 7,
-        "backing_service_dependent": 10,
+        "backing_service_dependent": 8,
         "unsafe_to_execute_unsandboxed": 31,
         "missing_image_build_source": 0,
         "unqualified_image_build_source": 0,
     }
     assert all(row["live_credentials_allowed"] is False for row in inventory["entries"])
     assert all(row["broad_egress_allowed"] is False for row in inventory["entries"])
+    by_slug = {row["slug"]: row for row in inventory["entries"]}
+    for slug in {
+        "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+        "io-github-microsoft-playwright-mcp-0-0-77",
+    }:
+        assert by_slug[slug]["scannable"] is True
+        assert by_slug[slug]["intentionally_masked"] is False
+        assert by_slug[slug]["backing_service_dependent"] is False
 
 
 def test_policy_masking_must_match_operator_masking(tmp_path: Path) -> None:

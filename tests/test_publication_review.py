@@ -145,19 +145,53 @@ def _legacy_v38_inventory() -> dict[str, object]:
         )
     )
     promoted = {
+        "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
         "io-github-discourse-mcp-0-2-9",
+        "io-github-microsoft-playwright-mcp-0-0-77",
         "io-github-nvidia-elements-2-1-4",
+    }
+    historical_backing = {
+        "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+        "io-github-microsoft-playwright-mcp-0-0-77",
     }
     for row in inventory["entries"]:
         if row["slug"] in promoted:
             row["scannable"] = False
             row["intentionally_masked"] = True
+            if row["slug"] in historical_backing:
+                row["backing_service_dependent"] = True
             row["execution_disposition"] = "do-not-execute"
     inventory["counts"] = {
         **inventory["counts"],
         "scannable": 18,
         "blocked": 13,
         "intentionally_masked": 8,
+        "backing_service_dependent": 10,
+    }
+    return inventory
+
+
+def _v131_inventory() -> dict[str, object]:
+    """Project the accepted V131 boundary without changing current V132 policy."""
+    inventory = copy.deepcopy(
+        CATALOG_INVENTORY(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
+    )
+    v132_promoted = {
+        "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+        "io-github-microsoft-playwright-mcp-0-0-77",
+    }
+    for row in inventory["entries"]:
+        if row["slug"] in v132_promoted:
+            row["scannable"] = False
+            row["intentionally_masked"] = True
+            row["backing_service_dependent"] = True
+            row["execution_disposition"] = "do-not-execute"
+    inventory["counts"] = {
+        **inventory["counts"],
+        "scannable": 20,
+        "blocked": 11,
+        "intentionally_masked": 6,
+        "backing_service_dependent": 10,
     }
     return inventory
 
@@ -375,8 +409,9 @@ def test_publication_review_is_deterministic_and_fail_closed(
 def test_v131_boundary_review_accepts_exact_post_policy_lineage(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    inventory = grade_refresh.catalog_inventory(
-        seed_path=SEED, masked_path=MASKED, policy_path=POLICY
+    inventory = _v131_inventory()
+    monkeypatch.setattr(
+        grade_refresh, "catalog_inventory", lambda **_kwargs: _v131_inventory()
     )
     blocked = sorted(
         row["slug"]

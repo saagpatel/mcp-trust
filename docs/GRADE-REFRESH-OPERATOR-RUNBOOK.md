@@ -468,6 +468,13 @@ candidate uses the additive V4 boundary lineage. V3 remains valid for historical
 same `NO_GO` claim ceiling and separate publication, deployment, and scheduler
 gates.
 
+The V132 hermetic-browser change moves only Chrome DevTools and Playwright to
+the executable set after exact-image browser initialization and tool enumeration.
+Its 22/9 boundary is not represented by V3 or V4 and must not reuse either
+acceptance lineage. Until an additive successor lineage is implemented and
+accepted, review stops at controlled target evidence with publication,
+deployment, and scheduler actions prohibited.
+
 ## 6. Build the immutable local site candidate
 
 Use only the exact verified refresh candidate, bundled V38 proposal receipt, and
