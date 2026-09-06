@@ -21,6 +21,7 @@ from mcp_trust.grade_refresh import (
     build_preflight_receipt,
     build_publication_review_decision,
     build_publication_review_state_card,
+    build_v132_boundary_acceptance,
     canonical_bytes,
     catalog_inventory,
     load_json,
@@ -218,6 +219,23 @@ def _parser() -> argparse.ArgumentParser:
     publication_review.add_argument("--out", type=Path)
     publication_review.add_argument("--markdown-out", type=Path)
     publication_review.add_argument("--state-card-out", type=Path)
+
+    accept_boundary = subcommands.add_parser(
+        "accept-v132-boundary",
+        help="Bind direct operator authorization to one exact reproducible V132 proposal.",
+    )
+    _common_inputs(accept_boundary)
+    accept_boundary.add_argument("--candidate", type=Path, required=True)
+    accept_boundary.add_argument("--repeat-candidate", type=Path, required=True)
+    accept_boundary.add_argument("--preflight", type=Path, required=True)
+    accept_boundary.add_argument("--repeatability", type=Path, required=True)
+    accept_boundary.add_argument("--triage", type=Path, required=True)
+    accept_boundary.add_argument("--repo-root", type=Path, default=_ROOT)
+    accept_boundary.add_argument("--proposed-dispositions", type=Path, required=True)
+    accept_boundary.add_argument("--proposed-review", type=Path, required=True)
+    accept_boundary.add_argument("--authorization-statement-sha256", required=True)
+    accept_boundary.add_argument("--accepted-artifact-out", type=Path, required=True)
+    accept_boundary.add_argument("--accepted-policy-out", type=Path, required=True)
     return parser
 
 
@@ -369,6 +387,46 @@ def main(argv: list[str] | None = None) -> int:
                     build_publication_review_state_card(payload),
                 )
             _emit(payload, args.out)
+            return 0
+        if args.command == "accept-v132-boundary":
+            if (
+                args.accepted_artifact_out.exists()
+                or args.accepted_artifact_out.is_symlink()
+                or args.accepted_policy_out.exists()
+                or args.accepted_policy_out.is_symlink()
+            ):
+                raise GradeRefreshError("V132 acceptance output already exists")
+            artifact, accepted_policy = build_v132_boundary_acceptance(
+                candidate=args.candidate,
+                repeat_candidate=args.repeat_candidate,
+                preflight=load_json(args.preflight),
+                repeatability=load_json(args.repeatability),
+                triage=load_json(args.triage),
+                seed_path=args.seed,
+                masked_path=args.masked_grades,
+                policy_path=args.policy,
+                repo_root=args.repo_root,
+                proposed_disposition_path=args.proposed_dispositions,
+                proposed_review_path=args.proposed_review,
+                accepted_artifact_name=args.accepted_artifact_out.name,
+                authorization_statement_sha256=args.authorization_statement_sha256,
+            )
+            _write_json(args.accepted_artifact_out, artifact)
+            _write_json(args.accepted_policy_out, accepted_policy)
+            _emit(
+                {
+                    "schema": "McpTrustV132BoundaryAcceptanceResultV1",
+                    "state": "ACCEPTED_EXACT_V132_BOUNDARY_LOCAL_REVIEW_ONLY",
+                    "accepted_artifact_path": str(args.accepted_artifact_out),
+                    "accepted_artifact_receipt_digest": artifact["receipt_digest"],
+                    "accepted_policy_path": str(args.accepted_policy_out),
+                    "authorization_statement_sha256": args.authorization_statement_sha256,
+                    "publication_allowed": False,
+                    "deployment_allowed": False,
+                    "scheduler_change_allowed": False,
+                },
+                None,
+            )
             return 0
     except GradeRefreshError as exc:
         _emit(

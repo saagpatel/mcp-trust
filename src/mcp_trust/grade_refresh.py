@@ -52,6 +52,7 @@ DISPOSITION_POLICY_SCHEMA_V1 = "McpTrustGradeRefreshDispositionPolicyV1"
 DISPOSITION_POLICY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV2"
 DISPOSITION_POLICY_BOUNDARY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV3"
 DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV4"
+DISPOSITION_POLICY_V132_BOUNDARY_SCHEMA = "McpTrustGradeRefreshDispositionPolicyV5"
 PUBLICATION_REVIEW_SCHEMA = "McpTrustPublicationReviewDecisionV1"
 PUBLICATION_REVIEW_STATE_CARD_SCHEMA = "McpTrustPublicationReviewStateCardV1"
 POLICY_SCHEMA = "McpTrustRefreshPolicyV2"
@@ -95,6 +96,108 @@ _IMAGE_BUILD_TOOL_VERSION_KEYS = frozenset(
     {"docker_client", "docker_server", "docker_buildx", "buildkit_colima"}
 )
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
+
+
+@dataclass(frozen=True)
+class _BoundaryDispositionProfile:
+    """Exact additive lineage for one reviewed execution-policy boundary."""
+
+    policy_schema: str
+    release: str
+    fresh_count: int
+    blocked_count: int
+    blocked_count_word: str
+    artifact_schema: str
+    prior_transfer_field: str
+
+    @property
+    def release_lower(self) -> str:
+        return self.release.lower()
+
+    @property
+    def accepted_forward_state(self) -> str:
+        return f"OPERATOR_ACCEPTED_EXACT_{self.release}_BOUNDARY_LOCAL_REVIEW_ONLY"
+
+    @property
+    def accepted_forward_disposition(self) -> str:
+        return f"retain-exact-{self.release_lower}-policy-boundary-as-forward-baseline"
+
+    @property
+    def acceptance_scope(self) -> str:
+        return (
+            f"all-{self.blocked_count_word}-current-policy-blocks-and-exact-"
+            f"{self.release_lower}-forward-baseline"
+        )
+
+    @property
+    def acceptance_state(self) -> str:
+        return f"ACCEPTED_EXACT_{self.release}_BOUNDARY"
+
+    @property
+    def acceptance_decision(self) -> str:
+        return f"OPERATOR_{self.acceptance_state}"
+
+    @property
+    def retain_blocked_state(self) -> str:
+        return f"ACCEPTED_EXACT_{self.release}_RETAIN_BLOCKED"
+
+    @property
+    def human_acceptance_state(self) -> str:
+        return f"HUMAN_ACCEPTED_{self.release}_BOUNDARY"
+
+    @property
+    def relationship_field(self) -> str:
+        return f"relationship_to_{self.release_lower}"
+
+
+_BOUNDARY_DISPOSITION_PROFILES = {
+    profile.policy_schema: profile
+    for profile in (
+        _BoundaryDispositionProfile(
+            policy_schema=DISPOSITION_POLICY_BOUNDARY_SCHEMA,
+            release="V129",
+            fresh_count=18,
+            blocked_count=13,
+            blocked_count_word="thirteen",
+            artifact_schema="McpTrustAcceptedDispositionArtifactV2",
+            prior_transfer_field="transfer_from_v38",
+        ),
+        _BoundaryDispositionProfile(
+            policy_schema=DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA,
+            release="V131",
+            fresh_count=20,
+            blocked_count=11,
+            blocked_count_word="eleven",
+            artifact_schema="McpTrustAcceptedDispositionArtifactV3",
+            prior_transfer_field="transfer_from_v130",
+        ),
+        _BoundaryDispositionProfile(
+            policy_schema=DISPOSITION_POLICY_V132_BOUNDARY_SCHEMA,
+            release="V132",
+            fresh_count=22,
+            blocked_count=9,
+            blocked_count_word="nine",
+            artifact_schema="McpTrustAcceptedDispositionArtifactV4",
+            prior_transfer_field="transfer_from_v131",
+        ),
+    )
+}
+
+
+def _boundary_profile_for_counts(
+    candidate_counts: object,
+) -> _BoundaryDispositionProfile | None:
+    if not isinstance(candidate_counts, dict):
+        return None
+    for profile in _BOUNDARY_DISPOSITION_PROFILES.values():
+        if candidate_counts == {
+            "fresh": profile.fresh_count,
+            "masked": 0,
+            "blocked": profile.blocked_count,
+            "total": 31,
+        }:
+            return profile
+    return None
 _PREFLIGHT_KEYS = frozenset(
     {
         "schema",
@@ -2778,15 +2881,11 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
     if not isinstance(payload, dict):
         raise GradeRefreshError("refresh disposition policy fields are invalid")
     policy_schema = payload.get("schema")
-    boundary_policy = policy_schema in {
-        DISPOSITION_POLICY_BOUNDARY_SCHEMA,
-        DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA,
-    }
-    post_policy_boundary = policy_schema == DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA
+    boundary_profile = _BOUNDARY_DISPOSITION_PROFILES.get(str(policy_schema))
+    boundary_policy = boundary_profile is not None
     if policy_schema not in {
         DISPOSITION_POLICY_SCHEMA,
-        DISPOSITION_POLICY_BOUNDARY_SCHEMA,
-        DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA,
+        *_BOUNDARY_DISPOSITION_PROFILES,
     }:
         raise GradeRefreshError("refresh disposition policy schema is unsupported")
     review_state = payload.get("review_state")
@@ -2814,16 +2913,8 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
         raise GradeRefreshError("historical baseline must remain UNKNOWN")
     expected_forward = (
         {
-            "state": (
-                "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY_LOCAL_REVIEW_ONLY"
-                if post_policy_boundary
-                else "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY"
-            ),
-            "disposition": (
-                "retain-exact-v131-policy-boundary-as-forward-baseline"
-                if post_policy_boundary
-                else "retain-exact-v129-policy-boundary-as-forward-baseline"
-            ),
+            "state": boundary_profile.accepted_forward_state,
+            "disposition": boundary_profile.accepted_forward_disposition,
         }
         if review_state == "ACCEPTED_CURRENT_BOUNDARY_REVIEW"
         else
@@ -2854,6 +2945,7 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
     if payload.get("forward_baseline") != expected_forward:
         raise GradeRefreshError("forward baseline disposition is invalid")
     if review_state == "ACCEPTED_CURRENT_BOUNDARY_REVIEW":
+        assert boundary_profile is not None
         acceptance = payload.get("acceptance")
         expected_fields = {
             "authority",
@@ -2867,22 +2959,14 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
             "accepted_disposition_receipt_digest",
             "accepted_disposition_artifact_sha256",
         }
+        if boundary_profile.release == "V132":
+            expected_fields.add("authorization_statement_sha256")
         if (
             not isinstance(acceptance, dict)
             or set(acceptance) != expected_fields
             or acceptance.get("authority") != "operator"
-            or acceptance.get("scope")
-            != (
-                "all-eleven-current-policy-blocks-and-exact-v131-forward-baseline"
-                if post_policy_boundary
-                else "all-thirteen-current-policy-blocks-and-exact-v129-forward-baseline"
-            )
-            or acceptance.get("acceptance_state")
-            != (
-                "ACCEPTED_EXACT_V131_BOUNDARY"
-                if post_policy_boundary
-                else "ACCEPTED_EXACT_V129_BOUNDARY"
-            )
+            or acceptance.get("scope") != boundary_profile.acceptance_scope
+            or acceptance.get("acceptance_state") != boundary_profile.acceptance_state
             or not isinstance(acceptance.get("accepted_review_path"), str)
             or Path(acceptance["accepted_review_path"]).name
             != acceptance["accepted_review_path"]
@@ -2902,6 +2986,11 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
             )
         ):
             raise GradeRefreshError("current-boundary acceptance binding is invalid")
+        if boundary_profile.release == "V132" and (
+            not isinstance(acceptance.get("authorization_statement_sha256"), str)
+            or _SHA256.fullmatch(acceptance["authorization_statement_sha256"]) is None
+        ):
+            raise GradeRefreshError("V132 authorization statement binding is invalid")
     elif review_state == "ACCEPTED_CURRENT_SOURCE_REVIEW":
         acceptance = payload.get("acceptance")
         expected_fields = {
@@ -3097,8 +3186,8 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
     current_boundary = (
         disposition_policy.get("review_state") == "ACCEPTED_CURRENT_BOUNDARY_REVIEW"
     )
-    post_policy_boundary = (
-        disposition_policy.get("schema") == DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA
+    boundary_profile = _BOUNDARY_DISPOSITION_PROFILES.get(
+        str(disposition_policy.get("schema"))
     )
     artifact_key = (
         "sanitized_review_artifact_sha256" if sanitized else "accepted_review_artifact_sha256"
@@ -3134,6 +3223,8 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
     ):
         raise GradeRefreshError("accepted review is not an exact proposed decision")
     if current_boundary:
+        if boundary_profile is None:
+            raise GradeRefreshError("accepted boundary policy schema is invalid")
         if acceptance.get("accepted_review_path") != path.name or review_policy.get(
             "sha256"
         ) != acceptance.get("accepted_review_policy_sha256"):
@@ -3152,28 +3243,18 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
         artifact_privacy = artifact.get("privacy")
         artifact_public = artifact.get("separate_public_state")
         artifact_lineage = artifact.get("prior_acceptance_lineage")
+        artifact_authorization = (
+            artifact_acceptance.get("authorization_statement_sha256")
+            if isinstance(artifact_acceptance, dict)
+            else None
+        )
         if (
-            artifact.get("schema")
-            != (
-                "McpTrustAcceptedDispositionArtifactV3"
-                if post_policy_boundary
-                else "McpTrustAcceptedDispositionArtifactV2"
-            )
-            or artifact.get("decision")
-            != (
-                "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY"
-                if post_policy_boundary
-                else "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY"
-            )
+            artifact.get("schema") != boundary_profile.artifact_schema
+            or artifact.get("decision") != boundary_profile.acceptance_decision
             or artifact_receipt != acceptance.get("accepted_disposition_receipt_digest")
             or artifact_receipt != digest_bytes(canonical_bytes(artifact_unsigned))
             or not isinstance(artifact_acceptance, dict)
-            or artifact_acceptance.get("state")
-            != (
-                "ACCEPTED_EXACT_V131_BOUNDARY"
-                if post_policy_boundary
-                else "ACCEPTED_EXACT_V129_BOUNDARY"
-            )
+            or artifact_acceptance.get("state") != boundary_profile.acceptance_state
             or artifact_acceptance.get("source") != "direct-current-chat-token"
             or artifact_acceptance.get("scope") != acceptance.get("scope")
             or artifact_acceptance.get("proposal_artifact_sha256") != digest_file(path)
@@ -3181,21 +3262,12 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
             or artifact_acceptance.get("proposal_policy_sha256")
             != acceptance.get("accepted_review_policy_sha256")
             or not isinstance(artifact_forward, dict)
-            or artifact_forward.get("state")
-            != (
-                "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY_LOCAL_REVIEW_ONLY"
-                if post_policy_boundary
-                else "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY"
-            )
+            or artifact_forward.get("state") != boundary_profile.accepted_forward_state
             or artifact.get("historical_baseline") != disposition_policy.get("historical_baseline")
             or not isinstance(artifact_blocked, dict)
-            or artifact_blocked.get("count") != (11 if post_policy_boundary else 13)
+            or artifact_blocked.get("count") != boundary_profile.blocked_count
             or artifact_blocked.get("acceptance_state")
-            != (
-                "ACCEPTED_EXACT_V131_RETAIN_BLOCKED"
-                if post_policy_boundary
-                else "ACCEPTED_EXACT_V129_RETAIN_BLOCKED"
-            )
+            != boundary_profile.retain_blocked_state
             or artifact_blocked.get("projection_repeatability") != "PASS"
             or artifact_privacy
             != {
@@ -3205,20 +3277,62 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
                 "raw_candidate_transfer_allowed": False,
             }
             or not isinstance(artifact_lineage, dict)
-            or artifact_lineage.get(
-                "transfer_from_v130" if post_policy_boundary else "transfer_from_v38"
-            )
-            is not False
+            or artifact_lineage.get(boundary_profile.prior_transfer_field) is not False
             or not isinstance(artifact_public, dict)
             or artifact_public.get("production_freshness") != "UNKNOWN"
             or artifact_public.get("production_source_binding") != "UNKNOWN"
             or artifact_public.get("production_deployment_revision") != "UNKNOWN"
-            or artifact_public.get(
-                "relationship_to_v131" if post_policy_boundary else "relationship_to_v129"
-            )
+            or artifact_public.get(boundary_profile.relationship_field)
             != "NOT_PUBLISHED_AND_NOT_DEPLOYED"
         ):
             raise GradeRefreshError("accepted boundary disposition artifact integrity is invalid")
+        if boundary_profile.release == "V132" and (
+            artifact_authorization != acceptance.get("authorization_statement_sha256")
+            or not isinstance(artifact_authorization, str)
+            or _SHA256.fullmatch(artifact_authorization) is None
+        ):
+            raise GradeRefreshError("accepted V132 authorization binding is invalid")
+        if boundary_profile.release == "V132" and (
+            set(artifact)
+            != {
+                "schema",
+                "decision",
+                "acceptance",
+                "forward_baseline",
+                "historical_baseline",
+                "blocked_dispositions",
+                "browser_compatibility",
+                "privacy",
+                "prior_acceptance_lineage",
+                "separate_public_state",
+                "authority",
+                "claim_ceiling",
+                "receipt_digest",
+            }
+            or artifact.get("browser_compatibility")
+            != {
+                "package": "@playwright/mcp@0.0.77",
+                "package_expected_chromium_revision": 1229,
+                "runtime_chromium_revision": 1234,
+                "runtime_browser": "Chromium 151.0.7922.34",
+                "evidence_scope": (
+                    "successful-controlled-execution-of-this-exact-combination-only"
+                ),
+            }
+            or artifact.get("authority")
+            != {
+                "local_acceptance_recording": True,
+                "publication": False,
+                "deployment": False,
+                "scheduler_activation": False,
+                "credentials": False,
+                "external_write": False,
+            }
+            or not isinstance(artifact.get("claim_ceiling"), str)
+            or "another browser package/runtime combination"
+            not in artifact["claim_ceiling"]
+        ):
+            raise GradeRefreshError("accepted V132 boundary metadata is invalid")
         shared_forward_fields = {
             "source_revision",
             "source_tree_digest",
@@ -3265,7 +3379,7 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
             for entry in review_entries
             if isinstance(entry, dict)
         }
-        if len(artifact_projection) != (11 if post_policy_boundary else 13) or (
+        if len(artifact_projection) != boundary_profile.blocked_count or (
             artifact_projection != review_projection
         ):
             raise GradeRefreshError("accepted current-boundary dispositions changed")
@@ -3502,13 +3616,8 @@ def build_publication_review_decision(
     )
     disposition_policy = _load_disposition_policy(path=disposition_path, inventory=inventory)
     review_state = disposition_policy["review_state"]
-    boundary_policy = disposition_policy["schema"] in {
-        DISPOSITION_POLICY_BOUNDARY_SCHEMA,
-        DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA,
-    }
-    post_policy_boundary = (
-        disposition_policy["schema"] == DISPOSITION_POLICY_POST_BOUNDARY_SCHEMA
-    )
+    boundary_profile = _BOUNDARY_DISPOSITION_PROFILES.get(disposition_policy["schema"])
+    boundary_policy = boundary_profile is not None
     dispositions_accepted = review_state in {
         "ACCEPTED",
         "SANITIZED_REACCEPTANCE_REQUIRED",
@@ -3540,11 +3649,12 @@ def build_publication_review_decision(
     if triage != recomputed_triage:
         raise GradeRefreshError("publication review triage is not independently reproducible")
     expected_triage_counts = (
-        (
-            {"Critical": 11, "High": 0, "Medium": 21, "Low": 0}
-            if post_policy_boundary
-            else {"Critical": 13, "High": 0, "Medium": 19, "Low": 0}
-        )
+        {
+            "Critical": boundary_profile.blocked_count,
+            "High": 0,
+            "Medium": boundary_profile.fresh_count + 1,
+            "Low": 0,
+        }
         if boundary_policy
         else {"Critical": 0, "High": 8, "Medium": 9, "Low": 0}
     )
@@ -3581,11 +3691,12 @@ def build_publication_review_decision(
         "total": len(first_projection),
     }
     expected_candidate_counts = (
-        (
-            {"fresh": 20, "masked": 0, "blocked": 11, "total": 31}
-            if post_policy_boundary
-            else {"fresh": 18, "masked": 0, "blocked": 13, "total": 31}
-        )
+        {
+            "fresh": boundary_profile.fresh_count,
+            "masked": 0,
+            "blocked": boundary_profile.blocked_count,
+            "total": 31,
+        }
         if boundary_policy
         else {"fresh": 23, "masked": 8, "total": 31}
     )
@@ -3618,9 +3729,7 @@ def build_publication_review_decision(
                         "HUMAN_ACCEPTED_V20"
                         if sanitized_reacceptance_required
                         else (
-                            "HUMAN_ACCEPTED_V131_BOUNDARY"
-                            if post_policy_boundary
-                            else "HUMAN_ACCEPTED_V129_BOUNDARY"
+                            boundary_profile.human_acceptance_state
                         )
                         if current_boundary_accepted
                         else "HUMAN_ACCEPTED_V38"
@@ -3738,8 +3847,8 @@ def build_publication_review_decision(
             "freshness, scheduler, safety, or endorsement."
             if sanitized_reacceptance_required
             else (
-                f"Exact {'V131' if post_policy_boundary else 'V129'} current-boundary "
-                f"disposition acceptance for {'eleven' if post_policy_boundary else 'thirteen'} "
+                f"Exact {boundary_profile.release} current-boundary disposition acceptance "
+                f"for {boundary_profile.blocked_count_word} "
                 "policy-blocked entries and the controlled candidate only; no execution, grade, "
                 "publication, deployment, production freshness, scheduler, safety, backing-"
                 "service functionality, credentialed functionality, or endorsement."
@@ -3843,6 +3952,11 @@ def build_publication_review_decision(
                     else "masking-configuration-is-not-human-disposition-evidence"
                 )
             ),
+            *(
+                ["browser-runtime-revision-mismatch-is-exact-combination-only"]
+                if boundary_profile is not None and boundary_profile.release == "V132"
+                else []
+            ),
         ],
     }
     if accepted_review is not None:
@@ -3878,6 +3992,177 @@ def build_publication_review_decision(
             raise GradeRefreshError("accepted review candidate semantics changed")
     payload["receipt_digest"] = digest_bytes(canonical_bytes(payload))
     return payload
+
+
+def build_v132_boundary_acceptance(
+    *,
+    candidate: Path,
+    repeat_candidate: Path,
+    preflight: dict[str, Any],
+    repeatability: dict[str, Any],
+    triage: dict[str, Any],
+    seed_path: Path,
+    masked_path: Path,
+    policy_path: Path,
+    repo_root: Path,
+    proposed_disposition_path: Path,
+    proposed_review_path: Path,
+    accepted_artifact_name: str,
+    authorization_statement_sha256: str,
+    candidate_verifier: Callable[..., dict[str, Any]] | None = None,
+    projection_builder: Callable[[Path], dict[str, dict[str, Any]]] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind direct operator authorization to the exact reproducible V132 proposal."""
+    profile = _BOUNDARY_DISPOSITION_PROFILES[DISPOSITION_POLICY_V132_BOUNDARY_SCHEMA]
+    if _SHA256.fullmatch(authorization_statement_sha256) is None:
+        raise GradeRefreshError("V132 authorization statement digest is invalid")
+    if Path(accepted_artifact_name).name != accepted_artifact_name:
+        raise GradeRefreshError("V132 accepted artifact name is invalid")
+    proposed_policy = _load_disposition_policy(
+        path=proposed_disposition_path,
+        inventory=catalog_inventory(
+            seed_path=seed_path,
+            masked_path=masked_path,
+            policy_path=policy_path,
+        ),
+    )
+    if (
+        proposed_policy.get("schema") != profile.policy_schema
+        or proposed_policy.get("review_state") != "PROPOSED"
+    ):
+        raise GradeRefreshError("V132 acceptance requires an exact proposed V5 policy")
+    recomputed = build_publication_review_decision(
+        candidate=candidate,
+        repeat_candidate=repeat_candidate,
+        preflight=preflight,
+        repeatability=repeatability,
+        triage=triage,
+        seed_path=seed_path,
+        masked_path=masked_path,
+        policy_path=policy_path,
+        repo_root=repo_root,
+        disposition_path=proposed_disposition_path,
+        candidate_verifier=candidate_verifier,
+        projection_builder=projection_builder,
+    )
+    proposal = load_json(proposed_review_path)
+    if proposal != recomputed:
+        raise GradeRefreshError("V132 proposal is not independently reproducible")
+    if (
+        proposal.get("decision") != "NO_GO"
+        or proposal.get("review_state") != "READY_FOR_HUMAN_DISPOSITION"
+        or proposal.get("candidate_counts")
+        != {
+            "fresh": profile.fresh_count,
+            "masked": 0,
+            "blocked": profile.blocked_count,
+            "total": 31,
+        }
+        or proposal.get("disposition_counts")
+        != {
+            "total": profile.blocked_count,
+            "pending_human_acceptance": profile.blocked_count,
+            "accepted_human": 0,
+            "retain_blocked": profile.blocked_count,
+        }
+    ):
+        raise GradeRefreshError("V132 proposal does not match the authorized 22/9 boundary")
+    proposal_entries = proposal.get("entry_dispositions")
+    if not isinstance(proposal_entries, list) or len(proposal_entries) != profile.blocked_count:
+        raise GradeRefreshError("V132 proposal blocked dispositions are incomplete")
+
+    artifact: dict[str, Any] = {
+        "schema": profile.artifact_schema,
+        "decision": profile.acceptance_decision,
+        "acceptance": {
+            "state": profile.acceptance_state,
+            "source": "direct-current-chat-token",
+            "scope": profile.acceptance_scope,
+            "proposal_artifact_sha256": digest_file(proposed_review_path),
+            "proposal_receipt_digest": proposal["receipt_digest"],
+            "proposal_policy_sha256": proposal["disposition_policy"]["sha256"],
+            "authorization_statement_sha256": authorization_statement_sha256,
+        },
+        "forward_baseline": {
+            **proposal["forward_baseline"],
+            "state": profile.accepted_forward_state,
+        },
+        "historical_baseline": proposal["historical_baseline"],
+        "blocked_dispositions": {
+            "count": profile.blocked_count,
+            "acceptance_state": profile.retain_blocked_state,
+            "projection_repeatability": "PASS",
+            "entries": [
+                {
+                    "slug": entry["slug"],
+                    "disposition": entry["disposition"],
+                    "rationale_code": entry["rationale_code"],
+                    "next_review_condition": entry["next_review_condition"],
+                    "projection_digest": entry["controlled_evidence"]["projection_digest"],
+                }
+                for entry in proposal_entries
+            ],
+        },
+        "browser_compatibility": {
+            "package": "@playwright/mcp@0.0.77",
+            "package_expected_chromium_revision": 1229,
+            "runtime_chromium_revision": 1234,
+            "runtime_browser": "Chromium 151.0.7922.34",
+            "evidence_scope": "successful-controlled-execution-of-this-exact-combination-only",
+        },
+        "privacy": {
+            "host_specific_path_matches": 0,
+            "credential_values_present": False,
+            "blocked_grade_risk_finding_or_receipt_fields_present": False,
+            "raw_candidate_transfer_allowed": False,
+        },
+        "prior_acceptance_lineage": {profile.prior_transfer_field: False},
+        "separate_public_state": {
+            "production_freshness": "UNKNOWN",
+            "production_source_binding": "UNKNOWN",
+            "production_deployment_revision": "UNKNOWN",
+            profile.relationship_field: "NOT_PUBLISHED_AND_NOT_DEPLOYED",
+        },
+        "authority": {
+            "local_acceptance_recording": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_activation": False,
+            "credentials": False,
+            "external_write": False,
+        },
+        "claim_ceiling": (
+            "Receipt-bound local acceptance of the exact V132 22/9 policy boundary for "
+            "review only. It is not publication authority, deployment proof, production "
+            "freshness, scheduler authority, safety, endorsement, backing-service "
+            "functionality, credentialed functionality, or evidence for another browser "
+            "package/runtime combination."
+        ),
+    }
+    artifact["receipt_digest"] = digest_bytes(canonical_bytes(artifact))
+    artifact_sha256 = digest_bytes(canonical_bytes(artifact))
+    accepted_policy = {
+        **proposed_policy,
+        "review_state": "ACCEPTED_CURRENT_BOUNDARY_REVIEW",
+        "forward_baseline": {
+            "state": profile.accepted_forward_state,
+            "disposition": profile.accepted_forward_disposition,
+        },
+        "acceptance": {
+            "authority": "operator",
+            "scope": profile.acceptance_scope,
+            "acceptance_state": profile.acceptance_state,
+            "accepted_review_path": proposed_review_path.name,
+            "accepted_review_receipt_digest": proposal["receipt_digest"],
+            "accepted_review_artifact_sha256": digest_file(proposed_review_path),
+            "accepted_review_policy_sha256": proposal["disposition_policy"]["sha256"],
+            "accepted_disposition_path": accepted_artifact_name,
+            "accepted_disposition_receipt_digest": artifact["receipt_digest"],
+            "accepted_disposition_artifact_sha256": artifact_sha256,
+            "authorization_statement_sha256": authorization_statement_sha256,
+        },
+    }
+    return artifact, accepted_policy
 
 
 def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3930,24 +4215,16 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         sanitized_pending = False
         current_source_accepted = False
         current_boundary_accepted = True
-        post_policy_boundary = candidates.get("blocked") == 11
+        boundary_profile = _boundary_profile_for_counts(candidates)
         if dispositions != accepted_counts:
             raise GradeRefreshError("accepted boundary disposition counts are invalid")
         if (
             not boundary_policy
-            or forward.get("state")
-            != (
-                "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY_LOCAL_REVIEW_ONLY"
-                if post_policy_boundary
-                else "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY"
-            )
+            or boundary_profile is None
+            or forward.get("state") != boundary_profile.accepted_forward_state
             or not isinstance(payload.get("acceptance"), dict)
             or payload["acceptance"].get("acceptance_state")
-            != (
-                "ACCEPTED_EXACT_V131_BOUNDARY"
-                if post_policy_boundary
-                else "ACCEPTED_EXACT_V129_BOUNDARY"
-            )
+            != boundary_profile.acceptance_state
             or "exact_source_review_and_landing_required" in blockers
             or "blocked_policy_change_and_fresh_controlled_evidence_required"
             not in blockers
@@ -3957,7 +4234,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         accepted = True
         sanitized_pending = False
         current_boundary_accepted = False
-        post_policy_boundary = False
+        boundary_profile = None
         disposition_projection = payload.get("disposition_policy")
         current_source_accepted = bool(
             isinstance(disposition_projection, dict)
@@ -3977,7 +4254,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         sanitized_pending = True
         current_source_accepted = False
         current_boundary_accepted = False
-        post_policy_boundary = False
+        boundary_profile = None
         if dispositions != accepted_counts:
             raise GradeRefreshError("V20 accepted disposition counts are invalid")
         if "sanitized_review_acceptance_required" not in blockers:
@@ -3994,7 +4271,9 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         sanitized_pending = False
         current_source_accepted = False
         current_boundary_accepted = False
-        post_policy_boundary = candidates.get("blocked") == 11
+        boundary_profile = _boundary_profile_for_counts(candidates)
+        if boundary_policy and boundary_profile is None:
+            raise GradeRefreshError("proposed boundary candidate counts are invalid")
         if dispositions != proposed_counts:
             raise GradeRefreshError("proposed disposition counts are invalid")
     else:
@@ -4009,7 +4288,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         "severity_findings": {
             "Critical": dispositions.get("retain_blocked", 0),
             "High": dispositions.get("retain_masked", 0),
-            "Medium": (22 if post_policy_boundary else 20) if boundary_policy else 10,
+            "Medium": boundary_profile.fresh_count + 2 if boundary_profile else 10,
             "Low": 0,
         },
         "completed_controls": [
@@ -4022,9 +4301,8 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
             "controlled-sandbox-candidate-repeat",
             (
                 (
-                    "policy-block-disposition-accepted-v131-current-boundary"
-                    if post_policy_boundary
-                    else "policy-block-disposition-accepted-v129-current-boundary"
+                    f"policy-block-disposition-accepted-"
+                    f"{boundary_profile.release_lower}-current-boundary"
                 )
                 if current_boundary_accepted
                 else "masked-disposition-accepted-v20"
@@ -4037,9 +4315,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
             ),
             (
                 (
-                    "v131-forward-boundary-accepted"
-                    if post_policy_boundary
-                    else "v129-forward-boundary-accepted"
+                    f"{boundary_profile.release_lower}-forward-boundary-accepted"
                 )
                 if current_boundary_accepted
                 else "sanitized-review-receipt-generated"
@@ -4058,7 +4334,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
         "production_freshness": "UNKNOWN",
         "next_action": (
             "A separate policy change and fresh controlled evidence are required before "
-            f"any of the {'eleven' if post_policy_boundary else 'thirteen'} blocked entries "
+            f"any of the {boundary_profile.blocked_count_word} blocked entries "
             "can advance; publication, deployment, "
             "and scheduler activation remain separately gated."
             if current_boundary_accepted
@@ -4110,11 +4386,13 @@ def publication_review_markdown(payload: dict[str, Any]) -> str:
     blockers = "\n".join(f"- `{gate}`" for gate in payload.get("blocking_gates", []))
     quarantines = "\n".join(f"- `{gate}`" for gate in payload.get("quarantined_gates", []))
     baseline = payload.get("forward_baseline", {})
-    post_policy_boundary = payload.get("candidate_counts", {}).get("blocked") == 11
+    boundary_profile = _boundary_profile_for_counts(payload.get("candidate_counts"))
+    if boundary_policy and boundary_profile is None:
+        raise GradeRefreshError("publication review boundary counts are unsupported")
     status_label = (
-        f"{'V131' if post_policy_boundary else 'V129'} boundary accepted"
+        f"{boundary_profile.release} boundary accepted"
         if boundary_policy and accepted
-        else f"{'V131' if post_policy_boundary else 'V129'} boundary proposed"
+        else f"{boundary_profile.release} boundary proposed"
         if boundary_policy
         else "V20-accepted; sanitized successor pending reacceptance"
         if sanitized_pending

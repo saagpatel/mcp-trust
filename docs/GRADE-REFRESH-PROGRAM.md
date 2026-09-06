@@ -48,8 +48,8 @@ claim that a server is benign or malicious.
   hours; an expired receipt returns the cohort to `UNKNOWN`.
 - Current public grades were scanned on 2026-07-04 with MCPAudit 2.4.0, while
   the frozen lock resolves MCPAudit 2.7.0. Candidate drift and engine behavior
-  remain UNKNOWN until all 18 policy-eligible entries are safely rescanned and
-  all 13 excluded entries retain their reviewed fail-closed dispositions.
+remain UNKNOWN until all 22 policy-eligible entries are safely rescanned and
+all 9 excluded entries retain their reviewed fail-closed dispositions.
 - A READY preflight now consumes and embeds the independently reproducible
   engine-materialization receipt. Candidate creation and verification revalidate
   that receipt against current installed distribution bytes, closing the former
@@ -118,9 +118,9 @@ network-off sandbox. Ten depend on external or local backing services; a tool
 surface observed without that service does not prove functional behavior.
 Eight are upstream-archived/unsupported and eight are intentionally masked.
 Build-source paths exist for every entry. All 31 entries map to five qualified
-images. The current policy derives 13 blocked entries as the exact union of the
-masked, unsupported, credential-dependent, and backing-service-dependent
-categories; the remaining 18 are scannable.
+images. The current V132 policy derives 9 blocked entries from the reviewed
+execution constraints; the remaining 22 are scannable. Four of the blocked
+entries remain intentionally masked.
 Candidate execution derives its scan set from this exact source-bound policy:
 blocked rows never enter Docker preflight or scanner invocation and cannot
 retain a fresh-looking grade.
@@ -209,7 +209,7 @@ boundary and requalify the same controls before execution.
 controlled server scan. It does not add a selector or partial mode to the
 corpus-wide candidate builder. Before inspecting the one target image, it
 validates and reproduces the complete five-image `READY` qualification against
-the exact 31-row policy boundary (18 scannable, 13 blocked). Only one exact
+the exact 31-row policy boundary (22 scannable, 9 blocked). Only one exact
 policy-scannable local target then reaches Docker and `MCPAuditEngine`.
 
 The source registry is never initialized, copied, seeded, vacuumed, or written.
@@ -288,8 +288,16 @@ V132 adds a digest-pinned browser base to Batch 4 and moves only Chrome DevTools
 and Playwright into the network-none executable set, producing a 22/9 policy
 boundary. V3 and V4 remain historical contracts and cannot accept that boundary.
 The pinned package/runtime Chromium revision mismatch is a compatibility caveat,
-not a safety or publication claim. A future full-candidate review requires an
-additive lineage schema before acceptance.
+not a safety or publication claim. The additive V5 lineage binds an exact
+22-fresh/9-policy-blocked proposal, all nine repeated blocked projections, and
+the SHA-256 of the direct authorization statement. Its accepted V4 artifact
+remains local review evidence and `NO_GO`.
+
+The site-candidate and publication-admission contracts remain deliberately
+V38-only. V5 boundary acceptance cannot be used as site, publication,
+deployment, or scheduler authority; those downstream paths require a separate
+policy change, complete blocked-row rendering semantics, fresh evidence, and
+explicit authorization.
 
 The `build_site_candidate.py` layer consumes the exact `RefreshCandidateV2`, accepted V38
 review receipt, and acceptance artifact, then renders with a deterministic

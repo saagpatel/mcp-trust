@@ -361,8 +361,8 @@ residue. It never rewrites the final tag: readback must show either the recorded
 baseline or the exact task-owned image ID, and any other value remains
 ambiguous and blocked.
 Do not execute a catalog server unless preflight returns `READY`. The receipt
-binds the 31-entry classification, including the exact derived 18 scannable and
-13 blocked execution boundary, source and policy digests, tool versions,
+binds the 31-entry classification, including the exact derived 22 scannable and
+9 blocked execution boundary, source and policy digests, tool versions,
 local Docker authority, immutable image IDs, and explicit network, filesystem,
 resource, and secret controls. See
 [`docs/GRADE-REFRESH-PROGRAM.md`](docs/GRADE-REFRESH-PROGRAM.md) and the

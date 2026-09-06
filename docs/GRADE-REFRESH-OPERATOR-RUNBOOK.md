@@ -276,7 +276,7 @@ immutable and query-only, writes one exclusive `0400` receipt, and never calls
 the registry scan writer. Refusal, timeout, privacy failure, source/DB/image
 drift, missing runtime readback, or uncertain container cleanup writes no
 artifact and no fresh grade. The receipt remains local review evidence only;
-repeatability, the other 17 scannable rows, candidate readiness, public
+repeatability, the other 21 scannable rows, candidate readiness, public
 freshness, publication, deployment, and scheduler state remain unproved.
 
 After the 120-second host-capacity gate expires, the current-admission verifier
@@ -314,11 +314,11 @@ freshness-sensitive verifier and a fresh separately authorized capacity gate.
 Candidate creation loads the source-bound policy before Docker preflight. Only
 `scannable` rows enter preflight or the scanner. A `blocked` row is emitted as
 `blocked-policy`, exposes no fresh grade, and preserves any prior timestamp only
-as historical context. The accepted 13-row blocked disposition is a controlled
+as historical context. The accepted 9-row blocked disposition is a controlled
 catalog outcome, so it does not by itself make an otherwise complete candidate
 partial; any unexpected failure or timeout does. The current policy derives
-the exact 18 scannable rows as the complement of the 13-entry union of masked,
-unsupported, credential-dependent, and backing-service-dependent rows.
+the exact 22 scannable rows and 9 policy-blocked rows; four blocked rows remain
+intentionally masked.
 
 The candidate is local and immutable. Its manifest binds the exact READY
 preflight receipt, source and policy digests, tool versions, image build
@@ -470,10 +470,30 @@ gates.
 
 The V132 hermetic-browser change moves only Chrome DevTools and Playwright to
 the executable set after exact-image browser initialization and tool enumeration.
-Its 22/9 boundary is not represented by V3 or V4 and must not reuse either
-acceptance lineage. Until an additive successor lineage is implemented and
-accepted, review stops at controlled target evidence with publication,
-deployment, and scheduler actions prohibited.
+Its 22/9 boundary uses the additive V5 policy and V4 accepted-artifact lineage;
+V3 and V4 policy schemas remain historical and cannot accept it. Build the V5
+proposal with `publication-review`, then bind the exact proposal and direct
+authorization statement with:
+
+```bash
+uv run --frozen --extra dev python scripts/grade_refresh.py accept-v132-boundary \
+  --candidate ./dist/refresh-candidates/<candidate> \
+  --repeat-candidate ./dist/refresh-candidates/<repeat-candidate> \
+  --preflight ./dist/grade-refresh/preflight.json \
+  --repeatability ./dist/grade-refresh/fixture-repeatability.json \
+  --triage ./dist/grade-refresh/triage.json \
+  --proposed-dispositions ./dist/grade-refresh/v132-dispositions-proposed.json \
+  --proposed-review ./dist/grade-refresh/v132-review-proposed.json \
+  --authorization-statement-sha256 sha256:<64-hex-digest> \
+  --accepted-artifact-out ./dist/grade-refresh/v132-disposition-accepted.json \
+  --accepted-policy-out ./dist/grade-refresh/v132-dispositions-accepted.json
+```
+
+Both acceptance outputs must be new paths. The command independently
+recomputes the exact 22/9 proposal and binds all nine repeatable blocked
+projections. The accepted result remains `NO_GO`. The site builder and
+publication admission remain V38-only and must reject V5; publication,
+deployment, and scheduler actions stay prohibited.
 
 ## 6. Build the immutable local site candidate
 

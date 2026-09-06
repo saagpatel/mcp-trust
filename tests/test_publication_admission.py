@@ -507,6 +507,22 @@ def test_p05_approval_expiry_is_minimum_bound(tmp_path: Path) -> None:
         verify_publication_approval(approval_path, candidate_path=candidate, now=NOW)
 
 
+def test_v132_boundary_acceptance_is_not_publication_authority(tmp_path: Path) -> None:
+    candidate, approval_path, approval = _approval_fixture(tmp_path)
+    approval["review_lineage"].update(
+        {
+            "acceptance_state": "ACCEPTED_EXACT_V132_BOUNDARY",
+            "acceptance_scope": (
+                "all-nine-current-policy-blocks-and-exact-v132-forward-baseline"
+            ),
+        }
+    )
+    _resign(approval, approval_path)
+
+    with pytest.raises(PublicationAdmissionError, match="not accepted exact V38"):
+        verify_publication_approval(approval_path, candidate_path=candidate, now=NOW)
+
+
 def test_p06_package_second_read_rejects_expiry(tmp_path: Path) -> None:
     candidate, approval_path, _ = _approval_fixture(tmp_path)
     package = build_publication_package(
