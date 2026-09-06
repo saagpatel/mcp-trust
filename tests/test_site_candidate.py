@@ -801,6 +801,21 @@ def test_tampered_review_fails_without_final_output(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".output.tmp-*"))
 
 
+def test_v132_boundary_acceptance_is_not_site_candidate_authority(tmp_path: Path) -> None:
+    inputs = _fixture(tmp_path)
+    disposition_path = inputs["disposition_path"]
+    assert isinstance(disposition_path, Path)
+    disposition = json.loads(disposition_path.read_text(encoding="utf-8"))
+    disposition["schema"] = "McpTrustGradeRefreshDispositionPolicyV5"
+    disposition["review_state"] = "ACCEPTED_CURRENT_BOUNDARY_REVIEW"
+    disposition_path.write_bytes(canonical_bytes(disposition))
+    output = tmp_path / "output"
+
+    with pytest.raises(SiteCandidateError, match="schema is unsupported"):
+        build_site_candidate(output_path=output, **inputs)
+    assert not output.exists()
+
+
 def test_site_candidate_tamper_and_extra_file_fail_verification(tmp_path: Path) -> None:
     inputs = _fixture(tmp_path)
     output = build_site_candidate(output_path=tmp_path / "output", **inputs)
