@@ -387,13 +387,15 @@ def test_target_rechecks_actual_time_before_scan_after_receipt_expiry(
     assert not kwargs["output_path"].exists()
 
 
-def test_corpus_candidate_contract_is_31_20_11_and_has_no_selector() -> None:
+def test_corpus_candidate_contract_is_31_22_9_and_has_no_selector() -> None:
     policy = load_policy(POLICY, SEED, MASKED)
     assert policy.raw["catalog_denominator"] == 31
-    assert len(policy.scannable) == 20
-    assert len(policy.blocked) == 11
+    assert len(policy.scannable) == 22
+    assert len(policy.blocked) == 9
     assert "io-github-discourse-mcp-0-2-9" in policy.scannable
     assert "io-github-nvidia-elements-2-1-4" in policy.scannable
+    assert "io-github-microsoft-playwright-mcp-0-0-77" in policy.scannable
+    assert "io-github-chromedevtools-chrome-devtools-mcp-1-5-0" in policy.scannable
     assert "slug" not in inspect.signature(refresh_module.create_refresh_candidate).parameters
 
 
@@ -953,7 +955,7 @@ def test_target_creation_rejects_current_category_drift_before_execution(
         lambda **_kwargs: drifted_inventory,
     )
 
-    with pytest.raises(RefreshCandidateError, match="reviewed V20 catalog counts"):
+    with pytest.raises(RefreshCandidateError, match="reviewed V132 catalog counts"):
         target_scan.create_target_scan_artifact(**kwargs)
 
     assert engine.calls == 0

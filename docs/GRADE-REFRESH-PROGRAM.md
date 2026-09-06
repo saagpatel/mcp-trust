@@ -284,6 +284,13 @@ binds all eleven blocked projections and preserves `UNKNOWN` production state;
 its local acceptance is not publication, deployment, credential, or scheduler
 authority.
 
+V132 adds a digest-pinned browser base to Batch 4 and moves only Chrome DevTools
+and Playwright into the network-none executable set, producing a 22/9 policy
+boundary. V3 and V4 remain historical contracts and cannot accept that boundary.
+The pinned package/runtime Chromium revision mismatch is a compatibility caveat,
+not a safety or publication claim. A future full-candidate review requires an
+additive lineage schema before acceptance.
+
 The `build_site_candidate.py` layer consumes the exact `RefreshCandidateV2`, accepted V38
 review receipt, and acceptance artifact, then renders with a deterministic
 candidate timestamp into a
