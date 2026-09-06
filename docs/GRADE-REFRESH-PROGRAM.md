@@ -272,6 +272,12 @@ from the later clean committed implementation binding. Dormant scheduler-
 definition drift is quarantined behind reconciliation and separate activation
 approval instead of being normalized away by the disabled and unloaded state.
 
+An exact 18-fresh/13-policy-blocked result uses a separate V3 boundary lineage;
+it does not reinterpret or weaken the V38 admission contract. The proposal and
+accepted artifact must bind all thirteen repeated blocked projections exactly.
+Acceptance retains those entries as blocked and keeps the decision `NO_GO`;
+execution requires a separate policy change plus fresh controlled evidence.
+
 The `build_site_candidate.py` layer consumes the exact `RefreshCandidateV2`, accepted V38
 review receipt, and acceptance artifact, then renders with a deterministic
 candidate timestamp into a
