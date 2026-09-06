@@ -2421,7 +2421,6 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                     "caveats": receipt.get("caveats"),
                     "freshness_state": result.get("freshness_state"),
                     "freshness_reason": result.get("freshness_reason"),
-                    "stale_after": result.get("stale_after"),
                     "operator_masked": False,
                     "grade_withheld": False,
                 }
@@ -2445,7 +2444,6 @@ def _controlled_result_projection(candidate: Path) -> dict[str, dict[str, Any]]:
                     ),
                     "freshness_state": result.get("freshness_state"),
                     "freshness_reason": result.get("freshness_reason"),
-                    "stale_after": result.get("stale_after"),
                     "operator_masked": True,
                     "grade_withheld": True,
                 }
@@ -3159,6 +3157,17 @@ def _privacy_safe_tool_versions(payload: object) -> dict[str, Any]:
     if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
         raise GradeRefreshError("publication review Python version is invalid")
     normalized["python_executable"] = f"python{parts[0]}.{parts[1]}"
+    return normalized
+
+
+def _privacy_safe_scheduler_state(payload: object) -> dict[str, Any]:
+    """Retain scheduler evidence without exporting an operator home path."""
+    if not isinstance(payload, dict):
+        return {}
+    normalized = dict(payload)
+    installed_plist = normalized.get("installed_plist")
+    if isinstance(installed_plist, str):
+        normalized["installed_plist"] = Path(installed_plist).name
     return normalized
 
 
@@ -3947,7 +3956,7 @@ def build_state_card(
         "source_tree_digest": source.get("source_tree_digest", "UNKNOWN"),
         "catalog_denominator": catalog.get("denominator", 0),
         "catalog_counts": catalog.get("counts", {}),
-        "scheduler_state": scheduler,
+        "scheduler_state": _privacy_safe_scheduler_state(scheduler),
         "safe_to_execute_catalog": preflight.get("safe_to_execute_catalog", False),
         "fixture_repeatability": repeatability.get("status", "UNKNOWN"),
         "severity_findings": severity_findings,

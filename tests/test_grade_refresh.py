@@ -2142,6 +2142,80 @@ def test_triage_requires_review_for_inconsistent_controlled_repeats(
     assert "controlled_repeat_evidence_not_qualified" in state["outstanding_gates"]
 
 
+def test_controlled_repeat_ignores_candidate_relative_stale_after(tmp_path: Path) -> None:
+    projections = []
+    for name, stale_after in (
+        ("first", "2026-12-05T09:02:55+00:00"),
+        ("second", "2026-12-05T09:03:13+00:00"),
+    ):
+        candidate = tmp_path / name
+        receipts = candidate / "receipts"
+        receipts.mkdir(parents=True)
+        (candidate / "scan_results.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "server_slug": "example",
+                            "state": "fresh",
+                            "receipt": "example.json",
+                            "fresh_grade": "B",
+                            "transparency": "high",
+                            "engine_name": "fixture",
+                            "engine_version": "1",
+                            "freshness_state": "fresh",
+                            "freshness_reason": "within-validity-window",
+                            "stale_after": stale_after,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (receipts / "example.json").write_text(
+            json.dumps(
+                {
+                    "scan": {"risk": "low", "findings": []},
+                    "evidence": {},
+                    "danger_score": 20,
+                    "sandbox": {},
+                    "execution_binding": {},
+                    "caveats": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        projections.append(grade_refresh._controlled_result_projection(candidate))
+
+    assert projections[0] == projections[1]
+
+
+def test_state_card_sanitizes_installed_launchagent_path() -> None:
+    state = build_state_card(
+        preflight={
+            "status": "BLOCKED",
+            "safe_to_execute_catalog": False,
+            "reasons": ["fixture"],
+            "source_binding": {},
+            "catalog": {},
+            "scheduler": {
+                "state": "DISABLED_UNLOADED",
+                "installed_plist": (
+                    "/Users/private/Library/LaunchAgents/"
+                    "com.d.mcp-trust-refresh.plist"
+                ),
+                "mutation_performed": False,
+            },
+        },
+        repeatability={"status": "FAIL"},
+        triage=None,
+    )
+
+    assert state["scheduler_state"]["installed_plist"] == (
+        "com.d.mcp-trust-refresh.plist"
+    )
+
+
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
     preflight = {
         "safe_to_execute_catalog": False,
