@@ -23,6 +23,7 @@ HOST_CAPACITY_SCHEMA = "McpTrustHostCapacityReceiptV1"
 QUALIFICATION_CAPACITY_SCHEMA = "McpTrustQualificationCapacityReceiptV1"
 HOST_CAPACITY_MIN_AVAILABLE_BYTES = 5 * 1024**3
 HOST_CAPACITY_MIN_INTERVAL_SECONDS = 30
+HOST_CAPACITY_SLEEP_MARGIN_SECONDS = 0.01
 HOST_CAPACITY_MAX_AGE_SECONDS = 120
 HOST_CAPACITY_REQUIRED_READINGS = 2
 HOST_CAPACITY_CLAIM_CEILING = (
@@ -208,7 +209,13 @@ def build_host_capacity_receipt(
         readings.append(first_reading)
         reasons.extend(_reading_reasons(first_reading))
         if not reasons:
-            sleeper(HOST_CAPACITY_MIN_INTERVAL_SECONDS)
+            # Wall-clock sampling can land a few microseconds short of the
+            # requested sleep. Keep the signed policy floor exact and add a
+            # small observation margin instead of weakening validation.
+            sleeper(
+                HOST_CAPACITY_MIN_INTERVAL_SECONDS
+                + HOST_CAPACITY_SLEEP_MARGIN_SECONDS
+            )
             second = reader(anchor)
             second_at = _utc(clock())
             second_reading = _reading(second, sequence=2, observed_at=second_at)
