@@ -456,6 +456,12 @@ baseline as `UNKNOWN`; and returns `NO_GO`. Current-source acceptance is not
 publication or deployment authority and does not prove production freshness,
 safety, endorsement, backing-service behavior, or credentialed behavior.
 
+For an exact 18-fresh/13-policy-blocked candidate, create a V3 boundary proposal
+instead of changing the V38 admission constants. Human acceptance binds the
+proposal receipt, policy digest, and all thirteen repeated blocked projections.
+The accepted result remains `NO_GO`: it records the reviewed boundary but grants
+no execution, publication, deployment, or scheduler authority.
+
 ## 6. Build the immutable local site candidate
 
 Use only the exact verified refresh candidate, bundled V38 proposal receipt, and

@@ -347,6 +347,211 @@ def test_publication_review_is_deterministic_and_fail_closed(
     assert state["next_action"].startswith("Build and verify")
 
 
+def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    inventory = grade_refresh.catalog_inventory(
+        seed_path=SEED, masked_path=MASKED, policy_path=POLICY
+    )
+    blocked = sorted(
+        row["slug"]
+        for row in inventory["entries"]
+        if row["execution_disposition"] == "do-not-execute"
+    )
+    scannable = sorted(
+        row["slug"]
+        for row in inventory["entries"]
+        if row["execution_disposition"] == "pinned-network-off-sandbox-only"
+    )
+    assert len(blocked) == 13
+    assert len(scannable) == 18
+    preflight, repeatability, _, _ = _inputs()
+    findings = [
+        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug}
+        for slug in blocked
+    ]
+    findings.extend(
+        {"severity": "Medium", "code": "baseline_or_drift_unknown", "slug": slug}
+        for slug in scannable
+    )
+    findings.append(
+        {
+            "severity": "Medium",
+            "code": "baseline_policy_digest_unknown",
+            "slug": "catalog",
+        }
+    )
+    triage = {
+        "counts": {"Critical": 13, "High": 0, "Medium": 19, "Low": 0},
+        "findings": findings,
+        "candidate_manifest_digest": "sha256:" + "6" * 64,
+        "repeat_candidate_manifest_digest": "sha256:" + "7" * 64,
+        "receipt_digest": "sha256:" + "8" * 64,
+    }
+    projections = {
+        slug: {
+            "server_slug": slug,
+            "state": "blocked-policy",
+            "fresh_grade": None,
+            "execution_disposition": "do-not-execute",
+            "reason": "sandbox_image_qualification_unknown",
+            "error_type": None,
+        }
+        for slug in blocked
+    }
+    projections.update(
+        {
+            slug: {"server_slug": slug, "state": "fresh"}
+            for slug in scannable
+        }
+    )
+    monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
+    historical = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
+    proposed_policy = {
+        **historical,
+        "schema": "McpTrustGradeRefreshDispositionPolicyV3",
+        "review_state": "PROPOSED",
+        "forward_baseline": {
+            "state": "PROPOSED",
+            "disposition": "adopt-exact-candidate-bindings-after-operator-acceptance",
+        },
+        "entries": [
+            {
+                "slug": slug,
+                "disposition": "KEEP_BLOCKED_POLICY",
+                "rationale_code": "execution-prohibited-by-reviewed-policy",
+                "next_review_condition": (
+                    "separate-policy-change-and-fresh-controlled-evidence"
+                ),
+            }
+            for slug in blocked
+        ],
+    }
+    proposed_policy.pop("acceptance")
+    proposed_policy_path = tmp_path / "v129-boundary-proposed.json"
+    proposed_policy_path.write_text(json.dumps(proposed_policy), encoding="utf-8")
+    build_kwargs = {
+        "candidate": tmp_path / "first",
+        "repeat_candidate": tmp_path / "second",
+        "preflight": preflight,
+        "repeatability": repeatability,
+        "triage": triage,
+        "seed_path": SEED,
+        "masked_path": MASKED,
+        "policy_path": POLICY,
+        "repo_root": ROOT,
+        "projection_builder": lambda _path: projections,
+    }
+    proposed = build_publication_review_decision(
+        **build_kwargs, disposition_path=proposed_policy_path
+    )
+    assert proposed["candidate_counts"] == {
+        "fresh": 18,
+        "masked": 0,
+        "blocked": 13,
+        "total": 31,
+    }
+    assert proposed["disposition_counts"]["retain_blocked"] == 13
+    assert proposed["review_state"] == "READY_FOR_HUMAN_DISPOSITION"
+
+    proposed_review_path = tmp_path / "publication-review-v129-proposed.json"
+    proposed_review_path.write_bytes(canonical_bytes(proposed))
+    accepted_artifact = {
+        "schema": "McpTrustAcceptedDispositionArtifactV2",
+        "decision": "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY",
+        "acceptance": {
+            "state": "ACCEPTED_EXACT_V129_BOUNDARY",
+            "source": "direct-current-chat-token",
+            "scope": "all-thirteen-current-policy-blocks-and-exact-v129-forward-baseline",
+            "proposal_artifact_sha256": grade_refresh.digest_file(proposed_review_path),
+            "proposal_receipt_digest": proposed["receipt_digest"],
+            "proposal_policy_sha256": proposed["disposition_policy"]["sha256"],
+        },
+        "forward_baseline": {
+            **proposed["forward_baseline"],
+            "state": "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY",
+        },
+        "historical_baseline": proposed["historical_baseline"],
+        "blocked_dispositions": {
+            "count": 13,
+            "acceptance_state": "ACCEPTED_EXACT_V129_RETAIN_BLOCKED",
+            "projection_repeatability": "PASS",
+            "entries": [
+                {
+                    "slug": entry["slug"],
+                    "disposition": entry["disposition"],
+                    "rationale_code": entry["rationale_code"],
+                    "next_review_condition": entry["next_review_condition"],
+                    "projection_digest": entry["controlled_evidence"]["projection_digest"],
+                }
+                for entry in proposed["entry_dispositions"]
+            ],
+        },
+        "privacy": {
+            "host_specific_path_matches": 0,
+            "credential_values_present": False,
+            "blocked_grade_risk_finding_or_receipt_fields_present": False,
+            "raw_candidate_transfer_allowed": False,
+        },
+        "prior_acceptance_lineage": {"transfer_from_v38": False},
+        "separate_public_state": {
+            "production_freshness": "UNKNOWN",
+            "production_source_binding": "UNKNOWN",
+            "production_deployment_revision": "UNKNOWN",
+            "relationship_to_v129": "NOT_PUBLISHED_AND_NOT_DEPLOYED",
+        },
+    }
+    accepted_artifact["receipt_digest"] = grade_refresh.digest_bytes(
+        canonical_bytes(accepted_artifact)
+    )
+    accepted_artifact_path = tmp_path / "accepted-disposition-v129.json"
+    accepted_artifact_path.write_bytes(canonical_bytes(accepted_artifact))
+    accepted_policy = {
+        **proposed_policy,
+        "review_state": "ACCEPTED_CURRENT_BOUNDARY_REVIEW",
+        "forward_baseline": {
+            "state": "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY",
+            "disposition": "retain-exact-v129-policy-boundary-as-forward-baseline",
+        },
+        "acceptance": {
+            "authority": "operator",
+            "scope": "all-thirteen-current-policy-blocks-and-exact-v129-forward-baseline",
+            "acceptance_state": "ACCEPTED_EXACT_V129_BOUNDARY",
+            "accepted_review_path": proposed_review_path.name,
+            "accepted_review_receipt_digest": proposed["receipt_digest"],
+            "accepted_review_artifact_sha256": grade_refresh.digest_file(
+                proposed_review_path
+            ),
+            "accepted_review_policy_sha256": proposed["disposition_policy"]["sha256"],
+            "accepted_disposition_path": accepted_artifact_path.name,
+            "accepted_disposition_receipt_digest": accepted_artifact["receipt_digest"],
+            "accepted_disposition_artifact_sha256": grade_refresh.digest_file(
+                accepted_artifact_path
+            ),
+        },
+    }
+    accepted_policy_path = tmp_path / "v129-boundary-accepted.json"
+    accepted_policy_path.write_text(json.dumps(accepted_policy), encoding="utf-8")
+    accepted = build_publication_review_decision(
+        **build_kwargs,
+        disposition_path=accepted_policy_path,
+        accepted_review_path=proposed_review_path,
+    )
+    assert accepted["review_state"] == "ACCEPTED_FOR_BOUNDARY_REVIEW"
+    assert accepted["disposition_counts"]["accepted_human"] == 13
+    assert "blocked_policy_change_and_fresh_controlled_evidence_required" in accepted[
+        "blocking_gates"
+    ]
+    state = build_publication_review_state_card(accepted)
+    assert state["severity_findings"] == {
+        "Critical": 13,
+        "High": 0,
+        "Medium": 20,
+        "Low": 0,
+    }
+    assert state["next_action"].startswith("A separate policy change")
+
+
 def test_publication_review_state_card_rejects_tampered_decision(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
