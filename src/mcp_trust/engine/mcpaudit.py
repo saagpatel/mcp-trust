@@ -51,6 +51,7 @@ from mcp_trust.core.models import (
 from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError, ScanTimeoutError
 from mcp_trust.engine.credentials import build_dummy_env
 from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
     DockerSandbox,
     DockerSandboxCleanupError,
     DockerSandboxRuntimeReadbackError,
@@ -149,6 +150,7 @@ def _run_sync(
     *,
     outer_timeout: float | None = None,
     runtime_probe: Callable[[], dict[str, object]] | None = None,
+    attestation_release: threading.Event | None = None,
 ) -> tuple[_T, dict[str, object] | None]:
     """Run an async coroutine to completion from sync code.
 
@@ -156,6 +158,8 @@ def _run_sync(
     loop (e.g. an async web handler) it runs the coroutine on a worker thread
     with its own loop, so it never collides with the caller's loop.
     """
+    if attestation_release is not None and runtime_probe is None:
+        raise ValueError("attestation release requires a runtime probe")
     if outer_timeout is None:
         if runtime_probe is not None:
             raise ValueError("a runtime probe requires an outer deadline")
@@ -183,6 +187,9 @@ def _run_sync(
             runtime_readback = runtime_probe()
         except BaseException as exc:  # cleanup is owned by the lifecycle caller
             runtime_error = exc
+        finally:
+            if attestation_release is not None:
+                attestation_release.set()
     if runtime_error is not None:
         raise runtime_error
     remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
@@ -280,6 +287,28 @@ def repository_outer_timeout_seconds(connector_timeout: float) -> float:
     return connector_timeout + max(1.0, min(5.0, connector_timeout * 0.1))
 
 
+def gate_connector_teardown_for_runtime_attestation(
+    connector: object,
+    *,
+    release: threading.Event,
+    timeout: float,
+) -> object:
+    """Keep fast stdio sessions alive until Docker attestation completes."""
+    list_capabilities = getattr(connector, "_list_capabilities", None)
+    if not callable(list_capabilities):
+        raise ScanError("mcp-audits connector lacks the required lifecycle hook")
+
+    async def gated_list_capabilities(session: object, server_name: str) -> object:
+        capabilities = await list_capabilities(session, server_name)
+        released = await asyncio.to_thread(release.wait, timeout)
+        if not released:
+            raise TimeoutError("runtime attestation release exceeded its bounded deadline")
+        return capabilities
+
+    connector._list_capabilities = gated_list_capabilities  # type: ignore[attr-defined]
+    return connector
+
+
 class MCPAuditEngine:
     """Scan engine backed by the public ``mcp-audits`` package.
 
@@ -316,6 +345,7 @@ class MCPAuditEngine:
         sandbox: Sandbox,
         *,
         launches_process: bool,
+        attestation_release: threading.Event | None = None,
     ) -> tuple[object, str | None, dict[str, object] | None]:
         """Connect within a bounded Docker lifecycle and verify cleanup."""
         connect_error: BaseException | None = None
@@ -338,6 +368,7 @@ class MCPAuditEngine:
                 )
                 if launches_process and isinstance(sandbox, DockerSandbox)
                 else None,
+                attestation_release=attestation_release,
             )
         except BaseException as exc:  # cleanup must also run for cancellation/system exit
             connect_error = exc
@@ -486,6 +517,14 @@ class MCPAuditEngine:
             raise
 
         connector = ServerConnector(timeout=self._timeout)
+        attestation_release: threading.Event | None = None
+        if launches_process and isinstance(sandbox, DockerSandbox):
+            attestation_release = threading.Event()
+            connector = gate_connector_teardown_for_runtime_attestation(
+                connector,
+                release=attestation_release,
+                timeout=SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
+            )
         analyzer = PermissionAnalyzer()
         scorer = RiskScorer()
 
@@ -495,6 +534,7 @@ class MCPAuditEngine:
                 cfg,
                 sandbox,
                 launches_process=launches_process,
+                attestation_release=attestation_release,
             )
         except ScanTimeoutError:
             raise
