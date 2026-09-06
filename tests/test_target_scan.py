@@ -387,11 +387,13 @@ def test_target_rechecks_actual_time_before_scan_after_receipt_expiry(
     assert not kwargs["output_path"].exists()
 
 
-def test_corpus_candidate_contract_remains_31_18_13_and_has_no_selector() -> None:
+def test_corpus_candidate_contract_is_31_20_11_and_has_no_selector() -> None:
     policy = load_policy(POLICY, SEED, MASKED)
     assert policy.raw["catalog_denominator"] == 31
-    assert len(policy.scannable) == 18
-    assert len(policy.blocked) == 13
+    assert len(policy.scannable) == 20
+    assert len(policy.blocked) == 11
+    assert "io-github-discourse-mcp-0-2-9" in policy.scannable
+    assert "io-github-nvidia-elements-2-1-4" in policy.scannable
     assert "slug" not in inspect.signature(refresh_module.create_refresh_candidate).parameters
 
 

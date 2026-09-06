@@ -278,6 +278,12 @@ accepted artifact must bind all thirteen repeated blocked projections exactly.
 Acceptance retains those entries as blocked and keeps the decision `NO_GO`;
 execution requires a separate policy change plus fresh controlled evidence.
 
+The reviewed V131 successor policy uses an additive V4 boundary lineage for its
+exact 20-fresh/11-policy-blocked result. V3 remains historical and valid. V4
+binds all eleven blocked projections and preserves `UNKNOWN` production state;
+its local acceptance is not publication, deployment, credential, or scheduler
+authority.
+
 The `build_site_candidate.py` layer consumes the exact `RefreshCandidateV2`, accepted V38
 review receipt, and acceptance artifact, then renders with a deterministic
 candidate timestamp into a

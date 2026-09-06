@@ -25,6 +25,7 @@ BUNDLED_ACCEPTED_REVIEW = (
 BUNDLED_ACCEPTED_DISPOSITION = (
     ROOT / "src/mcp_trust/catalog/accepted_disposition_artifact_v38.json"
 )
+CATALOG_INVENTORY = grade_refresh.catalog_inventory
 
 
 def _inputs() -> tuple[
@@ -33,12 +34,8 @@ def _inputs() -> tuple[
     dict[str, object],
     dict[str, dict[str, object]],
 ]:
-    inventory = grade_refresh.catalog_inventory(
-        seed_path=SEED, masked_path=MASKED, policy_path=POLICY
-    )
-    masked = sorted(
-        row["slug"] for row in inventory["entries"] if row["intentionally_masked"]
-    )
+    historical_policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
+    masked = sorted(entry["slug"] for entry in historical_policy["entries"])
     image_id = "sha256:" + "a" * 64
     preflight: dict[str, object] = {
         "status": "READY",
@@ -140,6 +137,31 @@ def _inputs() -> tuple[
     return preflight, repeatability, triage, projections
 
 
+def _legacy_v38_inventory() -> dict[str, object]:
+    """Project the retained V38 masking boundary without changing current policy."""
+    inventory = copy.deepcopy(
+        CATALOG_INVENTORY(
+            seed_path=SEED, masked_path=MASKED, policy_path=POLICY
+        )
+    )
+    promoted = {
+        "io-github-discourse-mcp-0-2-9",
+        "io-github-nvidia-elements-2-1-4",
+    }
+    for row in inventory["entries"]:
+        if row["slug"] in promoted:
+            row["scannable"] = False
+            row["intentionally_masked"] = True
+            row["execution_disposition"] = "do-not-execute"
+    inventory["counts"] = {
+        **inventory["counts"],
+        "scannable": 18,
+        "blocked": 13,
+        "intentionally_masked": 8,
+    }
+    return inventory
+
+
 def test_publication_review_rejects_same_candidate_path(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
@@ -173,6 +195,9 @@ def _build(
         return triage
 
     monkeypatch.setattr(grade_refresh, "triage_candidate", recompute_triage)
+    monkeypatch.setattr(
+        grade_refresh, "catalog_inventory", lambda **_kwargs: _legacy_v38_inventory()
+    )
     if disposition_path == DISPOSITIONS and accepted_review_path is None:
         proposed_policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
         proposed_policy["review_state"] = "PROPOSED"
@@ -347,7 +372,7 @@ def test_publication_review_is_deterministic_and_fail_closed(
     assert state["next_action"].startswith("Build and verify")
 
 
-def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
+def test_v131_boundary_review_accepts_exact_post_policy_lineage(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     inventory = grade_refresh.catalog_inventory(
@@ -363,8 +388,8 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
         for row in inventory["entries"]
         if row["execution_disposition"] == "pinned-network-off-sandbox-only"
     )
-    assert len(blocked) == 13
-    assert len(scannable) == 18
+    assert len(blocked) == 11
+    assert len(scannable) == 20
     preflight, repeatability, _, _ = _inputs()
     findings = [
         {"severity": "Critical", "code": "result_blocked-policy", "slug": slug}
@@ -382,7 +407,7 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
         }
     )
     triage = {
-        "counts": {"Critical": 13, "High": 0, "Medium": 19, "Low": 0},
+        "counts": {"Critical": 11, "High": 0, "Medium": 21, "Low": 0},
         "findings": findings,
         "candidate_manifest_digest": "sha256:" + "6" * 64,
         "repeat_candidate_manifest_digest": "sha256:" + "7" * 64,
@@ -409,7 +434,7 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
     historical = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
     proposed_policy = {
         **historical,
-        "schema": "McpTrustGradeRefreshDispositionPolicyV3",
+        "schema": "McpTrustGradeRefreshDispositionPolicyV4",
         "review_state": "PROPOSED",
         "forward_baseline": {
             "state": "PROPOSED",
@@ -428,7 +453,7 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
         ],
     }
     proposed_policy.pop("acceptance")
-    proposed_policy_path = tmp_path / "v129-boundary-proposed.json"
+    proposed_policy_path = tmp_path / "v131-boundary-proposed.json"
     proposed_policy_path.write_text(json.dumps(proposed_policy), encoding="utf-8")
     build_kwargs = {
         "candidate": tmp_path / "first",
@@ -446,35 +471,35 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
         **build_kwargs, disposition_path=proposed_policy_path
     )
     assert proposed["candidate_counts"] == {
-        "fresh": 18,
+        "fresh": 20,
         "masked": 0,
-        "blocked": 13,
+        "blocked": 11,
         "total": 31,
     }
-    assert proposed["disposition_counts"]["retain_blocked"] == 13
+    assert proposed["disposition_counts"]["retain_blocked"] == 11
     assert proposed["review_state"] == "READY_FOR_HUMAN_DISPOSITION"
 
-    proposed_review_path = tmp_path / "publication-review-v129-proposed.json"
+    proposed_review_path = tmp_path / "publication-review-v131-proposed.json"
     proposed_review_path.write_bytes(canonical_bytes(proposed))
     accepted_artifact = {
-        "schema": "McpTrustAcceptedDispositionArtifactV2",
-        "decision": "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY",
+        "schema": "McpTrustAcceptedDispositionArtifactV3",
+        "decision": "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY",
         "acceptance": {
-            "state": "ACCEPTED_EXACT_V129_BOUNDARY",
+            "state": "ACCEPTED_EXACT_V131_BOUNDARY",
             "source": "direct-current-chat-token",
-            "scope": "all-thirteen-current-policy-blocks-and-exact-v129-forward-baseline",
+            "scope": "all-eleven-current-policy-blocks-and-exact-v131-forward-baseline",
             "proposal_artifact_sha256": grade_refresh.digest_file(proposed_review_path),
             "proposal_receipt_digest": proposed["receipt_digest"],
             "proposal_policy_sha256": proposed["disposition_policy"]["sha256"],
         },
         "forward_baseline": {
             **proposed["forward_baseline"],
-            "state": "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY",
+            "state": "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY_LOCAL_REVIEW_ONLY",
         },
         "historical_baseline": proposed["historical_baseline"],
         "blocked_dispositions": {
-            "count": 13,
-            "acceptance_state": "ACCEPTED_EXACT_V129_RETAIN_BLOCKED",
+            "count": 11,
+            "acceptance_state": "ACCEPTED_EXACT_V131_RETAIN_BLOCKED",
             "projection_repeatability": "PASS",
             "entries": [
                 {
@@ -493,30 +518,30 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
             "blocked_grade_risk_finding_or_receipt_fields_present": False,
             "raw_candidate_transfer_allowed": False,
         },
-        "prior_acceptance_lineage": {"transfer_from_v38": False},
+        "prior_acceptance_lineage": {"transfer_from_v130": False},
         "separate_public_state": {
             "production_freshness": "UNKNOWN",
             "production_source_binding": "UNKNOWN",
             "production_deployment_revision": "UNKNOWN",
-            "relationship_to_v129": "NOT_PUBLISHED_AND_NOT_DEPLOYED",
+            "relationship_to_v131": "NOT_PUBLISHED_AND_NOT_DEPLOYED",
         },
     }
     accepted_artifact["receipt_digest"] = grade_refresh.digest_bytes(
         canonical_bytes(accepted_artifact)
     )
-    accepted_artifact_path = tmp_path / "accepted-disposition-v129.json"
+    accepted_artifact_path = tmp_path / "accepted-disposition-v131.json"
     accepted_artifact_path.write_bytes(canonical_bytes(accepted_artifact))
     accepted_policy = {
         **proposed_policy,
         "review_state": "ACCEPTED_CURRENT_BOUNDARY_REVIEW",
         "forward_baseline": {
-            "state": "OPERATOR_ACCEPTED_EXACT_V129_BOUNDARY_LOCAL_REVIEW_ONLY",
-            "disposition": "retain-exact-v129-policy-boundary-as-forward-baseline",
+            "state": "OPERATOR_ACCEPTED_EXACT_V131_BOUNDARY_LOCAL_REVIEW_ONLY",
+            "disposition": "retain-exact-v131-policy-boundary-as-forward-baseline",
         },
         "acceptance": {
             "authority": "operator",
-            "scope": "all-thirteen-current-policy-blocks-and-exact-v129-forward-baseline",
-            "acceptance_state": "ACCEPTED_EXACT_V129_BOUNDARY",
+            "scope": "all-eleven-current-policy-blocks-and-exact-v131-forward-baseline",
+            "acceptance_state": "ACCEPTED_EXACT_V131_BOUNDARY",
             "accepted_review_path": proposed_review_path.name,
             "accepted_review_receipt_digest": proposed["receipt_digest"],
             "accepted_review_artifact_sha256": grade_refresh.digest_file(
@@ -530,7 +555,7 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
             ),
         },
     }
-    accepted_policy_path = tmp_path / "v129-boundary-accepted.json"
+    accepted_policy_path = tmp_path / "v131-boundary-accepted.json"
     accepted_policy_path.write_text(json.dumps(accepted_policy), encoding="utf-8")
     accepted = build_publication_review_decision(
         **build_kwargs,
@@ -538,15 +563,15 @@ def test_v129_boundary_review_accepts_exact_blocked_policy_lineage(
         accepted_review_path=proposed_review_path,
     )
     assert accepted["review_state"] == "ACCEPTED_FOR_BOUNDARY_REVIEW"
-    assert accepted["disposition_counts"]["accepted_human"] == 13
+    assert accepted["disposition_counts"]["accepted_human"] == 11
     assert "blocked_policy_change_and_fresh_controlled_evidence_required" in accepted[
         "blocking_gates"
     ]
     state = build_publication_review_state_card(accepted)
     assert state["severity_findings"] == {
-        "Critical": 13,
+        "Critical": 11,
         "High": 0,
-        "Medium": 20,
+        "Medium": 22,
         "Low": 0,
     }
     assert state["next_action"].startswith("A separate policy change")
@@ -730,6 +755,9 @@ def test_accepted_policy_requires_exact_review_artifact(
 ) -> None:
     preflight, repeatability, triage, projections = _inputs()
     monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
+    monkeypatch.setattr(
+        grade_refresh, "catalog_inventory", lambda **_kwargs: _legacy_v38_inventory()
+    )
 
     with pytest.raises(GradeRefreshError, match="requires a review artifact"):
         build_publication_review_decision(
@@ -762,6 +790,9 @@ def test_publication_review_rejects_preflight_inventory_denominator_mismatch(
     preflight, repeatability, triage, projections = _inputs()
     preflight["catalog"]["denominator"] = 0
     monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
+    monkeypatch.setattr(
+        grade_refresh, "catalog_inventory", lambda **_kwargs: _legacy_v38_inventory()
+    )
     proposed_policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
     proposed_policy["review_state"] = "PROPOSED"
     proposed_policy["forward_baseline"] = {

@@ -23,4 +23,6 @@ COPY --from=npm-dependencies /opt/npm/node_modules /opt/npm/node_modules
 RUN install -d -m 0755 /opt/venv/bin \
     && ln -s /usr/local/bin/python /opt/venv/bin/python
 RUN readlink /opt/npm/node_modules/.bin/ui5-wcr-mcp | grep -Fqx -- "../@ui5/webcomponents-react-mcp/dist/index.js"
+RUN readlink /opt/npm/node_modules/.bin/discourse-mcp | grep -Fqx -- "../@discourse/mcp/dist/index.js"
+RUN readlink /opt/npm/node_modules/.bin/nve | grep -Fqx -- "../@nvidia-elements/cli/dist/index.js"
 WORKDIR /scan
