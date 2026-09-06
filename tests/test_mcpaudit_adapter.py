@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import threading
 import time
 import traceback
 
@@ -19,7 +20,13 @@ import pytest
 
 from mcp_trust.core.models import ServerSource, Severity, SourceKind
 from mcp_trust.engine.base import ScanError, ScanTimeoutError
-from mcp_trust.engine.mcpaudit import MCPAuditEngine, _severity_for, docker_launch_spec
+from mcp_trust.engine.mcpaudit import (
+    MCPAuditEngine,
+    _run_sync,
+    _severity_for,
+    docker_launch_spec,
+    gate_connector_teardown_for_runtime_attestation,
+)
 from mcp_trust.engine.sandbox import (
     DockerSandbox,
     DockerSandboxRuntimeReadbackError,
@@ -154,6 +161,48 @@ def test_docker_lifecycle_success_requires_verified_absence() -> None:
     assert evidence == "CONTAINER_ABSENCE_VERIFIED"
     assert runtime_readback is not None
     assert runtime_readback["state"] == "VERIFIED"
+
+
+def test_fast_connector_stays_live_until_runtime_attestation_finishes() -> None:
+    release = threading.Event()
+    started = threading.Event()
+
+    class _Connector:
+        live = False
+
+        async def _list_capabilities(self, _session: object, _name: str) -> object:
+            return object()
+
+        async def connect(self, _cfg: object) -> object:
+            self.live = True
+            started.set()
+            try:
+                return await self._list_capabilities(object(), "fast-server")
+            finally:
+                self.live = False
+
+    connector = _Connector()
+    gate_connector_teardown_for_runtime_attestation(
+        connector,
+        release=release,
+        timeout=1.0,
+    )
+
+    def runtime_probe() -> dict[str, object]:
+        assert started.wait(1.0) is True
+        assert connector.live is True
+        return {"state": "VERIFIED"}
+
+    audit, readback = _run_sync(
+        lambda: connector.connect(object()),
+        outer_timeout=1.0,
+        runtime_probe=runtime_probe,
+        attestation_release=release,
+    )
+
+    assert audit is not None
+    assert readback == {"state": "VERIFIED"}
+    assert connector.live is False
 
 
 def test_docker_lifecycle_accepts_source_qualified_python_console_identity() -> None:

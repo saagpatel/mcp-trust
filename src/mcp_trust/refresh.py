@@ -32,7 +32,7 @@ from mcp_trust.core.governance import (
     assess_scan_freshness,
 )
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
-from mcp_trust.engine.base import EngineResult, ScanTimeoutError
+from mcp_trust.engine.base import EngineResult, ScanError, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import (
     MCPAuditEngine,
     docker_launch_spec,
@@ -46,6 +46,7 @@ from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_SCHEMA,
     SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
     DockerSandbox,
+    DockerSandboxRuntimeReadbackError,
     normalize_local_docker_host,
     sandbox_server_process_digests,
     valid_sandbox_runtime_readback,
@@ -86,6 +87,24 @@ _MAX_JSON_ARTIFACT_BYTES = 16 * 1024 * 1024
 _MAX_DATABASE_ARTIFACT_BYTES = 64 * 1024 * 1024
 _MAX_CANDIDATE_BYTES = 128 * 1024 * 1024
 _MAX_CANDIDATE_FILES = 4096
+
+
+def _scan_failure_reason(exc: BaseException) -> str:
+    """Return a stable, non-sensitive category for retained failure evidence."""
+    if isinstance(exc, ScanError):
+        if isinstance(exc.__cause__, DockerSandboxRuntimeReadbackError):
+            return "sandbox_runtime_attestation_failed"
+        message = str(exc)
+        if message.startswith(("Failed to connect", "Could not scan")):
+            return "mcp_connection_failed"
+        if "unexpected result shape" in message:
+            return "engine_result_incompatible"
+        if "cleanup" in message or "lifecycle" in message:
+            return "sandbox_lifecycle_failed"
+        return "scan_error"
+    return "unexpected_scan_exception"
+
+
 _MAX_CATALOG_ROWS = 10_000
 _MAX_ARTIFACT_PATH_BYTES = 1024
 _MAX_ARTIFACT_PATH_DEPTH = 16
@@ -2438,6 +2457,7 @@ def create_refresh_candidate(
                             "state": "scan-failed",
                             "fresh_grade": None,
                             "error_type": type(exc).__name__,
+                            "reason": _scan_failure_reason(exc),
                             "previous_grade": str(previous.grade) if previous else None,
                             "previous_scanned_at": (
                                 previous.scanned_at.isoformat() if previous else None

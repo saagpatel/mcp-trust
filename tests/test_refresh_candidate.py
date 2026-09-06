@@ -2387,6 +2387,7 @@ def test_partial_scan_failure_never_retains_old_grade_as_fresh(tmp_path: Path) -
     assert by_slug["beta"]["state"] == "scan-failed"
     assert by_slug["beta"]["fresh_grade"] is None
     assert by_slug["beta"]["error_type"] == "RuntimeError"
+    assert by_slug["beta"]["reason"] == "unexpected_scan_exception"
     assert "fixture failure" not in json.dumps(by_slug["beta"])
 
 
