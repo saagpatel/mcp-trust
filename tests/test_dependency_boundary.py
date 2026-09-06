@@ -878,6 +878,11 @@ def test_direct_qualifier_rejects_unscoped_gate_before_docker(
     monkeypatch.setattr(module, "_require_safe_directory", lambda *_a, **_k: None)
     monkeypatch.setattr(
         module,
+        "_cohort_binding",
+        lambda *_a, **_k: pytest.fail("Dependency boundary crossed an unscoped gate"),
+    )
+    monkeypatch.setattr(
+        module,
         "_image_id",
         lambda *_a, **_k: pytest.fail("Docker boundary crossed an unscoped gate"),
     )
@@ -1892,6 +1897,11 @@ def test_qualification_retains_only_owned_final_tag_after_post_load_failure(
 
     monkeypatch.setattr(module, "_require_safe_directory", lambda *_a, **_k: None)
     monkeypatch.setattr(module, "_require_private_directory", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        module,
+        "_dependency_inputs",
+        lambda *_a, **_k: ({}, {}, {}, {}, {}),
+    )
     monkeypatch.setattr(module, "_image_id", image_id)
     monkeypatch.setattr(module, "_execution_boundary", boundary)
     monkeypatch.setattr(
