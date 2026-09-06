@@ -11,6 +11,7 @@ import pytest
 from mcp_trust import host_capacity
 from mcp_trust.host_capacity import (
     HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    HOST_CAPACITY_SLEEP_MARGIN_SECONDS,
     HostCapacityError,
     HostCapacitySample,
     build_host_capacity_receipt,
@@ -78,6 +79,22 @@ def test_readings_less_than_thirty_seconds_apart_are_blocked() -> None:
 
     assert receipt["status"] == "BLOCKED"
     assert receipt["reasons"] == ["capacity_readings_too_close"]
+
+
+def test_observer_waits_beyond_the_exact_policy_floor() -> None:
+    times = iter((NOW, NOW + timedelta(seconds=30, milliseconds=10)))
+    waits: list[float] = []
+    sample = HostCapacitySample(DEVICE_ID, TOTAL_BYTES, HOST_CAPACITY_MIN_AVAILABLE_BYTES)
+
+    receipt = build_host_capacity_receipt(
+        anchor=Path("/fixture"),
+        reader=lambda _anchor: sample,
+        clock=lambda: next(times),
+        sleeper=waits.append,
+    )
+
+    assert receipt["status"] == "READY"
+    assert waits == [30 + HOST_CAPACITY_SLEEP_MARGIN_SECONDS]
 
 
 def test_inconsistent_capacity_counters_fail_closed() -> None:
