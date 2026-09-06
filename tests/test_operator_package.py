@@ -300,6 +300,33 @@ def test_operator_package_is_deterministic_and_independently_verifiable(
     assert verified["deployment_allowed"] is False
 
 
+def test_operator_package_sanitizes_installed_launchagent_path(tmp_path: Path) -> None:
+    output, preflight, repeatability = _build(
+        tmp_path,
+        scheduler={
+            "state": "DISABLED_UNLOADED",
+            "installed_plist": (
+                "/Users/private/Library/LaunchAgents/"
+                "com.d.mcp-trust-refresh.plist"
+            ),
+            "mutation_performed": False,
+        },
+    )
+
+    state = json.loads((output / "state-card.json").read_text(encoding="utf-8"))
+    assert state["scheduler_state"]["installed_plist"] == (
+        "com.d.mcp-trust-refresh.plist"
+    )
+    assert verify_operator_review_package(
+        output,
+        task_id="task-fixture",
+        preflight_path=preflight,
+        repeatability_path=repeatability,
+        seed_path=SEED,
+        masked_path=MASKED,
+    )["privacy_validated"] is True
+
+
 def test_operator_package_binds_exact_candidate_and_rollback_lineage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
