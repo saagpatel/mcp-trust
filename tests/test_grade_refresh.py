@@ -99,7 +99,7 @@ def test_scannable_npm_console_scripts_are_bound_to_exact_image_paths() -> None:
         )
         checked += 1
 
-    assert checked == 13
+    assert checked == 15
 
 
 def test_qualification_enforces_all_npm_console_script_bindings() -> None:
@@ -217,9 +217,9 @@ def test_inventory_classifies_every_catalog_entry() -> None:
     assert inventory["catalog_denominator"] == 31
     assert len(inventory["entries"]) == 31
     assert inventory["counts"] == {
-        "scannable": 18,
-        "blocked": 13,
-        "intentionally_masked": 8,
+        "scannable": 20,
+        "blocked": 11,
+        "intentionally_masked": 6,
         "unsupported_upstream": 8,
         "credential_dependent": 7,
         "backing_service_dependent": 10,

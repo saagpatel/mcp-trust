@@ -100,9 +100,9 @@ TARGET_SCAN_HISTORICAL_CLAIM_CEILING = (
     "operation, egress success, or a claim about any other target."
 )
 _EXPECTED_CATALOG_COUNTS = {
-    "scannable": 18,
-    "blocked": 13,
-    "intentionally_masked": 8,
+    "scannable": 20,
+    "blocked": 11,
+    "intentionally_masked": 6,
     "unsupported_upstream": 8,
     "credential_dependent": 7,
     "backing_service_dependent": 10,
@@ -480,8 +480,8 @@ def _require_current_denominator(policy: RefreshPolicy, rows: list[dict[str, Any
     if (
         len(rows) != 31
         or policy.raw.get("catalog_denominator") != 31
-        or len(policy.scannable) != 18
-        or len(policy.blocked) != 13
+        or len(policy.scannable) != 20
+        or len(policy.blocked) != 11
         or policy.scannable & policy.blocked
         or policy.scannable | policy.blocked != {str(row.get("slug")) for row in rows}
     ):
@@ -794,8 +794,8 @@ def _validate_artifact_shape(payload: object) -> dict[str, Any]:
         or not isinstance(reviewed, dict)
         or set(reviewed) != _REVIEWED_KEYS
         or reviewed.get("catalog_denominator") != 31
-        or reviewed.get("scannable_count") != 18
-        or reviewed.get("blocked_count") != 13
+        or reviewed.get("scannable_count") != 20
+        or reviewed.get("blocked_count") != 11
         or any(
             _SHA256.fullmatch(str(reviewed.get(key))) is None
             for key in ("seed_sha256", "masking_sha256", "policy_sha256")
@@ -1319,8 +1319,8 @@ def create_target_scan_artifact(
             "target_slug": slug,
             "reviewed_inputs": {
                 "catalog_denominator": 31,
-                "scannable_count": 18,
-                "blocked_count": 13,
+                "scannable_count": 20,
+                "blocked_count": 11,
                 "seed_sha256": f"sha256:{reviewed.seed_sha256}",
                 "masking_sha256": f"sha256:{reviewed.masked_sha256}",
                 "policy_sha256": policy_sha256,
@@ -1396,8 +1396,8 @@ def verify_target_scan_artifact(
     _require_current_denominator(policy, reviewed.catalog_rows)
     expected_reviewed = {
         "catalog_denominator": 31,
-        "scannable_count": 18,
-        "blocked_count": 13,
+        "scannable_count": 20,
+        "blocked_count": 11,
         "seed_sha256": f"sha256:{reviewed.seed_sha256}",
         "masking_sha256": f"sha256:{reviewed.masked_sha256}",
         "policy_sha256": policy_sha256,

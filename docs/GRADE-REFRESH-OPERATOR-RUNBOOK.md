@@ -462,6 +462,12 @@ proposal receipt, policy digest, and all thirteen repeated blocked projections.
 The accepted result remains `NO_GO`: it records the reviewed boundary but grants
 no execution, publication, deployment, or scheduler authority.
 
+After the reviewed V131 policy change, an exact 20-fresh/11-policy-blocked
+candidate uses the additive V4 boundary lineage. V3 remains valid for historical
+18/13 artifacts. V4 binds all eleven repeated blocked projections and retains the
+same `NO_GO` claim ceiling and separate publication, deployment, and scheduler
+gates.
+
 ## 6. Build the immutable local site candidate
 
 Use only the exact verified refresh candidate, bundled V38 proposal receipt, and

@@ -70,6 +70,7 @@ _NPM_CONSOLE_SCRIPT_INTERPRETER = "/usr/local/bin/node"
 _BARE_NPM_CONSOLE_SCRIPT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 NPM_CONSOLE_SCRIPT_BINDINGS = {
     "@adeu/mcp-server": ("adeu-mcp-server", "dist/index.js"),
+    "@discourse/mcp": ("discourse-mcp", "dist/index.js"),
     "@kage-core/kage-graph-mcp": ("kage-graph-mcp", "dist/index.js"),
     "@modelcontextprotocol/server-everything": ("mcp-server-everything", "dist/index.js"),
     "@modelcontextprotocol/server-filesystem": ("mcp-server-filesystem", "dist/index.js"),
@@ -81,6 +82,7 @@ NPM_CONSOLE_SCRIPT_BINDINGS = {
     "@pulsemcp/image-diff-mcp-server": ("image-diff-mcp-server", "build/index.js"),
     "@swins/intent-engineering-mcp": ("intent-engineering-mcp", "build/index.js"),
     "@ui5/webcomponents-react-mcp": ("ui5-wcr-mcp", "dist/index.js"),
+    "@nvidia-elements/cli": ("nve", "dist/index.js"),
     "mythsensus-mcp": ("mythsensus-mcp", "dist/index.js"),
     "raven-mcp": ("raven-mcp", "dist/index.js"),
     "redacta-mcp": ("redacta-mcp", "dist/index.js"),
