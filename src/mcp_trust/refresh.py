@@ -36,6 +36,7 @@ from mcp_trust.engine.base import EngineResult, ScanError, ScanTimeoutError
 from mcp_trust.engine.mcpaudit import (
     MCPAuditEngine,
     docker_launch_spec,
+    docker_process_title,
     repository_outer_timeout_seconds,
 )
 from mcp_trust.engine.runtime import (
@@ -1456,6 +1457,7 @@ def _candidate_execution_binding(
             allow_python_console_script=(
                 server.source.kind == SourceKind.PYPI and server.source.command is not None
             ),
+            allowed_process_title=docker_process_title(server.source),
         )
     except Exception as exc:  # normalized below; no execution occurs here
         if local_process:
@@ -2270,6 +2272,7 @@ def create_refresh_candidate(
                                 server.source.kind == SourceKind.PYPI
                                 and server.source.command is not None
                             ),
+                            allowed_process_title=docker_process_title(server.source),
                         )
                     except Exception:  # invalid launch spec is classified as UNKNOWN
                         expected_server_process_digests = None

@@ -80,13 +80,21 @@ NPM_CONSOLE_SCRIPT_BINDINGS = {
         "dist/index.js",
     ),
     "@pulsemcp/image-diff-mcp-server": ("image-diff-mcp-server", "build/index.js"),
+    "@playwright/mcp": ("playwright-mcp", "cli.js"),
     "@swins/intent-engineering-mcp": ("intent-engineering-mcp", "build/index.js"),
     "@ui5/webcomponents-react-mcp": ("ui5-wcr-mcp", "dist/index.js"),
     "@nvidia-elements/cli": ("nve", "dist/index.js"),
     "mythsensus-mcp": ("mythsensus-mcp", "dist/index.js"),
     "raven-mcp": ("raven-mcp", "dist/index.js"),
     "redacta-mcp": ("redacta-mcp", "dist/index.js"),
+    "chrome-devtools-mcp": (
+        "chrome-devtools-mcp",
+        "build/src/bin/chrome-devtools-mcp.js",
+    ),
     "sovereign-ai-act-mcp": ("sovereign-ai-act-mcp", "index.js"),
+}
+NPM_PROCESS_TITLE_BINDINGS = {
+    "chrome-devtools-mcp": "chrome-devtools-mcp",
 }
 
 
@@ -282,6 +290,19 @@ def docker_launch_spec(source: ServerSource) -> tuple[str, list[str]]:
         _NPM_CONSOLE_SCRIPT_INTERPRETER,
         [f"{_NPM_CONSOLE_SCRIPT_DIRECTORY}/{command}", *args],
     )
+
+
+def docker_process_title(source: ServerSource) -> str | None:
+    """Return one reviewed npm process-title rewrite, if the package uses one."""
+    if source.kind != SourceKind.NPM or source.command is None:
+        return None
+    binding = NPM_CONSOLE_SCRIPT_BINDINGS.get(source.reference)
+    title = NPM_PROCESS_TITLE_BINDINGS.get(source.reference)
+    if title is None:
+        return None
+    if binding is None or binding[0] != source.command or title != source.command:
+        raise ScanError("The npm process-title binding is not qualified")
+    return title
 
 
 def repository_outer_timeout_seconds(connector_timeout: float) -> float:
@@ -492,6 +513,7 @@ class MCPAuditEngine:
                     allow_python_console_script=(
                         source.kind == SourceKind.PYPI and source.command is not None
                     ),
+                    allowed_process_title=docker_process_title(source),
                     runner=self._cleanup_runner,
                 )
             except DockerSandboxCleanupError as exc:

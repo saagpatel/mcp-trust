@@ -25,6 +25,7 @@ from mcp_trust.engine.mcpaudit import (
     _run_sync,
     _severity_for,
     docker_launch_spec,
+    docker_process_title,
     gate_connector_teardown_for_runtime_attestation,
 )
 from mcp_trust.engine.sandbox import (
@@ -426,6 +427,19 @@ def test_docker_launch_spec_uses_exact_node_console_script_path() -> None:
         "/usr/local/bin/node",
         ["/opt/npm/node_modules/.bin/adeu-mcp-server", "--flag"],
     )
+
+
+def test_chrome_devtools_process_title_is_bound_to_exact_source() -> None:
+    src = ServerSource(
+        kind=SourceKind.NPM,
+        reference="chrome-devtools-mcp",
+        command="chrome-devtools-mcp",
+    )
+    assert docker_process_title(src) == "chrome-devtools-mcp"
+
+    drifted = src.model_copy(update={"command": "chrome-devtools"})
+    with pytest.raises(ScanError, match="process-title binding is not qualified"):
+        docker_process_title(drifted)
 
 
 def test_docker_launch_spec_rejects_npm_path_alias() -> None:

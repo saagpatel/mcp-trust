@@ -280,6 +280,7 @@ def sandbox_server_process_digests(
     args: list[str],
     *,
     allow_python_console_script: bool = False,
+    allowed_process_title: str | None = None,
 ) -> tuple[str, ...]:
     """Return the exact PID 1 argv digests authorized by one launch spec.
 
@@ -289,14 +290,27 @@ def sandbox_server_process_digests(
     in ``/proc/1/cmdline``. No PATH alias, shell wrapper, basename-only match, or
     alternate interpreter is accepted.
     """
-    direct = sandbox_server_process_digest(command, args)
-    if not allow_python_console_script or _BARE_EXECUTABLE.fullmatch(command) is None:
-        return (direct,)
-    python_console_script = sandbox_server_process_digest(
-        _PYTHON_CONSOLE_SCRIPT_INTERPRETER,
-        [f"{_PYTHON_CONSOLE_SCRIPT_DIRECTORY}/{command}", *args],
-    )
-    return (direct, python_console_script)
+    encoded = b"\0".join(item.encode("utf-8") for item in (command, *args)) + b"\0"
+    digests = ["sha256:" + hashlib.sha256(encoded).hexdigest()]
+    if allow_python_console_script and _BARE_EXECUTABLE.fullmatch(command) is not None:
+        digests.append(
+            sandbox_server_process_digest(
+                _PYTHON_CONSOLE_SCRIPT_INTERPRETER,
+                [f"{_PYTHON_CONSOLE_SCRIPT_DIRECTORY}/{command}", *args],
+            )
+        )
+    if allowed_process_title is not None:
+        if (
+            _BARE_EXECUTABLE.fullmatch(allowed_process_title) is None
+            or len(allowed_process_title.encode("utf-8")) > len(encoded)
+        ):
+            raise DockerSandboxRuntimeReadbackError(
+                "allowed server process title is invalid"
+            )
+        title = allowed_process_title.encode("utf-8")
+        rewritten = title + b"\0" * (len(encoded) - len(title))
+        digests.append("sha256:" + hashlib.sha256(rewritten).hexdigest())
+    return tuple(digests)
 
 
 def valid_sandbox_runtime_readback(
@@ -678,6 +692,7 @@ class DockerSandbox:
         args: list[str],
         *,
         allow_python_console_script: bool = False,
+        allowed_process_title: str | None = None,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     ) -> tuple[str, list[str]]:
         """Create the exact scan container before the connector worker starts.
@@ -737,6 +752,7 @@ class DockerSandbox:
             command,
             args,
             allow_python_console_script=allow_python_console_script,
+            allowed_process_title=allowed_process_title,
         )
         return docker_command, self._docker_command(
             "container", "start", "--attach", "--interactive", self._container_id

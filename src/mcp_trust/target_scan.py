@@ -30,7 +30,11 @@ from urllib.parse import urlsplit
 from mcp_trust.core import grading
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
 from mcp_trust.engine.base import EngineResult, ScanTimeoutError
-from mcp_trust.engine.mcpaudit import MCPAuditEngine, docker_launch_spec
+from mcp_trust.engine.mcpaudit import (
+    MCPAuditEngine,
+    docker_launch_spec,
+    docker_process_title,
+)
 from mcp_trust.engine.sandbox import (
     SANDBOX_RUNTIME_READBACK_SCHEMA,
     normalize_local_docker_host,
@@ -692,6 +696,7 @@ def _scan_receipt_valid(receipt: object, *, slug: str, image_id: str) -> bool:
                 parsed_server.source.kind == SourceKind.PYPI
                 and parsed_server.source.command is not None
             ),
+            allowed_process_title=docker_process_title(parsed_server.source),
         )
     except Exception:
         return False
@@ -1204,6 +1209,7 @@ def create_target_scan_artifact(
                         target.source.kind == SourceKind.PYPI
                         and target.source.command is not None
                     ),
+                    allowed_process_title=docker_process_title(target.source),
                 )
                 profile = profiles[0]
                 if (

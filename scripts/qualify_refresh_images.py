@@ -831,6 +831,11 @@ def _validate_console_script_contract(cohorts: dict[str, Any]) -> None:
         raise QualificationError("npm console-script qualification coverage differs")
 
 
+def _cohort_base_images(config: dict[str, Any]) -> list[str]:
+    keys = ("node_base", "python_base", "browser_base")
+    return sorted({str(config[key]) for key in keys if key in config})
+
+
 def _cohort_binding(cohort: str, config: dict[str, Any], *, platform: str) -> dict[str, str]:
     cohort_config = dict(config)
     cohort_config.pop("platform", None)
@@ -847,9 +852,7 @@ def _cohort_binding(cohort: str, config: dict[str, Any], *, platform: str) -> di
     )
     build_input = {
         "build_source_sha256": build_source_sha256,
-        "base_images": sorted(
-            {str(validated["node_base"]), str(validated["python_base"])}
-        ),
+        "base_images": _cohort_base_images(validated),
         "platform": platform,
         "dependency_manifests": manifests,
         "dependency_locks": dict(sorted(normalized_locks.items())),
@@ -1724,7 +1727,7 @@ def qualify(
     image_reference = dependency_boundary.local_image_tag(config["image_reference"])
     dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
     build_source_sha256 = grade_refresh.digest_file(ROOT / dockerfile)
-    base_images = sorted({str(config["node_base"]), str(config["python_base"])})
+    base_images = _cohort_base_images(config)
     manifests, locks, artifacts, normalized_locks, normalized_artifacts = (
         _dependency_inputs(cohort, config)
     )

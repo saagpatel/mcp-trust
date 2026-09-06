@@ -3,6 +3,7 @@ runs; actual container execution is integration-gated (needs a Docker daemon).""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -294,6 +295,27 @@ def test_python_console_script_pid1_identity_is_exactly_authorized() -> None:
     assert console_script_digest not in sandbox_server_process_digests(
         "mcp-server-time", [], allow_python_console_script=False
     )
+
+
+def test_reviewed_process_title_rewrite_is_exactly_authorized() -> None:
+    command = "/usr/local/bin/node"
+    args = ["/opt/npm/node_modules/.bin/chrome-devtools-mcp", "--headless"]
+    encoded = b"\0".join(item.encode() for item in (command, *args)) + b"\0"
+    title = b"chrome-devtools-mcp"
+    expected = "sha256:" + hashlib.sha256(
+        title + b"\0" * (len(encoded) - len(title))
+    ).hexdigest()
+
+    assert expected in sandbox_server_process_digests(
+        command, args, allowed_process_title="chrome-devtools-mcp"
+    )
+    assert expected not in sandbox_server_process_digests(command, args)
+
+
+@pytest.mark.parametrize("title", ["nested/title", "", "x" * 512])
+def test_process_title_binding_rejects_unsafe_values(title: str) -> None:
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="title is invalid"):
+        sandbox_server_process_digests("node", ["server.js"], allowed_process_title=title)
 
 
 @pytest.mark.parametrize(

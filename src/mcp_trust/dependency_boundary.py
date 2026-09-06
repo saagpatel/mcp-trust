@@ -326,6 +326,8 @@ def validate_cohort(
         "npm",
         "python",
     }
+    if isinstance(value, dict) and "browser_base" in value:
+        expected.add("browser_base")
     if isinstance(value, dict) and "source_build_preparer" in value:
         expected.add("source_build_preparer")
     if not isinstance(value, dict) or set(value) != expected:
@@ -339,10 +341,17 @@ def validate_cohort(
     python_base = immutable_image(
         value["python_base"], repositories=frozenset({"python"})
     )
+    external_images = {node_base, python_base}
+    if "browser_base" in value:
+        browser_base = immutable_image(
+            value["browser_base"],
+            repositories=frozenset({"mcr.microsoft.com/playwright"}),
+        )
+        external_images.add(browser_base)
     repository_dockerfile(
         repo_root,
         value["dockerfile"],
-        expected_external_images=frozenset({node_base, python_base}),
+        expected_external_images=frozenset(external_images),
     )
     if not isinstance(value["python_version"], str) or re.fullmatch(
         r"[0-9]+\.[0-9]+", value["python_version"]
