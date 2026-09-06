@@ -109,6 +109,27 @@ def test_qualification_enforces_all_npm_console_script_bindings() -> None:
     qualify_refresh_images._validate_console_script_contract(inputs["cohorts"])
 
 
+def test_every_scannable_image_provides_the_fixed_runtime_attestor() -> None:
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    rows = json.loads(SEED.read_text(encoding="utf-8"))
+    scannable = set(policy["scannable"])
+    images = {
+        row["source"].get("sandbox_image") or policy["default_sandbox_image"]
+        for row in rows
+        if row["slug"] in scannable
+    }
+
+    assert len(images) == 5
+    for image in images:
+        dockerfile = (
+            ROOT / policy["image_build_sources"][image]["path"]
+        ).read_text(encoding="utf-8")
+        assert (
+            "COPY --from=python-dependencies /opt/venv /opt/venv" in dockerfile
+            or "ln -s /usr/local/bin/python /opt/venv/bin/python" in dockerfile
+        )
+
+
 def test_triage_cli_requires_repeat_candidate() -> None:
     with pytest.raises(SystemExit):
         grade_refresh_cli._parser().parse_args(  # noqa: SLF001
