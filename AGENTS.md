@@ -132,3 +132,17 @@ deploy the API with persistent SQLite storage for a live badge-loop smoke test.
 - `deploy/web-release-readback.json` is this product's self-adoption profile.
   Keep it wired into `deploy/smoke-readonly.sh` ahead of, and additive to, the
   health, API, badge, portable-reference, and denied scan-POST assertions.
+
+## Cursor Cloud specific instructions
+
+- The repository-level `.cursor/environment.json` is the Cloud environment
+  definition. It installs the CI-pinned `uv==0.12.4`, provisions Python
+  `3.11.15` from `.python-version`, and runs `uv sync --frozen --extra dev`.
+- Cloud validation is local and deterministic: run
+  `uv run --no-sync pytest -q` and
+  `uv run --no-sync ruff check src scripts tests`.
+- Cloud setup does not require credentials, Docker, or network access to MCP
+  servers. The optional `mcp-audits` extra and Docker sandbox scans are
+  operator-gated workflows and are not part of environment initialization.
+- Do not add secrets to this repository or infer production, deployment, or
+  external-service readiness from local/cloud test results.
