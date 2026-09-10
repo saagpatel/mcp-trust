@@ -1,0 +1,5 @@
+{
+  "name": "mcp-trust",
+  "disableAllMcpServers": true,
+  "install": "python -m pip install --disable-pip-version-check --user 'uv==0.12.4' && export PATH=\"$(python -m site --user-base)/bin:$PATH\" && uv python install 3.11.15 && uv sync --frozen --extra dev"
+}
