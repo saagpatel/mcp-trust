@@ -64,6 +64,7 @@ Required public env:
 MCP_TRUST_DB=/data/mcp-trust/registry.db
 MCP_TRUST_ENGINE=mcpaudit
 MCP_TRUST_PUBLIC_READONLY=1
+MCP_TRUST_MASKED_GRADES=/data/mcp-trust/masked-grades.json
 ```
 
 Do not set `MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS` on the VM.
@@ -74,9 +75,21 @@ Build a sanitized transfer bundle from the workstation after scans pass:
 
 ```bash
 python scripts/build_deploy_bundle.py \
-  --db ./registry.db \
-  --receipts-dir ./receipts
+  --candidate ./dist/refresh-candidate-<timestamp> \
+  --review ./dist/publication-review.json \
+  --disposition ./src/mcp_trust/catalog/refresh_disposition_policy.json \
+  --policy ./src/mcp_trust/catalog/refresh_policy.json
 ```
+
+The command requires a clean committed builder, verifies the complete candidate,
+and binds every stable-copied DB/receipt byte to its artifact manifest. The V2
+bundle manifest contains no host candidate path, carries its own canonical
+receipt and content digest, and the byte-deterministic archive appears only
+after an atomic no-clobber finalize. Candidate inputs are reverified before
+finalization. The command refuses to create a deployment-shaped bundle while
+the review is pending, `NO_GO`, rollback-unbound, or otherwise lacks deployment
+authority. A successful future command creates an offline transfer artifact
+only; upload and deployment remain separate, explicitly authorized steps.
 
 Upload the resulting `dist/mcp-trust-deploy-bundle-*.tar.gz` to the VM, extract
 it, and copy its contents into `/data/mcp-trust/`:
@@ -84,6 +97,7 @@ it, and copy its contents into `/data/mcp-trust/`:
 ```bash
 tar -xzf mcp-trust-deploy-bundle-*.tar.gz
 sudo install -m 0644 mcp-trust-deploy-bundle-*/registry.db /data/mcp-trust/registry.db
+sudo install -m 0644 mcp-trust-deploy-bundle-*/masked-grades.json /data/mcp-trust/masked-grades.json
 sudo rsync -a --delete mcp-trust-deploy-bundle-*/receipts/ /data/mcp-trust/receipts/
 sudo chown -R mcp-trust:mcp-trust /data/mcp-trust
 ```

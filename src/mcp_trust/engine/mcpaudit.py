@@ -30,8 +30,12 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
+import re
+import subprocess
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -44,9 +48,16 @@ from mcp_trust.core.models import (
     SourceKind,
     ToolEvidence,
 )
-from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError
+from mcp_trust.engine.base import EngineResult, ScanEngine, ScanError, ScanTimeoutError
 from mcp_trust.engine.credentials import build_dummy_env
-from mcp_trust.engine.sandbox import DockerSandbox, Sandbox, select_sandbox
+from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
+    DockerSandbox,
+    DockerSandboxCleanupError,
+    DockerSandboxRuntimeReadbackError,
+    Sandbox,
+    select_sandbox,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +65,37 @@ logger = logging.getLogger(__name__)
 # a server's required secret env keys so the cloud-API tier reaches tool
 # enumeration. "none" (default) leaves env empty; "dummy" enables injection.
 _CREDENTIALS_ENV = "MCP_TRUST_SCAN_CREDENTIALS"
+_NPM_CONSOLE_SCRIPT_DIRECTORY = "/opt/npm/node_modules/.bin"
+_NPM_CONSOLE_SCRIPT_INTERPRETER = "/usr/local/bin/node"
+_BARE_NPM_CONSOLE_SCRIPT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+NPM_CONSOLE_SCRIPT_BINDINGS = {
+    "@adeu/mcp-server": ("adeu-mcp-server", "dist/index.js"),
+    "@discourse/mcp": ("discourse-mcp", "dist/index.js"),
+    "@kage-core/kage-graph-mcp": ("kage-graph-mcp", "dist/index.js"),
+    "@modelcontextprotocol/server-everything": ("mcp-server-everything", "dist/index.js"),
+    "@modelcontextprotocol/server-filesystem": ("mcp-server-filesystem", "dist/index.js"),
+    "@modelcontextprotocol/server-memory": ("mcp-server-memory", "dist/index.js"),
+    "@modelcontextprotocol/server-sequential-thinking": (
+        "mcp-server-sequential-thinking",
+        "dist/index.js",
+    ),
+    "@pulsemcp/image-diff-mcp-server": ("image-diff-mcp-server", "build/index.js"),
+    "@playwright/mcp": ("playwright-mcp", "cli.js"),
+    "@swins/intent-engineering-mcp": ("intent-engineering-mcp", "build/index.js"),
+    "@ui5/webcomponents-react-mcp": ("ui5-wcr-mcp", "dist/index.js"),
+    "@nvidia-elements/cli": ("nve", "dist/index.js"),
+    "mythsensus-mcp": ("mythsensus-mcp", "dist/index.js"),
+    "raven-mcp": ("raven-mcp", "dist/index.js"),
+    "redacta-mcp": ("redacta-mcp", "dist/index.js"),
+    "chrome-devtools-mcp": (
+        "chrome-devtools-mcp",
+        "build/src/bin/chrome-devtools-mcp.js",
+    ),
+    "sovereign-ai-act-mcp": ("sovereign-ai-act-mcp", "index.js"),
+}
+NPM_PROCESS_TITLE_BINDINGS = {
+    "chrome-devtools-mcp": "chrome-devtools-mcp",
+}
 
 
 def _credentials_mode() -> str:
@@ -113,17 +155,28 @@ _HIGH_CONFIDENCE = {"high", "llm"}
 _CRITICAL_CATEGORIES = {"destructive", "exfiltration"}
 
 
-def _run_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
+def _run_sync(
+    factory: Callable[[], Awaitable[_T]],
+    *,
+    outer_timeout: float | None = None,
+    runtime_probe: Callable[[], dict[str, object]] | None = None,
+    attestation_release: threading.Event | None = None,
+) -> tuple[_T, dict[str, object] | None]:
     """Run an async coroutine to completion from sync code.
 
     Uses ``asyncio.run`` when no loop is active; if called from inside a running
     loop (e.g. an async web handler) it runs the coroutine on a worker thread
     with its own loop, so it never collides with the caller's loop.
     """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(factory())
+    if attestation_release is not None and runtime_probe is None:
+        raise ValueError("attestation release requires a runtime probe")
+    if outer_timeout is None:
+        if runtime_probe is not None:
+            raise ValueError("a runtime probe requires an outer deadline")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(factory()), None
 
     box: dict[str, _T] = {}
     err: dict[str, BaseException] = {}
@@ -135,11 +188,27 @@ def _run_sync(factory: Callable[[], Awaitable[_T]]) -> _T:
             err["e"] = exc
 
     thread = threading.Thread(target=worker, daemon=True)
+    deadline = None if outer_timeout is None else time.monotonic() + outer_timeout
     thread.start()
-    thread.join()
+    runtime_readback: dict[str, object] | None = None
+    runtime_error: BaseException | None = None
+    if runtime_probe is not None:
+        try:
+            runtime_readback = runtime_probe()
+        except BaseException as exc:  # cleanup is owned by the lifecycle caller
+            runtime_error = exc
+        finally:
+            if attestation_release is not None:
+                attestation_release.set()
+    if runtime_error is not None:
+        raise runtime_error
+    remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+    thread.join(timeout=remaining)
+    if thread.is_alive():
+        raise TimeoutError("scan connector exceeded the repository outer deadline")
     if "e" in err:
         raise err["e"]
-    return box["v"]
+    return box["v"], runtime_readback
 
 
 def _severity_for(category: str, confidence: str) -> Severity:
@@ -183,6 +252,86 @@ def _build_evidence(audit) -> ScanEvidence:  # noqa: ANN001 - mcp-audits runtime
     )
 
 
+def launch_spec(source: ServerSource) -> tuple[str, list[str]]:
+    """Resolve the exact in-container server argv without executing it."""
+    if source.command:
+        return source.command, list(source.args)
+    if source.kind == SourceKind.NPM:
+        return "npx", ["-y", source.reference, *source.args]
+    if source.kind == SourceKind.PYPI:
+        return "uvx", [source.reference, *source.args]
+    if source.kind == SourceKind.BINARY:
+        return source.reference, list(source.args)
+    raise ScanError(
+        f"Cannot infer a launch command for {source.reference!r} "
+        f"(kind={source.kind}); set an explicit `command` on the source."
+    )
+
+
+def docker_launch_spec(source: ServerSource) -> tuple[str, list[str]]:
+    """Resolve one PATH-independent PID 1 argv for the qualified Docker image.
+
+    An explicit command on an npm source names the package's installed console
+    script.  Invoking that shebang script directly changes PID 1 to Node and
+    makes ``/proc/1/cmdline`` differ from the configured alias.  Launch Node
+    explicitly against the image-qualified absolute ``.bin`` path instead.
+    """
+    command, args = launch_spec(source)
+    if source.kind != SourceKind.NPM or source.command is None:
+        return command, args
+    binding = NPM_CONSOLE_SCRIPT_BINDINGS.get(source.reference)
+    if binding is None:
+        return command, args
+    if binding[0] != command:
+        raise ScanError("The npm source and console-script command are not qualified")
+    if _BARE_NPM_CONSOLE_SCRIPT.fullmatch(command) is None:
+        raise ScanError("An npm console-script command must be one bare executable name")
+    return (
+        _NPM_CONSOLE_SCRIPT_INTERPRETER,
+        [f"{_NPM_CONSOLE_SCRIPT_DIRECTORY}/{command}", *args],
+    )
+
+
+def docker_process_title(source: ServerSource) -> str | None:
+    """Return one reviewed npm process-title rewrite, if the package uses one."""
+    if source.kind != SourceKind.NPM or source.command is None:
+        return None
+    binding = NPM_CONSOLE_SCRIPT_BINDINGS.get(source.reference)
+    title = NPM_PROCESS_TITLE_BINDINGS.get(source.reference)
+    if title is None:
+        return None
+    if binding is None or binding[0] != source.command or title != source.command:
+        raise ScanError("The npm process-title binding is not qualified")
+    return title
+
+
+def repository_outer_timeout_seconds(connector_timeout: float) -> float:
+    """Repository hard deadline including the bounded runtime probe."""
+    return connector_timeout + max(1.0, min(5.0, connector_timeout * 0.1))
+
+
+def gate_connector_teardown_for_runtime_attestation(
+    connector: object,
+    *,
+    release: threading.Event,
+    timeout: float,
+) -> object:
+    """Keep fast stdio sessions alive until Docker attestation completes."""
+    list_capabilities = getattr(connector, "_list_capabilities", None)
+    if not callable(list_capabilities):
+        raise ScanError("mcp-audits connector lacks the required lifecycle hook")
+
+    async def gated_list_capabilities(session: object, server_name: str) -> object:
+        capabilities = await list_capabilities(session, server_name)
+        released = await asyncio.to_thread(release.wait, timeout)
+        if not released:
+            raise TimeoutError("runtime attestation release exceeded its bounded deadline")
+        return capabilities
+
+    connector._list_capabilities = gated_list_capabilities  # type: ignore[attr-defined]
+    return connector
+
+
 class MCPAuditEngine:
     """Scan engine backed by the public ``mcp-audits`` package.
 
@@ -193,10 +342,107 @@ class MCPAuditEngine:
     name: str = "mcpaudit"
     version: str = _FALLBACK_VERSION
 
-    def __init__(self, timeout: float = 15.0, sandbox: Sandbox | None = None) -> None:
+    @staticmethod
+    def outer_timeout_seconds(connector_timeout: float) -> float:
+        """Repository hard deadline including the bounded runtime probe."""
+        return repository_outer_timeout_seconds(connector_timeout)
+
+    def __init__(
+        self,
+        timeout: float = 15.0,
+        sandbox: Sandbox | None = None,
+        *,
+        cleanup_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    ) -> None:
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("scan timeout must be one positive finite number")
         self._timeout = timeout
         # None → resolve from MCP_TRUST_SANDBOX at scan time (default: NoSandbox).
         self._sandbox = sandbox
+        self._cleanup_runner = cleanup_runner
+
+    def _connect_with_lifecycle(
+        self,
+        connector: object,
+        cfg: object,
+        sandbox: Sandbox,
+        *,
+        launches_process: bool,
+        attestation_release: threading.Event | None = None,
+    ) -> tuple[object, str | None, dict[str, object] | None]:
+        """Connect within a bounded Docker lifecycle and verify cleanup."""
+        connect_error: BaseException | None = None
+        audit: object | None = None
+        runtime_readback: dict[str, object] | None = None
+        try:
+            # The connector owns its configured protocol timeout. Docker scans
+            # also get a repository-owned outer deadline so an uncooperative
+            # coroutine or active-loop bridge cannot block the caller forever.
+            outer_timeout = self.outer_timeout_seconds(self._timeout)
+            audit, runtime_readback = _run_sync(
+                lambda: connector.connect(cfg),  # type: ignore[attr-defined]
+                outer_timeout=(
+                    outer_timeout
+                    if launches_process and isinstance(sandbox, DockerSandbox)
+                    else None
+                ),
+                runtime_probe=(
+                    lambda: sandbox.capture_runtime_readback(runner=self._cleanup_runner)
+                )
+                if launches_process and isinstance(sandbox, DockerSandbox)
+                else None,
+                attestation_release=attestation_release,
+            )
+        except BaseException as exc:  # cleanup must also run for cancellation/system exit
+            connect_error = exc
+
+        cleanup_evidence: str | None = None
+        if launches_process and isinstance(sandbox, DockerSandbox):
+            try:
+                cleanup_evidence = sandbox.cleanup_owned_container(
+                    runner=self._cleanup_runner
+                )
+            except DockerSandboxCleanupError as exc:
+                raise ScanError(
+                    "Docker scan cleanup could not prove the owned container absent; "
+                    "refusing to return scan evidence."
+                ) from exc
+
+        if connect_error is not None:
+            if isinstance(connect_error, (KeyboardInterrupt, SystemExit)):
+                raise connect_error
+            if isinstance(connect_error, TimeoutError):
+                logger.warning(
+                    "mcp-audits connect exceeded the outer deadline: %s", connect_error
+                )
+                raise ScanTimeoutError(
+                    "Could not scan: configured connection timeout expired.",
+                    hard_termination_evidence=(
+                        "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
+                        if cleanup_evidence == "CONTAINER_ABSENCE_VERIFIED"
+                        else "UNKNOWN"
+                    ),
+                ) from connect_error
+            if isinstance(connect_error, DockerSandboxRuntimeReadbackError):
+                failed_controls = connect_error.failed_controls
+                diagnostic = (
+                    "; failed controls: " + ", ".join(failed_controls)
+                    if failed_controls
+                    else ""
+                )
+                raise ScanError(
+                    "Docker live runtime controls could not be attested"
+                    f"{diagnostic}; refusing to return scan evidence."
+                ) from connect_error
+            raise connect_error
+        if audit is None:
+            raise ScanError("mcp-audits returned no connection result")
+        if launches_process and isinstance(sandbox, DockerSandbox) and runtime_readback is None:
+            raise ScanError(
+                "Docker live runtime controls were not attested; refusing to return "
+                "scan evidence."
+            )
+        return audit, cleanup_evidence, runtime_readback
 
     def _resolve_sandbox(self, source: ServerSource) -> Sandbox:
         """Resolve the sandbox for one scan: injected > per-server image > env.
@@ -224,6 +470,15 @@ class MCPAuditEngine:
                 "isolate it, or mark the source trusted for the vetted "
                 "reference-server flow."
             )
+        if (
+            launches_process
+            and getattr(sandbox, "isolates", False)
+            and not isinstance(sandbox, DockerSandbox)
+        ):
+            raise ScanError(
+                "Refusing an isolating sandbox without the repository-owned "
+                "container lifecycle contract."
+            )
         return sandbox
 
     def scan(self, source: ServerSource) -> EngineResult:
@@ -248,20 +503,88 @@ class MCPAuditEngine:
         _apply_dummy_credentials(sandbox, source)
 
         launches_process = self._launches_local_process(source)
-        cfg = self._build_config(source, ServerConfig, ClientType, TransportType, sandbox)
+        prepared_launch: tuple[str, list[str]] | None = None
+        if launches_process and isinstance(sandbox, DockerSandbox):
+            command, args = docker_launch_spec(source)
+            try:
+                prepared_launch = sandbox.prepare_owned_container(
+                    command,
+                    args,
+                    allow_python_console_script=(
+                        source.kind == SourceKind.PYPI and source.command is not None
+                    ),
+                    allowed_process_title=docker_process_title(source),
+                    runner=self._cleanup_runner,
+                )
+            except DockerSandboxCleanupError as exc:
+                raise ScanError(
+                    "Docker could not establish a uniquely owned scan lifecycle."
+                ) from exc
+        try:
+            cfg = self._build_config(
+                source,
+                ServerConfig,
+                ClientType,
+                TransportType,
+                sandbox,
+                launch_override=prepared_launch,
+            )
+        except BaseException:
+            if prepared_launch is not None:
+                try:
+                    sandbox.cleanup_owned_container(runner=self._cleanup_runner)
+                except DockerSandboxCleanupError as exc:
+                    raise ScanError(
+                        "Docker scan configuration failed and cleanup could not prove "
+                        "the owned container absent."
+                    ) from exc
+            raise
 
         connector = ServerConnector(timeout=self._timeout)
+        attestation_release: threading.Event | None = None
+        if launches_process and isinstance(sandbox, DockerSandbox):
+            attestation_release = threading.Event()
+            connector = gate_connector_teardown_for_runtime_attestation(
+                connector,
+                release=attestation_release,
+                timeout=SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
+            )
         analyzer = PermissionAnalyzer()
         scorer = RiskScorer()
 
         try:
-            audit = _run_sync(lambda: connector.connect(cfg))
+            audit, cleanup_evidence, runtime_readback = self._connect_with_lifecycle(
+                connector,
+                cfg,
+                sandbox,
+                launches_process=launches_process,
+                attestation_release=attestation_release,
+            )
+        except ScanTimeoutError:
+            raise
+        except TimeoutError as exc:
+            logger.warning("mcp-audits connect timed out for %r: %s", source.reference, exc)
+            raise ScanTimeoutError(
+                f"Could not scan {source.reference!r}: configured connection timeout expired."
+            ) from exc
+        except ScanError:
+            raise
         except Exception as exc:
             logger.warning("mcp-audits connect failed for %r: %s", source.reference, exc)
             raise ScanError(f"Failed to connect to {source.reference!r}: {exc}") from exc
 
         status = (audit.connection_status or "").lower()
-        if status in {"failed", "timeout"}:
+        if status == "timeout":
+            raise ScanTimeoutError(
+                f"Could not scan {source.reference!r}: connection timeout. "
+                "A trust grade requires a successful connection to enumerate tools.",
+                hard_termination_evidence=(
+                    "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
+                    if cleanup_evidence == "CONTAINER_ABSENCE_VERIFIED"
+                    else "UNKNOWN"
+                ),
+            )
+        if status == "failed":
             raise ScanError(
                 f"Could not scan {source.reference!r}: connection {status}. "
                 "A trust grade requires a successful connection to enumerate tools."
@@ -324,9 +647,20 @@ class MCPAuditEngine:
             # own image (per-server pin > env default), not a later re-read of
             # ambient env. None for remote scans or non-isolating passthroughs.
             sandbox_image=getattr(sandbox, "image", None) if launches_process else None,
+            sandbox_cleanup_evidence=(cleanup_evidence if launches_process else None),
+            sandbox_runtime_readback=(runtime_readback if launches_process else None),
         )
 
-    def _build_config(self, source, ServerConfig, ClientType, TransportType, sandbox):  # noqa: ANN001
+    def _build_config(  # noqa: ANN001
+        self,
+        source,
+        ServerConfig,
+        ClientType,
+        TransportType,
+        sandbox,
+        *,
+        launch_override: tuple[str, list[str]] | None = None,
+    ):
         """Translate a ``ServerSource`` into an mcp-audits ``ServerConfig``.
 
         For stdio servers the launch command is wrapped by *sandbox* so the
@@ -345,26 +679,17 @@ class MCPAuditEngine:
         if not self._launches_local_process(source):
             return ServerConfig(**base, transport=TransportType.HTTP, url=source.reference)
 
-        command, args = self._launch_spec(source)
-        command, args = sandbox.wrap(command, args)
+        if launch_override is None:
+            command, args = self._launch_spec(source)
+            command, args = sandbox.wrap(command, args)
+        else:
+            command, args = launch_override
         return ServerConfig(**base, transport=TransportType.STDIO, command=command, args=args)
 
     @staticmethod
     def _launch_spec(source) -> tuple[str, list[str]]:  # noqa: ANN001
         """Resolve (command, args) for a stdio server. Explicit command wins."""
-        if source.command:
-            return source.command, list(source.args)
-        if source.kind == SourceKind.NPM:
-            return "npx", ["-y", source.reference, *source.args]
-        if source.kind == SourceKind.PYPI:
-            return "uvx", [source.reference, *source.args]
-        if source.kind == SourceKind.BINARY:
-            return source.reference, list(source.args)
-        # GIT or anything else without an explicit command is ambiguous to launch.
-        raise ScanError(
-            f"Cannot infer a launch command for {source.reference!r} "
-            f"(kind={source.kind}); set an explicit `command` on the source."
-        )
+        return launch_spec(source)
 
     @staticmethod
     def _launches_local_process(source: ServerSource) -> bool:

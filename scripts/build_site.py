@@ -98,16 +98,18 @@ def _load_corrections(path: str) -> list[dict]:
 
 
 def _load_masked_slugs(path: str) -> set[str]:
-    """Load the operator's masked-grades slug list. Missing file = no masking;
-    a malformed file fails the build loudly — a mask the operator ordered must
-    never silently not-apply."""
+    """Load masking fail-closed; missing, malformed, or duplicate input fails."""
     try:
         raw = Path(path).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return set()
+    except FileNotFoundError as exc:
+        raise ValueError("masked-grades input is missing") from exc
     loaded = json.loads(raw)
-    if not isinstance(loaded, list) or not all(isinstance(slug, str) for slug in loaded):
-        raise ValueError("masked-grades list must be a JSON list of slug strings")
+    if (
+        not isinstance(loaded, list)
+        or not all(isinstance(slug, str) and slug for slug in loaded)
+        or len(loaded) != len(set(loaded))
+    ):
+        raise ValueError("masked-grades list must be a unique JSON list of slug strings")
     return set(loaded)
 
 
@@ -251,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate,
                 seed_path=Path(args.seed),
                 masked_path=Path(args.masked_grades),
+                repo_root=_REPO_ROOT,
                 now=now,
             )
         )
@@ -278,12 +281,16 @@ def main(argv: list[str] | None = None) -> int:
                     "(--demo-fill: grades are demo data, labelled on every page)."
                 )
 
+        # Demo scans are created after the initial admission timestamp. Render
+        # against a fresh clock value so those just-written records cannot be
+        # misclassified as future-dated evidence by a few microseconds.
+        render_now = datetime.now(tz=UTC)
         corrections = _load_corrections(args.corrections)
         build = generate_site(
             conn,
             args.out,
             base_url=args.base_url,
-            now=now,
+            now=render_now,
             corrections=corrections,
             masked_slugs=masked_slugs,
             masked_scan_succeeded_slugs=masked_scan_succeeded_slugs,

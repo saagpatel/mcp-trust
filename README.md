@@ -168,6 +168,15 @@ An unreadable older row leaves a readable latest grade intact but makes scan
 history and grade-change claims explicitly `UNKNOWN`. Snapshot construction
 stops until unreadable history is repaired or dispositioned.
 
+All public surfaces use one fail-closed freshness projection. Exactly 90 days
+after a scan is still `FRESH`; any later instant is `STALE`. Missing, malformed,
+or future scan times are `UNKNOWN`, with verdict fields withheld. Unscanned
+entries are `NOT_APPLICABLE`. Operator masking applies even when no scan exists
+and is never inferred from scan state. Static pages and badges are immutable
+historical evidence with a scan date or validity boundary; they do not promise
+request-time freshness. Danger, transparency, and evidence quality remain
+separate signals, and a grade is never an endorsement.
+
 Set `MCP_TRUST_RECEIPTS_DIR=/data/mcp-trust/receipts` during real scan runs to
 archive a JSON receipt for each scan and store its portable artifact filename in
 `report_ref`.
@@ -262,29 +271,167 @@ the catalog, publish or withdraw records, run scans, or change deployment state.
 
 ## Manual refresh candidates
 
+First emit the no-execution inventory, exact source/tool/image preflight, and
+deterministic repeated fixture receipt:
+
+Runtime refresh commands require a separately prepared frozen `[engine]`
+environment. They use its exact interpreter and never hydrate dependencies as
+part of preflight or candidate creation:
+
+```bash
+PYTHON=./.venv/bin/python
+test -x "$PYTHON"
+
+"$PYTHON" scripts/grade_refresh.py engine-materialization \
+  --repo-root "$PWD" \
+  --out ./dist/grade-refresh/engine-materialization.json
+"$PYTHON" scripts/grade_refresh.py inventory \
+  --out ./dist/grade-refresh/inventory.json
+"$PYTHON" scripts/grade_refresh.py host-capacity \
+  --anchor "$PWD" \
+  --out ./dist/grade-refresh/host-capacity.json
+
+# Stop unless the two-reading receipt is READY. Start the separately approved
+# Colima instance only after this point, then create the bound preflight.
+"$PYTHON" scripts/grade_refresh.py preflight \
+  --repo-root "$PWD" \
+  --engine-materialization ./dist/grade-refresh/engine-materialization.json \
+  --host-capacity ./dist/grade-refresh/host-capacity.json \
+  --out ./dist/grade-refresh/preflight.json
+uv run --frozen --extra dev python scripts/grade_refresh.py fixture-repeat \
+  --out ./dist/grade-refresh/fixture-repeatability.json
+```
+
+The capacity receipt requires at least 5 GiB available and less than 100 percent
+capacity in two readings at least 30 seconds apart. It is revalidated before
+Docker, MCP, or registry-database work, expires after 120 seconds, and binds the
+host filesystem device without recording a host path. The source contract does
+not itself prove that an operator kept Colima stopped until the receipt passed,
+or authenticate the observation against same-user replacement; provenance
+without a separately sealed operator binding remains `UNKNOWN`.
+Offline image qualification requires one newly observed, cohort-scoped receipt
+per invocation. The set is append-only; use the same new reviewed set name for
+all five cohorts, but never reuse a capacity receipt across cohorts:
+
+```bash
+: "${MCP_TRUST_QUALIFICATION_RECEIPT_SET:?set a new reviewed task-owned receipt-set name}"
+for cohort in reference live-batch batch3 batch4 basic-memory; do
+  uv run --frozen python scripts/grade_refresh.py qualification-capacity \
+    --operation qualification \
+    --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}" \
+    --cohort "$cohort" \
+    --out "./dist/grade-refresh/qualification-capacity-$cohort.json"
+  uv run --frozen python scripts/qualify_refresh_images.py \
+    --cohort "$cohort" \
+    --host-capacity "./dist/grade-refresh/qualification-capacity-$cohort.json" \
+    --receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"
+done
+```
+
+The five exact `qualification_receipt` paths in
+`src/mcp_trust/catalog/refresh_policy.json` are authoritative; a version label
+in documentation is never authority.
+
+The qualifier creates an immutable source/input-bound set manifest and writes a
+pessimistic append-only attempt intent before the first Docker mutation. It
+revalidates the bound receipt immediately before every Docker or Buildx
+subprocess and never renews it. If capacity expires or regresses, no
+qualification receipt is emitted and the intent remains unresolved, so Docker
+state and qualification are `UNKNOWN`. Before retrying that cohort, issue a new
+receipt with `--operation cleanup` and run the qualifier with
+`--cleanup-cohort "$cohort"`; cleanup acts only on the exact recorded tags and
+outputs and must append a successful readback receipt. Existing sets without
+the immutable manifest, unknown artifacts, overwritten receipts, and source or
+input drift are refused. A successful build appends a qualification completion
+binding; cleanup completion is required only for an interrupted attempt. A
+qualification manifest preserves its originating revision as provenance but
+reopens against a qualification-specific digest map. That map includes the
+qualifier and its runtime modules, Dockerfiles, dependency inputs, locks,
+artifact descriptors, and nested source-build evidence. Generated
+`docker/refresh/qualification/` evidence and `refresh_policy.json` receipt
+pointers are adoption metadata, so tracking them does not self-invalidate a
+completed set; dependency-bundle bytes are independently revalidated against
+their descriptor digests before each build, and receipt and graph integrity
+remains independently mandatory.
+Any executable or build-input drift still fails closed. A
+per-set process lock and attempt-unique temporary tag prevent concurrent
+qualification from sharing mutation state. Interruption cleanup removes only
+the intent-recorded OCI, validation-receipt, and digest-bound tool-snapshot
+residue. It never rewrites the final tag: readback must show either the recorded
+baseline or the exact task-owned image ID, and any other value remains
+ambiguous and blocked.
+Do not execute a catalog server unless preflight returns `READY`. The receipt
+binds the 31-entry classification, including the exact derived 22 scannable and
+9 blocked execution boundary, source and policy digests, tool versions,
+local Docker authority, immutable image IDs, and explicit network, filesystem,
+resource, and secret controls. See
+[`docs/GRADE-REFRESH-PROGRAM.md`](docs/GRADE-REFRESH-PROGRAM.md) and the
+[`operator runbook`](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md).
+
 Create a review candidate without mutating the canonical registry, baked
 snapshot, static site, schedule, or deployment:
 
 ```bash
-uv run --frozen --extra engine python scripts/refresh_candidate.py create \
+"$PYTHON" scripts/refresh_candidate.py create \
   --db ./registry.db \
-  --out-dir ./dist/refresh-candidates
+  --out-dir ./dist/refresh-candidates \
+  --qualification-receipt ./dist/grade-refresh/preflight.json
 ```
 
-The command refuses local-process scans unless Docker and every catalog-pinned
-image are already available locally. Those sources run through the existing
-network-off, read-only, capability-dropped, resource-bounded sandbox. Remote
+The command refuses local-process scans unless the bound preflight receipt is
+current and READY, and Docker and every catalog-pinned image are available
+locally at the recorded immutable IDs. Those sources run through the existing
+network-off, read-only, capability-dropped, resource-bounded sandbox. Each local
+container is pre-created and the connector is bound to start only that immutable
+ID; scan evidence is accepted only after the bound daemon proves it absent. A
+timeout without that readback remains `UNKNOWN`. Remote
 endpoints are probed over their live network transport without a local process
-sandbox and are labeled accordingly. The immutable bundle contains receipts,
-catalog identity, scan times and ages, masked/failed/unknown evidence states,
-attributed scan drift, an honest static snapshot, and a content-bound manifest.
+sandbox and are labeled accordingly. New immutable bundles use
+`RefreshCandidateV2` and contain self-digested execution-bound receipts, catalog
+identity, scan times and ages, blocked/masked/failed/timeout/unknown evidence
+states, attributed scan drift, an honest
+static snapshot, source/tool bindings, freshness counts and earliest expiry,
+semantic projection digests, and a content-bound manifest. Legacy V1 bundles
+remain structurally inspectable but are publication-ineligible.
 
-Candidate creation has no publication or deployment authority. A structurally
-valid candidate must first pass `verify`, then receive a separate digest-bound,
-short-lived `approve` receipt before `publish` may stage it in a local output
-directory. `verify` exits successfully only for a current, complete,
-reviewed-input-bound candidate that is eligible for publication. Eligibility
-never grants approval, publication, deployment, or scheduling authority.
+Candidate creation has no publication or deployment authority. Structural
+verification reports schema and publication eligibility separately; a valid V1
+artifact cannot acquire V2 authority by self-assertion. A current, complete,
+reviewed-input-bound V2 candidate is only an input to later local admission.
+Eligibility never grants approval, publication, deployment, rollback,
+scheduling, or outreach authority.
+
+A separately supplied `McpTrustPublicationApprovalV1` can be verified and used
+to build a deterministic local copy-only package:
+
+```bash
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-approval ./dist/publication-approval.json \
+  --candidate ./dist/site-candidates/<name>
+uv run --frozen python scripts/build_publication_package.py --build \
+  --candidate ./dist/site-candidates/<name> \
+  --approval ./dist/publication-approval.json \
+  --out ./dist/publication-packages/<name>
+uv run --frozen python scripts/build_publication_package.py \
+  --verify-package ./dist/publication-packages/<name> \
+  --approval ./dist/publication-approval.json
+```
+
+This admission is provider-free and local-only. It binds the V2 candidate,
+repeatability and triage lineage, exact V38 review, current provider evidence,
+rollback target, operator statement digest, and the minimum freshness expiry.
+Every mutation authority remains false. A package is not deployment authority,
+publication proof, rollback authority, scheduler authority, endorsement, or
+production-freshness evidence.
+
+The manual static deploy lane requires a separate short-lived
+`McpTrustProductionDeployAuthorizationV4` binding that exact package, content
+approval, provider and operator receipts, retained rollback bytes, source
+revision, output, and tool digests. It revalidates before and after live TTY
+confirmation. After any provider call, freshness remains `UNKNOWN` until a
+provider/source-bound `McpTrustProductionPublicationReceiptV1` verifies the
+exact all-route readback receipt. A missing provider artifact digest can never
+be promoted to `FRESH`.
 
 Snapshot signing is a separate authority after candidate approval/staging. The
 refresh process never receives a signing or recovery key, and its SHA-256
@@ -309,9 +456,12 @@ lane was disabled and its deploy authority removed (see
 
 The static front door is the low-ops launch path (see
 [`DEPLOY-VERCEL.md`](DEPLOY-VERCEL.md)); a weekly `launchd` job under
-[`deploy/launchd/`](deploy/launchd/) remains installed but disabled. Its
-compatibility entrypoint can create a local review candidate only; it cannot
-publish or deploy. The live FastAPI service + VM path remains
+[`deploy/launchd/`](deploy/launchd/) is persistently disabled and current host
+readback shows it unloaded. A dormant installed plist remains and differs from
+the repository template; treat it as configuration drift and do not load or
+enable it. The compatibility entrypoint can create a local review candidate
+only, after no-execution preflight; it cannot publish or deploy. The live FastAPI
+service + VM path remains
 documented in [`DEPLOY-VM.md`](DEPLOY-VM.md) as an alternative. See
 [`SPEC.md`](SPEC.md) for the full contract and [`LAUNCH-GATE.md`](LAUNCH-GATE.md)
 for launch history. The deployed catalog reports scan timestamps as its

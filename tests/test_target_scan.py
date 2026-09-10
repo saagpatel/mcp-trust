@@ -1,0 +1,1444 @@
+"""Target-scoped receipt-only scan boundary tests."""
+
+from __future__ import annotations
+
+import inspect
+import json
+import os
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from mcp_trust import grade_refresh as grade_refresh_module
+from mcp_trust import refresh as refresh_module
+from mcp_trust import target_scan
+from mcp_trust.core.models import (
+    RiskSummary,
+    ScanEvidence,
+    Server,
+    ToolEvidence,
+)
+from mcp_trust.engine.base import EngineResult, ScanTimeoutError
+from mcp_trust.engine.mcpaudit import docker_launch_spec
+from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
+    sandbox_server_process_digest,
+)
+from mcp_trust.grade_refresh import (
+    canonical_bytes,
+    catalog_inventory,
+    digest_bytes,
+    digest_file,
+    load_policy,
+)
+from mcp_trust.host_capacity import (
+    HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    HostCapacitySample,
+    require_current_host_capacity,
+    validate_host_capacity_receipt,
+)
+from mcp_trust.refresh import RefreshCandidateError
+from mcp_trust.store.db import connect, init_schema
+from mcp_trust.store.repository import ServerRepository
+from scripts import refresh_candidate as refresh_cli
+from tests.receipt_fixtures import host_capacity_receipt
+
+ROOT = Path(__file__).resolve().parents[1]
+SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
+MASKED = ROOT / "masked-grades.json"
+POLICY = ROOT / "src/mcp_trust/catalog/refresh_policy.json"
+FIXED_NOW = datetime(2026, 8, 29, 2, 30, tzinfo=UTC)
+TARGET = "mcp-reference-time"
+IMAGE_ID = "sha256:" + "a" * 64
+SOURCE_BINDING = {
+    "revision": "b" * 40,
+    "worktree_state": "clean",
+    "source_tree_digest": "sha256:" + "c" * 64,
+    "repository": "https://example.test/mcp-trust.git",
+    "file_digests": {},
+}
+EXPECTED_CATALOG_COUNTS = catalog_inventory(
+    seed_path=SEED,
+    masked_path=MASKED,
+    policy_path=POLICY,
+)["counts"]
+
+
+def _target_server(*, added_at: datetime = FIXED_NOW) -> Server:
+    rows = json.loads(SEED.read_text(encoding="utf-8"))
+    row = next(item for item in rows if item["slug"] == TARGET)
+    return Server.model_validate({**row, "added_at": added_at})
+
+
+def _database(path: Path) -> Path:
+    connection = connect(path)
+    init_schema(connection)
+    ServerRepository(connection).upsert(_target_server())
+    connection.close()
+    path.chmod(0o400)
+    return path
+
+
+def _profile() -> dict[str, object]:
+    policy = load_policy(POLICY, SEED, MASKED)
+    image = str(policy.raw["default_sandbox_image"])
+    return refresh_module._sandbox_profile(
+        image,
+        image_digest=IMAGE_ID,
+        docker_host="unix:///controlled/docker.sock",
+    )
+
+
+def _runtime_readback(server: Server) -> dict[str, object]:
+    command, args = docker_launch_spec(server.source)
+    return {
+        "schema": "McpTrustSandboxRuntimeReadbackV2",
+        "state": "VERIFIED",
+        "proof_boundary": "live-mcp-server-process-and-docker-daemon-config",
+        "image_id": IMAGE_ID,
+        "container_identity_digest": "sha256:" + "d" * 64,
+        "controls": {
+            "network_none": True,
+            "read_only_root": True,
+            "capabilities_dropped": True,
+            "no_new_privileges": True,
+            "memory_limit": True,
+            "memory_swap_disabled": True,
+            "cpu_limit": True,
+            "pids_limit": True,
+            "non_root_user": True,
+            "bounded_writable_tmpfs": True,
+            "no_host_mount": True,
+            "not_privileged": True,
+            "environment_policy": True,
+            "live_process_observed": True,
+            "server_process_identity": True,
+            "shared_namespaces_and_cgroup": True,
+        },
+        "observed": {
+            "uid": 1000,
+            "gid": 1000,
+            "network_interfaces": ["lo"],
+            "memory_max_bytes": 512 * 1024 * 1024,
+            "pids_max": 256,
+            "cpu_quota": 100000,
+            "cpu_period": 100000,
+            "environment_names": ["HOME", "HOSTNAME", "PATH", "TMPDIR"],
+            "image_environment_names": ["PATH"],
+            "runtime_managed_environment_names": ["HOSTNAME"],
+            "injected_dummy_env_names": [],
+            "secret_values_emitted_in_readback": False,
+            "server_process_cmdline_digest": sandbox_server_process_digest(command, args),
+            "workdir": "/scan",
+            "root_write_denied": True,
+            "workdir_write_verified": True,
+        },
+        "claim_ceiling": SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
+    }
+
+
+def _preflight() -> dict[str, object]:
+    policy = load_policy(POLICY, SEED, MASKED)
+    rows = json.loads(SEED.read_text(encoding="utf-8"))
+    images = sorted(
+        {
+            source.get("sandbox_image") or policy.raw["default_sandbox_image"]
+            for row in rows
+            if row["slug"] in policy.scannable
+            and isinstance((source := row.get("source")), dict)
+            and source.get("command") is not None
+        }
+    )
+    image_bindings = []
+    image_sources = {}
+    for index, image in enumerate(images):
+        image_id = (
+            IMAGE_ID
+            if image == policy.raw["default_sandbox_image"]
+            else ("sha256:" + f"{index + 1:x}" * 64)[:71]
+        )
+        image_bindings.append(
+            {
+                "reference": image,
+                "state": "BOUND",
+                "image_id": image_id,
+            }
+        )
+        image_sources[image] = {
+            "qualification": {"receipt_digest": "sha256:" + f"{index + 6:x}" * 64}
+        }
+    payload: dict[str, object] = {
+        "schema": "McpTrustGradeRefreshPreflightV3",
+        "observed_at": FIXED_NOW.isoformat(),
+        "status": "READY",
+        "safe_to_execute_catalog": True,
+        "exit_classification": "ready",
+        "source_binding": SOURCE_BINDING,
+        "engine_materialization": {"receipt_digest": "sha256:" + "e" * 64},
+        "host_capacity": host_capacity_receipt(observed_at=FIXED_NOW),
+        "catalog": {
+            "denominator": 31,
+            "counts": dict(EXPECTED_CATALOG_COUNTS),
+            "execution_boundary": {
+                "schema": "McpTrustRefreshExecutionBoundaryV1",
+                "scannable": sorted(policy.scannable),
+                "blocked": sorted(policy.blocked),
+            },
+            "seed_digest": digest_file(SEED),
+            "masking_digest": digest_file(MASKED),
+            "policy_digest": digest_file(POLICY),
+            "inventory_digest": digest_bytes(
+                canonical_bytes(
+                    catalog_inventory(
+                        seed_path=SEED,
+                        masked_path=MASKED,
+                        policy_path=POLICY,
+                    )
+                )
+            ),
+            "image_build_sources": image_sources,
+        },
+        "sandbox": {"image_bindings": image_bindings},
+        "tool_versions": {"mcp_audits": "2.7.0"},
+        "scheduler": {"mutation_performed": False},
+        "authority": {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        },
+    }
+    payload["receipt_digest"] = digest_bytes(canonical_bytes(payload))
+    return payload
+
+
+def _write_preflight(path: Path, payload: dict[str, object] | None = None) -> Path:
+    if path.exists():
+        path.chmod(0o600)
+    path.write_bytes(canonical_bytes(payload or _preflight()))
+    path.chmod(0o400)
+    return path
+
+
+def _live() -> dict[str, object]:
+    profile = _profile()
+    image = str(profile["image"])
+    return {
+        "docker_daemon": "available",
+        "profiles": [profile],
+        "default_image": image,
+        "remote_transport_count": 0,
+        "_execution_docker_host": "unix:///controlled/docker.sock",
+        "_execution_image_bindings": {image: IMAGE_ID},
+    }
+
+
+class _Engine:
+    def __init__(self, result: EngineResult | BaseException) -> None:
+        self.result = result
+        self.calls = 0
+
+    def scan(self, source: object) -> EngineResult:
+        self.calls += 1
+        if isinstance(self.result, BaseException):
+            raise self.result
+        return self.result
+
+
+def _engine_result(**updates: object) -> EngineResult:
+    server = _target_server()
+    result = EngineResult(
+        engine_name="mcpaudit",
+        engine_version="2.7.0",
+        risk=RiskSummary(composite=1.0),
+        evidence=ScanEvidence(tools=[ToolEvidence(name="get-current-time")]),
+        sandbox_image=IMAGE_ID,
+        sandbox_cleanup_evidence="CONTAINER_ABSENCE_VERIFIED",
+        sandbox_runtime_readback=_runtime_readback(server),
+    )
+    return result.model_copy(update=updates)
+
+
+def _creation_kwargs(tmp_path: Path, engine: _Engine) -> dict[str, object]:
+    output_parent = tmp_path / "receipts"
+    output_parent.mkdir(mode=0o700)
+    database = _database(tmp_path / "registry.db")
+    return {
+        "slug": TARGET,
+        "source_db": database,
+        "expected_db_canonical_path_sha256": target_scan._canonical_registry_path(database)[1],
+        "expected_db_content_sha256": digest_file(database),
+        "seed_path": SEED,
+        "masked_path": MASKED,
+        "policy_path": POLICY,
+        "qualification_receipt_path": _write_preflight(tmp_path / "preflight.json"),
+        "repo_root": ROOT,
+        "output_path": output_parent / "target.json",
+        "now": FIXED_NOW,
+        "_source_binding_provider": lambda _root: SOURCE_BINDING,
+        "_qualification_revalidator": lambda *_args, **_kwargs: None,
+        "_preflight_provider": lambda *_args, **_kwargs: _live(),
+        "_engine_factory": lambda: engine,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _admit_fixture_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        target_scan,
+        "validate_ready_preflight_contract",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        target_scan,
+        "require_current_host_capacity",
+        lambda receipt, **_kwargs: validate_host_capacity_receipt(receipt),
+    )
+
+
+def test_target_selection_rejects_unsafe_and_blocked_before_execution() -> None:
+    policy = load_policy(POLICY, SEED, MASKED)
+    rows = json.loads(SEED.read_text(encoding="utf-8"))
+    invalid = ["", "../time", "time,other", "*", "TIME", "time/other", "é"]
+    for slug in invalid:
+        with pytest.raises(RefreshCandidateError, match="safe kebab-case"):
+            target_scan._select_target(slug, policy=policy, rows=rows, added_at=FIXED_NOW)
+    for category in (
+        policy.masked,
+        policy.unsupported,
+        policy.credential_dependent,
+        policy.backing_service_dependent,
+    ):
+        if category:
+            with pytest.raises(RefreshCandidateError, match="not policy-scannable"):
+                target_scan._select_target(
+                    sorted(category)[0], policy=policy, rows=rows, added_at=FIXED_NOW
+                )
+
+
+def test_target_capacity_rejection_precedes_database_and_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    receipt_path = kwargs["qualification_receipt_path"]
+    assert isinstance(receipt_path, Path)
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt.pop("host_capacity")
+    receipt_path.chmod(0o600)
+    receipt_path.write_bytes(canonical_bytes(receipt))
+    receipt_path.chmod(0o400)
+    touched = {"database": False, "runtime": False}
+
+    def forbidden_database(*_args: object, **_kwargs: object) -> None:
+        touched["database"] = True
+        raise AssertionError("database must not open before capacity admission")
+
+    def forbidden_runtime(*_args: object, **_kwargs: object) -> None:
+        touched["runtime"] = True
+        raise AssertionError("runtime must not start before capacity admission")
+
+    monkeypatch.setattr(target_scan, "_open_registry_target", forbidden_database)
+    kwargs["_preflight_provider"] = forbidden_runtime
+
+    with pytest.raises(RefreshCandidateError, match="host capacity is not READY"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert touched == {"database": False, "runtime": False}
+
+
+def test_target_rechecks_actual_time_before_scan_after_receipt_expiry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    times = iter((FIXED_NOW, FIXED_NOW + timedelta(seconds=121)))
+
+    class BoundaryClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = next(times)
+            return value if tz is None else value.astimezone(tz)
+
+    sample = HostCapacitySample(
+        device_id=42,
+        total_bytes=100 * 1024**3,
+        available_bytes=HOST_CAPACITY_MIN_AVAILABLE_BYTES,
+    )
+
+    def enforce(receipt: object, *, anchor: Path, now: datetime) -> dict[str, object]:
+        return require_current_host_capacity(
+            receipt,
+            anchor=anchor,
+            now=now,
+            reader=lambda _anchor: sample,
+        )
+
+    monkeypatch.setattr(target_scan, "datetime", BoundaryClock)
+    monkeypatch.setattr(target_scan, "require_current_host_capacity", enforce)
+
+    with pytest.raises(RefreshCandidateError, match="changed before scan"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 0
+    assert not kwargs["output_path"].exists()
+
+
+def test_corpus_candidate_contract_is_31_22_9_and_has_no_selector() -> None:
+    policy = load_policy(POLICY, SEED, MASKED)
+    assert policy.raw["catalog_denominator"] == 31
+    assert len(policy.scannable) == 22
+    assert len(policy.blocked) == 9
+    assert "io-github-discourse-mcp-0-2-9" in policy.scannable
+    assert "io-github-nvidia-elements-2-1-4" in policy.scannable
+    assert "io-github-microsoft-playwright-mcp-0-0-77" in policy.scannable
+    assert "io-github-chromedevtools-chrome-devtools-mcp-1-5-0" in policy.scannable
+    assert "slug" not in inspect.signature(refresh_module.create_refresh_candidate).parameters
+
+
+def test_cli_rejects_repeated_target_selector() -> None:
+    with pytest.raises(SystemExit):
+        refresh_cli._parser().parse_args(
+            [
+                "target-receipt",
+                "--slug",
+                TARGET,
+                "--slug",
+                "mcp-reference-fetch",
+                "--db",
+                "registry.db",
+                "--expected-db-canonical-path-sha256",
+                "sha256:" + "1" * 64,
+                "--expected-db-content-sha256",
+                "sha256:" + "2" * 64,
+                "--qualification-receipt",
+                "preflight.json",
+                "--out",
+                "receipt.json",
+            ]
+        )
+
+
+def test_target_cli_binds_omitted_reviewed_inputs_to_repo_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    foreign_cwd = tmp_path / "foreign-cwd"
+    foreign_cwd.mkdir()
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def create(**kwargs: object) -> Path:
+        calls.append(("create", kwargs))
+        return tmp_path / "target-receipt.json"
+
+    def verify(_artifact: Path, **kwargs: object) -> dict[str, object]:
+        calls.append(("verify", kwargs))
+        return {"verified": True}
+
+    monkeypatch.setattr(refresh_cli, "create_target_scan_artifact", create)
+    monkeypatch.setattr(refresh_cli, "verify_target_scan_artifact", verify)
+    monkeypatch.chdir(foreign_cwd)
+
+    base_args = [
+        "target-receipt",
+        "--slug",
+        TARGET,
+        "--db",
+        "registry.db",
+        "--expected-db-canonical-path-sha256",
+        "sha256:" + "1" * 64,
+        "--expected-db-content-sha256",
+        "sha256:" + "2" * 64,
+        "--qualification-receipt",
+        "preflight.json",
+        "--out",
+        "receipt.json",
+    ]
+    assert refresh_cli.main([*base_args, "--repo-root", str(ROOT)]) == 0
+    assert refresh_cli.main(base_args) == 0
+
+    expected_by_call = [ROOT.resolve(), ROOT.resolve(), foreign_cwd, foreign_cwd]
+    assert [kind for kind, _kwargs in calls] == ["create", "verify", "create", "verify"]
+    for (_kind, kwargs), expected_root in zip(calls, expected_by_call, strict=True):
+        assert kwargs["repo_root"] == expected_root
+        assert kwargs["seed_path"] == expected_root / "src/mcp_trust/catalog/seed_servers.json"
+        assert kwargs["masked_path"] == expected_root / "masked-grades.json"
+        assert kwargs["policy_path"] == expected_root / "src/mcp_trust/catalog/refresh_policy.json"
+
+
+def test_target_cli_preserves_explicit_reviewed_input_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    foreign_cwd = tmp_path / "foreign-cwd"
+    foreign_cwd.mkdir()
+    relative_root = Path("../source-root")
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def create(**kwargs: object) -> Path:
+        calls.append(("create", kwargs))
+        return tmp_path / "target-receipt.json"
+
+    def verify(_artifact: Path, **kwargs: object) -> dict[str, object]:
+        calls.append(("verify", kwargs))
+        return {"verified": True}
+
+    monkeypatch.setattr(refresh_cli, "create_target_scan_artifact", create)
+    monkeypatch.setattr(refresh_cli, "verify_target_scan_artifact", verify)
+    monkeypatch.chdir(foreign_cwd)
+
+    base_args = [
+        "target-receipt",
+        "--slug",
+        TARGET,
+        "--db",
+        "registry.db",
+        "--expected-db-canonical-path-sha256",
+        "sha256:" + "1" * 64,
+        "--expected-db-content-sha256",
+        "sha256:" + "2" * 64,
+        "--qualification-receipt",
+        "preflight.json",
+        "--repo-root",
+        str(relative_root),
+        "--out",
+        "receipt.json",
+    ]
+    relative_inputs = (Path("seed.json"), Path("masked.json"), Path("policy.json"))
+    absolute_inputs = (SEED, MASKED, POLICY)
+    for seed_path, masked_path, policy_path in (relative_inputs, absolute_inputs):
+        assert (
+            refresh_cli.main(
+                [
+                    *base_args,
+                    "--seed",
+                    str(seed_path),
+                    "--masked-grades",
+                    str(masked_path),
+                    "--policy",
+                    str(policy_path),
+                ]
+            )
+            == 0
+        )
+
+    expected_root = (foreign_cwd / relative_root).resolve()
+    assert [kind for kind, _kwargs in calls] == ["create", "verify"] * 2
+    for index, expected_inputs in enumerate((relative_inputs, absolute_inputs)):
+        for _kind, kwargs in calls[index * 2 : index * 2 + 2]:
+            assert kwargs["repo_root"] == expected_root
+            assert kwargs["seed_path"] == expected_inputs[0]
+            assert kwargs["masked_path"] == expected_inputs[1]
+            assert kwargs["policy_path"] == expected_inputs[2]
+
+
+def test_historical_verifier_cli_has_no_execution_or_registry_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Path, Path]] = []
+
+    def verify(artifact: Path, *, qualification_receipt_path: Path) -> dict[str, object]:
+        calls.append((artifact, qualification_receipt_path))
+        return {"historical_integrity_verified": True}
+
+    monkeypatch.setattr(refresh_cli, "verify_target_scan_artifact_history", verify)
+    artifact = tmp_path / "target.json"
+    preflight = tmp_path / "preflight.json"
+
+    assert (
+        refresh_cli.main(
+            [
+                "verify-target-history",
+                str(artifact),
+                "--qualification-receipt",
+                str(preflight),
+            ]
+        )
+        == 0
+    )
+    assert calls == [(artifact, preflight)]
+    parsed = refresh_cli._parser().parse_args(
+        [
+            "verify-target-history",
+            str(artifact),
+            "--qualification-receipt",
+            str(preflight),
+        ]
+    )
+    assert set(vars(parsed)) == {"command", "artifact", "qualification_receipt"}
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "/Users/operator/private.json",
+        "/home/operator/private.json",
+        "/tmp/private.json",
+        "file:///etc/passwd",
+        "https://user:password@example.test/value",
+        "connect 192.168.1.10",
+        "token=live-value",
+        "--token",
+        "--aws-secret-access-key",
+        "AWS_SECRET_ACCESS_KEY=live-secret",
+    ],
+)
+def test_recursive_privacy_rejects_hostile_values(hostile: str) -> None:
+    with pytest.raises(RefreshCandidateError, match="privacy-forbidden|user information"):
+        target_scan._privacy_validate({"nested": [{"value": hostile}]})
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["token", "password", "private_key", "credential_value", "environment_values"],
+)
+def test_recursive_privacy_rejects_hostile_keys(key: str) -> None:
+    with pytest.raises(RefreshCandidateError, match="privacy-forbidden"):
+        target_scan._privacy_validate({"nested": {key: "opaque"}})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"args": ["--token", "live-secret"]},
+        {"args": ["--aws-secret-access-key", "live-secret"]},
+        {"value": "AWS_SECRET_ACCESS_KEY=live-secret"},
+    ],
+)
+def test_recursive_privacy_rejects_split_credential_arguments(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(RefreshCandidateError, match="privacy-forbidden"):
+        target_scan._privacy_validate(payload)
+
+
+def test_ordinary_scan_receipt_cannot_verify_as_target_artifact() -> None:
+    with pytest.raises(RefreshCandidateError, match="schema"):
+        target_scan._validate_artifact_shape(
+            {"format_version": 1, "server_slug": TARGET, "scan_id": "ordinary"}
+        )
+
+
+def test_registry_read_is_immutable_exact_and_rejects_sidecars(tmp_path: Path) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    with target_scan._open_registry_target(
+        database,
+        TARGET,
+        expected_canonical_path_sha256=expected_path,
+        expected_content_sha256=expected_content,
+    ) as bound:
+        assert bound.server.slug == TARGET
+        assert len(bound.sha256) == 71
+        assert target_scan._recheck_registry(bound, bound.server) == bound.sha256
+    Path(f"{database}-wal").write_bytes(b"foreign")
+    with pytest.raises(RefreshCandidateError, match="sidecar"):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=expected_path,
+            expected_content_sha256=expected_content,
+        ):
+            pass
+
+
+def test_registry_rejects_group_or_world_permissions(tmp_path: Path) -> None:
+    database = _database(tmp_path / "registry.db")
+    database.chmod(0o640)
+    with pytest.raises(RefreshCandidateError, match="ownership"):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=target_scan._canonical_registry_path(database)[1],
+            expected_content_sha256=digest_file(database),
+        ):
+            pass
+
+
+def test_registry_requires_exact_mode_0400(tmp_path: Path) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    database.chmod(0o600)
+
+    with pytest.raises(RefreshCandidateError, match="ownership or identity"):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=expected_path,
+            expected_content_sha256=expected_content,
+        ):
+            pass
+
+
+@pytest.mark.parametrize("binding", ["path", "content"])
+def test_registry_rejects_wrong_authorized_digest_before_query(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    binding: str,
+) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    queried = False
+
+    def reject_query(*_args: object, **_kwargs: object) -> None:
+        nonlocal queried
+        queried = True
+        raise AssertionError("unauthorized DB reached the query boundary")
+
+    monkeypatch.setattr(target_scan, "_query_registry_snapshot", reject_query)
+    with pytest.raises(RefreshCandidateError, match="not authorized"):
+        with target_scan._open_registry_target(
+            database,
+            TARGET,
+            expected_canonical_path_sha256=(
+                "sha256:" + "0" * 64 if binding == "path" else expected_path
+            ),
+            expected_content_sha256=(
+                "sha256:" + "0" * 64 if binding == "content" else expected_content
+            ),
+        ):
+            pass
+    assert queried is False
+
+
+def test_registry_queries_only_validated_descriptor_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = _database(tmp_path / "registry.db")
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    real_connect = sqlite3.connect
+    connected_to: list[object] = []
+
+    def connect(database_name: object, *args: object, **kwargs: object) -> sqlite3.Connection:
+        connected_to.append(database_name)
+        return real_connect(database_name, *args, **kwargs)
+
+    monkeypatch.setattr(target_scan.sqlite3, "connect", connect)
+    with target_scan._open_registry_target(
+        database,
+        TARGET,
+        expected_canonical_path_sha256=expected_path,
+        expected_content_sha256=expected_content,
+    ) as bound:
+        assert target_scan._recheck_registry(bound, bound.server) == expected_content
+
+    assert connected_to == [":memory:", ":memory:"]
+
+
+def test_registry_path_replacement_cannot_change_queried_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = _database(tmp_path / "registry.db")
+    held_path = tmp_path / "held-original.db"
+    replacement = tmp_path / "replacement.db"
+    connection = connect(replacement)
+    init_schema(connection)
+    connection.close()
+    replacement.chmod(0o400)
+    expected_path = target_scan._canonical_registry_path(database)[1]
+    expected_content = digest_file(database)
+    real_query = target_scan._query_registry_snapshot
+    swapped = False
+
+    def swap_then_query(content: bytes, slug: str, *, failure: str) -> Server | None:
+        nonlocal swapped
+        if not swapped:
+            database.rename(held_path)
+            replacement.rename(database)
+            swapped = True
+        return real_query(content, slug, failure=failure)
+
+    monkeypatch.setattr(target_scan, "_query_registry_snapshot", swap_then_query)
+    with target_scan._open_registry_target(
+        database,
+        TARGET,
+        expected_canonical_path_sha256=expected_path,
+        expected_content_sha256=expected_content,
+    ) as bound:
+        assert bound.server.slug == TARGET
+        with pytest.raises(RefreshCandidateError, match="identity changed"):
+            target_scan._recheck_registry(bound, bound.server)
+
+    assert swapped is True
+
+
+def test_create_scans_one_target_and_seals_receipt(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    database = kwargs["source_db"]
+    assert isinstance(database, Path)
+    before = database.read_bytes()
+    output = target_scan.create_target_scan_artifact(**kwargs)
+    assert engine.calls == 1
+    assert output.is_file()
+    assert output.stat().st_mode & 0o777 == 0o400
+    assert database.read_bytes() == before
+    connection = sqlite3.connect(database)
+    assert connection.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 0
+    connection.close()
+    artifact = json.loads(output.read_text(encoding="utf-8"))
+    assert artifact["schema"] == target_scan.TARGET_SCAN_SCHEMA
+    assert artifact["target_slug"] == TARGET
+    assert artifact["authority"] == target_scan.TARGET_SCAN_AUTHORITY
+    assert (
+        artifact["registry_read_binding"]["pre_sha256"]
+        == artifact["registry_read_binding"]["post_sha256"]
+    )
+    assert artifact["registry_read_binding"] == {
+        "authorized_canonical_path_sha256": kwargs["expected_db_canonical_path_sha256"],
+        "authorized_content_sha256": kwargs["expected_db_content_sha256"],
+        "required_mode": "0400",
+        "observed_mode": "0400",
+        "pre_sha256": kwargs["expected_db_content_sha256"],
+        "post_sha256": kwargs["expected_db_content_sha256"],
+        "stable_descriptor_identity": True,
+        "descriptor_bound_query": True,
+        "sidecars_absent": True,
+    }
+
+
+def test_target_gate_accepts_only_exact_python_console_script_identity(
+    tmp_path: Path,
+) -> None:
+    server = _target_server()
+    readback = _runtime_readback(server)
+    readback["observed"]["server_process_cmdline_digest"] = sandbox_server_process_digest(
+        "/opt/venv/bin/python", ["/opt/venv/bin/mcp-server-time"]
+    )
+    engine = _Engine(_engine_result(sandbox_runtime_readback=readback))
+    kwargs = _creation_kwargs(tmp_path, engine)
+
+    output = target_scan.create_target_scan_artifact(**kwargs)
+
+    assert output.is_file()
+    assert engine.calls == 1
+
+
+def test_target_gate_rejects_python_console_script_argument_drift(tmp_path: Path) -> None:
+    server = _target_server()
+    readback = _runtime_readback(server)
+    readback["observed"]["server_process_cmdline_digest"] = sandbox_server_process_digest(
+        "/opt/venv/bin/python",
+        ["/opt/venv/bin/mcp-server-time", "--drift"],
+    )
+    engine = _Engine(_engine_result(sandbox_runtime_readback=readback))
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+
+    with pytest.raises(RefreshCandidateError, match="runtime evidence is incomplete"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 1
+    assert not output.exists()
+
+
+def test_full_catalog_count_binding_accepts_exact_producer_shape(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    preflight = json.loads(kwargs["qualification_receipt_path"].read_text(encoding="utf-8"))
+    assert preflight["catalog"]["counts"] == EXPECTED_CATALOG_COUNTS
+
+    target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 1
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "value", "boolean"])
+def test_full_catalog_count_binding_rejects_shape_or_value_drift_before_scan(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    forged = _preflight()
+    catalog = forged["catalog"]
+    assert isinstance(catalog, dict)
+    counts = catalog["counts"]
+    assert isinstance(counts, dict)
+    if mutation == "missing":
+        counts.pop("intentionally_masked")
+    elif mutation == "extra":
+        counts["unexpected"] = 0
+    elif mutation == "value":
+        counts["unsupported_upstream"] = 9
+    else:
+        counts["missing_image_build_source"] = False
+    forged.pop("receipt_digest")
+    forged["receipt_digest"] = digest_bytes(canonical_bytes(forged))
+    qualification = kwargs["qualification_receipt_path"]
+    output = kwargs["output_path"]
+    assert isinstance(qualification, Path)
+    assert isinstance(output, Path)
+    _write_preflight(qualification, forged)
+
+    with pytest.raises(RefreshCandidateError, match="input bindings differ"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 0
+    assert not output.exists()
+
+
+def test_writable_owner_private_preflight_is_accepted(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    preflight = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight, Path)
+    preflight.chmod(0o600)
+    target_scan.create_target_scan_artifact(**kwargs)
+    assert engine.calls == 1
+
+
+def test_complete_image_set_is_validated_but_live_preflight_is_target_only(
+    tmp_path: Path,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    expected_sets: list[list[str]] = []
+    expected_count_sets: list[dict[str, int]] = []
+    expected_inventory_digests: list[str] = []
+    live_counts: list[int] = []
+
+    def revalidate(_receipt: object, **call: object) -> None:
+        expected_sets.append(list(call["expected_image_references"]))
+        expected_count_sets.append(dict(call["expected_catalog_counts"]))
+        expected_inventory_digests.append(str(call["expected_catalog_inventory_digest"]))
+
+    def preflight(servers: list[Server], **_kwargs: object) -> dict[str, object]:
+        live_counts.append(len(servers))
+        return _live()
+
+    kwargs["_qualification_revalidator"] = revalidate
+    kwargs["_preflight_provider"] = preflight
+    target_scan.create_target_scan_artifact(**kwargs)
+    assert len(expected_sets) == 2
+    assert all(len(images) == 5 for images in expected_sets)
+    assert expected_count_sets == [EXPECTED_CATALOG_COUNTS] * 2
+    assert expected_inventory_digests == [
+        digest_bytes(
+            canonical_bytes(
+                catalog_inventory(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
+            )
+        )
+    ] * 2
+    assert live_counts == [1, 1]
+
+
+def test_target_creation_rejects_current_category_drift_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    drifted_inventory = catalog_inventory(
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+    )
+    drifted_inventory["counts"] = {
+        **drifted_inventory["counts"],
+        "intentionally_masked": 7,
+        "unsupported_upstream": 9,
+    }
+    monkeypatch.setattr(
+        target_scan,
+        "catalog_inventory",
+        lambda **_kwargs: drifted_inventory,
+    )
+
+    with pytest.raises(RefreshCandidateError, match="reviewed V132 catalog counts"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+    assert engine.calls == 0
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"engine_name": "stub"},
+        {"engine_version": "2.6.0"},
+        {"evidence": None},
+        {"sandbox_image": "sha256:" + "f" * 64},
+        {"sandbox_cleanup_evidence": "UNKNOWN"},
+        {"sandbox_runtime_readback": None},
+    ],
+)
+def test_false_green_engine_results_write_no_artifact(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    engine = _Engine(_engine_result(**updates))
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    with pytest.raises(RefreshCandidateError, match="evidence is incomplete"):
+        target_scan.create_target_scan_artifact(**kwargs)
+    assert engine.calls == 1
+    assert not output.exists()
+
+
+def test_timeout_writes_no_artifact(tmp_path: Path) -> None:
+    engine = _Engine(
+        ScanTimeoutError(
+            "timeout",
+            hard_termination_evidence="CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT",
+        )
+    )
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    with pytest.raises(RefreshCandidateError, match="timed out"):
+        target_scan.create_target_scan_artifact(**kwargs)
+    assert not output.exists()
+
+
+def test_unsafe_output_is_rejected_before_scanner(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    output.parent.chmod(0o755)
+    with pytest.raises(RefreshCandidateError, match="owner-private"):
+        target_scan.create_target_scan_artifact(**kwargs)
+    assert engine.calls == 0
+
+
+def test_privacy_hostile_engine_evidence_writes_no_artifact(tmp_path: Path) -> None:
+    result = _engine_result(
+        evidence=ScanEvidence(tools=[ToolEvidence(name="/Users/operator/private")])
+    )
+    engine = _Engine(result)
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    with pytest.raises(RefreshCandidateError, match="privacy-forbidden"):
+        target_scan.create_target_scan_artifact(**kwargs)
+    assert engine.calls == 1
+    assert not output.exists()
+
+
+def test_source_drift_after_scan_writes_no_artifact(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    calls = 0
+
+    def binding(_root: Path) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return SOURCE_BINDING
+        return {**SOURCE_BINDING, "revision": "f" * 40}
+
+    kwargs["_source_binding_provider"] = binding
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    with pytest.raises(RefreshCandidateError, match="source binding changed"):
+        target_scan.create_target_scan_artifact(**kwargs)
+    assert not output.exists()
+
+
+def test_database_drift_after_scan_writes_no_artifact(tmp_path: Path) -> None:
+    kwargs: dict[str, object]
+
+    class MutatingEngine(_Engine):
+        def scan(self, source: object) -> EngineResult:
+            database = kwargs["source_db"]
+            assert isinstance(database, Path)
+            database.chmod(0o600)
+            with database.open("ab") as handle:
+                handle.write(b"drift")
+            return super().scan(source)
+
+    engine = MutatingEngine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    output = kwargs["output_path"]
+    assert isinstance(output, Path)
+    with pytest.raises(RefreshCandidateError, match="database"):
+        target_scan.create_target_scan_artifact(**kwargs)
+    assert not output.exists()
+
+
+def test_target_only_forged_qualification_is_rejected(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    forged = _preflight()
+    sandbox = forged["sandbox"]
+    catalog = forged["catalog"]
+    assert isinstance(sandbox, dict)
+    assert isinstance(catalog, dict)
+    sandbox["image_bindings"] = [sandbox["image_bindings"][0]]
+    sources = catalog["image_build_sources"]
+    assert isinstance(sources, dict)
+    reference = sandbox["image_bindings"][0]["reference"]
+    catalog["image_build_sources"] = {reference: sources[reference]}
+    forged.pop("receipt_digest")
+    forged["receipt_digest"] = digest_bytes(canonical_bytes(forged))
+    qualification = kwargs["qualification_receipt_path"]
+    assert isinstance(qualification, Path)
+    _write_preflight(qualification, forged)
+    with pytest.raises(RefreshCandidateError, match="image set is incomplete"):
+        target_scan.create_target_scan_artifact(**kwargs)
+
+
+def test_exclusive_finalization_refuses_collision_and_preserves_foreign_file(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "private"
+    parent.mkdir(mode=0o700)
+    output = parent / "receipt.json"
+    output.write_text("foreign", encoding="utf-8")
+    output.chmod(0o400)
+    with pytest.raises(RefreshCandidateError, match="already exists"):
+        target_scan._exclusive_finalize(output, {})
+    assert output.read_text(encoding="utf-8") == "foreign"
+    assert not list(parent.glob(".*.tmp-*"))
+
+
+def test_exclusive_finalization_rejects_nonprivate_parent(tmp_path: Path) -> None:
+    parent = tmp_path / "shared"
+    parent.mkdir(mode=0o755)
+    with pytest.raises(RefreshCandidateError, match="owner-private"):
+        target_scan._exclusive_finalize(parent / "receipt.json", {})
+
+
+def test_exclusive_finalization_collision_race_preserves_foreign_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = tmp_path / "private"
+    parent.mkdir(mode=0o700)
+    output = parent / "receipt.json"
+    monkeypatch.setattr(target_scan, "_validate_artifact_shape", lambda payload: payload)
+
+    def collide(directory_fd: int, _source: str, destination: str) -> None:
+        descriptor = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o400,
+            dir_fd=directory_fd,
+        )
+        try:
+            os.write(descriptor, b"foreign")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        raise RefreshCandidateError("target scan artifact already exists")
+
+    with pytest.raises(RefreshCandidateError, match="already exists"):
+        target_scan._exclusive_finalize(output, {}, rename_no_replace=collide)
+    assert output.read_bytes() == b"foreign"
+    assert not list(parent.glob(".*.tmp-*"))
+
+
+def test_output_symlink_parent_is_rejected_before_execution(tmp_path: Path) -> None:
+    real_parent = tmp_path / "real"
+    real_parent.mkdir(mode=0o700)
+    alias = tmp_path / "alias"
+    alias.symlink_to(real_parent, target_is_directory=True)
+    with pytest.raises(RefreshCandidateError, match="cannot be opened safely"):
+        target_scan._validate_output_destination(alias / "receipt.json")
+
+
+def test_verifier_rebinds_source_preflight_and_registry(tmp_path: Path) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    verification = target_scan.verify_target_scan_artifact(
+        artifact,
+        source_db=kwargs["source_db"],
+        expected_db_canonical_path_sha256=kwargs["expected_db_canonical_path_sha256"],
+        expected_db_content_sha256=kwargs["expected_db_content_sha256"],
+        seed_path=SEED,
+        masked_path=MASKED,
+        policy_path=POLICY,
+        qualification_receipt_path=kwargs["qualification_receipt_path"],
+        repo_root=ROOT,
+        now=FIXED_NOW,
+        _source_binding_provider=lambda _root: SOURCE_BINDING,
+        _qualification_revalidator=lambda *_args, **_kwargs: None,
+    )
+    assert verification["verified"] is True
+    assert verification["receipt_only"] is True
+
+
+def test_historical_verifier_reports_expired_without_current_admission(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    verification = target_scan.verify_target_scan_artifact_history(
+        artifact,
+        qualification_receipt_path=kwargs["qualification_receipt_path"],
+        now=FIXED_NOW + timedelta(seconds=121),
+    )
+
+    assert verification == {
+        "schema": "McpTrustTargetScanHistoricalVerificationV1",
+        "verdict": "VALID_AT_CREATION_CURRENTLY_EXPIRED",
+        "historical_integrity_verified": True,
+        "current_admission_verified": False,
+        "receipt_only": True,
+        "execution_performed": False,
+        "registry_accessed": False,
+        "target_slug": TARGET,
+        "artifact_file_sha256": digest_file(artifact),
+        "artifact_digest": json.loads(artifact.read_text(encoding="utf-8"))[
+            "artifact_digest"
+        ],
+        "scan_receipt_digest": json.loads(artifact.read_text(encoding="utf-8"))[
+            "scan_receipt"
+        ]["receipt_digest"],
+        "verification_observed_at": (FIXED_NOW + timedelta(seconds=121))
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "capacity_age_at_scan_seconds": 0.0,
+        "claim_ceiling": target_scan.TARGET_SCAN_HISTORICAL_CLAIM_CEILING,
+    }
+
+
+def test_historical_verifier_never_labels_unexpired_capacity_as_current_admission(
+    tmp_path: Path,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    verification = target_scan.verify_target_scan_artifact_history(
+        artifact,
+        qualification_receipt_path=kwargs["qualification_receipt_path"],
+        now=FIXED_NOW + timedelta(seconds=120),
+    )
+
+    assert verification["verdict"] == "VALID_AT_CREATION_CAPACITY_WINDOW_UNEXPIRED"
+    assert verification["current_admission_verified"] is False
+    assert verification["execution_performed"] is False
+    assert verification["registry_accessed"] is False
+
+
+def test_historical_verifier_rejects_capacity_stale_at_scan(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    preflight_path = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight_path, Path)
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["host_capacity"] = host_capacity_receipt(
+        observed_at=FIXED_NOW - timedelta(seconds=121)
+    )
+    preflight.pop("receipt_digest")
+    preflight["receipt_digest"] = digest_bytes(canonical_bytes(preflight))
+    _write_preflight(preflight_path, preflight)
+
+    with pytest.raises(RefreshCandidateError, match="not creation-time admitted"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=preflight_path,
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_tampered_artifact(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    payload["scan_receipt"]["scan"]["grade"] = "F"
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings are invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_redigested_unknown_nested_claim(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    receipt = payload["scan_receipt"]
+    receipt["scan"]["publication_ready"] = True
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = digest_bytes(canonical_bytes(receipt))
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings are invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+@pytest.mark.parametrize("field", ["scanner_version", "scan_version", "caveats"])
+def test_historical_verifier_rejects_redigested_known_claim_drift(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    receipt = payload["scan_receipt"]
+    if field == "scanner_version":
+        receipt["scanner"]["engine_version"] = "9.9.9"
+    elif field == "scan_version":
+        receipt["scan"]["engine_version"] = "9.9.9"
+    else:
+        receipt["caveats"] = ["Locally rewritten claim."]
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = digest_bytes(canonical_bytes(receipt))
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings are invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_timezone_naive_preflight(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    preflight_path = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight_path, Path)
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["observed_at"] = FIXED_NOW.replace(tzinfo=None).isoformat()
+    preflight.pop("receipt_digest")
+    preflight["receipt_digest"] = digest_bytes(canonical_bytes(preflight))
+    _write_preflight(preflight_path, preflight)
+
+    with pytest.raises(RefreshCandidateError, match="preflight is invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=preflight_path,
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_timezone_naive_artifact(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    naive = FIXED_NOW.replace(tzinfo=None).isoformat()
+    payload["observed_at"] = naive
+    receipt = payload["scan_receipt"]
+    receipt["scan"]["scanned_at"] = naive
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = digest_bytes(canonical_bytes(receipt))
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_bytes(canonical_bytes(payload))
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="preflight is invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+def test_historical_verifier_rejects_timezone_naive_now(tmp_path: Path) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    with pytest.raises(RefreshCandidateError, match="time must include a timezone"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            now=FIXED_NOW.replace(tzinfo=None),
+        )
+
+
+def test_historical_verifier_fails_before_current_or_registry_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kwargs = _creation_kwargs(tmp_path, _Engine(_engine_result()))
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("historical verification must not use current or registry checks")
+
+    preflight_path = kwargs["qualification_receipt_path"]
+    assert isinstance(preflight_path, Path)
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["status"] = "BLOCKED"
+    preflight.pop("receipt_digest")
+    preflight["receipt_digest"] = digest_bytes(canonical_bytes(preflight))
+    _write_preflight(preflight_path, preflight)
+
+    monkeypatch.setattr(
+        target_scan,
+        "validate_ready_preflight_contract",
+        grade_refresh_module.validate_ready_preflight_contract,
+    )
+    monkeypatch.setattr(target_scan, "require_current_host_capacity", forbidden)
+    monkeypatch.setattr(target_scan, "_open_registry_target", forbidden)
+
+    with pytest.raises(RefreshCandidateError, match="preflight is invalid"):
+        target_scan.verify_target_scan_artifact_history(
+            artifact,
+            qualification_receipt_path=preflight_path,
+            now=FIXED_NOW + timedelta(seconds=121),
+        )
+
+
+@pytest.mark.parametrize("binding", ["path", "content", "mode", "query"])
+def test_verifier_rejects_forged_registry_authorization_binding(
+    tmp_path: Path,
+    binding: str,
+) -> None:
+    engine = _Engine(_engine_result())
+    kwargs = _creation_kwargs(tmp_path, engine)
+    artifact = target_scan.create_target_scan_artifact(**kwargs)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    registry = payload["registry_read_binding"]
+    if binding == "path":
+        registry["authorized_canonical_path_sha256"] = "sha256:" + "0" * 64
+    elif binding == "content":
+        registry["authorized_content_sha256"] = "sha256:" + "0" * 64
+        registry["pre_sha256"] = registry["authorized_content_sha256"]
+        registry["post_sha256"] = registry["authorized_content_sha256"]
+    elif binding == "mode":
+        registry["observed_mode"] = "0600"
+    else:
+        registry["descriptor_bound_query"] = False
+    payload["artifact_digest"] = target_scan._artifact_unsigned_digest(payload)
+    artifact.chmod(0o600)
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    artifact.chmod(0o400)
+
+    with pytest.raises(RefreshCandidateError, match="bindings|registry binding"):
+        target_scan.verify_target_scan_artifact(
+            artifact,
+            source_db=kwargs["source_db"],
+            expected_db_canonical_path_sha256=kwargs[
+                "expected_db_canonical_path_sha256"
+            ],
+            expected_db_content_sha256=kwargs["expected_db_content_sha256"],
+            seed_path=SEED,
+            masked_path=MASKED,
+            policy_path=POLICY,
+            qualification_receipt_path=kwargs["qualification_receipt_path"],
+            repo_root=ROOT,
+            now=FIXED_NOW,
+            _source_binding_provider=lambda _root: SOURCE_BINDING,
+            _qualification_revalidator=lambda *_args, **_kwargs: None,
+        )

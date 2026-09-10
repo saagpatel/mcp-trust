@@ -369,7 +369,13 @@
       "kind": "npm",
       "reference": "@playwright/mcp",
       "command": "playwright-mcp",
-      "args": [],
+      "args": [
+        "--headless",
+        "--isolated",
+        "--executable-path",
+        "/ms-playwright/chromium_headless_shell-1234/chrome-linux/headless_shell",
+        "--no-sandbox"
+      ],
       "env_keys": [],
       "sandbox_image": "mcp-trust-batch4:20260703"
     },
@@ -383,7 +389,15 @@
       "kind": "npm",
       "reference": "chrome-devtools-mcp",
       "command": "chrome-devtools-mcp",
-      "args": [],
+      "args": [
+        "--headless",
+        "--isolated",
+        "--executablePath",
+        "/ms-playwright/chromium_headless_shell-1234/chrome-linux/headless_shell",
+        "--chromeArg=--no-sandbox",
+        "--no-usage-statistics",
+        "--no-performance-crux"
+      ],
       "env_keys": [],
       "sandbox_image": "mcp-trust-batch4:20260703"
     },
@@ -445,7 +459,7 @@
         "mcp"
       ],
       "env_keys": [],
-      "sandbox_image": "mcp-trust-batch4:20260703"
+      "sandbox_image": "mcp-trust-basic-memory:20260823"
     },
     "homepage": "https://github.com/basicmachines-co/basic-memory"
   }

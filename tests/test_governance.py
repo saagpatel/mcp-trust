@@ -393,7 +393,7 @@ def test_generator_emits_governance_pages_and_stale_badges(conn, tmp_path):
     fresh_badge = json.loads(
         (tmp_path / "servers" / "fresh-server" / "badge.json").read_text(encoding="utf-8")
     )
-    assert fresh_badge["message"] == "F"
+    assert fresh_badge["message"] == "F (historical 2026-06-28)"
 
     index_html = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert "(stale)" in index_html
@@ -525,6 +525,7 @@ def test_detail_masked_withholds_grade_score_and_findings():
     assert "MCP007" not in html  # finding detail really is gone
     assert "The F grade should not leak." not in html
     assert MASKED_SERVER_DESCRIPTION in html
+    assert ">high</span>" not in html
     assert "No findings on record" not in html  # must not read as a clean scan
     assert f'<div class="grade-big" style="background:{_UNSCANNED}">—</div>' in html
     # Dispute path and scan metadata stay disclosed.
@@ -577,6 +578,7 @@ def test_catalog_masked_row_hides_grade_and_score():
     assert ">masked<" in html
     assert f'class="pill" style="background:{_UNSCANNED}"' in html
     assert "8.0" not in html
+    assert ">high</span>" not in html
 
 
 def test_generator_masks_listed_slugs(conn, tmp_path):
@@ -599,7 +601,7 @@ def test_generator_masks_listed_slugs(conn, tmp_path):
     open_badge = json.loads(
         (tmp_path / "servers" / "open-server" / "badge.json").read_text(encoding="utf-8")
     )
-    assert open_badge["message"] == "F"
+    assert open_badge["message"] == "F (historical 2026-06-28)"
     detail = (tmp_path / "ui" / "servers" / "masked-server" / "index.html").read_text(
         encoding="utf-8"
     )
@@ -707,7 +709,8 @@ def test_app_masks_public_json_routes(conn):
     assert listed["masked"] is True
     assert listed["grade"] == "under review"
     assert listed["composite"] is None
-    assert "F" not in json.dumps(listed)
+    assert listed["transparency"] is None
+    assert listed["grade"] not in {"A", "B", "C", "D", "F"}
 
     detail = masked_client.get("/servers/masked-server").json()
     latest = detail["latest_scan"]

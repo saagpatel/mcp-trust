@@ -1,0 +1,1 @@
+{"dependencies":{"@discourse/mcp":"0.2.9","@nvidia-elements/cli":"2.1.4","@playwright/mcp":"0.0.77","@ui5/webcomponents-react-mcp":"2.23.2","chrome-devtools-mcp":"1.5.0"},"name":"mcp-trust-refresh-batch4","private":true,"version":"1.0.0"}

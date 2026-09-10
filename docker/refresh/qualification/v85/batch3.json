@@ -1,0 +1,115 @@
+{
+  "base_images": [
+    "node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03",
+    "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91"
+  ],
+  "build_commands": [
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.batch3-20260703",
+      "--output=type=oci,dest=tmp/qualification/batch3-first.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-qualification:batch3-first",
+      "."
+    ],
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.batch3-20260703",
+      "--output=type=oci,dest=tmp/qualification/batch3-second.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-batch3:20260703",
+      "."
+    ]
+  ],
+  "build_input_digest": "sha256:d143001bdfe4a28f58ca68c51059bd32d27599e323f8cbbd81a48cdcf0d5922f",
+  "build_network_policy": [
+    "none"
+  ],
+  "build_options": {
+    "builder": "buildx",
+    "cache": "disabled",
+    "load": false,
+    "output": "oci",
+    "provenance": false,
+    "pull": false,
+    "rewrite_timestamps": true,
+    "sbom": false
+  },
+  "build_source_sha256": "sha256:92c1e17f968fb427add2a809e6b27f1b2ba5fcb579940b731992dd468d08259f",
+  "dependency_artifacts": {
+    "npm": {
+      "path": "docker/refresh/artifact-manifests/batch3/npm.json",
+      "sha256": "sha256:bea3f62a83725965fd1733f7935e7f2bf0f85c38322c4461d36e7084d62a4f13"
+    }
+  },
+  "dependency_locks": {
+    "npm": {
+      "path": "docker/refresh/locks/batch3/package-lock.json",
+      "sha256": "sha256:79181b0f535ec90cda827c257ee2f04c849a73188cc0d31595f135bc714c56a7"
+    }
+  },
+  "dependency_manifests": {
+    "npm": {
+      "path": "docker/refresh/locks/batch3/package.json",
+      "sha256": "sha256:e6135c56c908eafa1cce36945698d59918d2b14f47cabd2a87aa9b94ff8454b1"
+    }
+  },
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "first_build_image_id": "sha256:8c01d8c1402e2cdefdb44aa61441bf22b84c8f0ec838d526b02be4e58b312fcf",
+  "image_reference": "mcp-trust-batch3:20260703",
+  "load_commands": [
+    [
+      "docker",
+      "load",
+      "-i",
+      "tmp/qualification/batch3-first.oci.tar"
+    ],
+    [
+      "docker",
+      "load",
+      "-i",
+      "tmp/qualification/batch3-second.oci.tar"
+    ]
+  ],
+  "observed_at": "2026-08-28T01:13:38.947618+00:00",
+  "platform": "linux/arm64",
+  "qualification_max_age_seconds": 86400,
+  "receipt_digest": "sha256:2f04cade81631b9715ad74ffb37e95cba5effb350d78c3b528eba2dadd417b62",
+  "repeatable": true,
+  "schema": "McpTrustImageBuildQualificationV2",
+  "second_build_image_id": "sha256:8c01d8c1402e2cdefdb44aa61441bf22b84c8f0ec838d526b02be4e58b312fcf",
+  "tool_versions": {
+    "buildkit_colima": "v0.30.0",
+    "docker_buildx": "v0.36.1",
+    "docker_client": "29.7.2",
+    "docker_server": "29.5.2"
+  }
+}

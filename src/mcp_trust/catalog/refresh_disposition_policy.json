@@ -1,0 +1,81 @@
+{
+  "schema": "McpTrustGradeRefreshDispositionPolicyV2",
+  "review_state": "ACCEPTED_CURRENT_SOURCE_REVIEW",
+  "grade_semantics": "technical-danger-not-endorsement",
+  "historical_baseline": {
+    "state": "UNKNOWN",
+    "disposition": "preserve-unknown-no-retroactive-comparison"
+  },
+  "forward_baseline": {
+    "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
+    "disposition": "adopt-exact-v37-candidate-bindings-as-current-forward-baseline"
+  },
+  "acceptance": {
+    "authority": "operator",
+    "scope": "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline",
+    "acceptance_state": "ACCEPTED_EXACT_V38",
+    "accepted_review_path": "accepted_publication_review_v38.json",
+    "accepted_review_receipt_digest": "sha256:631b2f820acac667bd2234d58bfc0cfec72d59e13d14d635031891b7aef01ef6",
+    "accepted_review_artifact_sha256": "sha256:2729ef5592ce398bc8fea4ded2a6fbe24dc7e2f9a7e3ca6e65bf19940b387e5c",
+    "accepted_review_policy_sha256": "sha256:2793e4bd93ea28261febdd68536b4ce14cd4c5631326b137b06b20f8ca14f5a4",
+    "accepted_disposition_path": "accepted_disposition_artifact_v38.json",
+    "accepted_disposition_receipt_digest": "sha256:9f8d932f3146d13917ae214b9558ac3c21ec7142b5c754b274ad8d0946fa816a",
+    "accepted_disposition_artifact_sha256": "sha256:04c05b51234b4b6ff71fb3b7935e62ce4aaee485c501d615df45a49f1360d6e9"
+  },
+  "scheduler": {
+    "disposition": "quarantine-disabled-unloaded",
+    "definition_drift": "open-medium-gate",
+    "activation_authorized": false,
+    "activation_gate": "reconcile-definition-and-obtain-separate-approval"
+  },
+  "entries": [
+    {
+      "slug": "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "backing-service-not-exercised",
+      "next_review_condition": "approved-controlled-backing-service-evidence"
+    },
+    {
+      "slug": "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "backing-service-not-exercised",
+      "next_review_condition": "approved-controlled-backing-service-evidence"
+    },
+    {
+      "slug": "io-github-discourse-mcp-0-2-9",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "operator-masking-continuity",
+      "next_review_condition": "explicit-human-disposition"
+    },
+    {
+      "slug": "io-github-microsoft-playwright-mcp-0-0-77",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "backing-service-not-exercised",
+      "next_review_condition": "approved-controlled-backing-service-evidence"
+    },
+    {
+      "slug": "io-github-nvidia-elements-2-1-4",
+      "disposition": "KEEP_MASKED_REVIEW_REQUIRED",
+      "rationale_code": "operator-masking-continuity",
+      "next_review_condition": "explicit-human-disposition"
+    },
+    {
+      "slug": "mcp-archived-github",
+      "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+      "rationale_code": "archived-unsupported-credential-and-backing-service",
+      "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence"
+    },
+    {
+      "slug": "mcp-archived-gitlab",
+      "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+      "rationale_code": "archived-unsupported-credential-and-backing-service",
+      "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence"
+    },
+    {
+      "slug": "mcp-archived-slack",
+      "disposition": "KEEP_MASKED_ARCHIVED_UNSUPPORTED",
+      "rationale_code": "archived-unsupported-credential-and-backing-service",
+      "next_review_condition": "supported-upstream-and-approved-controlled-service-evidence"
+    }
+  ]
+}

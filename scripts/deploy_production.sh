@@ -23,7 +23,11 @@ ORG_ID=""
 APPROVAL=""
 VERCEL_BIN=""
 NODE_BIN=""
+PYTHON_BIN=""
 EXPECTED_OUTPUT_SHA256=""
+ROLLBACK_ARTIFACT=""
+PUBLICATION_PACKAGE=""
+PUBLICATION_APPROVAL=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -35,12 +39,16 @@ while [ "$#" -gt 0 ]; do
     --approval) APPROVAL="${2:-}"; shift 2 ;;
     --vercel-bin) VERCEL_BIN="${2:-}"; shift 2 ;;
     --node-bin) NODE_BIN="${2:-}"; shift 2 ;;
+    --python-bin) PYTHON_BIN="${2:-}"; shift 2 ;;
     --expected-output-sha256) EXPECTED_OUTPUT_SHA256="${2:-}"; shift 2 ;;
+    --rollback-artifact) ROLLBACK_ARTIFACT="${2:-}"; shift 2 ;;
+    --publication-package) PUBLICATION_PACKAGE="${2:-}"; shift 2 ;;
+    --publication-approval) PUBLICATION_APPROVAL="${2:-}"; shift 2 ;;
     *) die "unknown or incomplete argument: $1" ;;
   esac
 done
 
-for value in EXPECTED_REPO EXPECTED_COMMIT TARGET_URL PROJECT_ID ORG_ID APPROVAL VERCEL_BIN NODE_BIN EXPECTED_OUTPUT_SHA256; do
+for value in EXPECTED_REPO EXPECTED_COMMIT TARGET_URL PROJECT_ID ORG_ID APPROVAL VERCEL_BIN NODE_BIN PYTHON_BIN EXPECTED_OUTPUT_SHA256 ROLLBACK_ARTIFACT PUBLICATION_PACKAGE PUBLICATION_APPROVAL; do
   [ -n "${!value}" ] || die "missing required input: ${value}"
 done
 
@@ -107,8 +115,17 @@ OUT="${REPO_ROOT}/site"
 [ -x "${VERCEL_BIN}" ] || die "approved Vercel executable is not executable"
 [ "${NODE_BIN#/}" != "${NODE_BIN}" ] || die "Node executable path must be absolute"
 [ -x "${NODE_BIN}" ] || die "approved Node executable is not executable"
+[ "${PYTHON_BIN#/}" != "${PYTHON_BIN}" ] || die "Python executable path must be absolute"
+[ -x "${PYTHON_BIN}" ] || die "approved Python executable is not executable"
+PUBLICATION_VERIFIER="${SCRIPT_DIR}/build_publication_package.py"
+[ -f "${PUBLICATION_VERIFIER}" ] || die "publication package verifier is missing"
 
-/usr/bin/python3 -I "${SCRIPT_DIR}/validate_deploy_authorization.py" \
+"${PYTHON_BIN}" -I "${PUBLICATION_VERIFIER}" \
+  --verify-package "${PUBLICATION_PACKAGE}" \
+  --approval "${PUBLICATION_APPROVAL}" >/dev/null \
+  || die "publication package validation failed"
+
+"${PYTHON_BIN}" -I "${SCRIPT_DIR}/validate_deploy_authorization.py" \
   --approval "${APPROVAL}" \
   --repository "${REPO_ROOT}" \
   --branch "${BRANCH}" \
@@ -118,8 +135,13 @@ OUT="${REPO_ROOT}/site"
   --org-id "${ORG_ID}" \
   --vercel-bin "${VERCEL_BIN}" \
   --node-bin "${NODE_BIN}" \
+  --python-bin "${PYTHON_BIN}" \
+  --publication-verifier "${PUBLICATION_VERIFIER}" \
   --output "${OUT}" \
   --output-sha256 "${EXPECTED_OUTPUT_SHA256}" \
+  --publication-package "${PUBLICATION_PACKAGE}" \
+  --publication-approval "${PUBLICATION_APPROVAL}" \
+  --rollback-artifact "${ROLLBACK_ARTIFACT}" \
   || die "deployment approval validation failed"
 
 # A live terminal confirmation is required after the exact approval validates;
@@ -132,7 +154,11 @@ IFS= read -r TYPED_CONFIRMATION
 
 # Revalidate mutable ignored output, provider link, approval, and tool bytes
 # after the human confirmation to close the approval-to-deploy timing gap.
-/usr/bin/python3 -I "${SCRIPT_DIR}/validate_deploy_authorization.py" \
+"${PYTHON_BIN}" -I "${PUBLICATION_VERIFIER}" \
+  --verify-package "${PUBLICATION_PACKAGE}" \
+  --approval "${PUBLICATION_APPROVAL}" >/dev/null \
+  || die "publication package changed after confirmation"
+"${PYTHON_BIN}" -I "${SCRIPT_DIR}/validate_deploy_authorization.py" \
   --approval "${APPROVAL}" \
   --repository "${REPO_ROOT}" \
   --branch "${BRANCH}" \
@@ -142,8 +168,13 @@ IFS= read -r TYPED_CONFIRMATION
   --org-id "${ORG_ID}" \
   --vercel-bin "${VERCEL_BIN}" \
   --node-bin "${NODE_BIN}" \
+  --python-bin "${PYTHON_BIN}" \
+  --publication-verifier "${PUBLICATION_VERIFIER}" \
   --output "${OUT}" \
   --output-sha256 "${EXPECTED_OUTPUT_SHA256}" \
+  --publication-package "${PUBLICATION_PACKAGE}" \
+  --publication-approval "${PUBLICATION_APPROVAL}" \
+  --rollback-artifact "${ROLLBACK_ARTIFACT}" \
   || die "deployment approval changed after confirmation"
 
 # Provider authority is checked only after every repository and approval gate.
@@ -164,7 +195,7 @@ trap cleanup_runtime EXIT HUP INT TERM
   "${RUNTIME_ROOT}/cache" "${RUNTIME_ROOT}/tmp"
 
 cd "${OUT}"
-/usr/bin/env -i \
+if ! /usr/bin/env -i \
   HOME="${RUNTIME_ROOT}/home" \
   XDG_CONFIG_HOME="${RUNTIME_ROOT}/config" \
   XDG_DATA_HOME="${RUNTIME_ROOT}/data" \
@@ -175,4 +206,8 @@ cd "${OUT}"
   VERCEL_PROJECT_ID="${PROJECT_ID}" \
   VERCEL_ORG_ID="${ORG_ID}" \
   "${NODE_BIN}" "${VERCEL_BIN}" deploy . --yes \
-  --cwd "${OUT}" --project "${PROJECT_ID}" --scope "${ORG_ID}" --target production
+  --cwd "${OUT}" --project "${PROJECT_ID}" --scope "${ORG_ID}" --target production; then
+  die "provider deployment failed; publication adoption and production freshness remain UNKNOWN"
+fi
+
+printf 'Provider command completed; publication adoption and production freshness remain UNKNOWN until an exact provider-bound all-route receipt verifies.\n'

@@ -197,7 +197,11 @@ def test_stub_engine_scan_without_dev_opt_in_is_disabled(seeded_conn, monkeypatc
 def test_public_readonly_rejects_scan_before_engine_runs(seeded_conn, monkeypatch) -> None:
     monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
     monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
-    application = create_app(conn=seeded_conn, engine=_RejectingStubEngine())
+    application = create_app(
+        conn=seeded_conn,
+        engine=_RejectingStubEngine(),
+        masked_slugs=set(),
+    )
     client = TestClient(application)
 
     resp = client.post("/servers/mcp-reference-time/scan")
@@ -327,3 +331,58 @@ def test_badge_after_scan(seeded_client) -> None:
     assert grade in {"A", "B", "C", "D", "F"}
     assert suffix == "(demo)"
     assert body["color"] in {"brightgreen", "green", "yellow", "orange", "red"}
+
+
+def test_public_readonly_runtime_requires_masking_input(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
+    monkeypatch.delenv("MCP_TRUST_MASKED_GRADES", raising=False)
+
+    with pytest.raises(RuntimeError, match="MCP_TRUST_MASKED_GRADES is required"):
+        create_app(conn=seeded_conn, engine=StubEngine())
+
+
+def test_public_readonly_runtime_loads_masking_input(
+    seeded_conn, monkeypatch, tmp_path
+) -> None:
+    masked = tmp_path / "masked.json"
+    masked.write_text(json.dumps(["mcp-reference-time"]), encoding="utf-8")
+    monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+    application = create_app(conn=seeded_conn, engine=StubEngine())
+    client = TestClient(application)
+
+    assert client.post("/servers/mcp-reference-time/scan").status_code == 403
+    response = client.get("/servers/mcp-reference-time")
+    assert response.status_code == 200
+    assert response.json()["server"]["description"]
+    assert response.json()["latest_scan"] is None
+
+
+def test_runtime_masking_rejects_unknown_catalog_slug(
+    seeded_conn, monkeypatch, tmp_path
+) -> None:
+    masked = tmp_path / "masked.json"
+    masked.write_text(json.dumps(["not-in-catalog"]), encoding="utf-8")
+    monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
+    monkeypatch.setenv("MCP_TRUST_MASKED_GRADES", str(masked))
+
+    with pytest.raises(RuntimeError, match="unknown catalog slug"):
+        create_app(conn=seeded_conn, engine=StubEngine())
+
+
+def test_scan_response_respects_operator_mask(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+    application = create_app(
+        conn=seeded_conn,
+        engine=StubEngine(),
+        masked_slugs={"mcp-reference-time"},
+    )
+    response = TestClient(application).post("/servers/mcp-reference-time/scan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["masked"] is True
+    assert payload["grade"] == "under review"
+    assert payload["transparency"] is None
+    assert payload["risk"] is None
+    assert payload["findings"] is None

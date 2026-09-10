@@ -1,0 +1,114 @@
+{
+  "base_images": [
+    "python@sha256:a116514e19457bcb7af7efe9c3dd0b9b71e85b317694e7882a1c52aa15a78134"
+  ],
+  "build_commands": [
+    [
+      "/opt/homebrew/bin/docker-buildx",
+      "build",
+      "--builder",
+      "colima",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.basic-memory-20260823",
+      "--output=type=oci,dest=tmp/qualification/basic-memory-first.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-qualification:basic-memory-first",
+      "."
+    ],
+    [
+      "/opt/homebrew/bin/docker-buildx",
+      "build",
+      "--builder",
+      "colima",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.basic-memory-20260823",
+      "--output=type=oci,dest=tmp/qualification/basic-memory-second.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-basic-memory:20260823",
+      "."
+    ]
+  ],
+  "build_input_digest": "sha256:6df05b38f5e4596d1e2210f3ac6214ea434121c16db5407609f3134a2f4489c1",
+  "build_network_policy": [
+    "none"
+  ],
+  "build_options": {
+    "builder": "buildx",
+    "cache": "disabled",
+    "load": false,
+    "output": "oci",
+    "provenance": false,
+    "pull": false,
+    "rewrite_timestamps": true,
+    "sbom": false
+  },
+  "build_source_sha256": "sha256:c30e42fec27c98a7ff5edd3158df0a2b7c77064325179db83d0890d06c3a26c5",
+  "dependency_artifacts": {
+    "python": {
+      "path": "docker/refresh/artifact-manifests/basic-memory/python.json",
+      "sha256": "sha256:22334d147a67399ed94acf89d399d449738423d072feb2aa1745fa3f2690710b"
+    }
+  },
+  "dependency_locks": {
+    "python": {
+      "path": "docker/refresh/locks/basic-memory/requirements.lock",
+      "sha256": "sha256:67fa8d9549bdd972f26086c4fa6b9e2168d2d2f9c586494310493794be1582c4"
+    }
+  },
+  "dependency_manifests": {
+    "python": {
+      "path": "docker/refresh/locks/basic-memory/requirements.in",
+      "sha256": "sha256:3900171289bf950536014309eec3435257d3972e4a6f1a9e7ffa2cbd82351085"
+    }
+  },
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "first_build_image_id": "sha256:88e2d9237e041c11e80d2594a2bc24bd1abe6086e5a4363c28e905445227ebe3",
+  "image_reference": "mcp-trust-basic-memory:20260823",
+  "load_commands": [
+    [
+      "docker",
+      "load",
+      "-i",
+      "tmp/qualification/basic-memory-first.oci.tar"
+    ],
+    [
+      "docker",
+      "load",
+      "-i",
+      "tmp/qualification/basic-memory-second.oci.tar"
+    ]
+  ],
+  "observed_at": "2026-08-23T17:32:45.394016+00:00",
+  "platform": "linux/arm64",
+  "qualification_max_age_seconds": 86400,
+  "receipt_digest": "sha256:9fac97661f6e1cb7385fdb4e787f8851f69e5b0b9e173780b2782308ea53408b",
+  "repeatable": true,
+  "schema": "McpTrustImageBuildQualificationV2",
+  "second_build_image_id": "sha256:88e2d9237e041c11e80d2594a2bc24bd1abe6086e5a4363c28e905445227ebe3",
+  "tool_versions": {
+    "buildkit_colima": "Name:          colima\nDriver:        docker\nLast Activity: 2026-08-23 17:31:36 +0000 UTC\n\nNodes:\nName:             colima\nEndpoint:         colima\nStatus:           running\nBuildKit version: v0.30.0\nPlatforms:        linux/arm64, linux/amd64, linux/amd64/v2, linux/386\nLabels:\n org.mobyproject.buildkit.worker.apparmor.profile:     docker-default\n org.mobyproject.buildkit.worker.containerd.namespace: moby\n org.mobyproject.buildkit.worker.containerd.uuid:      7026174e-cc38-4e00-9379-d3905eabeb74\n org.mobyproject.buildkit.worker.executor:             containerd\n org.mobyproject.buildkit.worker.hostname:             colima\n org.mobyproject.buildkit.worker.moby.host-gateway-ip: 192.168.5.2\n org.mobyproject.buildkit.worker.network:              host\n org.mobyproject.buildkit.worker.selinux.enabled:      false\n org.mobyproject.buildkit.worker.snapshotter:          overlayfs\nGC Policy rule#0:\n All:            false\n Filters:        type==source.local,type==exec.cachemount,type==source.git.checkout\n Keep Duration:  48h0m0s\n Max Used Space: 1.287GiB\nGC Policy rule#1:\n All:            false\n Keep Duration:  1440h0m0s\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB\nGC Policy rule#2:\n All:            false\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB\nGC Policy rule#3:\n All:            true\n Reserved Space: 9.313GiB\n Max Used Space: 73.57GiB\n Min Free Space: 18.63GiB",
+    "docker_buildx": "github.com/docker/buildx v0.36.1 Homebrew",
+    "docker_client": "29.7.2",
+    "docker_server": "29.5.2"
+  }
+}

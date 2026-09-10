@@ -32,6 +32,10 @@ def _default_seed_path() -> Path:
     return Path("src/mcp_trust/catalog/seed_servers.json")
 
 
+def _default_masked_path() -> Path:
+    return Path("masked-grades.json")
+
+
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -61,6 +65,7 @@ def validate_launch_state(
     db_path: Path,
     receipts_dir: Path,
     seed_path: Path,
+    masked_path: Path | None = None,
     allow_stub: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     """Return validation errors and a compact launch-state summary."""
@@ -75,12 +80,31 @@ def validate_launch_state(
 
     seed = _load_json(seed_path)
     expected_slugs = {row["slug"] for row in seed}
+    masked_slugs: set[str] = set()
+    if masked_path is not None:
+        if not masked_path.exists():
+            return [f"missing masked-grades input: {masked_path}"], {}
+        masked = _load_json(masked_path)
+        if (
+            not isinstance(masked, list)
+            or not all(isinstance(slug, str) and slug for slug in masked)
+            or len(masked) != len(set(masked))
+        ):
+            return ["masked-grades input must be a unique string list"], {}
+        masked_slugs = set(masked)
+        unknown_masked = sorted(masked_slugs - expected_slugs)
+        if unknown_masked:
+            return [f"masked-grades includes unseeded slugs: {', '.join(unknown_masked)}"], {}
+        expected_slugs -= masked_slugs
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     rows = _latest_scan_rows(conn)
 
     latest_slugs = {row["server_slug"] for row in rows}
+    leaked_masked = sorted(latest_slugs & masked_slugs)
+    if leaked_masked:
+        errors.append(f"masked latest scans exposed in deploy DB: {', '.join(leaked_masked)}")
     missing = sorted(expected_slugs - latest_slugs)
     extras = sorted(latest_slugs - expected_slugs)
     if missing:
@@ -142,6 +166,7 @@ def validate_launch_state(
 
     summary = {
         "seeded_servers": len(expected_slugs),
+        "masked_servers": len(masked_slugs),
         "latest_scans": len(rows),
         "receipts_checked": receipt_count,
         "grades": dict(sorted(grades.items())),
@@ -156,6 +181,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--db", type=Path, default=_default_db_path())
     parser.add_argument("--receipts-dir", type=Path, default=_default_receipts_dir())
     parser.add_argument("--seed", type=Path, default=_default_seed_path())
+    parser.add_argument("--masked-grades", type=Path, default=_default_masked_path())
     parser.add_argument(
         "--allow-stub",
         action="store_true",
@@ -170,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         db_path=args.db,
         receipts_dir=args.receipts_dir,
         seed_path=args.seed,
+        masked_path=args.masked_grades,
         allow_stub=args.allow_stub,
     )
     if summary:

@@ -8,7 +8,7 @@ consumer.
 The reference verifier accepts an explicit origin and route-sentinel manifest,
 then emits one JSON receipt on stdout. It supports status, required and
 forbidden sentinels, exact UTF-8 bytes, SHA-256 body digests, per-route timeouts,
-bounded bodies, and GET or HEAD routes. It rejects mutation methods before any
+bounded bodies, and up to 128 explicit GET or HEAD routes. It rejects mutation methods before any
 network request.
 
 The capability boundary is structural:
@@ -25,6 +25,10 @@ Consumers must keep domain-specific checks in parallel until their new receipt
 proves equivalent coverage. In particular, a status or sentinel match cannot
 replace application-specific API validation, badge semantics, public-data
 guards, release lineage checks, or an operator decision to alias or promote.
+For MCP Trust static publication, source-adoption and freshness claims require
+the receipt's exact digest, every candidate-declared route and body digest,
+matching provider/source identity, and a provider artifact digest. Route counts
+or a sentinel-only pass remain supplementary evidence.
 
 Compatibility is additive within `1.x`: new optional receipt fields or reason
 codes may be added, while existing meanings and the safe-method boundary stay

@@ -1,0 +1,112 @@
+{
+  "schema": "McpTrustRefreshPolicyV2",
+  "catalog_denominator": 31,
+  "default_sandbox_image": "mcp-trust-scan:corpus-2026-07-03",
+  "image_build_sources": {
+    "mcp-trust-scan:corpus-2026-07-03": {
+      "path": "Dockerfile.scan",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/v131-r1/reference.json"
+    },
+    "mcp-trust-live-batch:20260628": {
+      "path": "docker/refresh/Dockerfile.live-batch-20260628",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/v131-r1/live-batch.json"
+    },
+    "mcp-trust-batch3:20260703": {
+      "path": "docker/refresh/Dockerfile.batch3-20260703",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/v131-r1/batch3.json"
+    },
+    "mcp-trust-batch4:20260703": {
+      "path": "docker/refresh/Dockerfile.batch4-20260703",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/v132-r1/batch4.json"
+    },
+    "mcp-trust-basic-memory:20260823": {
+      "path": "docker/refresh/Dockerfile.basic-memory-20260823",
+      "provenance_status": "SOURCE_CONTROLLED",
+      "reproducibility_status": "VERIFIED",
+      "qualification_receipt": "docker/refresh/qualification/v131-r1/basic-memory.json"
+    }
+  },
+  "scannable": [
+    "ai-adeu-adeu-1-7-1",
+    "ai-ravenmcp-raven-mcp-1-3-3",
+    "com-kage-core-kage-2-3-0",
+    "com-kogcat-kogcat-mcp-0-46-2",
+    "com-mythsensus-mythsensus-mcp-0-2-1",
+    "com-pulsemcp-image-diff-0-1-3",
+    "com-seanwinslow-intent-engineering-0-2-0",
+    "eu-regulatoryai-sovereign-ai-act-mcp-1-2-0",
+    "io-github-nickjlamb-redacta-mcp-1-2-1",
+    "io-github-ui5-webcomponents-react-mcp-server-2-23-2",
+    "io-github-basicmachines-co-basic-memory-0-22-1",
+    "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
+    "io-github-discourse-mcp-0-2-9",
+    "io-github-microsoft-playwright-mcp-0-0-77",
+    "io-github-nvidia-elements-2-1-4",
+    "mcp-reference-everything",
+    "mcp-reference-fetch",
+    "mcp-reference-filesystem",
+    "mcp-reference-git",
+    "mcp-reference-memory",
+    "mcp-reference-sequential-thinking",
+    "mcp-reference-time"
+  ],
+  "blocked": [
+    "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+    "mcp-archived-aws-kb-retrieval",
+    "mcp-archived-brave-search",
+    "mcp-archived-everart",
+    "mcp-archived-github",
+    "mcp-archived-gitlab",
+    "mcp-archived-google-maps",
+    "mcp-archived-slack",
+    "mcp-archived-sqlite"
+  ],
+  "intentionally_masked": [
+    "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+    "mcp-archived-github",
+    "mcp-archived-gitlab",
+    "mcp-archived-slack"
+  ],
+  "unsupported_upstream": [
+    "mcp-archived-aws-kb-retrieval",
+    "mcp-archived-brave-search",
+    "mcp-archived-everart",
+    "mcp-archived-github",
+    "mcp-archived-gitlab",
+    "mcp-archived-google-maps",
+    "mcp-archived-slack",
+    "mcp-archived-sqlite"
+  ],
+  "credential_dependent": [
+    "mcp-archived-aws-kb-retrieval",
+    "mcp-archived-brave-search",
+    "mcp-archived-everart",
+    "mcp-archived-github",
+    "mcp-archived-gitlab",
+    "mcp-archived-google-maps",
+    "mcp-archived-slack"
+  ],
+  "backing_service_dependent": [
+    "com-microsoft-powerbi-modeling-mcp-0-5-0-beta-11",
+    "mcp-archived-aws-kb-retrieval",
+    "mcp-archived-brave-search",
+    "mcp-archived-everart",
+    "mcp-archived-github",
+    "mcp-archived-gitlab",
+    "mcp-archived-google-maps",
+    "mcp-archived-slack"
+  ],
+  "unsafe_to_execute_unsandboxed": "all-local-process-entries",
+  "credential_policy": "dummy-values-network-off-only",
+  "network_policy": "none",
+  "freshness_objective_hours": 24,
+  "publication_review_required": true
+}

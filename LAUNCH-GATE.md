@@ -21,7 +21,13 @@ Current decision: **NO-GO for public launch**.
 - The isolated 2026-08-21 reference-corpus runner used MCPAudit 2.7.0; the
   current evidence is committed at `docs/reference-corpus-evidence-v1.json`.
 
-## Local Launch Evidence
+## Historical launch and rehearsal evidence
+
+Unless a bullet carries a newer explicit date, the VM, service, backup, and
+smoke observations in this section are historical 2026-06-19/20 rehearsal
+evidence. They are not a current runtime, deployment, availability, or
+production-freshness readback. Current public freshness and source/deployment
+binding remain `UNKNOWN` until a separately authorized live release readback.
 
 - Docker/Colima were repaired locally by clearing a stale broken Colima disk
   entry and recreating the Colima VM profile.
@@ -54,8 +60,11 @@ Current decision: **NO-GO for public launch**.
 - `scripts/validate_launch_state.py --db ./registry.db --receipts-dir ./receipts`
   passes on the local launch DB: 7 seeded servers, 7 latest `mcpaudit` scans,
   7 matching receipt artifacts, no stub latest rows.
-- `scripts/build_deploy_bundle.py` builds a sanitized transfer artifact with a
-  pruned latest-scan DB, only referenced receipts, and a hashed manifest.
+- `scripts/build_deploy_bundle.py` now also requires an independently verified
+  publication/deployment decision and exact `BOUND` rollback state. The current
+  sanitized review is pending and `NO_GO`, and there is no supported promotion
+  path in this review-only lane, so deployment-shaped bundle creation is
+  intentionally blocked.
 - A GCE VM rehearsal is running as `mcp-trust-v1` in `saagars-project`
   (`us-west1-b`, external IP `8.229.92.116`) with the sanitized bundle
   installed under `/data/mcp-trust/`.

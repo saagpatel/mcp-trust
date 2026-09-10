@@ -14,6 +14,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 IMAGE_TAG = "mcp-trust-scan:corpus-2026-07-03"
+BATCH4_BROWSER_EXECUTABLE = (
+    "/ms-playwright/chromium_headless_shell-1234/chrome-linux/headless_shell"
+)
 
 SANDBOX_ENV = {
     "MCP_TRUST_ENGINE": "mcpaudit",
@@ -515,15 +518,22 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
     ),
     # Batch-4 Registry-derived cohort, integrated 2026-07-03 after operator
     # approval (promotion ref batch4-live-corpus-promotion-20260703; review
-    # evidence tmp/batch4-promotion-review-20260703.md). All six are baked only
-    # into the batch-4 image (node:24-slim base with HOME=/scan), hence the
-    # per-server sandbox_image pins.
+    # evidence tmp/batch4-promotion-review-20260703.md). Five remain in the
+    # qualified batch-4 image. basic-memory is isolated because its pinned
+    # dependency path requires an unqualified source build; policy blocks it.
     ReferenceScanCandidate(
         slug="io-github-microsoft-playwright-mcp-0-0-77",
         name="io.github.microsoft/playwright-mcp",
         kind="npm",
         reference="@playwright/mcp",
         command="playwright-mcp",
+        args=(
+            "--headless",
+            "--isolated",
+            "--executable-path",
+            BATCH4_BROWSER_EXECUTABLE,
+            "--no-sandbox",
+        ),
         description=(
             "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
             "limited to controlled first-pass scan evidence and receipt caveats. "
@@ -546,6 +556,15 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
         kind="npm",
         reference="chrome-devtools-mcp",
         command="chrome-devtools-mcp",
+        args=(
+            "--headless",
+            "--isolated",
+            "--executablePath",
+            BATCH4_BROWSER_EXECUTABLE,
+            "--chromeArg=--no-sandbox",
+            "--no-usage-statistics",
+            "--no-performance-crux",
+        ),
         description=(
             "Reviewed MCP Trust live-scan corpus candidate. Public meaning remains "
             "limited to controlled first-pass scan evidence and receipt caveats. "
@@ -644,7 +663,7 @@ REFERENCE_SCAN_CANDIDATES: tuple[ReferenceScanCandidate, ...] = (
             "first-pass B/high-transparency evidence was explicitly "
             "operator-approved."
         ),
-        sandbox_image="mcp-trust-batch4:20260703",
+        sandbox_image="mcp-trust-basic-memory:20260823",
     ),
 )
 

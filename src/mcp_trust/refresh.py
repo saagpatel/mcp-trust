@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import math
 import os
@@ -12,6 +11,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
 import tempfile
 import unicodedata
 import uuid
@@ -26,20 +26,46 @@ from pydantic import ValidationError
 
 from mcp_trust.core import grading
 from mcp_trust.core.drift import ScanDrift, diff_latest
+from mcp_trust.core.governance import (
+    STALE_AFTER_DAYS,
+    FreshnessState,
+    assess_scan_freshness,
+)
 from mcp_trust.core.models import ScanRecord, Server, SourceKind
-from mcp_trust.engine.base import EngineResult
-from mcp_trust.engine.mcpaudit import MCPAuditEngine
-from mcp_trust.engine.sandbox import DockerSandbox, normalize_local_docker_host
+from mcp_trust.engine.base import EngineResult, ScanError, ScanTimeoutError
+from mcp_trust.engine.mcpaudit import (
+    MCPAuditEngine,
+    docker_launch_spec,
+    docker_process_title,
+    repository_outer_timeout_seconds,
+)
+from mcp_trust.engine.runtime import (
+    MCP_AUDIT_RUNTIME_MODULES,
+    modules_belong_to_distribution,
+)
+from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_SCHEMA,
+    SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS,
+    DockerSandbox,
+    DockerSandboxRuntimeReadbackError,
+    normalize_local_docker_host,
+    sandbox_server_process_digests,
+    valid_sandbox_runtime_readback,
+)
+from mcp_trust.host_capacity import HostCapacityError, require_current_host_capacity
 from mcp_trust.receipts import build_scan_receipt
 from mcp_trust.store.db import connect, init_schema
 from mcp_trust.store.repository import ScanRepository, ServerRepository
 
-CANDIDATE_SCHEMA = "RefreshCandidateV1"
+CANDIDATE_SCHEMA_V1 = "RefreshCandidateV1"
+CANDIDATE_SCHEMA = "RefreshCandidateV2"
+SCAN_EXECUTION_BINDING_SCHEMA = "McpTrustScanExecutionBindingV2"
 APPROVAL_SCHEMA = "RefreshCandidateApprovalV1"
 PUBLICATION_SCHEMA = "RefreshCandidatePublicationV1"
 MANIFEST_NAME = "MANIFEST.json"
 MANIFEST_DIGEST_NAME = "MANIFEST.sha256"
 DEFAULT_MAX_AGE_HOURS = 24
+SCAN_TIMEOUT_SECONDS = 90.0
 MAX_APPROVAL_TTL_HOURS = 4
 _DEPLOYMENT_ENV = ("VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_SCOPE")
 _DOCKER_HOST_ENV = "MCP_TRUST_DOCKER_HOST"
@@ -62,6 +88,24 @@ _MAX_JSON_ARTIFACT_BYTES = 16 * 1024 * 1024
 _MAX_DATABASE_ARTIFACT_BYTES = 64 * 1024 * 1024
 _MAX_CANDIDATE_BYTES = 128 * 1024 * 1024
 _MAX_CANDIDATE_FILES = 4096
+
+
+def _scan_failure_reason(exc: BaseException) -> str:
+    """Return a stable, non-sensitive category for retained failure evidence."""
+    if isinstance(exc, ScanError):
+        if isinstance(exc.__cause__, DockerSandboxRuntimeReadbackError):
+            return "sandbox_runtime_attestation_failed"
+        message = str(exc)
+        if message.startswith(("Failed to connect", "Could not scan")):
+            return "mcp_connection_failed"
+        if "unexpected result shape" in message:
+            return "engine_result_incompatible"
+        if "cleanup" in message or "lifecycle" in message:
+            return "sandbox_lifecycle_failed"
+        return "scan_error"
+    return "unexpected_scan_exception"
+
+
 _MAX_CATALOG_ROWS = 10_000
 _MAX_ARTIFACT_PATH_BYTES = 1024
 _MAX_ARTIFACT_PATH_DEPTH = 16
@@ -69,7 +113,7 @@ _MAX_JSON_STRING_CHARS = 65_536
 _MAX_JSON_NODES = 100_000
 _MAX_JSON_NUMBER_CHARS = 256
 _CANDIDATE_STATES = frozenset({"fixture", "partial", "complete"})
-_MANIFEST_KEYS = frozenset(
+_MANIFEST_KEYS_V1 = frozenset(
     {
         "schema",
         "created_at",
@@ -80,13 +124,20 @@ _MANIFEST_KEYS = frozenset(
         "catalog",
         "masking",
         "sandbox",
+        "qualification",
         "scan_counts",
         "engine_versions",
         "artifacts",
         "authority",
     }
 )
-_RECEIPT_KEYS = frozenset(
+_MANIFEST_KEYS = _MANIFEST_KEYS_V1 | {
+    "freshness",
+    "semantic_digests",
+    "source_tree_digest",
+    "tool_versions",
+}
+_RECEIPT_KEYS_V1 = frozenset(
     {
         "format_version",
         "server_slug",
@@ -101,6 +152,7 @@ _RECEIPT_KEYS = frozenset(
         "caveats",
     }
 )
+_RECEIPT_KEYS = _RECEIPT_KEYS_V1 | {"execution_binding", "receipt_digest"}
 _SCANNER_KEYS = frozenset({"engine_name", "engine_version", "scanner_git_ref"})
 _LOCAL_RECEIPT_SANDBOX_KEYS = frozenset(
     {
@@ -111,9 +163,7 @@ _LOCAL_RECEIPT_SANDBOX_KEYS = frozenset(
     }
 )
 _REMOTE_RECEIPT_SANDBOX_KEYS = frozenset({"mode", "reason"})
-_FIXTURE_RECEIPT_SANDBOX_KEYS = _LOCAL_RECEIPT_SANDBOX_KEYS - {
-    "MCP_TRUST_SANDBOX_IMAGE"
-}
+_FIXTURE_RECEIPT_SANDBOX_KEYS = _LOCAL_RECEIPT_SANDBOX_KEYS - {"MCP_TRUST_SANDBOX_IMAGE"}
 _BASE_RECEIPT_CAVEATS = (
     "Automated scan output is not an endorsement.",
     "Danger grade and transparency are separate signals.",
@@ -128,7 +178,7 @@ _DUMMY_CREDENTIAL_CAVEAT = (
 _REMOTE_TRANSPORT_CAVEAT = (
     "Remote transport used the live network; no local process sandbox was applicable."
 )
-_SUCCESS_RESULT_KEYS = frozenset(
+_SUCCESS_RESULT_KEYS_V1 = frozenset(
     {
         "server_slug",
         "state",
@@ -147,10 +197,42 @@ _SUCCESS_RESULT_KEYS = frozenset(
         "drift",
     }
 )
+_SUCCESS_RESULT_KEYS = _SUCCESS_RESULT_KEYS_V1 | {
+    "freshness_state",
+    "freshness_reason",
+    "stale_after",
+}
+_BLOCKED_RESULT_KEYS = frozenset(
+    {
+        "server_slug",
+        "state",
+        "fresh_grade",
+        "execution_disposition",
+        "reason",
+        "previous_grade",
+        "previous_scanned_at",
+        "previous_scan_age_days",
+    }
+)
+_TIMEOUT_RESULT_KEYS = frozenset(
+    {
+        "server_slug",
+        "state",
+        "fresh_grade",
+        "reason",
+        "configured_timeout_seconds",
+        "timeout_outcome",
+        "hard_termination_evidence",
+        "previous_grade",
+        "previous_scanned_at",
+        "previous_scan_age_days",
+    }
+)
 _SANDBOX_PROFILE_KEYS = frozenset(
     {
         "kind",
         "image",
+        "image_digest",
         "network",
         "read_only_root",
         "capabilities",
@@ -160,6 +242,7 @@ _SANDBOX_PROFILE_KEYS = frozenset(
         "cpus",
         "user",
         "tmpfs",
+        "runtime_attestor",
     }
 )
 _APPROVAL_KEYS = frozenset(
@@ -263,8 +346,7 @@ def _json_values_are_bounded_and_display_safe(payload: Any) -> bool:
             pending.extend(value)
         elif isinstance(value, str):
             if len(value) > _MAX_JSON_STRING_CHARS or any(
-                unicodedata.category(character) in {"Cc", "Cf"}
-                for character in value
+                unicodedata.category(character) in {"Cc", "Cf"} for character in value
             ):
                 return False
         elif isinstance(value, float) and not math.isfinite(value):
@@ -374,14 +456,17 @@ def _read_stable_external_file(path: Path, *, limit: int) -> bytes:
         finally:
             os.close(descriptor)
         after_path = path.lstat()
-        if len(
-            {
-                _stat_signature(before),
-                _stat_signature(opened),
-                _stat_signature(after_read),
-                _stat_signature(after_path),
-            }
-        ) != 1:
+        if (
+            len(
+                {
+                    _stat_signature(before),
+                    _stat_signature(opened),
+                    _stat_signature(after_read),
+                    _stat_signature(after_path),
+                }
+            )
+            != 1
+        ):
             raise RefreshCandidateError(f"reviewed input changed during read: {path.name}")
         return content
     except RefreshCandidateError:
@@ -476,10 +561,7 @@ def _capture_candidate(candidate: Path) -> _CandidateSnapshot:
                         dir_fd=directory_descriptor,
                     )
                     opened = os.fstat(child_descriptor)
-                    if (
-                        opened.st_dev != before.st_dev
-                        or opened.st_ino != before.st_ino
-                    ):
+                    if opened.st_dev != before.st_dev or opened.st_ino != before.st_ino:
                         errors.append(f"artifact_unstable:{relative}")
                     else:
                         walk(child_descriptor, relative)
@@ -557,14 +639,17 @@ def _capture_candidate(candidate: Path) -> _CandidateSnapshot:
             except OSError:
                 errors.append(f"artifact_unstable:{relative}")
                 continue
-            if len(
-                {
-                    signature,
-                    _stat_signature(opened),
-                    _stat_signature(after_read),
-                    _stat_signature(after_path),
-                }
-            ) != 1:
+            if (
+                len(
+                    {
+                        signature,
+                        _stat_signature(opened),
+                        _stat_signature(after_read),
+                        _stat_signature(after_path),
+                    }
+                )
+                != 1
+            ):
                 errors.append(f"artifact_unstable:{relative}")
                 continue
             files[relative] = content
@@ -692,6 +777,20 @@ def _write_private_bytes(path: Path, content: bytes) -> None:
         os.close(descriptor)
 
 
+def _fsync_directory(path: Path) -> None:
+    """Commit directory metadata before immutable readback."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _sqlite_online_copy(source: Path, destination: Path) -> None:
     if not source.is_file():
         raise RefreshCandidateError(f"registry database is missing: {source}")
@@ -748,11 +847,7 @@ def _load_read_only_json_with_digest(path: Path) -> tuple[Any, str]:
         before = path.lstat()
         if not stat.S_ISREG(before.st_mode) or path.is_symlink():
             raise RefreshCandidateError(f"immutable JSON artifact is not regular: {path.name}")
-        if (
-            before.st_uid != os.geteuid()
-            or before.st_mode & 0o277
-            or before.st_nlink != 1
-        ):
+        if before.st_uid != os.geteuid() or before.st_mode & 0o277 or before.st_nlink != 1:
             raise RefreshCandidateError(
                 f"immutable JSON artifact has unsafe ownership or permissions: {path.name}"
             )
@@ -772,13 +867,9 @@ def _load_read_only_json_with_digest(path: Path) -> tuple[Any, str]:
         finally:
             os.close(descriptor)
         after_path = path.lstat()
-        signatures = {
-            _stat_signature(item) for item in (before, opened, after_read, after_path)
-        }
+        signatures = {_stat_signature(item) for item in (before, opened, after_read, after_path)}
         if len(signatures) != 1:
-            raise RefreshCandidateError(
-                f"immutable JSON artifact changed during read: {path.name}"
-            )
+            raise RefreshCandidateError(f"immutable JSON artifact changed during read: {path.name}")
         return _strict_json_loads(content), _sha256_bytes(content)
     except RefreshCandidateError:
         raise
@@ -826,10 +917,7 @@ def _catalog_slugs(seed_path: Path) -> tuple[frozenset[str], list[dict[str, Any]
 
 def _reviewed_inputs(seed_path: Path, masked_path: Path) -> _ReviewedInputs:
     catalog_payload, seed_digest = _load_json_with_digest(seed_path)
-    if (
-        not isinstance(catalog_payload, list)
-        or len(catalog_payload) > _MAX_CATALOG_ROWS
-    ):
+    if not isinstance(catalog_payload, list) or len(catalog_payload) > _MAX_CATALOG_ROWS:
         raise RefreshCandidateError("catalog identity must be a JSON list")
     catalog_rows: list[dict[str, Any]] = []
     catalog_slugs: set[str] = set()
@@ -875,9 +963,11 @@ def _server_identity(server: Server) -> dict[str, Any]:
 def _sandbox_profile(
     image: str,
     *,
+    image_digest: str = "UNKNOWN",
     docker_host: str | None = None,
 ) -> dict[str, object]:
-    sandbox = DockerSandbox(image=image, network="none", host=docker_host)
+    execution_image = image_digest if image_digest != "UNKNOWN" else image
+    sandbox = DockerSandbox(image=execution_image, network="none", host=docker_host)
     command, args = sandbox.wrap("server-command", ["--probe"])
     joined = [command, *args]
     for required in _SANDBOX_FLAGS:
@@ -888,6 +978,7 @@ def _sandbox_profile(
     return {
         "kind": "docker",
         "image": image,
+        "image_digest": image_digest,
         "network": "none",
         "read_only_root": True,
         "capabilities": "dropped-all",
@@ -897,11 +988,20 @@ def _sandbox_profile(
         "cpus": sandbox.cpus,
         "user": sandbox.user,
         "tmpfs": sandbox.workdir,
+        "runtime_attestor": sandbox.attestor_command,
     }
 
 
 def _requires_local_sandbox(server: Server) -> bool:
     return not (server.source.kind == SourceKind.REMOTE and server.source.command is None)
+
+
+def _required_local_sandbox_images(servers: list[Server], *, default_image: str) -> list[str]:
+    local_servers = [server for server in servers if _requires_local_sandbox(server)]
+    return sorted(
+        {server.source.sandbox_image or default_image for server in local_servers}
+        | ({default_image} if local_servers else set())
+    )
 
 
 def _catalog_row_requires_local_sandbox(row: object) -> bool:
@@ -916,6 +1016,8 @@ def _catalog_row_requires_local_sandbox(row: object) -> bool:
 
 
 def _real_scan_mode(*, local_count: int, total_count: int) -> str:
+    if total_count == 0:
+        return "no-execution-policy-blocked"
     if local_count == total_count:
         return "mcpaudit-local-network-off"
     if local_count == 0:
@@ -960,15 +1062,23 @@ def preflight_real_refresh(
     servers: list[Server],
     *,
     default_image: str,
+    host_capacity_receipt: object,
+    capacity_anchor: Path,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, object]:
     """Prove the network-off Docker controls and every pinned image locally."""
+    try:
+        require_current_host_capacity(
+            host_capacity_receipt,
+            anchor=capacity_anchor,
+            now=datetime.now(tz=UTC),
+        )
+    except HostCapacityError as exc:
+        raise RefreshCandidateError("required host capacity is not READY") from exc
     local_servers = [server for server in servers if _requires_local_sandbox(server)]
-    images = sorted(
-        {server.source.sandbox_image or default_image for server in local_servers}
-        | ({default_image} if local_servers else set())
-    )
+    images = _required_local_sandbox_images(servers, default_image=default_image)
     profiles: list[dict[str, object]] = []
+    image_bindings: dict[str, str] = {}
     if local_servers:
         if shutil.which("docker") is None:
             raise RefreshCandidateError("required Docker executable is unavailable")
@@ -991,12 +1101,34 @@ def preflight_real_refresh(
             )
             if inspected.returncode != 0:
                 raise RefreshCandidateError(f"required local sandbox image is unavailable: {image}")
-            profiles.append(_sandbox_profile(image, docker_host=docker_host))
-    if importlib.util.find_spec("mcp_audit") is None:
+            try:
+                inspected_payload = json.loads(inspected.stdout)
+                image_digest = inspected_payload[0]["Id"]
+            except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                raise RefreshCandidateError(
+                    f"required local sandbox image provenance is unreadable: {image}"
+                ) from exc
+            if (
+                not isinstance(image_digest, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest) is None
+            ):
+                raise RefreshCandidateError(
+                    f"required local sandbox image digest is invalid: {image}"
+                )
+            image_bindings[image] = image_digest
+            profiles.append(
+                _sandbox_profile(
+                    image,
+                    image_digest=image_digest,
+                    docker_host=docker_host,
+                )
+            )
+    if not modules_belong_to_distribution("mcp-audits", MCP_AUDIT_RUNTIME_MODULES):
         raise RefreshCandidateError("required MCPAudit engine package is unavailable")
     evidence: dict[str, object] = {
         "docker_daemon": "available" if local_servers else "not_required",
         "profiles": profiles,
+        "default_image": default_image,
         "remote_transport_count": len(servers) - len(local_servers),
     }
     if local_servers:
@@ -1004,7 +1136,194 @@ def preflight_real_refresh(
         # written, then supplied to every DockerSandbox through a dedicated
         # mcp-trust variable. This is authority, not a public trust claim.
         evidence["_execution_docker_host"] = docker_host
+        evidence["_execution_image_bindings"] = image_bindings
     return evidence
+
+
+def _qualification_metadata(
+    receipt: dict[str, Any],
+    *,
+    seed_sha256: str,
+    masked_sha256: str,
+    expected_catalog_counts: object,
+    expected_catalog_inventory_digest: object,
+    sandbox_evidence: dict[str, object],
+    now: datetime,
+    current_source_binding: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    required_keys = {
+        "schema",
+        "observed_at",
+        "status",
+        "safe_to_execute_catalog",
+        "exit_classification",
+        "source_binding",
+        "engine_materialization",
+        "host_capacity",
+        "catalog",
+        "sandbox",
+        "tool_versions",
+        "scheduler",
+        "reasons",
+        "authority",
+        "receipt_digest",
+    }
+    if set(receipt) != required_keys or receipt.get("schema") != "McpTrustGradeRefreshPreflightV3":
+        raise RefreshCandidateError("qualification receipt schema is invalid")
+    claimed_digest = receipt.get("receipt_digest")
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest", None)
+    actual_digest = "sha256:" + _sha256_bytes(_json_bytes(unsigned))
+    if claimed_digest != actual_digest:
+        raise RefreshCandidateError("qualification receipt digest is invalid")
+    try:
+        observed_at = _parse_utc_datetime(receipt["observed_at"])
+    except (KeyError, OverflowError, TypeError, ValueError) as exc:
+        raise RefreshCandidateError("qualification timestamp is invalid") from exc
+    age_seconds = (now.astimezone(UTC) - observed_at).total_seconds()
+    if age_seconds < 0 or age_seconds >= DEFAULT_MAX_AGE_HOURS * 3600:
+        raise RefreshCandidateError("qualification receipt is stale or future-dated")
+    expected_build_source_images = sorted(
+        {
+            profile.get("image")
+            for profile in sandbox_evidence.get("profiles", [])
+            if isinstance(profile, dict) and isinstance(profile.get("image"), str)
+        }
+    )
+    try:
+        from mcp_trust.grade_refresh import (  # noqa: PLC0415
+            GradeRefreshError,
+            validate_ready_preflight_contract,
+        )
+
+        validate_ready_preflight_contract(
+            receipt,
+            expected_image_references=expected_build_source_images,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+        )
+    except GradeRefreshError as exc:
+        raise RefreshCandidateError(f"qualification receipt {exc}") from exc
+    source = receipt.get("source_binding")
+    catalog = receipt.get("catalog")
+    sandbox = receipt.get("sandbox")
+    tools = receipt.get("tool_versions")
+    authority = receipt.get("authority")
+    if (
+        receipt.get("status") != "READY"
+        or receipt.get("safe_to_execute_catalog") is not True
+        or receipt.get("exit_classification") != "ready"
+        or receipt.get("reasons") != []
+        or not isinstance(source, dict)
+        or not isinstance(source.get("revision"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", source["revision"]) is None
+        or source.get("worktree_state") != "clean"
+        or not isinstance(source.get("source_tree_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", source["source_tree_digest"]) is None
+        or not isinstance(catalog, dict)
+        or catalog.get("seed_digest") != "sha256:" + seed_sha256
+        or catalog.get("masking_digest") != "sha256:" + masked_sha256
+        or not isinstance(catalog.get("policy_digest"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", catalog["policy_digest"]) is None
+        or not isinstance(tools, dict)
+        or any(
+            not isinstance(tools.get(key), str) or tools[key] in {"", "UNKNOWN"}
+            for key in (
+                "python",
+                "python_executable",
+                "mcp_audits",
+                "mcp_trust",
+                "docker_client",
+                "docker_server",
+            )
+        )
+        or authority
+        != {
+            "candidate_build": True,
+            "publication": False,
+            "deployment": False,
+            "scheduler_change": False,
+        }
+    ):
+        raise RefreshCandidateError("qualification receipt is not execution-ready")
+    build_sources = catalog.get("image_build_sources")
+    boundary_counts = catalog.get("counts")
+    execution_boundary = catalog.get("execution_boundary")
+    boundary_scannable = (
+        execution_boundary.get("scannable") if isinstance(execution_boundary, dict) else None
+    )
+    boundary_blocked = (
+        execution_boundary.get("blocked") if isinstance(execution_boundary, dict) else None
+    )
+    if (
+        not isinstance(execution_boundary, dict)
+        or set(execution_boundary) != {"schema", "scannable", "blocked"}
+        or execution_boundary.get("schema") != "McpTrustRefreshExecutionBoundaryV1"
+        or not isinstance(boundary_scannable, list)
+        or not isinstance(boundary_blocked, list)
+        or not all(_safe_artifact_component(slug) for slug in boundary_scannable)
+        or not all(_safe_artifact_component(slug) for slug in boundary_blocked)
+        or len(set(boundary_scannable)) != len(boundary_scannable)
+        or len(set(boundary_blocked)) != len(boundary_blocked)
+        or set(boundary_scannable) & set(boundary_blocked)
+        or len(boundary_scannable) + len(boundary_blocked) != catalog.get("denominator")
+        or not isinstance(boundary_counts, dict)
+        or boundary_counts.get("scannable") != len(boundary_scannable)
+        or boundary_counts.get("blocked") != len(boundary_blocked)
+    ):
+        raise RefreshCandidateError("qualification execution boundary is invalid")
+    if (
+        not isinstance(build_sources, dict)
+        or any(
+            not isinstance(binding, dict)
+            or binding.get("state") != "BOUND"
+            or not isinstance(binding.get("path"), str)
+            or not isinstance(binding.get("sha256"), str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", binding["sha256"]) is None
+            for binding in build_sources.values()
+        )
+        or set(build_sources) != set(expected_build_source_images)
+    ):
+        raise RefreshCandidateError("qualification image build provenance is incomplete")
+    source_files = source.get("file_digests")
+    if (
+        not isinstance(source_files, dict)
+        or source_files.get("src/mcp_trust/catalog/refresh_policy.json")
+        != catalog.get("policy_digest")
+        or any(
+            source_files.get(binding["path"]) != binding["sha256"]
+            for binding in build_sources.values()
+        )
+    ):
+        raise RefreshCandidateError(
+            "qualification policy or image build provenance is not source-bound"
+        )
+    if current_source_binding is not None and source != current_source_binding:
+        raise RefreshCandidateError(
+            "qualification source binding differs from the execution source"
+        )
+    sandbox_rows = sandbox.get("image_bindings", []) if isinstance(sandbox, dict) else []
+    receipt_bindings = {
+        row.get("reference"): row.get("image_id")
+        for row in sandbox_rows
+        if isinstance(row, dict) and row.get("state") == "BOUND"
+    }
+    profile_bindings = {
+        row.get("image"): row.get("image_digest")
+        for row in sandbox_evidence.get("profiles", [])
+        if isinstance(row, dict)
+    }
+    if receipt_bindings != profile_bindings:
+        raise RefreshCandidateError("qualification image bindings differ from execution preflight")
+    return {
+        "mode": "grade-refresh-preflight",
+        "receipt": "qualification_receipt.json",
+        "receipt_sha256": _sha256_bytes(_json_bytes(receipt)),
+        "preflight_receipt_digest": actual_digest,
+        "policy_digest": catalog["policy_digest"],
+        "source_revision": source["revision"],
+        "source_tree_digest": source["source_tree_digest"],
+    }
 
 
 @contextmanager
@@ -1065,7 +1384,12 @@ def _remote_transport_environment() -> Iterator[None]:
                 os.environ[key] = value
 
 
-def _scan_receipt_payload(server: Server, scan: ScanRecord) -> dict[str, Any]:
+def _scan_receipt_payload(
+    server: Server,
+    scan: ScanRecord,
+    *,
+    execution_binding: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not _requires_local_sandbox(server):
         with _remote_transport_environment():
             payload = build_scan_receipt(server, scan)
@@ -1082,26 +1406,157 @@ def _scan_receipt_payload(server: Server, scan: ScanRecord) -> dict[str, Any]:
             ] + ["Remote transport used the live network; no local process sandbox was applicable."]
     else:
         payload = build_scan_receipt(server, scan)
+    if execution_binding is not None:
+        payload["format_version"] = 2
+        payload["execution_binding"] = execution_binding
+        payload["receipt_digest"] = "sha256:" + _sha256_bytes(_json_bytes(payload))
     return payload
 
 
-def _write_receipt(server: Server, scan: ScanRecord, receipts_dir: Path) -> str:
+def _write_receipt(
+    server: Server,
+    scan: ScanRecord,
+    receipts_dir: Path,
+    *,
+    execution_binding: dict[str, Any] | None = None,
+) -> str:
     name = f"{scan.server_slug}-{scan.id}.json"
-    payload = _scan_receipt_payload(server, scan)
+    payload = _scan_receipt_payload(server, scan, execution_binding=execution_binding)
     _write_private(receipts_dir / name, payload)
     return name
+
+
+def _candidate_execution_binding(
+    server: Server,
+    *,
+    qualification: dict[str, object],
+    sandbox_evidence: dict[str, object],
+    default_image: str,
+    expected_image: str | None,
+    fixture_mode: bool,
+    cleanup_evidence: str | None,
+    runtime_readback: dict[str, object] | None,
+) -> dict[str, Any]:
+    local_process = _requires_local_sandbox(server)
+    requested_image = server.source.sandbox_image or default_image if local_process else None
+    configured_profile = next(
+        (
+            profile
+            for profile in sandbox_evidence.get("profiles", [])
+            if isinstance(profile, dict) and profile.get("image") == requested_image
+        ),
+        None,
+    )
+    if local_process and configured_profile is None:
+        raise RefreshCandidateError("scan execution profile is unavailable")
+    try:
+        server_command, server_args = docker_launch_spec(server.source)
+        expected_server_process_digests = sandbox_server_process_digests(
+            server_command,
+            server_args,
+            allow_python_console_script=(
+                server.source.kind == SourceKind.PYPI and server.source.command is not None
+            ),
+            allowed_process_title=docker_process_title(server.source),
+        )
+    except Exception as exc:  # normalized below; no execution occurs here
+        if local_process:
+            raise RefreshCandidateError("scan execution command binding is unavailable") from exc
+        expected_server_process_digests = ("NOT_APPLICABLE",)
+    if fixture_mode:
+        source = {
+            "revision": None,
+            "source_tree_digest": None,
+            "policy_digest": None,
+            "preflight_receipt_digest": None,
+        }
+        bound_runtime_readback: dict[str, object] = {
+            "state": "NOT_APPLICABLE",
+            "reason": "deterministic fixture did not execute a server process",
+        }
+        immutable_image_id = None
+        sandbox_mode = "deterministic-fixture"
+        container_cleanup_evidence = "NOT_APPLICABLE"
+    else:
+        source = {
+            "revision": qualification.get("source_revision"),
+            "source_tree_digest": qualification.get("source_tree_digest"),
+            "policy_digest": qualification.get("policy_digest"),
+            "preflight_receipt_digest": qualification.get("preflight_receipt_digest"),
+        }
+        if local_process:
+            if (
+                not isinstance(expected_image, str)
+                or not valid_sandbox_runtime_readback(
+                    runtime_readback,
+                    expected_image_id=expected_image,
+                    expected_profile=configured_profile,
+                    expected_dummy_env_names=list(server.source.env_keys),
+                    expected_server_process_digests=expected_server_process_digests,
+                )
+                or runtime_readback.get("schema") != SANDBOX_RUNTIME_READBACK_SCHEMA
+            ):
+                raise RefreshCandidateError(
+                    "scan runtime controls are missing or do not match the immutable image"
+                )
+            bound_runtime_readback = json.loads(json.dumps(runtime_readback))
+        else:
+            bound_runtime_readback = {
+                "state": "NOT_APPLICABLE",
+                "reason": "remote endpoint launched no local process",
+            }
+        immutable_image_id = expected_image if local_process else None
+        sandbox_mode = "docker" if local_process else "remote-no-local-process"
+        container_cleanup_evidence = cleanup_evidence if local_process else "NOT_APPLICABLE"
+    return {
+        "schema": SCAN_EXECUTION_BINDING_SCHEMA,
+        "target_slug": server.slug,
+        "source": source,
+        "sandbox": {
+            "mode": sandbox_mode,
+            "requested_image": requested_image,
+            "immutable_image_id": immutable_image_id,
+            "configured_launch_controls": configured_profile,
+            "runtime_readback": bound_runtime_readback,
+            "container_cleanup_evidence": container_cleanup_evidence,
+        },
+        "timeout": {
+            "configured_seconds": None if fixture_mode else SCAN_TIMEOUT_SECONDS,
+            "repository_outer_deadline_seconds": (
+                repository_outer_timeout_seconds(SCAN_TIMEOUT_SECONDS)
+                if local_process and not fixture_mode
+                else None
+            ),
+            "runtime_readback_deadline_seconds": (
+                SANDBOX_RUNTIME_READBACK_TIMEOUT_SECONDS
+                if local_process and not fixture_mode
+                else None
+            ),
+            "outcome": "completed",
+            "hard_termination_evidence": "NOT_APPLICABLE",
+        },
+    }
+
+
+def _receipt_digest_valid(receipt: dict[str, Any]) -> bool:
+    claimed = receipt.get("receipt_digest")
+    unsigned = dict(receipt)
+    unsigned.pop("receipt_digest", None)
+    return claimed == "sha256:" + _sha256_bytes(_json_bytes(unsigned))
 
 
 def _write_masked_scan_proof(
     server: Server,
     scan: ScanRecord,
     proofs_dir: Path,
+    *,
+    execution_binding: dict[str, Any],
 ) -> str:
     """Retain scan-success provenance without retaining masked grade evidence."""
-    receipt = _scan_receipt_payload(server, scan)
+    receipt = _scan_receipt_payload(server, scan, execution_binding=execution_binding)
     name = f"{scan.server_slug}-{scan.id}.json"
     proof = {
-        "format_version": 1,
+        "format_version": 2,
         "proof_type": "masked_scan_success",
         "outcome": "scan_succeeded",
         "server_slug": scan.server_slug,
@@ -1111,9 +1566,18 @@ def _write_masked_scan_proof(
         "scanner": receipt["scanner"],
         "sandbox": receipt["sandbox"],
         "evidence_present": scan.evidence is not None,
+        "execution_binding": execution_binding,
     }
+    proof["proof_digest"] = "sha256:" + _sha256_bytes(_json_bytes(proof))
     _write_private(proofs_dir / name, proof)
     return name
+
+
+def _masked_proof_digest_valid(proof: dict[str, Any]) -> bool:
+    claimed = proof.get("proof_digest")
+    unsigned = dict(proof)
+    unsigned.pop("proof_digest", None)
+    return claimed == "sha256:" + _sha256_bytes(_json_bytes(unsigned))
 
 
 def _validate_receipt(
@@ -1122,6 +1586,7 @@ def _validate_receipt(
     server: Server,
     scan: ScanRecord,
     expected_image: str | None,
+    expected_execution_binding: dict[str, Any],
 ) -> bool:
     try:
         receipt = _load_json(path)
@@ -1132,7 +1597,11 @@ def _validate_receipt(
     scanner = receipt.get("scanner")
     sandbox = receipt.get("sandbox")
     base_valid = bool(
-        receipt.get("server_slug") == server.slug
+        set(receipt) == _RECEIPT_KEYS
+        and receipt.get("format_version") == 2
+        and _receipt_digest_valid(receipt)
+        and receipt.get("execution_binding") == expected_execution_binding
+        and receipt.get("server_slug") == server.slug
         and receipt.get("scan_id") == scan.id
         and isinstance(scanner, dict)
         and scanner.get("engine_name") == scan.engine_name
@@ -1175,9 +1644,7 @@ def _fresh_result_matches_persisted_scan(
     expected_caveats = list(_BASE_RECEIPT_CAVEATS)
     if not _requires_local_sandbox(server):
         expected_caveats = [
-            caveat
-            for caveat in expected_caveats
-            if not caveat.startswith("Network-off sandboxing")
+            caveat for caveat in expected_caveats if not caveat.startswith("Network-off sandboxing")
         ] + [_REMOTE_TRANSPORT_CAVEAT]
     elif (
         isinstance(sandbox, dict)
@@ -1254,7 +1721,10 @@ def _scan_age_days(scanned_at: datetime, now: datetime) -> float:
     if scanned_at.tzinfo is None:
         scanned_at = scanned_at.replace(tzinfo=UTC)
     return round(
-        max(0.0, (now.astimezone(UTC) - scanned_at.astimezone(UTC)).total_seconds() / 86400),
+        max(
+            0.0,
+            (now.astimezone(UTC) - scanned_at.astimezone(UTC)).total_seconds() / 86400,
+        ),
         6,
     )
 
@@ -1319,6 +1789,118 @@ def _materialize_candidate_snapshot(
     _make_read_only(destination)
 
 
+def _validate_v2_freshness_manifest(
+    *,
+    manifest: dict[str, Any],
+    captured: _CandidateSnapshot,
+    results: list[Any],
+    created_at: datetime | None,
+    expires_at: datetime | None,
+    errors: list[str],
+) -> None:
+    """Cross-bind the V2 freshness and semantic projections."""
+    freshness = manifest.get("freshness")
+    required_freshness_keys = {
+        "mode",
+        "horizon_days",
+        "evaluated_at",
+        "earliest_stale_after",
+        "publication_not_after",
+        "state_counts",
+    }
+    if (
+        not isinstance(freshness, dict)
+        or set(freshness) != required_freshness_keys
+        or freshness.get("mode") != "STATIC_HISTORICAL_ONLY"
+        or freshness.get("horizon_days") != STALE_AFTER_DAYS
+        or freshness.get("evaluated_at") != manifest.get("created_at")
+        or created_at is None
+        or expires_at is None
+    ):
+        errors.append("freshness_manifest_invalid")
+        return
+    state_counts = freshness.get("state_counts")
+    if (
+        not isinstance(state_counts, dict)
+        or set(state_counts) != {state.value for state in FreshnessState}
+        or any(type(value) is not int or value < 0 for value in state_counts.values())
+    ):
+        errors.append("freshness_counts_invalid")
+        return
+    successful = [
+        result
+        for result in results
+        if isinstance(result, dict) and result.get("state") in {"fresh", "masked"}
+    ]
+    stale_after_values: list[datetime] = []
+    for result in successful:
+        try:
+            scanned_at = _parse_utc_datetime(result["scanned_at"])
+            stale_after = _parse_utc_datetime(result["stale_after"])
+        except (KeyError, OverflowError, TypeError, ValueError):
+            errors.append(
+                f"freshness_result_invalid:{_safe_error_label(result.get('server_slug'))}"
+            )
+            continue
+        assessment = assess_scan_freshness(scanned_at, created_at)
+        if (
+            assessment.state is not FreshnessState.FRESH
+            or result.get("freshness_state") != str(assessment.state)
+            or result.get("freshness_reason") != assessment.reason
+            or assessment.stale_after != stale_after
+        ):
+            errors.append(
+                f"freshness_result_mismatch:{_safe_error_label(result.get('server_slug'))}"
+            )
+        stale_after_values.append(stale_after)
+    expected_counts = {
+        "FRESH": len(successful),
+        "STALE": 0,
+        "UNKNOWN": len(results) - len(successful),
+        "NOT_APPLICABLE": 0,
+    }
+    if state_counts != expected_counts:
+        errors.append("freshness_counts_mismatch")
+    earliest = min(stale_after_values) if stale_after_values else None
+    expected_earliest = earliest.isoformat() if earliest is not None else None
+    if freshness.get("earliest_stale_after") != expected_earliest:
+        errors.append("earliest_stale_after_mismatch")
+    expected_not_after = min(expires_at, earliest or expires_at).isoformat()
+    if freshness.get("publication_not_after") != expected_not_after:
+        errors.append("publication_not_after_mismatch")
+
+    semantic = manifest.get("semantic_digests")
+    expected_semantic = {
+        "scan_results": _sha256_bytes(captured.files.get("scan_results.json", b"")),
+        "static_snapshot": _sha256_bytes(captured.files.get("static_snapshot.json", b"")),
+        "masking": (
+            manifest.get("masking", {}).get("sha256")
+            if isinstance(manifest.get("masking"), dict)
+            else None
+        ),
+    }
+    if semantic != expected_semantic:
+        errors.append("semantic_digest_mismatch")
+    source_tree_digest = manifest.get("source_tree_digest")
+    if manifest.get("candidate_state") == "fixture":
+        if source_tree_digest is not None:
+            errors.append("fixture_source_tree_claim_invalid")
+    elif (
+        not isinstance(source_tree_digest, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", source_tree_digest) is None
+    ):
+        errors.append("source_tree_digest_invalid")
+    tool_versions = manifest.get("tool_versions")
+    if (
+        not isinstance(tool_versions, dict)
+        or set(tool_versions) != {"python", "mcp_trust_candidate_schema"}
+        or not isinstance(tool_versions.get("python"), str)
+        or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", tool_versions["python"]) is None
+        or tool_versions.get("mcp_trust_candidate_schema") != CANDIDATE_SCHEMA
+    ):
+        errors.append("tool_versions_invalid")
+
+
 def create_refresh_candidate(
     *,
     source_db: Path,
@@ -1330,12 +1912,35 @@ def create_refresh_candidate(
     receipt_writer: Callable[[Server, ScanRecord, Path], str | None] | None = None,
     now: datetime | None = None,
     candidate_name: str | None = None,
+    qualification_receipt: dict[str, Any] | None = None,
+    repo_root: Path | None = None,
+    policy_path: Path | None = None,
+    _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
+    _qualification_revalidator: Callable[..., None] | None = None,
 ) -> Path:
-    """Create one immutable candidate; never mutate canonical/public outputs."""
+    """Create one immutable candidate; never mutate canonical/public outputs.
+
+    ``scanner`` is a trusted in-process test-fixture hook, not an isolation
+    boundary. Fixture candidates remain non-publishable and prove no process,
+    network, MCP, Docker, or receipt provenance property of that callback.
+    """
     fixed_now = now or datetime.now(tz=UTC)
     if fixed_now.tzinfo is None:
         fixed_now = fixed_now.replace(tzinfo=UTC)
     fixture_mode = scanner is not None
+    if not fixture_mode:
+        if repo_root is None:
+            raise RefreshCandidateError("real refresh requires the qualified repository root")
+        try:
+            require_current_host_capacity(
+                qualification_receipt.get("host_capacity")
+                if isinstance(qualification_receipt, dict)
+                else None,
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+        except HostCapacityError as exc:
+            raise RefreshCandidateError("real refresh host capacity is not READY") from exc
     if not source_db.is_file():
         raise RefreshCandidateError(f"registry database is missing: {source_db}")
     reviewed = _reviewed_inputs(seed_path, masked_path)
@@ -1351,6 +1956,17 @@ def create_refresh_candidate(
         )
     catalog_by_slug = {row["slug"]: row for row in catalog_rows}
 
+    if not fixture_mode:
+        try:
+            require_current_host_capacity(
+                qualification_receipt.get("host_capacity"),
+                anchor=repo_root,
+                now=datetime.now(tz=UTC),
+            )
+        except HostCapacityError as exc:
+            raise RefreshCandidateError(
+                "real refresh host capacity changed before source database access"
+            ) from exc
     source_conn = sqlite3.connect(f"{source_db.resolve().as_uri()}?mode=ro", uri=True)
     source_conn.row_factory = sqlite3.Row
     try:
@@ -1374,14 +1990,116 @@ def create_refresh_candidate(
 
     sandbox_evidence: dict[str, object]
     docker_host: str | None = None
+    execution_image_bindings: dict[str, str] = {}
+    qualification_manifest: dict[str, object]
+    qualified_source_binding: dict[str, Any] | None = None
+    execution_servers = servers
+    blocked_slugs: frozenset[str] = frozenset()
     if fixture_mode:
         sandbox_evidence = {
             "mode": "deterministic-fixture",
+            "default_image": default_image,
             "profiles": [_sandbox_profile(default_image)],
         }
+        qualification_manifest = {
+            "mode": "deterministic-fixture",
+            "receipt": None,
+        }
     else:
-        sandbox_evidence = preflight_real_refresh(servers, default_image=default_image)
+        if repo_root is None:
+            raise RefreshCandidateError("real refresh requires the qualified repository root")
+        effective_policy_path = policy_path or seed_path.with_name("refresh_policy.json")
+        try:
+            from mcp_trust.grade_refresh import (  # noqa: PLC0415
+                GradeRefreshError,
+                catalog_inventory,
+                digest_file,
+                load_policy,
+                revalidate_ready_preflight_qualifications,
+                validate_ready_preflight_contract,
+            )
+
+            execution_policy = load_policy(
+                effective_policy_path,
+                seed_path,
+                masked_path,
+            )
+            expected_catalog_inventory = catalog_inventory(
+                seed_path=seed_path,
+                masked_path=masked_path,
+                policy_path=effective_policy_path,
+            )
+            expected_catalog_counts = expected_catalog_inventory["counts"]
+            expected_catalog_inventory_digest = "sha256:" + _sha256_bytes(
+                _json_bytes(expected_catalog_inventory)
+            )
+            policy_digest = digest_file(effective_policy_path)
+        except (GradeRefreshError, OSError) as exc:
+            raise RefreshCandidateError("refresh execution policy is invalid") from exc
+        receipt_catalog = (
+            qualification_receipt.get("catalog")
+            if isinstance(qualification_receipt, dict)
+            else None
+        )
+        policy_counts = receipt_catalog.get("counts") if isinstance(receipt_catalog, dict) else None
+        receipt_boundary = (
+            receipt_catalog.get("execution_boundary") if isinstance(receipt_catalog, dict) else None
+        )
+        if (
+            not isinstance(receipt_catalog, dict)
+            or receipt_catalog.get("policy_digest") != policy_digest
+            or receipt_catalog.get("denominator") != len(servers)
+            or not isinstance(policy_counts, dict)
+            or policy_counts.get("scannable") != len(execution_policy.scannable)
+            or policy_counts.get("blocked") != len(execution_policy.blocked)
+            or receipt_boundary
+            != {
+                "schema": "McpTrustRefreshExecutionBoundaryV1",
+                "scannable": sorted(execution_policy.scannable),
+                "blocked": sorted(execution_policy.blocked),
+            }
+        ):
+            raise RefreshCandidateError("qualification receipt does not bind the execution policy")
+        blocked_slugs = execution_policy.blocked
+        execution_servers = [
+            server for server in servers if server.slug in execution_policy.scannable
+        ]
+        if not isinstance(qualification_receipt, dict):
+            raise RefreshCandidateError("real refresh requires a qualification receipt")
+        try:
+            expected_image_references = _required_local_sandbox_images(
+                execution_servers,
+                default_image=default_image,
+            )
+            validate_ready_preflight_contract(
+                qualification_receipt,
+                expected_image_references=expected_image_references,
+                expected_catalog_counts=expected_catalog_counts,
+                expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+            )
+            (_qualification_revalidator or revalidate_ready_preflight_qualifications)(
+                qualification_receipt,
+                repo_root=repo_root,
+                expected_image_references=expected_image_references,
+                expected_catalog_counts=expected_catalog_counts,
+                expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+                now=fixed_now,
+            )
+        except GradeRefreshError as exc:
+            raise RefreshCandidateError(f"qualification receipt {exc}") from exc
+        sandbox_evidence = preflight_real_refresh(
+            execution_servers,
+            default_image=default_image,
+            host_capacity_receipt=qualification_receipt.get("host_capacity"),
+            capacity_anchor=repo_root,
+        )
         execution_host = sandbox_evidence.pop("_execution_docker_host", None)
+        raw_bindings = sandbox_evidence.pop("_execution_image_bindings", {})
+        if not isinstance(raw_bindings, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in raw_bindings.items()
+        ):
+            raise RefreshCandidateError("preflight returned invalid image execution bindings")
+        execution_image_bindings = dict(raw_bindings)
         if execution_host is not None:
             try:
                 docker_host = normalize_local_docker_host(str(execution_host))
@@ -1389,13 +2107,35 @@ def create_refresh_candidate(
                 raise RefreshCandidateError(
                     "preflight returned an invalid Docker execution authority"
                 ) from exc
-        scanner_engine = MCPAuditEngine(timeout=90.0)
+        if _source_binding_provider is None:
+            from mcp_trust.grade_refresh import source_binding  # noqa: PLC0415
+
+            _source_binding_provider = source_binding
+        qualified_source_binding = _source_binding_provider(repo_root)
+        qualification_manifest = _qualification_metadata(
+            qualification_receipt,
+            seed_sha256=reviewed.seed_sha256,
+            masked_sha256=reviewed.masked_sha256,
+            expected_catalog_counts=expected_catalog_counts,
+            expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+            sandbox_evidence=sandbox_evidence,
+            now=fixed_now,
+            current_source_binding=qualified_source_binding,
+        )
+        scanner_engine = MCPAuditEngine(timeout=SCAN_TIMEOUT_SECONDS)
 
         def scan_server(server: Server) -> EngineResult:
             if not _requires_local_sandbox(server):
                 with _remote_transport_environment():
                     return scanner_engine.scan(server.source)
-            return scanner_engine.scan(server.source)
+            requested_image = server.source.sandbox_image or default_image
+            execution_image = execution_image_bindings.get(requested_image)
+            if execution_image is None:
+                raise RefreshCandidateError(
+                    f"preflight image binding unavailable for {requested_image}"
+                )
+            execution_source = server.source.model_copy(update={"sandbox_image": execution_image})
+            return scanner_engine.scan(execution_source)
 
         scanner = scan_server
 
@@ -1414,7 +2154,21 @@ def create_refresh_candidate(
         receipts_dir.mkdir(mode=0o700)
         masked_proofs_dir = temporary / "masked-proofs"
         masked_proofs_dir.mkdir(mode=0o700)
+        if not fixture_mode:
+            assert qualification_receipt is not None
+            _write_private(temporary / "qualification_receipt.json", qualification_receipt)
         candidate_db = temporary / "registry.db"
+        if not fixture_mode:
+            try:
+                require_current_host_capacity(
+                    qualification_receipt.get("host_capacity"),
+                    anchor=repo_root,
+                    now=datetime.now(tz=UTC),
+                )
+            except HostCapacityError as exc:
+                raise RefreshCandidateError(
+                    "real refresh host capacity changed before candidate database access"
+                ) from exc
         _sqlite_online_copy(source_db, candidate_db)
         conn = connect(str(candidate_db))
         init_schema(conn)
@@ -1443,13 +2197,43 @@ def create_refresh_candidate(
         conn.execute("VACUUM")
 
         results: list[dict[str, object]] = []
-        excluded: set[str] = set()
+        excluded: set[str] = set(blocked_slugs)
         verified_snapshot_scan_modes: dict[str, str] = {}
         writer = receipt_writer or _write_receipt
-        with _scan_environment(default_image, docker_host):
+        execution_default_image = execution_image_bindings.get(default_image, default_image)
+        with _scan_environment(execution_default_image, docker_host):
             for server in servers:
                 previous = scan_repo.latest(server.slug)
+                if server.slug in blocked_slugs:
+                    results.append(
+                        {
+                            "server_slug": server.slug,
+                            "state": "blocked-policy",
+                            "fresh_grade": None,
+                            "execution_disposition": "do-not-execute",
+                            "reason": "sandbox_image_qualification_unknown",
+                            "previous_grade": str(previous.grade) if previous else None,
+                            "previous_scanned_at": (
+                                previous.scanned_at.isoformat() if previous else None
+                            ),
+                            "previous_scan_age_days": (
+                                _scan_age_days(previous.scanned_at, fixed_now) if previous else None
+                            ),
+                        }
+                    )
+                    continue
                 try:
+                    if not fixture_mode:
+                        try:
+                            require_current_host_capacity(
+                                qualification_receipt.get("host_capacity"),
+                                anchor=repo_root,
+                                now=datetime.now(tz=UTC),
+                            )
+                        except HostCapacityError as exc:
+                            raise RefreshCandidateError(
+                                "real refresh host capacity changed before scan"
+                            ) from exc
                     engine_result = scanner(server)
                     if not fixture_mode and engine_result.engine_name != "mcpaudit":
                         raise RefreshCandidateError("real refresh returned a non-mcpaudit result")
@@ -1467,15 +2251,49 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
+                    requested_image = server.source.sandbox_image or default_image
                     expected_image = (
-                        server.source.sandbox_image or default_image
+                        execution_image_bindings.get(requested_image, requested_image)
                         if _requires_local_sandbox(server)
                         else None
                     )
+                    runtime_profile = next(
+                        (
+                            profile
+                            for profile in sandbox_evidence.get("profiles", [])
+                            if isinstance(profile, dict) and profile.get("image") == requested_image
+                        ),
+                        None,
+                    )
+                    try:
+                        expected_server_process_digests = sandbox_server_process_digests(
+                            *docker_launch_spec(server.source),
+                            allow_python_console_script=(
+                                server.source.kind == SourceKind.PYPI
+                                and server.source.command is not None
+                            ),
+                            allowed_process_title=docker_process_title(server.source),
+                        )
+                    except Exception:  # invalid launch spec is classified as UNKNOWN
+                        expected_server_process_digests = None
                     if (
                         not fixture_mode
                         and _requires_local_sandbox(server)
-                        and engine_result.sandbox_image != expected_image
+                        and (
+                            engine_result.sandbox_image != expected_image
+                            or engine_result.sandbox_cleanup_evidence
+                            != "CONTAINER_ABSENCE_VERIFIED"
+                            or not isinstance(expected_image, str)
+                            or not isinstance(runtime_profile, dict)
+                            or not isinstance(expected_server_process_digests, tuple)
+                            or not valid_sandbox_runtime_readback(
+                                engine_result.sandbox_runtime_readback,
+                                expected_image_id=expected_image,
+                                expected_profile=runtime_profile,
+                                expected_dummy_env_names=list(server.source.env_keys),
+                                expected_server_process_digests=expected_server_process_digests,
+                            )
+                        )
                     ):
                         results.append(
                             {
@@ -1483,6 +2301,16 @@ def create_refresh_candidate(
                                 "state": "unknown-sandbox-evidence",
                                 "fresh_grade": None,
                                 "expected_sandbox_image": expected_image,
+                                "sandbox_cleanup_evidence": (
+                                    engine_result.sandbox_cleanup_evidence or "UNKNOWN"
+                                ),
+                                "sandbox_runtime_readback": (
+                                    "VERIFIED"
+                                    if isinstance(engine_result.sandbox_runtime_readback, dict)
+                                    and engine_result.sandbox_runtime_readback.get("state")
+                                    == "VERIFIED"
+                                    else "UNKNOWN"
+                                ),
                             }
                         )
                         excluded.add(server.slug)
@@ -1501,18 +2329,34 @@ def create_refresh_candidate(
                         sandbox_image=engine_result.sandbox_image,
                     )
                     masked = server.slug in masked_slugs
+                    execution_binding = _candidate_execution_binding(
+                        server,
+                        qualification=qualification_manifest,
+                        sandbox_evidence=sandbox_evidence,
+                        default_image=default_image,
+                        expected_image=expected_image,
+                        fixture_mode=fixture_mode,
+                        cleanup_evidence=engine_result.sandbox_cleanup_evidence,
+                        runtime_readback=engine_result.sandbox_runtime_readback,
+                    )
                     if masked:
                         receipt_ref = None
                         masked_proof_ref = _write_masked_scan_proof(
                             server,
                             scan,
                             masked_proofs_dir,
+                            execution_binding=execution_binding,
                         )
                     elif receipt_writer is None:
                         masked_proof_ref = None
                         receipt_ref = f"{scan.server_slug}-{scan.id}.json"
                         scan = scan.model_copy(update={"report_ref": receipt_ref})
-                        _write_receipt(server, scan, receipts_dir)
+                        _write_receipt(
+                            server,
+                            scan,
+                            receipts_dir,
+                            execution_binding=execution_binding,
+                        )
                     else:
                         masked_proof_ref = None
                         receipt_ref = writer(server, scan, receipts_dir)
@@ -1533,6 +2377,7 @@ def create_refresh_candidate(
                                 server=server,
                                 scan=scan,
                                 expected_image=expected_image,
+                                expected_execution_binding=execution_binding,
                             )
                         )
                     )
@@ -1547,14 +2392,8 @@ def create_refresh_candidate(
                         )
                         excluded.add(server.slug)
                         continue
-                    if (
-                        not fixture_mode
-                        and not masked
-                        and _requires_local_sandbox(server)
-                    ):
-                        verified_snapshot_scan_modes[scan.id] = (
-                            "mcpaudit-local-network-off"
-                        )
+                    if not fixture_mode and not masked and _requires_local_sandbox(server):
+                        verified_snapshot_scan_modes[scan.id] = "mcpaudit-local-network-off"
                     if masked:
                         drift = None
                     else:
@@ -1571,6 +2410,11 @@ def create_refresh_candidate(
                             "transparency": (None if masked else str(scan.transparency)),
                             "scanned_at": scan.scanned_at.isoformat(),
                             "scan_age_days": _scan_age_days(scan.scanned_at, fixed_now),
+                            "freshness_state": str(FreshnessState.FRESH),
+                            "freshness_reason": "fresh",
+                            "stale_after": (
+                                scan.scanned_at + timedelta(days=STALE_AFTER_DAYS)
+                            ).isoformat(),
                             "scan_id": None if masked else scan.id,
                             "engine_name": scan.engine_name,
                             "engine_version": scan.engine_version,
@@ -1583,6 +2427,32 @@ def create_refresh_candidate(
                             "drift": _drift_payload(drift),
                         }
                     )
+                except ScanTimeoutError as exc:
+                    hard_termination_evidence = getattr(exc, "hard_termination_evidence", "UNKNOWN")
+                    if hard_termination_evidence not in {
+                        "UNKNOWN",
+                        "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT",
+                    }:
+                        hard_termination_evidence = "UNKNOWN"
+                    results.append(
+                        {
+                            "server_slug": server.slug,
+                            "state": "scan-timeout",
+                            "fresh_grade": None,
+                            "reason": "configured_scan_timeout_expired",
+                            "configured_timeout_seconds": SCAN_TIMEOUT_SECONDS,
+                            "timeout_outcome": "timeout",
+                            "hard_termination_evidence": hard_termination_evidence,
+                            "previous_grade": str(previous.grade) if previous else None,
+                            "previous_scanned_at": (
+                                previous.scanned_at.isoformat() if previous else None
+                            ),
+                            "previous_scan_age_days": (
+                                _scan_age_days(previous.scanned_at, fixed_now) if previous else None
+                            ),
+                        }
+                    )
+                    excluded.add(server.slug)
                 except Exception as exc:  # noqa: BLE001 - one row must become explicit partial
                     results.append(
                         {
@@ -1590,6 +2460,7 @@ def create_refresh_candidate(
                             "state": "scan-failed",
                             "fresh_grade": None,
                             "error_type": type(exc).__name__,
+                            "reason": _scan_failure_reason(exc),
                             "previous_grade": str(previous.grade) if previous else None,
                             "previous_scanned_at": (
                                 previous.scanned_at.isoformat() if previous else None
@@ -1630,20 +2501,43 @@ def create_refresh_candidate(
         )
         _write_private(temporary / "static_snapshot.json", snapshot)
 
-        complete = all(result["state"] in {"fresh", "masked"} for result in results)
+        if not fixture_mode:
+            assert repo_root is not None
+            assert _source_binding_provider is not None
+            if _source_binding_provider(repo_root) != qualified_source_binding:
+                raise RefreshCandidateError("execution source changed during refresh")
+        complete = all(
+            result["state"] in {"fresh", "masked", "blocked-policy"} for result in results
+        )
         candidate_state = "fixture" if fixture_mode else "complete" if complete else "partial"
+        successful_stale_after = sorted(
+            str(result["stale_after"])
+            for result in results
+            if result.get("state") in {"fresh", "masked"}
+            and isinstance(result.get("stale_after"), str)
+        )
+        candidate_expires_at = fixed_now + timedelta(hours=DEFAULT_MAX_AGE_HOURS)
+        earliest_stale_after = (
+            _parse_utc_datetime(successful_stale_after[0]) if successful_stale_after else None
+        )
+        publication_not_after = min(
+            candidate_expires_at,
+            earliest_stale_after or candidate_expires_at,
+        )
         manifest = {
             "schema": CANDIDATE_SCHEMA,
             "created_at": fixed_now.isoformat(),
-            "expires_at": (fixed_now + timedelta(hours=DEFAULT_MAX_AGE_HOURS)).isoformat(),
+            "expires_at": candidate_expires_at.isoformat(),
             "candidate_state": candidate_state,
             "publication_allowed": candidate_state == "complete",
             "scan_mode": (
                 "deterministic-fixture"
                 if fixture_mode
                 else _real_scan_mode(
-                    local_count=sum(_requires_local_sandbox(server) for server in servers),
-                    total_count=len(servers),
+                    local_count=sum(
+                        _requires_local_sandbox(server) for server in execution_servers
+                    ),
+                    total_count=len(execution_servers),
                 )
             ),
             "catalog": {
@@ -1655,11 +2549,16 @@ def create_refresh_candidate(
                 "slugs": sorted(masked_slugs),
             },
             "sandbox": sandbox_evidence,
+            "qualification": qualification_manifest,
             "scan_counts": {
                 "total": len(results),
                 "fresh": sum(result["state"] == "fresh" for result in results),
                 "masked": sum(result["state"] == "masked" for result in results),
-                "failed": sum(result["state"] not in {"fresh", "masked"} for result in results),
+                "blocked": sum(result["state"] == "blocked-policy" for result in results),
+                "failed": sum(
+                    result["state"] not in {"fresh", "masked", "blocked-policy"}
+                    for result in results
+                ),
             },
             "engine_versions": sorted(
                 {
@@ -1668,6 +2567,42 @@ def create_refresh_candidate(
                     if result.get("engine_version")
                 }
             ),
+            "freshness": {
+                "mode": "STATIC_HISTORICAL_ONLY",
+                "horizon_days": STALE_AFTER_DAYS,
+                "evaluated_at": fixed_now.isoformat(),
+                "earliest_stale_after": (
+                    earliest_stale_after.isoformat() if earliest_stale_after else None
+                ),
+                "publication_not_after": publication_not_after.isoformat(),
+                "state_counts": {
+                    "FRESH": sum(
+                        result.get("freshness_state") == str(FreshnessState.FRESH)
+                        for result in results
+                    ),
+                    "STALE": 0,
+                    "UNKNOWN": sum(
+                        result.get("state") not in {"fresh", "masked"} for result in results
+                    ),
+                    "NOT_APPLICABLE": 0,
+                },
+            },
+            "semantic_digests": {
+                "scan_results": _sha256(temporary / "scan_results.json"),
+                "static_snapshot": _sha256(temporary / "static_snapshot.json"),
+                "masking": reviewed.masked_sha256,
+            },
+            "source_tree_digest": (
+                qualification_manifest.get("source_tree_digest")
+                if isinstance(qualification_manifest, dict)
+                else None
+            ),
+            "tool_versions": {
+                "python": (
+                    f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+                ),
+                "mcp_trust_candidate_schema": CANDIDATE_SCHEMA,
+            },
             "artifacts": _artifact_inventory(temporary),
             "authority": {
                 "candidate_creation": True,
@@ -1683,9 +2618,16 @@ def create_refresh_candidate(
             manifest_digest + "\n",
         )
         _make_files_read_only(temporary)
+        _fsync_directory(receipts_dir)
+        _fsync_directory(masked_proofs_dir)
+        _fsync_directory(temporary)
         os.replace(temporary, final)
         published = True
         _make_read_only(final)
+        _fsync_directory(final / "receipts")
+        _fsync_directory(final / "masked-proofs")
+        _fsync_directory(final)
+        _fsync_directory(output_parent)
     finally:
         if not published:
             shutil.rmtree(temporary, ignore_errors=True)
@@ -1695,7 +2637,10 @@ def create_refresh_candidate(
         now=fixed_now,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
         _captured_reviewed_inputs=reviewed,
+        _source_binding_provider=_source_binding_provider,
+        _qualification_revalidator=_qualification_revalidator,
     )
     if not verified["structural_valid"]:
         raise RefreshCandidateError(
@@ -1712,9 +2657,13 @@ def verify_refresh_candidate(
     max_age_hours: int = DEFAULT_MAX_AGE_HOURS,
     expected_seed_path: Path | None = None,
     expected_masked_path: Path | None = None,
+    repo_root: Path | None = None,
     _captured_reviewed_inputs: _ReviewedInputs | None = None,
+    _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
+    _qualification_revalidator: Callable[..., None] | None = None,
     _include_candidate_snapshot: bool = False,
     _include_verified_masked_slugs: bool = False,
+    _include_artifact_manifest: bool = False,
 ) -> dict[str, object]:
     """Verify manifest, every artifact, freshness, masking, and partial state."""
     fixed_now = now or datetime.now(tz=UTC)
@@ -1761,10 +2710,15 @@ def verify_refresh_candidate(
         errors.append("manifest_unreadable")
     if not expected_manifest_digest or expected_manifest_digest != actual_manifest_digest:
         errors.append("manifest_digest_mismatch")
-    if not isinstance(manifest, dict) or manifest.get("schema") != CANDIDATE_SCHEMA:
+    manifest_schema = manifest.get("schema") if isinstance(manifest, dict) else None
+    legacy_schema = manifest_schema == CANDIDATE_SCHEMA_V1
+    if not isinstance(manifest, dict) or manifest_schema not in {
+        CANDIDATE_SCHEMA_V1,
+        CANDIDATE_SCHEMA,
+    }:
         errors.append("manifest_schema_invalid")
         manifest = {}
-    elif set(manifest) != _MANIFEST_KEYS:
+    elif set(manifest) != (_MANIFEST_KEYS_V1 if legacy_schema else _MANIFEST_KEYS):
         errors.append("manifest_fields_invalid")
 
     listed: set[str] = set()
@@ -1790,9 +2744,11 @@ def verify_refresh_candidate(
             continue
         listed.add(relative)
         content = captured.files.get(relative)
-        if content is None or len(content) != artifact.get("bytes") or _sha256_bytes(
-            content
-        ) != artifact.get("sha256"):
+        if (
+            content is None
+            or len(content) != artifact.get("bytes")
+            or _sha256_bytes(content) != artifact.get("sha256")
+        ):
             errors.append(f"artifact_mismatch:{relative}")
     actual = {
         relative
@@ -1859,11 +2815,19 @@ def verify_refresh_candidate(
         results = []
     elif results_payload.get("generated_at") != manifest.get("created_at"):
         errors.append("scan_results_timestamp_mismatch")
+    if manifest.get("schema") == CANDIDATE_SCHEMA:
+        _validate_v2_freshness_manifest(
+            manifest=manifest,
+            captured=captured,
+            results=results,
+            created_at=created_at,
+            expires_at=expires_at,
+            errors=errors,
+        )
     catalog_rows = catalog_payload.get("servers") if isinstance(catalog_payload, dict) else None
     if (
         not isinstance(catalog_payload, dict)
-        or set(catalog_payload)
-        != {"schema", "seed_sha256", "server_count", "servers"}
+        or set(catalog_payload) != {"schema", "seed_sha256", "server_count", "servers"}
         or catalog_payload.get("schema") != "RefreshCatalogIdentityV1"
         or not isinstance(catalog_rows, list)
         or len(catalog_rows) > _MAX_CATALOG_ROWS
@@ -1888,8 +2852,7 @@ def verify_refresh_candidate(
     result_slugs = {
         result.get("server_slug")
         for result in results
-        if isinstance(result, dict)
-        and _safe_artifact_component(result.get("server_slug"))
+        if isinstance(result, dict) and _safe_artifact_component(result.get("server_slug"))
     }
     if (
         len(catalog_slugs) != len(catalog_rows)
@@ -1936,6 +2899,10 @@ def verify_refresh_candidate(
         manifest_masking = {}
         declared_masked_slugs = []
     reviewed_inputs_bound = False
+    expected_policy_scannable: frozenset[str] | None = None
+    expected_policy_blocked: frozenset[str] | None = None
+    expected_catalog_counts: object = None
+    expected_catalog_inventory_digest: object = None
     if (expected_seed_path is None) != (expected_masked_path is None):
         errors.append("reviewed_inputs_incomplete")
     elif expected_seed_path is not None and expected_masked_path is not None:
@@ -1953,36 +2920,68 @@ def verify_refresh_candidate(
             )
             if not reviewed_inputs_bound:
                 errors.append("reviewed_inputs_mismatch")
+            try:
+                from mcp_trust.grade_refresh import (  # noqa: PLC0415
+                    GradeRefreshError,
+                    catalog_inventory,
+                    load_policy,
+                )
+
+                expected_policy_path = expected_seed_path.with_name("refresh_policy.json")
+                expected_policy = load_policy(
+                    expected_policy_path,
+                    expected_seed_path,
+                    expected_masked_path,
+                )
+                expected_catalog_inventory = catalog_inventory(
+                    seed_path=expected_seed_path,
+                    masked_path=expected_masked_path,
+                    policy_path=expected_policy_path,
+                )
+                expected_catalog_counts = expected_catalog_inventory["counts"]
+                expected_catalog_inventory_digest = "sha256:" + _sha256_bytes(
+                    _json_bytes(expected_catalog_inventory)
+                )
+                expected_policy_scannable = expected_policy.scannable
+                expected_policy_blocked = expected_policy.blocked
+            except (GradeRefreshError, OSError):
+                errors.append("reviewed_execution_policy_unavailable")
         except (OSError, RefreshCandidateError, TypeError, ValueError):
             errors.append("reviewed_inputs_unavailable")
     candidate_state = manifest.get("candidate_state")
-    if (
-        not isinstance(candidate_state, str)
-        or candidate_state not in _CANDIDATE_STATES
-    ):
+    if not isinstance(candidate_state, str) or candidate_state not in _CANDIDATE_STATES:
         errors.append("candidate_state_invalid")
     scan_mode = manifest.get("scan_mode")
+    execution_slugs = {
+        result.get("server_slug")
+        for result in results
+        if isinstance(result, dict) and result.get("state") != "blocked-policy"
+    }
+    execution_rows = [
+        row for row in catalog_rows if isinstance(row, dict) and row.get("slug") in execution_slugs
+    ]
     catalog_remote_count = sum(
         isinstance(row, dict)
         and isinstance(row.get("source"), dict)
         and row["source"].get("kind") == "remote"
         and row["source"].get("command") is None
-        for row in catalog_rows
+        for row in execution_rows
     )
     expected_real_scan_mode = _real_scan_mode(
-        local_count=len(catalog_rows) - catalog_remote_count,
-        total_count=len(catalog_rows),
+        local_count=len(execution_rows) - catalog_remote_count,
+        total_count=len(execution_rows),
     )
     sandbox_manifest = manifest.get("sandbox")
     sandbox_profiles = (
         sandbox_manifest.get("profiles") if isinstance(sandbox_manifest, dict) else None
     )
     sandbox_profile_rows = sandbox_profiles if isinstance(sandbox_profiles, list) else []
-    reviewed_profile_images = {
-        profile.get("image")
+    reviewed_profile_bindings = {
+        profile.get("image"): profile.get("image_digest")
         for profile in sandbox_profile_rows
         if isinstance(profile, dict)
         and isinstance(profile.get("image"), str)
+        and isinstance(profile.get("image_digest"), str)
         and profile.get("kind") == "docker"
         and profile.get("network") == "none"
         and profile.get("read_only_root") is True
@@ -2001,13 +3000,14 @@ def verify_refresh_candidate(
             isinstance(profile, dict) and set(profile) == _SANDBOX_PROFILE_KEYS
             for profile in sandbox_profile_rows
         )
-        and len(reviewed_profile_images) == len(sandbox_profile_rows)
+        and len(reviewed_profile_bindings) == len(sandbox_profile_rows)
     )
     if candidate_state == "fixture":
         sandbox_manifest_valid = bool(
             isinstance(sandbox_manifest, dict)
-            and set(sandbox_manifest) == {"mode", "profiles"}
+            and set(sandbox_manifest) == {"mode", "default_image", "profiles"}
             and sandbox_manifest.get("mode") == "deterministic-fixture"
+            and isinstance(sandbox_manifest.get("default_image"), str)
             and len(sandbox_profile_rows) == 1
             and profiles_valid
         )
@@ -2015,23 +3015,121 @@ def verify_refresh_candidate(
         sandbox_manifest_valid = bool(
             isinstance(sandbox_manifest, dict)
             and set(sandbox_manifest)
-            == {"docker_daemon", "profiles", "remote_transport_count"}
-            and sandbox_manifest.get("docker_daemon")
-            in ("available", "not_required")
+            == {"default_image", "docker_daemon", "profiles", "remote_transport_count"}
+            and isinstance(sandbox_manifest.get("default_image"), str)
+            and sandbox_manifest.get("docker_daemon") in ("available", "not_required")
             and type(sandbox_manifest.get("remote_transport_count")) is int
             and int(sandbox_manifest["remote_transport_count"]) >= 0
-            and sandbox_manifest.get("remote_transport_count")
-            == catalog_remote_count
+            and sandbox_manifest.get("remote_transport_count") == catalog_remote_count
             and sandbox_manifest.get("docker_daemon")
-            == (
-                "not_required"
-                if catalog_remote_count == len(catalog_rows)
-                else "available"
-            )
+            == ("not_required" if catalog_remote_count == len(execution_rows) else "available")
             and profiles_valid
+            and all(
+                isinstance(digest, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is not None
+                for digest in reviewed_profile_bindings.values()
+            )
         )
     if not sandbox_manifest_valid:
         errors.append("sandbox_manifest_invalid")
+    qualification_manifest = manifest.get("qualification")
+    if candidate_state == "fixture":
+        qualification_valid = qualification_manifest == {
+            "mode": "deterministic-fixture",
+            "receipt": None,
+        }
+    else:
+        qualification_valid = False
+        if (
+            isinstance(qualification_manifest, dict)
+            and set(qualification_manifest)
+            == {
+                "mode",
+                "receipt",
+                "receipt_sha256",
+                "preflight_receipt_digest",
+                "policy_digest",
+                "source_revision",
+                "source_tree_digest",
+            }
+            and qualification_manifest.get("mode") == "grade-refresh-preflight"
+            and qualification_manifest.get("receipt") == "qualification_receipt.json"
+            and isinstance(sandbox_manifest, dict)
+            and isinstance(manifest_catalog.get("seed_sha256"), str)
+            and isinstance(manifest_masking.get("sha256"), str)
+        ):
+            try:
+                from mcp_trust.grade_refresh import (  # noqa: PLC0415
+                    GradeRefreshError,
+                    revalidate_ready_preflight_qualifications,
+                    source_binding,
+                )
+
+                if repo_root is None:
+                    errors.append("qualification_current_source_unavailable")
+                    raise RefreshCandidateError(
+                        "current qualification source binding is unavailable"
+                    )
+                qualification_receipt = _captured_json(
+                    captured,
+                    "qualification_receipt.json",
+                )
+                receipt_catalog = (
+                    qualification_receipt.get("catalog")
+                    if isinstance(qualification_receipt, dict)
+                    else None
+                )
+                current_source = (_source_binding_provider or source_binding)(repo_root)
+                expected_image_references = sorted(reviewed_profile_bindings)
+                (_qualification_revalidator or revalidate_ready_preflight_qualifications)(
+                    qualification_receipt,
+                    repo_root=repo_root,
+                    expected_image_references=expected_image_references,
+                    expected_catalog_counts=expected_catalog_counts,
+                    expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+                    now=created_at or fixed_now,
+                )
+                if (_source_binding_provider or source_binding)(repo_root) != current_source:
+                    raise RefreshCandidateError(
+                        "current qualification source changed during verification"
+                    )
+                expected_qualification = _qualification_metadata(
+                    qualification_receipt,
+                    seed_sha256=manifest_catalog["seed_sha256"],
+                    masked_sha256=manifest_masking["sha256"],
+                    expected_catalog_counts=expected_catalog_counts,
+                    expected_catalog_inventory_digest=expected_catalog_inventory_digest,
+                    sandbox_evidence=sandbox_manifest,
+                    now=created_at or fixed_now,
+                    current_source_binding=current_source,
+                )
+                qualification_valid = qualification_manifest == expected_qualification
+                receipt_boundary = (
+                    receipt_catalog.get("execution_boundary")
+                    if isinstance(receipt_catalog, dict)
+                    else None
+                )
+                if (
+                    expected_policy_scannable is not None
+                    and expected_policy_blocked is not None
+                    and receipt_boundary
+                    != {
+                        "schema": "McpTrustRefreshExecutionBoundaryV1",
+                        "scannable": sorted(expected_policy_scannable),
+                        "blocked": sorted(expected_policy_blocked),
+                    }
+                ):
+                    qualification_valid = False
+                    errors.append("qualification_execution_boundary_mismatch")
+            except (
+                GradeRefreshError,
+                OSError,
+                RefreshCandidateError,
+                TypeError,
+                ValueError,
+            ):
+                qualification_valid = False
+    if not qualification_valid:
+        errors.append("qualification_receipt_invalid")
     successful_results = [
         result
         for result in results
@@ -2049,10 +3147,7 @@ def verify_refresh_candidate(
             scan_age_seconds = (fixed_now.astimezone(UTC) - scanned_at).total_seconds()
             if scan_age_seconds < 0:
                 errors.append(f"scan_timestamp_in_future:{slug_label}")
-            elif (
-                scan_age_seconds / 3600 >= max_age_hours
-                and not candidate_time_stale
-            ):
+            elif scan_age_seconds / 3600 >= max_age_hours and not candidate_time_stale:
                 errors.append(f"scan_timestamp_stale:{slug_label}")
             recorded_age = result.get("scan_age_days")
             if (
@@ -2072,6 +3167,8 @@ def verify_refresh_candidate(
         "scan_results.json",
         "static_snapshot.json",
     }
+    if candidate_state != "fixture":
+        expected_artifacts.add("qualification_receipt.json")
     expected_artifacts.update(
         f"receipts/{receipt_ref}"
         for result in results
@@ -2095,6 +3192,37 @@ def verify_refresh_candidate(
     except RefreshCandidateError:
         errors.append("candidate_database_unreadable")
     for result in results:
+        if isinstance(result, dict) and result.get("state") == "blocked-policy":
+            if (
+                set(result) != _BLOCKED_RESULT_KEYS
+                or result.get("fresh_grade") is not None
+                or result.get("execution_disposition") != "do-not-execute"
+                or result.get("reason") != "sandbox_image_qualification_unknown"
+                or (
+                    candidate_state != "fixture"
+                    and expected_policy_blocked is not None
+                    and result.get("server_slug") not in expected_policy_blocked
+                )
+            ):
+                errors.append(
+                    f"blocked_scan_schema_invalid:{_safe_error_label(result.get('server_slug'))}"
+                )
+            continue
+        if isinstance(result, dict) and result.get("state") == "scan-timeout":
+            if (
+                set(result) != _TIMEOUT_RESULT_KEYS
+                or result.get("fresh_grade") is not None
+                or result.get("reason") != "configured_scan_timeout_expired"
+                or result.get("configured_timeout_seconds") != SCAN_TIMEOUT_SECONDS
+                or result.get("timeout_outcome") != "timeout"
+                or not isinstance(result.get("hard_termination_evidence"), str)
+                or result.get("hard_termination_evidence")
+                not in {"UNKNOWN", "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"}
+            ):
+                errors.append(
+                    f"timeout_scan_schema_invalid:{_safe_error_label(result.get('server_slug'))}"
+                )
+            continue
         if not isinstance(result, dict) or result.get("state") not in (
             "fresh",
             "masked",
@@ -2103,10 +3231,10 @@ def verify_refresh_candidate(
         if not _safe_artifact_component(result.get("server_slug")):
             errors.append("successful_scan_schema_invalid:invalid")
             continue
-        if set(result) != _SUCCESS_RESULT_KEYS:
+        expected_result_keys = _SUCCESS_RESULT_KEYS_V1 if legacy_schema else _SUCCESS_RESULT_KEYS
+        if set(result) != expected_result_keys:
             errors.append(
-                f"successful_scan_schema_invalid:"
-                f"{_safe_error_label(result.get('server_slug'))}"
+                f"successful_scan_schema_invalid:{_safe_error_label(result.get('server_slug'))}"
             )
         recorded_age = result.get("scan_age_days")
         if (
@@ -2114,9 +3242,7 @@ def verify_refresh_candidate(
             or not math.isfinite(float(recorded_age))
             or float(recorded_age) < 0
         ):
-            errors.append(
-                f"scan_age_invalid:{_safe_error_label(result.get('server_slug'))}"
-            )
+            errors.append(f"scan_age_invalid:{_safe_error_label(result.get('server_slug'))}")
         if result.get("state") == "masked":
             if (
                 result.get("receipt") is not None
@@ -2151,6 +3277,8 @@ def verify_refresh_candidate(
                 "scanner",
                 "sandbox",
                 "evidence_present",
+                "execution_binding",
+                "proof_digest",
             }
             scanner = proof.get("scanner") if isinstance(proof, dict) else None
             sandbox = proof.get("sandbox") if isinstance(proof, dict) else None
@@ -2158,7 +3286,8 @@ def verify_refresh_candidate(
             proof_valid = bool(
                 isinstance(proof, dict)
                 and set(proof) == proof_keys
-                and proof.get("format_version") == 1
+                and proof.get("format_version") == 2
+                and _masked_proof_digest_valid(proof)
                 and proof.get("proof_type") == "masked_scan_success"
                 and proof.get("outcome") == "scan_succeeded"
                 and proof.get("server_slug") == result.get("server_slug")
@@ -2182,6 +3311,60 @@ def verify_refresh_candidate(
             if not proof_valid:
                 errors.append(f"masked_scan_proof_invalid:{proof_ref}")
                 continue
+            reviewed_server_for_binding: Server | None = None
+            catalog_row_for_binding = catalog_by_slug.get(result.get("server_slug"))
+            if isinstance(catalog_row_for_binding, dict) and isinstance(proof_server, dict):
+                try:
+                    reviewed_server_for_binding = _reviewed_server_from_seed(
+                        catalog_row_for_binding,
+                        added_at=datetime.fromisoformat(
+                            str(proof_server.get("added_at")).replace("Z", "+00:00")
+                        ),
+                    )
+                except (RefreshCandidateError, TypeError, ValueError):
+                    reviewed_server_for_binding = None
+            expected_masked_binding = None
+            if (
+                reviewed_server_for_binding is not None
+                and isinstance(qualification_manifest, dict)
+                and isinstance(sandbox_manifest, dict)
+                and isinstance(sandbox_manifest.get("default_image"), str)
+            ):
+                requested_image_for_binding = (
+                    reviewed_server_for_binding.source.sandbox_image
+                    or sandbox_manifest["default_image"]
+                )
+                proof_binding = proof.get("execution_binding")
+                proof_runtime = (
+                    proof_binding.get("sandbox", {}).get("runtime_readback")
+                    if isinstance(proof_binding, dict)
+                    and isinstance(proof_binding.get("sandbox"), dict)
+                    else None
+                )
+                try:
+                    expected_masked_binding = _candidate_execution_binding(
+                        reviewed_server_for_binding,
+                        qualification=qualification_manifest,
+                        sandbox_evidence=sandbox_manifest,
+                        default_image=sandbox_manifest["default_image"],
+                        expected_image=(
+                            None
+                            if candidate_state == "fixture"
+                            else reviewed_profile_bindings.get(requested_image_for_binding)
+                        ),
+                        fixture_mode=candidate_state == "fixture",
+                        cleanup_evidence=(
+                            "NOT_APPLICABLE"
+                            if candidate_state == "fixture"
+                            else "CONTAINER_ABSENCE_VERIFIED"
+                        ),
+                        runtime_readback=proof_runtime,
+                    )
+                except RefreshCandidateError:
+                    expected_masked_binding = None
+            if proof.get("execution_binding") != expected_masked_binding:
+                errors.append(f"masked_scan_execution_binding_invalid:{proof_ref}")
+                continue
             if candidate_state == "complete":
                 reviewed_server: Server | None = None
                 catalog_row = catalog_by_slug.get(result.get("server_slug"))
@@ -2200,27 +3383,27 @@ def verify_refresh_candidate(
                     and proof_server == reviewed_server.model_dump(mode="json")
                 )
                 remote_without_command = bool(
-                    reviewed_server is not None
-                    and not _requires_local_sandbox(reviewed_server)
+                    reviewed_server is not None and not _requires_local_sandbox(reviewed_server)
                 )
                 proof_image = sandbox.get("MCP_TRUST_SANDBOX_IMAGE")
                 reviewed_image = (
-                    reviewed_server.source.sandbox_image
-                    if reviewed_server is not None
+                    reviewed_server.source.sandbox_image if reviewed_server is not None else None
+                )
+                requested_image = reviewed_image or (
+                    sandbox_manifest.get("default_image")
+                    if isinstance(sandbox_manifest, dict)
                     else None
                 )
+                expected_image_digest = reviewed_profile_bindings.get(requested_image)
                 local_image_valid = bool(
-                    isinstance(proof_image, str)
-                    and proof_image in reviewed_profile_images
-                    and (reviewed_image is None or proof_image == reviewed_image)
+                    isinstance(proof_image, str) and proof_image == expected_image_digest
                 )
                 sandbox_valid = bool(
                     catalog_bound
                     and (
                         (
                             sandbox.get("mode") == "not_applicable"
-                            and sandbox.get("reason")
-                            == "remote_endpoint_no_local_process"
+                            and sandbox.get("reason") == "remote_endpoint_no_local_process"
                         )
                         if remote_without_command
                         else (
@@ -2232,8 +3415,8 @@ def verify_refresh_candidate(
                 )
                 if result.get("engine_name") != "mcpaudit" or not sandbox_valid:
                     errors.append(f"masked_scan_provenance_invalid:{proof_ref}")
-                elif not remote_without_command and isinstance(proof_image, str):
-                    verified_local_profile_images.add(proof_image)
+                elif not remote_without_command and isinstance(requested_image, str):
+                    verified_local_profile_images.add(requested_image)
             continue
         if (
             result.get("grade_visibility") != "reviewable"
@@ -2242,8 +3425,7 @@ def verify_refresh_candidate(
             or result.get("scan_proof_visibility") != "not_applicable"
         ):
             errors.append(
-                f"fresh_scan_semantics_invalid:"
-                f"{_safe_error_label(result.get('server_slug'))}"
+                f"fresh_scan_semantics_invalid:{_safe_error_label(result.get('server_slug'))}"
             )
         receipt_ref = result.get("receipt")
         if not _safe_artifact_component(receipt_ref):
@@ -2261,15 +3443,75 @@ def verify_refresh_candidate(
         ):
             errors.append(f"successful_scan_receipt_mismatch:{receipt_ref}")
             continue
+        receipt_schema_valid = (
+            set(receipt) == _RECEIPT_KEYS_V1 and receipt.get("format_version") == 1
+            if legacy_schema
+            else set(receipt) == _RECEIPT_KEYS
+            and receipt.get("format_version") == 2
+            and _receipt_digest_valid(receipt)
+        )
         if (
-            set(receipt) != _RECEIPT_KEYS
-            or receipt.get("format_version") != 1
+            not receipt_schema_valid
             or receipt.get("approval") != {"approval_ref": None}
             or not isinstance(receipt.get("caveats"), list)
             or not all(isinstance(item, str) for item in receipt["caveats"])
             or not _receipt_metadata_shape_valid(receipt)
         ):
             errors.append(f"successful_scan_receipt_schema_invalid:{receipt_ref}")
+        if not legacy_schema:
+            receipt_server = receipt.get("server")
+            catalog_row = catalog_by_slug.get(result.get("server_slug"))
+            reviewed_server_for_binding: Server | None = None
+            if isinstance(catalog_row, dict) and isinstance(receipt_server, dict):
+                try:
+                    reviewed_server_for_binding = _reviewed_server_from_seed(
+                        catalog_row,
+                        added_at=datetime.fromisoformat(
+                            str(receipt_server.get("added_at")).replace("Z", "+00:00")
+                        ),
+                    )
+                except (RefreshCandidateError, TypeError, ValueError):
+                    reviewed_server_for_binding = None
+            expected_execution_binding = None
+            if (
+                reviewed_server_for_binding is not None
+                and isinstance(qualification_manifest, dict)
+                and isinstance(sandbox_manifest, dict)
+                and isinstance(sandbox_manifest.get("default_image"), str)
+            ):
+                requested_image_for_binding = (
+                    reviewed_server_for_binding.source.sandbox_image
+                    or sandbox_manifest["default_image"]
+                )
+                try:
+                    expected_execution_binding = _candidate_execution_binding(
+                        reviewed_server_for_binding,
+                        qualification=qualification_manifest,
+                        sandbox_evidence=sandbox_manifest,
+                        default_image=sandbox_manifest["default_image"],
+                        expected_image=(
+                            None
+                            if candidate_state == "fixture"
+                            else reviewed_profile_bindings.get(requested_image_for_binding)
+                        ),
+                        fixture_mode=candidate_state == "fixture",
+                        cleanup_evidence=(
+                            "NOT_APPLICABLE"
+                            if candidate_state == "fixture"
+                            else "CONTAINER_ABSENCE_VERIFIED"
+                        ),
+                        runtime_readback=(
+                            receipt.get("execution_binding", {})
+                            .get("sandbox", {})
+                            .get("runtime_readback")
+                            if isinstance(receipt.get("execution_binding"), dict)
+                            else None
+                        ),
+                    )
+                except RefreshCandidateError:
+                    expected_execution_binding = None
+            if receipt.get("execution_binding") != expected_execution_binding:
+                errors.append(f"successful_scan_execution_binding_invalid:{receipt_ref}")
         if candidate_db is None or not _fresh_result_matches_persisted_scan(
             candidate_db,
             result=result,
@@ -2316,10 +3558,14 @@ def verify_refresh_candidate(
             reviewed_image = (
                 reviewed_server.source.sandbox_image if reviewed_server is not None else None
             )
+            requested_image = reviewed_image or (
+                sandbox_manifest.get("default_image")
+                if isinstance(sandbox_manifest, dict)
+                else None
+            )
+            expected_image_digest = reviewed_profile_bindings.get(requested_image)
             local_image_valid = bool(
-                isinstance(receipt_image, str)
-                and receipt_image in reviewed_profile_images
-                and (reviewed_image is None or receipt_image == reviewed_image)
+                isinstance(receipt_image, str) and receipt_image == expected_image_digest
             )
             sandbox_valid = bool(
                 catalog_bound
@@ -2344,8 +3590,25 @@ def verify_refresh_candidate(
                 or not sandbox_valid
             ):
                 errors.append(f"publishable_scan_provenance_invalid:{receipt_ref}")
-            elif not remote_without_command and isinstance(receipt_image, str):
-                verified_local_profile_images.add(receipt_image)
+            elif not remote_without_command and isinstance(requested_image, str):
+                verified_local_profile_images.add(requested_image)
+    if (
+        candidate_state != "fixture"
+        and expected_policy_blocked is not None
+        and expected_policy_scannable is not None
+    ):
+        declared_blocked = {
+            result.get("server_slug")
+            for result in results
+            if isinstance(result, dict) and result.get("state") == "blocked-policy"
+        }
+        nonblocked = {
+            result.get("server_slug")
+            for result in results
+            if isinstance(result, dict) and result.get("state") != "blocked-policy"
+        }
+        if declared_blocked != expected_policy_blocked or nonblocked != expected_policy_scannable:
+            errors.append("execution_policy_result_boundary_mismatch")
     excluded = {
         result.get("server_slug")
         for result in results
@@ -2404,6 +3667,10 @@ def verify_refresh_candidate(
                 },
                 now=created_at,
             )
+            if legacy_schema:
+                for expected_server in expected_snapshot.get("servers", []):
+                    if isinstance(expected_server, dict):
+                        expected_server.pop("stale_after", None)
             if snapshot_payload != expected_snapshot:
                 errors.append("static_snapshot_scan_binding_mismatch")
         except (
@@ -2424,7 +3691,12 @@ def verify_refresh_candidate(
     scan_counts = manifest.get("scan_counts")
     if (
         not isinstance(scan_counts, dict)
-        or set(scan_counts) != {"total", "fresh", "masked", "failed"}
+        or set(scan_counts)
+        != (
+            {"total", "fresh", "masked", "failed"}
+            if legacy_schema
+            else {"total", "fresh", "masked", "blocked", "failed"}
+        )
         or not all(type(value) is int and value >= 0 for value in scan_counts.values())
     ):
         errors.append("scan_counts_invalid")
@@ -2437,7 +3709,24 @@ def verify_refresh_candidate(
             "masked": sum(
                 isinstance(result, dict) and result.get("state") == "masked" for result in results
             ),
-            "failed": len(results) - len(successful_results),
+            **(
+                {}
+                if legacy_schema
+                else {
+                    "blocked": sum(
+                        isinstance(result, dict) and result.get("state") == "blocked-policy"
+                        for result in results
+                    )
+                }
+            ),
+            "failed": sum(
+                isinstance(result, dict)
+                and result.get("state")
+                not in (
+                    {"fresh", "masked"} if legacy_schema else {"fresh", "masked", "blocked-policy"}
+                )
+                for result in results
+            ),
         }
         if scan_counts != expected_counts:
             errors.append("scan_counts_mismatch")
@@ -2447,16 +3736,21 @@ def verify_refresh_candidate(
         {
             str(result["engine_version"])
             for result in results
-            if isinstance(result, dict)
-            and isinstance(result.get("engine_version"), str)
+            if isinstance(result, dict) and isinstance(result.get("engine_version"), str)
         }
     )
     if manifest.get("engine_versions") != expected_engine_versions:
         errors.append("engine_versions_mismatch")
     if candidate_state == "complete":
+        controlled_results = [
+            result
+            for result in results
+            if isinstance(result, dict)
+            and result.get("state") in {"fresh", "masked", "blocked-policy"}
+        ]
         if (
             scan_mode != expected_real_scan_mode
-            or len(successful_results) != len(results)
+            or len(controlled_results) != len(results)
             or manifest.get("publication_allowed") is not True
             or len(snapshot_servers)
             != sum(
@@ -2464,15 +3758,13 @@ def verify_refresh_candidate(
             )
         ):
             errors.append("complete_candidate_semantics_invalid")
-        if verified_local_profile_images != reviewed_profile_images:
+        if verified_local_profile_images != set(reviewed_profile_bindings):
             errors.append("sandbox_profile_coverage_mismatch")
     else:
         if manifest.get("publication_allowed") is not False:
             errors.append("noncomplete_candidate_claims_publication")
         expected_noncomplete_mode = (
-            "deterministic-fixture"
-            if candidate_state == "fixture"
-            else expected_real_scan_mode
+            "deterministic-fixture" if candidate_state == "fixture" else expected_real_scan_mode
         )
         if scan_mode != expected_noncomplete_mode:
             errors.append("candidate_scan_mode_invalid")
@@ -2536,6 +3828,7 @@ def verify_refresh_candidate(
     publication_ready = bool(
         structural_valid
         and not stale
+        and manifest.get("schema") == CANDIDATE_SCHEMA
         and candidate_state == "complete"
         and manifest.get("publication_allowed") is True
         and reviewed_inputs_bound
@@ -2545,8 +3838,7 @@ def verify_refresh_candidate(
         "state": "invalid" if errors else "stale" if stale else str(candidate_state),
         "candidate_state": (
             candidate_state
-            if isinstance(candidate_state, str)
-            and candidate_state in _CANDIDATE_STATES
+            if isinstance(candidate_state, str) and candidate_state in _CANDIDATE_STATES
             else None
         ),
         "publication_ready": publication_ready,
@@ -2554,12 +3846,16 @@ def verify_refresh_candidate(
         "age_hours": round(age_hours, 6) if age_hours is not None else None,
         "scan_counts": validated_scan_counts,
         "reviewed_inputs_bound": reviewed_inputs_bound,
+        "schema": manifest.get("schema"),
+        "publication_eligible_schema": manifest.get("schema") == CANDIDATE_SCHEMA,
         "errors": sorted(set(errors)),
     }
     if _include_verified_masked_slugs:
         verification["_verified_masked_scan_slugs"] = masked_slugs
     if _include_candidate_snapshot:
         verification["_candidate_snapshot"] = captured
+    if _include_artifact_manifest:
+        verification["_artifact_manifest"] = artifacts
     return verification
 
 
@@ -2568,7 +3864,10 @@ def verified_masked_scan_slugs(
     *,
     seed_path: Path,
     masked_path: Path,
+    repo_root: Path,
     now: datetime | None = None,
+    _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
+    _qualification_revalidator: Callable[..., None] | None = None,
 ) -> frozenset[str]:
     """Return proof-backed masked slugs from one publishable candidate.
 
@@ -2582,6 +3881,9 @@ def verified_masked_scan_slugs(
         now=now,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
+        _source_binding_provider=_source_binding_provider,
+        _qualification_revalidator=_qualification_revalidator,
         _include_verified_masked_slugs=True,
     )
     if not verification["publication_ready"]:
@@ -2615,8 +3917,11 @@ def approve_refresh_candidate(
     confirmation_digest: str,
     seed_path: Path,
     masked_path: Path,
+    repo_root: Path,
     now: datetime | None = None,
     ttl_hours: int = 4,
+    _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
+    _qualification_revalidator: Callable[..., None] | None = None,
 ) -> Path:
     """Create a short-lived approval bound to one verified candidate and target."""
     fixed_now = now or datetime.now(tz=UTC)
@@ -2628,7 +3933,10 @@ def approve_refresh_candidate(
         now=fixed_now,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
         _captured_reviewed_inputs=reviewed,
+        _source_binding_provider=_source_binding_provider,
+        _qualification_revalidator=_qualification_revalidator,
     )
     if not verification["publication_ready"]:
         raise RefreshCandidateError("candidate is not complete, current, and publishable")
@@ -2666,7 +3974,10 @@ def publish_refresh_candidate(
     destination_parent: Path,
     seed_path: Path,
     masked_path: Path,
+    repo_root: Path,
     now: datetime | None = None,
+    _source_binding_provider: Callable[[Path], dict[str, Any]] | None = None,
+    _qualification_revalidator: Callable[..., None] | None = None,
 ) -> Path:
     """Atomically stage an approved candidate locally; never deploy it."""
     if approval_path is None:
@@ -2678,7 +3989,10 @@ def publish_refresh_candidate(
         now=fixed_now,
         expected_seed_path=seed_path,
         expected_masked_path=masked_path,
+        repo_root=repo_root,
         _captured_reviewed_inputs=reviewed,
+        _source_binding_provider=_source_binding_provider,
+        _qualification_revalidator=_qualification_revalidator,
         _include_candidate_snapshot=True,
     )
     if not verification["publication_ready"]:
@@ -2723,9 +4037,10 @@ def publish_refresh_candidate(
         raise RefreshCandidateError("publication approval is bound to another candidate")
     if approval.get("publication_target") != str(destination_parent.resolve()):
         raise RefreshCandidateError("publication approval is bound to another target")
-    if approval.get("reviewed_seed_sha256") != reviewed.seed_sha256 or approval.get(
-        "reviewed_masked_sha256"
-    ) != reviewed.masked_sha256:
+    if (
+        approval.get("reviewed_seed_sha256") != reviewed.seed_sha256
+        or approval.get("reviewed_masked_sha256") != reviewed.masked_sha256
+    ):
         raise RefreshCandidateError("publication approval is bound to other reviewed inputs")
     destination_parent.mkdir(parents=True, exist_ok=True)
     final = destination_parent / candidate.name
@@ -2743,7 +4058,10 @@ def publish_refresh_candidate(
             now=fixed_now,
             expected_seed_path=seed_path,
             expected_masked_path=masked_path,
+            repo_root=repo_root,
             _captured_reviewed_inputs=reviewed,
+            _source_binding_provider=_source_binding_provider,
+            _qualification_revalidator=_qualification_revalidator,
         )
         if (
             not copied_verification["publication_ready"]

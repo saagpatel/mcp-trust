@@ -3,17 +3,162 @@ runs; actual container execution is integration-gated (needs a Docker daemon).""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from mcp_trust.core.models import ServerSource, SourceKind
 from mcp_trust.engine.base import ScanError
 from mcp_trust.engine.mcpaudit import MCPAuditEngine
 from mcp_trust.engine.sandbox import (
+    SANDBOX_RUNTIME_READBACK_CLAIM_CEILING,
     DockerSandbox,
+    DockerSandboxCleanupError,
+    DockerSandboxRuntimeReadbackError,
     NoSandbox,
     Sandbox,
+    sandbox_server_process_digest,
+    sandbox_server_process_digests,
     select_sandbox,
 )
+
+_IMAGE_ID = "sha256:" + "1" * 64
+_CONTAINER_ID = "c" * 64
+
+
+def _owned_container_inspect(
+    sandbox: DockerSandbox,
+    container_id: str,
+    **overrides: object,
+) -> str:
+    container: dict[str, object] = {
+        "Id": container_id,
+        "Name": f"/{sandbox.container_name}",
+        "Config": {"Labels": {"com.mcp-trust.scan-owner": sandbox._owner_token}},
+    }
+    container.update(overrides)
+    return json.dumps([container])
+
+
+def _runtime_runner(
+    sandbox: DockerSandbox,
+    *,
+    container_override: dict[str, object] | None = None,
+    container_env_override: list[str] | None = None,
+    process_override: dict[str, object] | None = None,
+):  # noqa: ANN202
+    present = False
+    server_process_digest = ""
+    image_env = [
+        "HOME=/scan",
+        "NODE_ENV=production",
+        "PATH=/opt/venv/bin:/opt/npm/node_modules/.bin:/usr/local/bin:/usr/bin:/bin",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "SOURCE_DATE_EPOCH=1710000000",
+    ]
+    configured_env = {
+        key: value for key, value in (item.split("=", 1) for item in image_env)
+    }
+    configured_env.update({"HOME": sandbox.workdir, "TMPDIR": sandbox.workdir, **sandbox.env})
+    container = {
+        "Id": _CONTAINER_ID,
+        "Name": f"/{sandbox.container_name}",
+        "Image": _IMAGE_ID,
+        "State": {"Running": True},
+        "Config": {
+            "Env": [
+                *(
+                    container_env_override
+                    if container_env_override is not None
+                    else [f"{key}={value}" for key, value in configured_env.items()]
+                ),
+            ],
+            "User": sandbox.user,
+            "WorkingDir": sandbox.workdir,
+            "Labels": {"com.mcp-trust.scan-owner": sandbox._owner_token},
+        },
+        "HostConfig": {
+            "NetworkMode": "none",
+            "ReadonlyRootfs": True,
+            "CapDrop": ["ALL"],
+            "SecurityOpt": ["no-new-privileges"],
+            "Memory": 512 * 1024 * 1024,
+            "MemorySwap": 512 * 1024 * 1024,
+            "NanoCpus": 1_000_000_000,
+            "PidsLimit": 256,
+            "Privileged": False,
+            "Binds": None,
+            "Tmpfs": {sandbox.workdir: "rw,size=67108864,mode=1777"},
+        },
+        "Mounts": [],
+    }
+    if container_override:
+        container.update(container_override)
+    process = {
+        "uid": 1000,
+        "gid": 1000,
+        "environment_names": sorted(
+            {*configured_env, "HOSTNAME"}
+        ),
+        "network_interfaces": ["lo"],
+        "cap_eff": "0000000000000000",
+        "no_new_privs": "1",
+        "root_mount_options": ["ro"],
+        "workdir_mount_options": ["rw"],
+        "workdir_filesystem": "tmpfs",
+        "root_write_denied": True,
+        "workdir_write_verified": True,
+        "memory_max": str(512 * 1024 * 1024),
+        "pids_max": "256",
+        "cpu_quota": "100000",
+        "cpu_period": "100000",
+        "server_process_cmdline_digest": "pending",
+        "server_process_state": "S (sleeping)",
+        "same_network_namespace": True,
+        "same_mount_namespace": True,
+        "same_cgroup": True,
+    }
+    if process_override:
+        process.update(process_override)
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal present, server_process_digest
+        if "create" in command:
+            present = True
+            image_index = command.index(sandbox.image)
+            server_process_digest = sandbox_server_process_digest(
+                command[image_index + 1], command[image_index + 2 :]
+            )
+            if not process_override or "server_process_cmdline_digest" not in process_override:
+                process["server_process_cmdline_digest"] = server_process_digest
+            return subprocess.CompletedProcess(command, 0, _CONTAINER_ID + "\n", "")
+        if "inspect" in command and "container" in command:
+            return subprocess.CompletedProcess(command, 0, json.dumps([container]), "")
+        if "inspect" in command and "image" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps([{"Id": _IMAGE_ID, "Config": {"Env": image_env}}]),
+                "",
+            )
+        if "exec" in command:
+            return subprocess.CompletedProcess(command, 0, json.dumps(process), "")
+        if "ls" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _CONTAINER_ID + "\n" if present else "", ""
+            )
+        if "rm" in command:
+            present = False
+            return subprocess.CompletedProcess(command, 0, _CONTAINER_ID + "\n", "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    return runner
 
 
 def test_no_sandbox_is_passthrough() -> None:
@@ -32,7 +177,8 @@ def test_docker_wrap_runs_original_command_inside_container() -> None:
 
 
 def test_docker_wrap_applies_isolation_flags() -> None:
-    cmd, args = DockerSandbox().wrap("uvx", ["acme-mcp"])
+    sandbox = DockerSandbox()
+    cmd, args = sandbox.wrap("uvx", ["acme-mcp"])
     assert cmd == "docker"
     joined = " ".join(args)
     # No egress, no privileges, no caps, read-only fs, resource ceilings.
@@ -44,8 +190,644 @@ def test_docker_wrap_applies_isolation_flags() -> None:
     assert "--memory" in args
     assert "/scan:rw,size=64m,mode=1777" in args
     assert "-i" in args  # stdio transport stays open
+    assert args[args.index("--name") + 1] == sandbox.container_name
+    assert "com.mcp-trust.scan-owner=" in args[args.index("--label") + 1]
     # original command lands after the image
     assert args[-2:] == ["uvx", "acme-mcp"]
+
+
+def test_docker_scan_identity_is_unique() -> None:
+    assert DockerSandbox().container_name != DockerSandbox().container_name
+
+
+def test_docker_runtime_readback_is_live_bound_and_privacy_minimized() -> None:
+    secret = "must-not-appear-in-receipt-56e65a"
+    sandbox = DockerSandbox(env={"API_TOKEN": secret})
+    runner = _runtime_runner(sandbox)
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    readback = sandbox.capture_runtime_readback(runner=runner)
+
+    assert readback["state"] == "VERIFIED"
+    assert readback["image_id"] == _IMAGE_ID
+    assert readback["controls"] == {key: True for key in readback["controls"]}
+    assert readback["observed"]["injected_dummy_env_names"] == ["API_TOKEN"]
+    assert readback["observed"]["runtime_managed_environment_names"] == ["HOSTNAME"]
+    assert "HOSTNAME" in readback["observed"]["environment_names"]
+    assert readback["observed"]["secret_values_emitted_in_readback"] is False
+    assert readback["claim_ceiling"] == SANDBOX_RUNTIME_READBACK_CLAIM_CEILING
+    assert secret not in json.dumps(readback)
+
+
+def test_docker_runtime_attestor_uses_same_uid_readonly_workdir_and_isolated_python() -> None:
+    sandbox = DockerSandbox()
+    base_runner = _runtime_runner(sandbox)
+    commands: list[list[str]] = []
+
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return base_runner(command, **kwargs)
+
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+    sandbox.capture_runtime_readback(runner=runner)
+
+    attestor = next(command for command in commands if "exec" in command)
+    assert attestor[:3] == ["docker", "container", "exec"]
+    assert attestor[3:9] == [
+        "--user",
+        "1000:1000",
+        "--workdir",
+        "/",
+        _CONTAINER_ID,
+        "/opt/venv/bin/python",
+    ]
+    assert attestor[9:11] == ["-I", "-c"]
+
+
+def test_python_isolated_mode_ignores_target_controlled_imports(tmp_path: Path) -> None:
+    (tmp_path / "json.py").write_text("raise RuntimeError('target module imported')\n")
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", "import json; print(json.dumps({'verified': True}))"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == '{"verified": true}'
+
+
+def test_docker_runtime_attestor_does_not_resolve_through_container_path() -> None:
+    assert DockerSandbox.attestor_executable == "/opt/venv/bin/python"
+    assert DockerSandbox.attestor_command == "python"
+
+
+def test_docker_runtime_attestor_requires_configured_target_user() -> None:
+    sandbox = DockerSandbox(user=None)
+    runner = _runtime_runner(sandbox)
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="configured target user"):
+        sandbox.capture_runtime_readback(runner=runner)
+
+
+def test_python_console_script_pid1_identity_is_exactly_authorized() -> None:
+    sandbox = DockerSandbox()
+    console_script_digest = sandbox_server_process_digest(
+        "/opt/venv/bin/python", ["/opt/venv/bin/mcp-server-time"]
+    )
+    runner = _runtime_runner(
+        sandbox,
+        process_override={"server_process_cmdline_digest": console_script_digest},
+    )
+    sandbox.prepare_owned_container(
+        "mcp-server-time", [], allow_python_console_script=True, runner=runner
+    )
+
+    readback = sandbox.capture_runtime_readback(runner=runner)
+
+    assert readback["controls"]["server_process_identity"] is True
+    assert readback["observed"]["server_process_cmdline_digest"] == console_script_digest
+    assert console_script_digest in sandbox_server_process_digests(
+        "mcp-server-time", [], allow_python_console_script=True
+    )
+    assert console_script_digest not in sandbox_server_process_digests(
+        "mcp-server-time", [], allow_python_console_script=False
+    )
+
+
+def test_reviewed_process_title_rewrite_is_exactly_authorized() -> None:
+    command = "/usr/local/bin/node"
+    args = ["/opt/npm/node_modules/.bin/chrome-devtools-mcp", "--headless"]
+    encoded = b"\0".join(item.encode() for item in (command, *args)) + b"\0"
+    title = b"chrome-devtools-mcp"
+    expected = "sha256:" + hashlib.sha256(
+        title + b"\0" * (len(encoded) - len(title))
+    ).hexdigest()
+
+    assert expected in sandbox_server_process_digests(
+        command, args, allowed_process_title="chrome-devtools-mcp"
+    )
+    assert expected not in sandbox_server_process_digests(command, args)
+
+
+@pytest.mark.parametrize("title", ["nested/title", "", "x" * 512])
+def test_process_title_binding_rejects_unsafe_values(title: str) -> None:
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="title is invalid"):
+        sandbox_server_process_digests("node", ["server.js"], allowed_process_title=title)
+
+
+@pytest.mark.parametrize(
+    "observed_argv",
+    [
+        ["/opt/venv/bin/python", "/opt/venv/bin/unrelated-server"],
+        ["/usr/local/bin/python", "/opt/venv/bin/mcp-server-time"],
+        ["/bin/sh", "/opt/venv/bin/mcp-server-time"],
+        ["/opt/venv/bin/python", "/opt/venv/bin/mcp-server-time", "--drift"],
+        ["/opt/venv/bin/python", "/scan/mcp-server-time"],
+    ],
+)
+def test_python_console_script_identity_rejects_false_green_aliases(
+    observed_argv: list[str],
+) -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        process_override={
+            "server_process_cmdline_digest": sandbox_server_process_digest(
+                observed_argv[0], observed_argv[1:]
+            )
+        },
+    )
+    sandbox.prepare_owned_container(
+        "mcp-server-time", [], allow_python_console_script=True, runner=runner
+    )
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("server_process_identity",)
+
+
+@pytest.mark.parametrize(
+    "process_environment_names",
+    [
+        ["HOME", "NODE_ENV", "PATH", "PYTHONDONTWRITEBYTECODE", "SOURCE_DATE_EPOCH", "TMPDIR"],
+        [
+            "HOME",
+            "HOSTNAME",
+            "NODE_ENV",
+            "PATH",
+            "PYTHONDONTWRITEBYTECODE",
+            "SOURCE_DATE_EPOCH",
+            "TMPDIR",
+            "UNEXPECTED_HOST_VALUE",
+        ],
+    ],
+)
+def test_runtime_environment_contract_rejects_missing_or_added_names(
+    process_environment_names: list[str],
+) -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        process_override={"environment_names": process_environment_names},
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("environment_policy",)
+
+
+def test_runtime_environment_contract_rejects_config_value_drift() -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        container_env_override=[
+            "HOME=/unexpected",
+            "NODE_ENV=production",
+            "PATH=/opt/venv/bin:/opt/npm/node_modules/.bin:/usr/local/bin:/usr/bin:/bin",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "SOURCE_DATE_EPOCH=1710000000",
+            "TMPDIR=/scan",
+        ],
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("environment_policy",)
+
+
+@pytest.mark.parametrize(
+    ("process_override", "failed_control"),
+    [
+        ({"network_interfaces": ["eth0", "lo"]}, "network_none"),
+        ({"cap_eff": "0000000000000001"}, "capabilities_dropped"),
+        ({"no_new_privs": "0"}, "no_new_privileges"),
+        ({"root_write_denied": False}, "read_only_root"),
+        ({"memory_max": str(512 * 1024 * 1024 + 1)}, "memory_limit"),
+        ({"pids_max": "512"}, "pids_limit"),
+        ({"uid": 65534}, "non_root_user"),
+        ({"server_process_state": "Z (zombie)"}, "live_process_observed"),
+        ({"same_network_namespace": False}, "shared_namespaces_and_cgroup"),
+    ],
+)
+def test_docker_runtime_readback_rejects_false_green_process_observations(
+    process_override: dict[str, object],
+    failed_control: str,
+) -> None:
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(sandbox, process_override=process_override)
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == (failed_control,)
+    assert str(caught.value).endswith(f"failed controls: {failed_control}")
+
+
+def test_docker_runtime_readback_rejects_daemon_control_tampering() -> None:
+    private_runtime_value = "private-runtime-network-value-7264c0"
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        container_override={
+            "HostConfig": {
+                "NetworkMode": private_runtime_value,
+                "ReadonlyRootfs": True,
+                "CapDrop": ["ALL"],
+                "SecurityOpt": ["no-new-privileges"],
+                "Memory": 512 * 1024 * 1024,
+                "MemorySwap": 512 * 1024 * 1024,
+                "NanoCpus": 1_000_000_000,
+                "PidsLimit": 256,
+                "Privileged": False,
+                "Binds": None,
+                "Tmpfs": {"/scan": "rw,size=67108864,mode=1777"},
+            }
+        },
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="did not match") as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ("network_none",)
+    assert str(caught.value).endswith("failed controls: network_none")
+    assert private_runtime_value not in str(caught.value)
+
+
+def test_runtime_control_diagnostics_are_sorted_allowlisted_and_deduplicated() -> None:
+    private_path = "/Users/operator/private/runtime-observation"
+    error = DockerSandboxRuntimeReadbackError.from_failed_controls(
+        ["pids_limit", private_path, "network_none", "pids_limit", 7]
+    )
+
+    assert error.failed_controls == ("network_none", "pids_limit")
+    assert str(error).endswith("failed controls: network_none, pids_limit")
+    assert private_path not in str(error)
+
+
+def test_malformed_runtime_value_has_no_raw_parser_exception_chain() -> None:
+    private_runtime_value = "/Users/operator/private/runtime-numeric-value"
+    sandbox = DockerSandbox()
+    runner = _runtime_runner(
+        sandbox,
+        process_override={"uid": private_runtime_value},
+    )
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+
+    with pytest.raises(
+        DockerSandboxRuntimeReadbackError, match="numeric readback is invalid"
+    ) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ()
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    assert private_runtime_value not in str(caught.value)
+
+
+def test_invalid_attestor_json_has_no_raw_parser_exception_chain() -> None:
+    private_runtime_value = "/Users/operator/private/invalid-attestor-json"
+    sandbox = DockerSandbox()
+    base_runner = _runtime_runner(sandbox)
+
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "exec" in command:
+            return subprocess.CompletedProcess(command, 0, private_runtime_value, "")
+        return base_runner(command, **kwargs)
+
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+    with pytest.raises(
+        DockerSandboxRuntimeReadbackError, match="attestor returned invalid JSON"
+    ) as caught:
+        sandbox.capture_runtime_readback(runner=runner)
+
+    assert caught.value.failed_controls == ()
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    assert private_runtime_value not in str(caught.value)
+
+
+def test_docker_runtime_readback_fails_closed_without_bound_attestor() -> None:
+    sandbox = DockerSandbox()
+    base_runner = _runtime_runner(sandbox)
+
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "exec" in command:
+            assert DockerSandbox.attestor_executable in command
+            return subprocess.CompletedProcess(command, 127, "", "not found")
+        return base_runner(command, **kwargs)
+
+    sandbox.prepare_owned_container("python", ["server.py"], runner=runner)
+    with pytest.raises(DockerSandboxRuntimeReadbackError, match="attestor failed"):
+        sandbox.capture_runtime_readback(runner=runner)
+
+
+def test_docker_prepares_immutable_container_before_connector_launch() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    container_id = "c" * 64
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+
+    command, args = sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert command == "docker"
+    assert args == [
+        "--host",
+        "unix:///tmp/controlled-docker.sock",
+        "container",
+        "start",
+        "--attach",
+        "--interactive",
+        container_id,
+    ]
+
+
+def test_docker_prepare_rejects_a_short_container_id() -> None:
+    sandbox = DockerSandbox()
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "create" in command:
+            return subprocess.CompletedProcess(command, 0, "c" * 12 + "\n", "")
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="immutable scan container ID"):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert all("--no-trunc" in command for command in calls if "ls" in command)
+    assert not any("rm" in command for command in calls)
+
+
+def test_docker_create_timeout_cleans_delayed_daemon_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sandbox = DockerSandbox()
+    container_id = "e" * 64
+    calls: list[list[str]] = []
+    list_queries = 0
+    removed = False
+    monkeypatch.setattr("mcp_trust.engine.sandbox.time.sleep", lambda _seconds: None)
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal list_queries, removed
+        calls.append(command)
+        if "create" in command:
+            raise subprocess.TimeoutExpired(command, 10.0)
+        if "ls" in command:
+            list_queries += 1
+            stdout = container_id + "\n" if list_queries == 7 and not removed else ""
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, container_id), ""
+            )
+        if "rm" in command:
+            removed = True
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="could not create"):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert any("rm" in command and container_id in command for command in calls)
+    assert "ls" in calls[-1]
+    assert all("--no-trunc" in command for command in calls if "ls" in command)
+
+
+@pytest.mark.parametrize("delayed_id", ["e" * 12, "E" * 64, "not-an-id"])
+def test_docker_create_timeout_rejects_non_full_delayed_identity(
+    delayed_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sandbox = DockerSandbox()
+    calls: list[list[str]] = []
+    monkeypatch.setattr("mcp_trust.engine.sandbox.time.sleep", lambda _seconds: None)
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "create" in command:
+            raise subprocess.TimeoutExpired(command, 10.0)
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, delayed_id + "\n", "")
+        if "rm" in command:
+            raise AssertionError("non-full delayed identities must never be removed")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="cleanup could not prove"):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert all("--no-trunc" in command for command in calls if "ls" in command)
+    assert not any("rm" in command for command in calls)
+
+
+def test_docker_cleanup_requires_untruncated_identity() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    container_id = "f" * 64
+    present = False
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal present
+        calls.append(command)
+        if "create" in command:
+            present = True
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "ls" in command:
+            listed_id = container_id if "--no-trunc" in command else container_id[:12]
+            return subprocess.CompletedProcess(
+                command, 0, listed_id + "\n" if present else "", ""
+            )
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, container_id), ""
+            )
+        if "rm" in command:
+            assert command[-1] == container_id
+            present = False
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        raise AssertionError(command)
+
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    assert (
+        sandbox.cleanup_owned_container(runner=runner)
+        == "CONTAINER_ABSENCE_VERIFIED"
+    )
+    list_queries = [command for command in calls if "ls" in command]
+    assert len(list_queries) == 2
+    assert all("--no-trunc" in command for command in list_queries)
+    assert any("rm" in command and command[-1] == container_id for command in calls)
+
+
+def test_docker_cleanup_rejects_short_prefix_without_removal() -> None:
+    sandbox = DockerSandbox()
+    container_id = "f" * 64
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "create" in command:
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "ls" in command:
+            assert "--no-trunc" in command
+            return subprocess.CompletedProcess(command, 0, container_id[:12] + "\n", "")
+        if "rm" in command:
+            raise AssertionError("a short prefix must never be removed")
+        raise AssertionError(command)
+
+    sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+
+    with pytest.raises(DockerSandboxCleanupError, match="ambiguous"):
+        sandbox.cleanup_owned_container(runner=runner)
+
+    assert not any("rm" in command for command in calls)
+
+
+def test_docker_cleanup_removes_only_owned_container_id_and_proves_absence() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    container_id = "a" * 64
+    calls: list[list[str]] = []
+    list_results = iter([container_id + "\n", ""])
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, next(list_results), "")
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, container_id), ""
+            )
+        return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+
+    assert (
+        sandbox.cleanup_owned_container(runner=runner)
+        == "CONTAINER_ABSENCE_VERIFIED"
+    )
+    assert calls[1][-3:] == ["container", "inspect", container_id]
+    assert calls[2][-4:] == ["container", "rm", "--force", container_id]
+    for query in (calls[0], calls[3]):
+        assert query[:3] == ["docker", "--host", "unix:///tmp/controlled-docker.sock"]
+        assert "--no-trunc" in query
+        assert f"name=^/{sandbox.container_name}$" in query
+        assert any(
+            value.startswith("label=com.mcp-trust.scan-owner=") for value in query
+        )
+
+
+def test_docker_sandbox_can_prepare_again_after_verified_cleanup() -> None:
+    sandbox = DockerSandbox(host="unix:///tmp/controlled-docker.sock")
+    created_ids = iter(("a" * 64, "b" * 64))
+    present: str | None = None
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal present
+        if "create" in command:
+            present = next(created_ids)
+            return subprocess.CompletedProcess(command, 0, present + "\n", "")
+        if "ls" in command:
+            return subprocess.CompletedProcess(
+                command, 0, present + "\n" if present is not None else "", ""
+            )
+        if "inspect" in command:
+            assert present is not None
+            return subprocess.CompletedProcess(
+                command, 0, _owned_container_inspect(sandbox, present), ""
+            )
+        if "rm" in command:
+            removed = present
+            present = None
+            return subprocess.CompletedProcess(command, 0, f"{removed}\n", "")
+        raise AssertionError(command)
+
+    for expected_id in ("a" * 64, "b" * 64):
+        sandbox.prepare_owned_container("npx", ["server"], runner=runner)
+        assert sandbox._container_id == expected_id
+        assert sandbox.cleanup_owned_container(runner=runner) == (
+            "CONTAINER_ABSENCE_VERIFIED"
+        )
+        assert sandbox._container_id is None
+        assert sandbox._server_process_digests is None
+
+
+@pytest.mark.parametrize(
+    "inspect_overrides",
+    [
+        {"Id": "b" * 64},
+        {"Name": "/another-container"},
+        {"Config": {"Labels": {"com.mcp-trust.scan-owner": "another-owner"}}},
+    ],
+)
+def test_docker_cleanup_rejects_inspected_identity_tampering(
+    inspect_overrides: dict[str, object],
+) -> None:
+    sandbox = DockerSandbox()
+    container_id = "a" * 64
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "ls" in command:
+            return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
+        if "inspect" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                _owned_container_inspect(sandbox, container_id, **inspect_overrides),
+                "",
+            )
+        if "rm" in command:
+            raise AssertionError("a mismatched inspected identity must never be removed")
+        raise AssertionError(command)
+
+    with pytest.raises(DockerSandboxCleanupError, match="owned container identity"):
+        sandbox.cleanup_owned_container(runner=runner)
+
+    assert not any("rm" in command for command in calls)
+
+
+def test_docker_cleanup_empty_readback_is_verified_without_removal() -> None:
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    assert DockerSandbox().cleanup_owned_container(runner=runner) == (
+        "CONTAINER_ABSENCE_VERIFIED"
+    )
+    assert len(calls) == 2
+    assert all("ls" in command for command in calls)
+    assert all("--no-trunc" in command for command in calls)
+
+
+@pytest.mark.parametrize("stdout", ["not-an-id\n", "a" * 12 + "\n" + "b" * 12 + "\n"])
+def test_docker_cleanup_rejects_ambiguous_identity(stdout: str) -> None:
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    with pytest.raises(DockerSandboxCleanupError, match="ambiguous"):
+        DockerSandbox().cleanup_owned_container(runner=runner)
+
+
+def test_docker_cleanup_fails_closed_when_daemon_query_fails() -> None:
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, "", "daemon unavailable")
+
+    with pytest.raises(DockerSandboxCleanupError, match="could not query"):
+        DockerSandbox().cleanup_owned_container(runner=runner)
 
 
 def test_docker_wrap_binds_the_preflighted_local_daemon() -> None:
@@ -186,6 +968,12 @@ def test_engine_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(ScanError, match="Refusing to scan untrusted"):
         MCPAuditEngine(sandbox=_FakePassthrough())._resolve_sandbox(untrusted)
 
+    class _UnmanagedIsolatingSandbox(_FakePassthrough):
+        isolates = True
+
+    with pytest.raises(ScanError, match="lifecycle contract"):
+        MCPAuditEngine(sandbox=_UnmanagedIsolatingSandbox())._resolve_sandbox(untrusted)
+
     # A trusted source may use NoSandbox — the vetted reference-server flow.
     trusted = ServerSource(kind=SourceKind.NPM, reference="@acme/ref", trusted=True)
     assert isinstance(engine._resolve_sandbox(trusted), NoSandbox)
@@ -193,3 +981,36 @@ def test_engine_refuses_untrusted_without_sandbox(monkeypatch: pytest.MonkeyPatc
     # A remote (no-launch) source is exempt — no local process is spawned.
     remote = ServerSource(kind=SourceKind.REMOTE, reference="https://example.com/mcp")
     assert isinstance(engine._resolve_sandbox(remote), NoSandbox)
+
+
+@pytest.mark.skipif(
+    os.environ.get("MCP_TRUST_RUN_DOCKER_RUNTIME_READBACK") != "1",
+    reason=(
+        "opt-in: requires explicit approval, a pre-existing digest-pinned controlled "
+        "Python image, and a bound local Docker daemon"
+    ),
+)
+def test_integration_live_docker_runtime_readback() -> None:
+    image = os.environ.get("MCP_TRUST_RUNTIME_READBACK_IMAGE", "")
+    host = os.environ.get("MCP_TRUST_DOCKER_HOST")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
+        pytest.fail("MCP_TRUST_RUNTIME_READBACK_IMAGE must be one immutable sha256 ID")
+    sandbox = DockerSandbox(image=image, host=host)
+    command, args = sandbox.prepare_owned_container(
+        "python",
+        ["-c", "import time; time.sleep(30)"],
+    )
+    process = subprocess.Popen(  # noqa: S603 - opt-in exact Docker lifecycle test
+        [command, *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        readback = sandbox.capture_runtime_readback()
+        assert readback["state"] == "VERIFIED"
+        assert readback["image_id"] == image
+    finally:
+        assert sandbox.cleanup_owned_container() == "CONTAINER_ABSENCE_VERIFIED"
+        process.wait(timeout=10)
