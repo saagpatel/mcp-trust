@@ -114,9 +114,9 @@ across these independent axes:
 
 All 31 entries launch local processes and are unsafe unsandboxed. Seven require
 credentials; the only admitted mode is non-functional dummy values inside a
-network-off sandbox. Ten depend on external or local backing services; a tool
+network-off sandbox. Eight depend on external or local backing services; a tool
 surface observed without that service does not prove functional behavior.
-Eight are upstream-archived/unsupported and eight are intentionally masked.
+Eight are upstream-archived/unsupported and four are intentionally masked.
 Build-source paths exist for every entry. All 31 entries map to five qualified
 images. The current V132 policy derives 9 blocked entries from the reviewed
 execution constraints; the remaining 22 are scannable. Four of the blocked

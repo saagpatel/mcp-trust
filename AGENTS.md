@@ -34,33 +34,17 @@ SQLite storage, and smoke-testing the badge loop against the public base URL.
 - Optional `mcp-audits` engine extra for real MCP-server scanning
 
 ## How To Run
-Install and run the deterministic local path. `uv venv` reads `.python-version`,
-so the virtualenv is built on 3.11 rather than whatever interpreter happens to be
-first on `PATH`; do not remove that file. Activate before running anything, or use
-`uv run --frozen --extra dev <command>` instead.
+Use the README's [Quickstart](README.md#quickstart) for an isolated stub demo and
+[local development and verification](README.md#local-development-and-verification)
+for frozen core/dev setup, focused and broader pytest checks, Ruff, packaging,
+and conditional browser preview. `.python-version` pins the CI interpreter;
+keep it and `uv.lock`. The routine verification path does not install the engine
+extra or opt into real-server/Docker tests.
 
-```bash
-uv venv .venv
-. .venv/bin/activate
-uv pip install -e ".[dev]"
-python -m pytest -q
-ruff check src tests
-mcp-trust seed
-mcp-trust scan mcp-reference-time
-mcp-trust check mcp-reference-time
-mcp-trust serve
-```
-
-Run the real engine only when the target server is trusted or sandboxed:
-
-```bash
-uv pip install -e ".[dev,engine]"
-MCP_TRUST_ENGINE=mcpaudit mcp-trust scan mcp-reference-time
-MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan mcp-reference-time
-```
-
-Use `LAUNCH.md` as the public-launch runbook. Use `SPEC.md` as the product and
-module-boundary contract.
+Real scans, qualification, refresh, and launch are separate operator workflows:
+follow the [operator runbook](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md) and
+`LAUNCH.md` with their target-specific authorization and prerequisites. Use
+`SPEC.md` as the product and module-boundary contract.
 
 ## Known Risks
 - Real scans launch server processes. Never scan untrusted servers without an
@@ -132,3 +116,17 @@ deploy the API with persistent SQLite storage for a live badge-loop smoke test.
 - `deploy/web-release-readback.json` is this product's self-adoption profile.
   Keep it wired into `deploy/smoke-readonly.sh` ahead of, and additive to, the
   health, API, badge, portable-reference, and denied scan-POST assertions.
+
+## Cursor Cloud specific instructions
+
+- The repository-level `.cursor/environment.json` is the Cloud environment
+  definition. It installs the CI-pinned `uv==0.12.4`, provisions Python
+  `3.11.15` from `.python-version`, and runs `uv sync --frozen --extra dev`.
+- Cloud validation is local and deterministic: run
+  `uv run --no-sync pytest -q` and
+  `uv run --no-sync ruff check src scripts tests`.
+- Cloud setup does not require credentials, Docker, or network access to MCP
+  servers. The optional `mcp-audits` extra and Docker sandbox scans are
+  operator-gated workflows and are not part of environment initialization.
+- Do not add secrets to this repository or infer production, deployment, or
+  external-service readiness from local/cloud test results.

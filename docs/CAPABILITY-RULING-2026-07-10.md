@@ -1,20 +1,22 @@
 # Capability Ruling — 2026-07-10
 
-**Decision: build grade-drift detection with cause attribution.** The registry
-already accumulates the scan history a drift capability needs, already exhibits
-real grade movement in that history, and currently cannot explain a single one
+**Decision: build grade-drift detection with cause attribution.** At the time
+of this ruling, the registry already accumulated the scan history a drift
+capability needs, exhibited real grade movement in that history, and could not
+explain a single one
 of those movements to a consumer. Provenance attestation and registry analytics
 are deferred; the drift slice builds the comparison primitive attestation would
 reuse.
 
-## What the repo supports today (orientation read, full tree)
+## What the repo supported on 2026-07-10 (orientation read, full tree)
 
 - **Append-only scan history.** `scans` is insert-only with an index on
   `(server_slug, scanned_at)` (`store/db.py`). The live `registry.db` holds
   **322 scan rows across 31 servers, up to 14 per server** (2026-06-20 →
-  2026-07-04). History is written but never read: `ScanRepository` exposes only
-  `latest()` and `latest_all()` — there is no history or comparison query
-  anywhere in the codebase.
+  2026-07-04). History was written but never read at that time. The current
+  `ScanRepository` also exposes `history()`; the CLI `history` and `drift`
+  commands in `src/mcp_trust/cli/main.py` read it, and `core/drift.py` compares
+  the returned records.
 - **A comparison primitive already persisted per scan.** `evidence_json`
   carries tool names, tool counts, and per-tool input-schema SHA-256 hashes for
   all 31 latest scans (evidence parity complete per HANDOFF). Two scans of the
@@ -24,12 +26,10 @@ reuse.
   `scripts/refresh_and_publish.sh` was documented here as armed for Monday
   09:00. The 2026-07-11 security repair found Sunday 19:00 live state,
   unloaded and persistently disabled the job, and removed all deployment
-  authority from this refresh-only lane. When deliberately re-enabled in a
-  future authorized task, it re-scans the
-  whole corpus and rebuilds the site, but never compares the new scan to the
-  previous one. A failed scan silently keeps the previous grade with only a
-  log-line WARN — no surfaced freshness delta below the 90-day grey-out in
-  `core/governance.py`.
+  authority from this refresh-only lane. The current wrapper refuses scheduler
+  context and `MCP_TRUST_AUTO_DEPLOY`; it runs preflight and creates an immutable
+  local review candidate only. It does not rebuild the site or silently retain
+  an old grade while claiming a fully fresh run.
 - **Honesty machinery exists for everything except change.** Provenance
   labeling (`core/provenance.py`), staleness grey-out and dispute SLA
   (`core/governance.py`), grade masking (`masked-grades.json`), receipt
@@ -100,7 +100,7 @@ does appear (three weeks of history is too short to conclude it won't).
 - **Cost:** low, **value: lowest.** 31 servers need no aggregate layer, and no
   consumer is asking for one. Rejected.
 
-## V-slice (finishes this session)
+## V-slice (original proposal)
 
 Feature branch `feat/grade-drift`, test-first, all additive:
 
@@ -124,9 +124,10 @@ Feature branch `feat/grade-drift`, test-first, all additive:
 3. **CLI** — `mcp-trust history <slug>` (grade/engine/scanned-at timeline) and
    `mcp-trust drift [<slug>] [--json]` (latest vs previous, corpus-wide when no
    slug; `--json` for machine consumption by the refresh lane).
-4. **Refresh lane** — `refresh_and_publish.sh` runs `mcp-trust drift --json`
-   after the re-scan loop and archives the report next to receipts, so every
-   weekly run leaves an attributed change record instead of a silent overwrite.
+4. **Refresh lane** — the proposed `refresh_and_publish.sh` hook would run
+   `mcp-trust drift --json` after the re-scan loop and archive the report next
+   to receipts. The current wrapper instead creates a review candidate; it
+   does not invoke or archive this CLI report.
 5. **Tests** — `tests/test_drift.py` (attribution matrix incl. missing-evidence
    honesty), history round-trip in `test_store.py`, CLI coverage in
    `test_cli.py`.
@@ -137,14 +138,14 @@ Feature branch `feat/grade-drift`, test-first, all additive:
 
 ## Deploy-pipeline implications
 
-None in the v-slice: the public snapshot, site, badges, and MCP tools are
-untouched, so the Monday 09:00 auto-deploy lane (currently deploy-opt-in and
-off) is unaffected. The natural follow-on — surfacing "grade changed on <date>,
-cause: <attribution>" on server detail pages and in `check_server` — **does**
+The original v-slice proposed leaving the public snapshot, site, badges, and
+MCP tools untouched. The current refresh wrapper has no deployment authority
+and refuses scheduler execution. The natural follow-on — surfacing
+"grade changed on <date>, cause: <attribution>" on server detail pages and in `check_server` — **does**
 touch the snapshot schema, site generator, and deployed payload, and should go
 through the usual masked/provenance wording review before any deploy. The
-refresh-script edit (step 4) changes weekly-lane behavior additively (one extra
-read-only report); it does not alter scan, build, or deploy steps.
+refresh-script hook in step 4 was a proposal, not a description of the current
+review-candidate wrapper.
 
 ## Out of scope (named, not silently cut)
 
