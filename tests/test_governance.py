@@ -418,7 +418,7 @@ def test_generator_renders_corrections_entries(conn, tmp_path):
 
 @pytest.fixture()
 def client(conn):
-    return TestClient(create_app(conn=conn))
+    return TestClient(create_app(conn=conn, clock=lambda: NOW))
 
 
 @pytest.mark.parametrize("path", ["/ui/methodology", "/ui/dispute", "/ui/corrections"])
@@ -450,6 +450,31 @@ def test_live_badge_route_fresh_grade_unchanged(conn, client):
     payload = client.get("/servers/fresh-server/badge.json").json()
     assert payload["message"] == "F"
     assert payload["color"] == "red"
+
+
+def test_live_badge_route_reevaluates_freshness_on_each_request(conn):
+    """The same stored scan expires, and future evidence stays unknown."""
+    ServerRepository(conn).upsert(_server("aging-server"))
+    ScanRepository(conn).record(_real_scan("aging-server", scanned_at=FRESH_AT))
+    observed_at = NOW
+
+    with TestClient(create_app(conn=conn, clock=lambda: observed_at)) as client:
+        for request_time, message, color in [
+            (NOW, "F", "red"),
+            (FRESH_AT + timedelta(days=STALE_AFTER_DAYS), "F", "red"),
+            (
+                FRESH_AT + timedelta(days=STALE_AFTER_DAYS, microseconds=1),
+                "F (stale)",
+                "lightgrey",
+            ),
+            (FRESH_AT - timedelta(microseconds=1), "unknown", "lightgrey"),
+        ]:
+            observed_at = request_time
+            response = client.get("/servers/aging-server/badge.json")
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["message"] == message
+            assert payload["color"] == color
 
 
 def test_live_badge_route_labels_demo_scans(conn, client):

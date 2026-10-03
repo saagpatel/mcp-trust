@@ -70,9 +70,9 @@ default.
 
 The CLI reads one ledger and emits canonical assessment JSON to stdout. It exits
 zero only when every record has the safe status for the requested decision.
-Unreadable, malformed, or schema-invalid ledgers return a content-free
-`UNKNOWN` error envelope; rejected values are never copied into CLI output.
-Ledger input is rejected before JSON parsing when it exceeds 1 MiB.
+File-read failures, JSON syntax errors, and schema-validation failures return a
+content-free `UNKNOWN` error envelope without copying rejected values. Invalid
+UTF-8 and inputs exceeding 1 MiB raise uncaught errors before JSON parsing.
 
 ```bash
 uv run --frozen python scripts/assess_evidence_lineage.py \
