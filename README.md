@@ -70,8 +70,12 @@ Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
 
 ## Prerequisites
 
-- Python >= 3.11
+- Python 3.11 for development; `.python-version` pins 3.11.15 to match CI
 - [`uv`](https://docs.astral.sh/uv/) (used for dependency management and running the project)
+
+CI and Cursor Cloud install `uv==0.12.4`. Run the commands below from the
+repository root; `uv sync` creates the project virtualenv using the pinned
+Python version and committed lockfile.
 
 ## MCP config portability studio
 
@@ -106,30 +110,39 @@ catalog, the public trust-grade normalization, persistence, and the lookup API.
 ## Quickstart
 
 ```bash
-git clone https://github.com/saagpatel/mcp-trust.git && cd mcp-trust
-uv pip install -e ".[dev]"      # core + dev deps (runs on the built-in StubEngine)
-mcp-trust seed                  # load the seed catalog
-mcp-trust scan mcp-reference-time   # scan a catalog server, print its grade
-mcp-trust check mcp-reference-time  # look up the latest stored grade
-mcp-trust serve                 # serve the API on http://127.0.0.1:8000
+git clone https://github.com/saagpatel/mcp-trust.git
+cd mcp-trust
+uv sync --frozen --extra dev
+
+demo_dir="$(mktemp -d)"
+uv run --no-sync mcp-trust seed --db "$demo_dir/registry.db"
+env -u MCP_TRUST_RECEIPTS_DIR uv run --no-sync mcp-trust scan \
+  mcp-reference-time --engine stub --db "$demo_dir/registry.db"
+uv run --no-sync mcp-trust check mcp-reference-time --db "$demo_dir/registry.db"
 ```
 
-For real scanning install the engine extra and select it:
+After dependency installation, this demo uses only a new temporary SQLite
+database and the explicit `StubEngine`; it launches no catalog server and its
+grades are demo data. `--db` avoids the default database and any operator
+`MCP_TRUST_DB` override; clearing `MCP_TRUST_RECEIPTS_DIR` avoids writing into an
+operator receipt directory.
+
+To view this demo through the local API, optionally start a loopback-only,
+read-only server and stop it with Ctrl-C when finished:
 
 ```bash
-uv pip install -e ".[dev,engine]"
-MCP_TRUST_ENGINE=mcpaudit mcp-trust scan mcp-reference-time
+MCP_TRUST_ENGINE=stub MCP_TRUST_PUBLIC_READONLY=1 \
+  MCP_TRUST_MASKED_GRADES="$PWD/masked-grades.json" \
+  uv run --no-sync mcp-trust serve --db "$demo_dir/registry.db" \
+    --host 127.0.0.1 --port 8000
 ```
 
-Scanning launches the server's process. For **untrusted** servers, isolate
-execution in a locked-down container (no network, read-only fs, dropped caps,
-resource limits):
-
-```bash
-MCP_TRUST_ENGINE=mcpaudit MCP_TRUST_SANDBOX=docker mcp-trust scan mcp-reference-time
-```
-
-The default is no sandbox (safe only for servers you trust).
+Real-engine scans require the separately prepared `[engine]` environment,
+reviewed target, sandbox decision, and current qualification/preflight evidence
+in the [operator runbook](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md). They can launch
+server processes or contact remote endpoints and are outside this local demo
+and routine verification. See [local development and verification](#local-development-and-verification)
+for fixture checks.
 
 ## API
 
@@ -473,6 +486,68 @@ scheduler state.
 `uv.lock` is intentionally committed to the repository to ensure reproducible
 installs across environments. When adding or updating dependencies, commit the
 updated `uv.lock` alongside your `pyproject.toml` changes.
+
+### Local development and verification
+
+Use `uv sync --frozen --extra dev` from the repository root. This is the same
+core/dev environment as [CI](.github/workflows/ci.yml); it does not install the
+optional real scan engine. Prepare a development shell with a temporary
+database and no operator scan/receipt overrides:
+
+```bash
+verification_dir="$(mktemp -d)"
+export MCP_TRUST_DB="$verification_dir/registry.db"
+export MCP_TRUST_ENGINE=stub
+export MCP_TRUST_PUBLIC_READONLY=0
+unset MCP_TRUST_MASKED_GRADES MCP_TRUST_RECEIPTS_DIR \
+  MCP_TRUST_RUN_INTEGRATION MCP_TRUST_RUN_DOCKER_RUNTIME_READBACK
+
+# Focused CLI/API fixtures; choose the test file or node for your changed module.
+uv run --no-sync pytest -q tests/test_cli.py tests/test_api.py
+# Broader deterministic regression gate, as used by CI.
+uv run --no-sync pytest -q
+uv run --no-sync ruff check src scripts tests
+# Build the wheel and source distribution into this temporary output directory.
+uv build --out-dir "$verification_dir/packages"
+```
+
+Fixtures use temporary data and mocked runtime/provider boundaries. Keep both
+integration opt-ins unset: `MCP_TRUST_RUN_INTEGRATION=1` launches a real MCP
+server, and `MCP_TRUST_RUN_DOCKER_RUNTIME_READBACK=1` uses Docker. Those checks
+need separate operator authorization and prerequisites; they are not part of
+the routine gate. The full suite includes POSIX pseudo-terminal tests; use the
+Ubuntu CI runner when the local platform cannot provide a pseudo-terminal.
+`MCP_TRUST_TEST_TTY_TIMEOUT` adjusts their subprocess
+budget for a loaded machine without weakening the assertions.
+
+Ruff also provides `uv run --no-sync ruff format --check path/to/changed.py`
+for changed Python files; formatting is not currently a CI gate. No separate
+typechecker is configured in `pyproject.toml`. For web/static/badge changes,
+focus on `tests/test_web.py`, `tests/test_site_generator.py`,
+`tests/test_build_site_script.py` and `tests/test_api.py`, then run the broader
+gate before delivery.
+
+When HTML, layout, navigation, or displayed trust claims change, also inspect
+a local browser preview at desktop and narrow widths. Build one with explicit
+temporary paths and the script's stub-only demo mode:
+
+```bash
+uv run --no-sync python scripts/build_site.py \
+  --db "$verification_dir/preview.db" --out "$verification_dir/site" \
+  --demo-fill --base-url http://127.0.0.1:8765
+uv run --no-sync python -m http.server 8765 --bind 127.0.0.1 \
+  --directory "$verification_dir/site"
+```
+
+Open `http://127.0.0.1:8765` and check the catalog, one detail page, navigation,
+demo/provenance labels, masked grades and badge content. Stop the preview with
+Ctrl-C. This development build writes only temporary demo data and pages; it
+is not a publication candidate. Browser checks are conditional on changed
+user-facing behavior, rather than required for pure documentation changes.
+The [API](src/mcp_trust/api/AGENTS.md) and
+[web/static](src/mcp_trust/site/AGENTS.md) guidelines define the trust claims
+that must remain consistent across surfaces. Local fixture/build/browser
+results do not establish real-engine, provider, deployment, or production proof.
 
 ## License
 

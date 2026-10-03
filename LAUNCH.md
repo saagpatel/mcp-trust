@@ -12,19 +12,15 @@ export BASE_URL="https://<your-host>"   # public URL once deployed
 
 ## 0. Pre-flight — prove it's green
 
-```bash
-uv venv .venv && . .venv/bin/activate
-uv pip install -e ".[dev]"
-python -m pytest -q          # expect: all pass; real-server integration stays skipped unless opted in
-ruff check src tests         # expect: All checks passed!
-```
+Follow the README's [local development and verification](README.md#local-development-and-verification)
+for the frozen core/dev environment, fixture tests, Ruff, packaging, and
+conditional browser checks. These checks do not launch real catalog servers
+or establish launch readiness.
 
-Optional, with the real engine:
-
-```bash
-uv pip install -e ".[dev,engine]"
-MCP_TRUST_RUN_INTEGRATION=1 python -m pytest tests/test_mcpaudit_adapter.py -q
-```
+Real-engine integration is an operator workflow, not a routine test opt-in.
+Use the [operator runbook](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md) to establish
+the prepared engine environment, exact target, sandbox and current preflight
+before executing any real scan.
 
 ---
 
