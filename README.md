@@ -104,7 +104,7 @@ register a server  ->  scan via engine  ->  derive grade  ->  persist  ->  serve
 
 The registry does **not** reimplement vulnerability detection. It orchestrates a
 pluggable scan engine -- the shipping backend wraps the public
-[`mcp-audits`](https://pypi.org/project/mcp-audits/) (>=2.1) package -- and owns the
+[`mcp-audits`](https://pypi.org/project/mcp-audits/) (>=2.4.0,<3) package -- and owns the
 catalog, the public trust-grade normalization, persistence, and the lookup API.
 
 ## Quickstart
@@ -456,8 +456,8 @@ checkpoint owner described in the offline trust contract.
 
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
 generated catalog, regenerated from the local registry. The bundled catalog
-snapshot contains 23 visible real `mcp-audits` grades; eight reviewed entries
-are withheld by `masked-grades.json` and are absent from the public snapshot.
+snapshot contains 23 visible real `mcp-audits` grades; eight seed entries
+are absent from it, including the four currently withheld by `masked-grades.json`.
 The bundled snapshot labels the visible local-process grades' network and
 sandbox provenance as unknown; only a receipt-verified refresh candidate may
 claim network-off execution. Every grade is labeled by provenance, so
