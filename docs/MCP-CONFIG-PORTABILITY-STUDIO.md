@@ -128,8 +128,8 @@ uv run --frozen --extra dev mcp-trust portability schema
 
 ## Portability report
 
-Every operation can produce `mcp-config-portability-report.v1`. Changes use
-exact states:
+Render, inspect, and round-trip operations can produce
+`mcp-config-portability-report.v1`. Changes use exact states:
 
 - `preserved`: same semantic is represented;
 - `transformed`: represented with a documented conversion;
