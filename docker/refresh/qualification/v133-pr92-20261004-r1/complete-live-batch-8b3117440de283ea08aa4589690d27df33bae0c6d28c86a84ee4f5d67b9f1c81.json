@@ -1,0 +1,12 @@
+{
+  "attempt_id": "8b3117440de283ea08aa4589690d27df33bae0c6d28c86a84ee4f5d67b9f1c81",
+  "attempt_path": "attempt-live-batch-8b3117440de283ea08aa4589690d27df33bae0c6d28c86a84ee4f5d67b9f1c81.json",
+  "attempt_sha256": "sha256:0c03c8871512275e1cdbe5238109a7c3528d5493f8065509f78bd60ae541698d",
+  "cohort": "live-batch",
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "qualification_receipt": "live-batch.json",
+  "qualification_receipt_digest": "sha256:e0102f3adffcf3b886dcb79d7145b5e01853493f31c34d69041210dd175e9dab",
+  "qualification_receipt_sha256": "sha256:06b6f04987d096217aed8203f8c47ab378454ac2965f82f4bb2963634b2f1970",
+  "receipt_digest": "sha256:b836124af7c9f7f546ca4977d214f49fd0d4a55751224d87432886dcde7b6a4a",
+  "schema": "McpTrustImageQualificationCompletionV1"
+}
