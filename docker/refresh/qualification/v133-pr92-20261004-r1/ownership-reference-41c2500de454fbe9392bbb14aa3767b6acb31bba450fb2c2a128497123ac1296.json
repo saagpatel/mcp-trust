@@ -1,0 +1,10 @@
+{
+  "attempt_id": "41c2500de454fbe9392bbb14aa3767b6acb31bba450fb2c2a128497123ac1296",
+  "attempt_path": "attempt-reference-41c2500de454fbe9392bbb14aa3767b6acb31bba450fb2c2a128497123ac1296.json",
+  "attempt_sha256": "sha256:be9a00ec909dd5123acc8c3ea69cfd0af3bfe763314c397bdcb43a8c2cfa0c89",
+  "cohort": "reference",
+  "exit_classification": "FINAL_TAG_MUTATION_AUTHORIZED",
+  "owned_final_image_id": "sha256:49100c58caf33da427a01a52209c1507b24d2a7da94c17074c4e85b229ffb2c8",
+  "receipt_digest": "sha256:da06c48dae5d8cdbdfed6ce217516750fd8cd8641c328e999dc884b876fbee20",
+  "schema": "McpTrustImageQualificationOwnershipV1"
+}

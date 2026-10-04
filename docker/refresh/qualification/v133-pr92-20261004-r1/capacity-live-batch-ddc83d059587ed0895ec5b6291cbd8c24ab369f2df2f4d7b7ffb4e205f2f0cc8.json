@@ -1,0 +1,71 @@
+{
+  "authority": {
+    "colima_start_performed": false,
+    "database_accessed": false,
+    "deployment_performed": false,
+    "docker_invoked": false,
+    "mcp_execution": false,
+    "observation_only": true,
+    "publication_performed": false,
+    "qualification_scope_only": true,
+    "scheduler_change_performed": false
+  },
+  "claim_ceiling": "One fresh host-capacity observation scoped to one local image-qualification or interruption-cleanup invocation. It does not prove Docker cleanup, image qualification, MCP execution, publication, deployment, scheduler operation, production freshness, or endorsement.",
+  "cohort": "live-batch",
+  "host_capacity": {
+    "anchor": {
+      "device_id": 16777234,
+      "kind": "host-filesystem-device",
+      "total_bytes": 494384795648
+    },
+    "authority": {
+      "colima_start_performed": false,
+      "database_accessed": false,
+      "deployment_performed": false,
+      "docker_invoked": false,
+      "mcp_execution": false,
+      "observation_only": true,
+      "publication_performed": false,
+      "scheduler_change_performed": false
+    },
+    "claim_ceiling": "Host-filesystem capacity observations only; this receipt does not prove Colima was stopped, observation authenticity or same-user tamper resistance, Docker or MCP isolation, scan safety, publication, deployment, scheduler operation, production freshness, or endorsement.",
+    "exit_classification": "ready",
+    "observed_at": "2026-10-04T18:13:04.558534+00:00",
+    "policy": {
+      "maximum_capacity_percent_exclusive": 100,
+      "maximum_receipt_age_seconds": 120,
+      "minimum_available_bytes": 5368709120,
+      "minimum_interval_seconds": 30,
+      "required_readings": 2
+    },
+    "readings": [
+      {
+        "available_bytes": 102770380800,
+        "capacity_percent": 79.212471,
+        "device_id": 16777234,
+        "observed_at": "2026-10-04T18:12:34.545925+00:00",
+        "sequence": 1,
+        "total_bytes": 494384795648,
+        "used_bytes": 391614414848
+      },
+      {
+        "available_bytes": 102813384704,
+        "capacity_percent": 79.203773,
+        "device_id": 16777234,
+        "observed_at": "2026-10-04T18:13:04.558534+00:00",
+        "sequence": 2,
+        "total_bytes": 494384795648,
+        "used_bytes": 391571410944
+      }
+    ],
+    "reasons": [],
+    "receipt_digest": "sha256:45b5074446279f905083438f98dc48add8ac279b5efe35b970fd9bccbb168dce",
+    "safe_to_start_runtime": true,
+    "schema": "McpTrustHostCapacityReceiptV1",
+    "status": "READY"
+  },
+  "operation": "qualification",
+  "receipt_digest": "sha256:ddc83d059587ed0895ec5b6291cbd8c24ab369f2df2f4d7b7ffb4e205f2f0cc8",
+  "receipt_set": "v133-pr92-20261004-r1",
+  "schema": "McpTrustQualificationCapacityReceiptV1"
+}
