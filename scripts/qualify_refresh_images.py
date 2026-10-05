@@ -763,7 +763,10 @@ def _dependency_inputs(
         try:
             if kind == "npm":
                 dependency_boundary.validate_npm_lock(
-                    ROOT / manifest_ref["path"], ROOT / lock_ref["path"]
+                    ROOT / manifest_ref["path"],
+                    ROOT / lock_ref["path"],
+                    expected_dependencies=config["npm"],
+                    expected_overrides=config.get("npm_overrides"),
                 )
             else:
                 dependency_boundary.validate_python_lock(

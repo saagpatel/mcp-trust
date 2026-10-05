@@ -99,7 +99,10 @@ def test_current_dependency_descriptors_and_locks_are_admitted() -> None:
         lock_root = ROOT / "docker/refresh/locks" / cohort
         if config["npm"]:
             dependency_boundary.validate_npm_lock(
-                lock_root / "package.json", lock_root / "package-lock.json"
+                lock_root / "package.json",
+                lock_root / "package-lock.json",
+                expected_dependencies=config["npm"],
+                expected_overrides=config.get("npm_overrides"),
             )
         if config["python"]:
             dependency_boundary.validate_python_lock(
@@ -109,6 +112,56 @@ def test_current_dependency_descriptors_and_locks_are_admitted() -> None:
         (ROOT / "docker/refresh/source-build-inputs/basic-memory.json").read_text()
     )
     assert dependency_boundary.validate_source_build_inputs(source) is source
+
+
+def _copy_live_batch_lock_inputs(target_root: Path, *, strip_override: bool = False) -> None:
+    source = ROOT / "docker/refresh/locks/live-batch"
+    target = target_root / "docker/refresh/locks/live-batch"
+    target.mkdir(parents=True)
+    manifest = json.loads((source / "package.json").read_text())
+    if strip_override:
+        manifest.pop("overrides")
+    (target / "package.json").write_text(json.dumps(manifest))
+    shutil.copyfile(source / "package-lock.json", target / "package-lock.json")
+
+
+def test_prep_admission_binds_tracked_manifest_override_to_descriptor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("prepare_refresh_dependencies.py")
+    config = _inputs()["cohorts"]["live-batch"]
+    module._validate_tracked_dependency_inputs("live-batch", config)
+
+    _copy_live_batch_lock_inputs(tmp_path, strip_override=True)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    with pytest.raises(module.PreparationError, match="dependency source policy"):
+        module._validate_tracked_dependency_inputs("live-batch", config)
+
+
+def test_qualification_binds_manifest_override_to_descriptor_before_artifact_use(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    config = copy.deepcopy(_inputs()["cohorts"]["live-batch"])
+    config["python"] = []
+    _copy_live_batch_lock_inputs(tmp_path)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        module,
+        "_reference",
+        lambda path: {"path": path, "sha256": "sha256:" + "a" * 64},
+    )
+    monkeypatch.setattr(
+        module.grade_refresh,
+        "_dependency_artifact",
+        lambda **_kwargs: {"status": "MOCKED_VALID_ARTIFACT"},
+    )
+    module._dependency_inputs("live-batch", config)
+
+    _copy_live_batch_lock_inputs(tmp_path / "drift", strip_override=True)
+    monkeypatch.setattr(module, "ROOT", tmp_path / "drift")
+    with pytest.raises(module.QualificationError, match="dependency source policy"):
+        module._dependency_inputs("live-batch", config)
 
 
 def test_npm_console_script_binding_matches_exact_direct_package(tmp_path: Path) -> None:
@@ -251,6 +304,117 @@ def test_dockerfile_rejects_external_copy_source(tmp_path: Path) -> None:
 def test_npm_sources_are_exact_semver_only(value: str) -> None:
     with pytest.raises(dependency_boundary.DependencyBoundaryError, match="exact semver"):
         dependency_boundary.npm_dependencies({"example": value})
+
+
+def test_parent_scoped_npm_override_survives_manifest_generation_and_binds_lock(
+    tmp_path: Path,
+) -> None:
+    module = _script("prepare_refresh_dependencies.py")
+    dependencies = {"@example/image-tool": "1.2.3"}
+    overrides = {"@example/image-tool": {"sharp": "0.35.4"}}
+    manifest = module._package_json("live-batch", dependencies, overrides)
+    assert manifest["dependencies"] == dependencies
+    assert manifest["overrides"] == overrides
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps(manifest))
+    lock_path.write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"dependencies": dependencies},
+                    "node_modules/@example/image-tool": {
+                        "version": "1.2.3",
+                        "resolved": "https://registry.npmjs.org/@example/image-tool/-/image-tool-1.2.3.tgz",
+                        "integrity": "sha512-AAAA",
+                        "dependencies": {"sharp": "^0.33.5"},
+                    },
+                    "node_modules/sharp": {
+                        "version": "0.35.4",
+                        "resolved": "https://registry.npmjs.org/sharp/-/sharp-0.35.4.tgz",
+                        "integrity": "sha512-BBBB",
+                    },
+                },
+            }
+        )
+    )
+
+    dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+    lock = json.loads(lock_path.read_text())
+    lock["packages"]["node_modules/sharp"]["version"] = "0.33.5"
+    lock_path.write_text(json.dumps(lock))
+    with pytest.raises(
+        dependency_boundary.DependencyBoundaryError,
+        match="parent-scoped override",
+    ):
+        dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+
+def test_npm_preparation_keeps_registry_only_no_script_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _script("prepare_refresh_dependencies.py")
+    payload = _inputs()
+    config = payload["cohorts"]["live-batch"]
+    assert all(
+        "npm_overrides" not in cohort
+        for name, cohort in payload["cohorts"].items()
+        if name != "live-batch"
+    )
+    calls: list[list[str]] = []
+    tracked_lock = ROOT / "docker/refresh/locks/live-batch/package-lock.json"
+
+    def fake_run(command: list[str], *, capture: bool = False) -> str:
+        assert capture is False
+        calls.append(command)
+        if "--package-lock-only" in command:
+            shutil.copyfile(tracked_lock, tmp_path / "package-lock.json")
+        return ""
+
+    def fake_bundle(_source: Path, target: Path) -> dict[str, object]:
+        target.write_bytes(b"test-cache")
+        return {"bundle_size": 10, "file_count": 1, "content_digest": "sha256:test"}
+
+    monkeypatch.setattr(module, "_run", fake_run)
+    monkeypatch.setattr(module, "_normalize_npm_cache", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_bundle_tree", fake_bundle)
+    monkeypatch.setattr(module, "_digest_file", lambda _path: "sha256:test")
+    monkeypatch.setattr(module, "_tool_version", lambda *_args, **_kwargs: "test-version")
+
+    tracked, _bundle, descriptor = module._prepare_npm(
+        cohort="live-batch",
+        config=config,
+        work=tmp_path,
+        prepared_at="2026-10-05T00:00:00+00:00",
+        source_date_epoch=1710000000,
+    )
+
+    generated_manifest = json.loads(tracked["package.json"])
+    assert generated_manifest["dependencies"] == config["npm"]
+    assert generated_manifest["overrides"] == config["npm_overrides"]
+    assert tracked["package-lock.json"] == tracked_lock.read_bytes()
+    assert len(calls) == 2
+    for command in calls:
+        assert "--ignore-scripts" in command
+        assert "--registry=https://registry.npmjs.org" in command
+        network_at = command.index("--network")
+        assert command[network_at + 1] == "bridge"
+    assert descriptor["preparation_network_policy"] == "registry-client-allowlist-no-package-code"
+    assert descriptor["package_code_executed"] is False
+
+
+def test_npm_overrides_must_be_nested_under_a_direct_parent() -> None:
+    payload = _inputs()
+    payload["cohorts"]["live-batch"]["npm_overrides"] = {
+        "sharp": "0.35.4"
+    }
+    with pytest.raises(
+        dependency_boundary.DependencyBoundaryError,
+        match="override parent",
+    ):
+        dependency_boundary.validate_preparation_inputs(payload, repo_root=ROOT)
 
 
 @pytest.mark.parametrize(

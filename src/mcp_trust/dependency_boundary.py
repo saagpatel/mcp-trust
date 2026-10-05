@@ -36,6 +36,7 @@ _EXACT_SEMVER = re.compile(
 _PYTHON_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _PYTHON_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9.!+_-]*")
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+_UNSET = object()
 
 
 class DependencyBoundaryError(ValueError):
@@ -157,6 +158,18 @@ def npm_dependencies(value: object) -> dict[str, str]:
     return normalized
 
 
+def npm_overrides(value: object, *, dependencies: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Validate exact, parent-scoped npm overrides for direct cohort packages."""
+    if not isinstance(value, dict) or not value:
+        raise DependencyBoundaryError("npm override map is invalid")
+    normalized: dict[str, dict[str, str]] = {}
+    for parent, overrides in value.items():
+        if parent not in dependencies or not isinstance(overrides, dict) or not overrides:
+            raise DependencyBoundaryError("npm override parent must be a direct dependency")
+        normalized[parent] = npm_dependencies(overrides)
+    return normalized
+
+
 def python_requirements(value: object) -> list[str]:
     if not isinstance(value, list):
         raise DependencyBoundaryError("python dependency list is invalid")
@@ -222,7 +235,13 @@ def validate_python_lock(manifest_path: Path, lock_path: Path) -> None:
         raise DependencyBoundaryError("python lock does not bind its direct requirements")
 
 
-def validate_npm_lock(manifest_path: Path, lock_path: Path) -> None:
+def validate_npm_lock(
+    manifest_path: Path,
+    lock_path: Path,
+    *,
+    expected_dependencies: object | None = None,
+    expected_overrides: object = _UNSET,
+) -> None:
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
@@ -230,6 +249,23 @@ def validate_npm_lock(manifest_path: Path, lock_path: Path) -> None:
         raise DependencyBoundaryError("npm dependency inputs are unreadable") from exc
     dependencies = manifest.get("dependencies") if isinstance(manifest, dict) else None
     npm_dependencies(dependencies)
+    if expected_dependencies is not None and dependencies != npm_dependencies(
+        expected_dependencies
+    ):
+        raise DependencyBoundaryError("npm manifest direct dependencies differ from descriptor")
+    overrides = manifest.get("overrides", {}) if isinstance(manifest, dict) else None
+    if overrides:
+        overrides = npm_overrides(overrides, dependencies=dependencies)
+    elif overrides != {}:
+        raise DependencyBoundaryError("npm override map is invalid")
+    if expected_overrides is not _UNSET:
+        if expected_overrides is None:
+            if isinstance(manifest, dict) and "overrides" in manifest:
+                raise DependencyBoundaryError("npm manifest overrides differ from descriptor")
+        elif overrides != npm_overrides(
+            expected_overrides, dependencies=dependencies
+        ):
+            raise DependencyBoundaryError("npm manifest overrides differ from descriptor")
     packages = lock.get("packages") if isinstance(lock, dict) else None
     if (
         lock.get("lockfileVersion") != 3
@@ -258,6 +294,37 @@ def validate_npm_lock(manifest_path: Path, lock_path: Path) -> None:
         found.add(path.rsplit("node_modules/", 1)[-1])
     if not dependencies or not set(dependencies) <= found:
         raise DependencyBoundaryError("npm lock is incomplete")
+    for parent, children in overrides.items():
+        parent_path = f"node_modules/{parent}"
+        parent_package = packages.get(parent_path)
+        if not isinstance(parent_package, dict):
+            raise DependencyBoundaryError("npm override parent is absent from lock")
+        declared = parent_package.get("dependencies", {})
+        if not isinstance(declared, dict):
+            raise DependencyBoundaryError("npm override parent dependencies are invalid")
+        for child, version in children.items():
+            if child not in declared:
+                raise DependencyBoundaryError("npm override target is not a parent dependency")
+            package_path = parent_path
+            resolved_package = None
+            while True:
+                candidate = (
+                    f"{package_path}/node_modules/{child}"
+                    if package_path
+                    else f"node_modules/{child}"
+                )
+                resolved_package = packages.get(candidate)
+                if isinstance(resolved_package, dict):
+                    break
+                if not package_path:
+                    break
+                marker = package_path.rfind("/node_modules/")
+                package_path = package_path[:marker] if marker >= 0 else ""
+            if (
+                not isinstance(resolved_package, dict)
+                or resolved_package.get("version") != version
+            ):
+                raise DependencyBoundaryError("npm lock does not bind its parent-scoped override")
 
 
 def validate_npm_console_script_bindings(
@@ -330,6 +397,8 @@ def validate_cohort(
         expected.add("browser_base")
     if isinstance(value, dict) and "source_build_preparer" in value:
         expected.add("source_build_preparer")
+    if isinstance(value, dict) and "npm_overrides" in value:
+        expected.add("npm_overrides")
     if not isinstance(value, dict) or set(value) != expected:
         raise DependencyBoundaryError("dependency cohort descriptor is invalid")
     if platform not in {"linux/arm64", "linux/amd64"}:
@@ -358,6 +427,8 @@ def validate_cohort(
     ) is None:
         raise DependencyBoundaryError("python version is invalid")
     npm = npm_dependencies(value["npm"])
+    if "npm_overrides" in value:
+        npm_overrides(value["npm_overrides"], dependencies=npm)
     python = python_requirements(value["python"])
     if not npm and not python:
         raise DependencyBoundaryError("dependency cohort is empty")

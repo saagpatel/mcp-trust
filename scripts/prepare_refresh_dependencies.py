@@ -266,13 +266,23 @@ def _normalize_npm_cache(cache: Path, *, source_date_epoch: int) -> None:
         path.write_bytes(content)
 
 
-def _package_json(cohort: str, packages: dict[str, str]) -> dict[str, Any]:
-    return {
+def _package_json(
+    cohort: str,
+    packages: dict[str, str],
+    overrides: dict[str, dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    manifest = {
         "name": f"mcp-trust-refresh-{cohort}",
         "version": "1.0.0",
         "private": True,
         "dependencies": dict(sorted(packages.items())),
     }
+    if overrides:
+        manifest["overrides"] = {
+            parent: dict(sorted(children.items()))
+            for parent, children in sorted(overrides.items())
+        }
+    return manifest
 
 
 def _prepare_npm(
@@ -287,7 +297,9 @@ def _prepare_npm(
     package_json = work / "package.json"
     package_lock = work / "package-lock.json"
     cache = work / "npm-cache"
-    package_json.write_bytes(_canonical(_package_json(cohort, config["npm"])))
+    package_json.write_bytes(
+        _canonical(_package_json(cohort, config["npm"], config.get("npm_overrides")))
+    )
     prefix = _container_prefix(image=node_image, work=work, network="bridge")
     _run(
         [
@@ -302,7 +314,12 @@ def _prepare_npm(
         ]
     )
     try:
-        dependency_boundary.validate_npm_lock(package_json, package_lock)
+        dependency_boundary.validate_npm_lock(
+            package_json,
+            package_lock,
+            expected_dependencies=config["npm"],
+            expected_overrides=config.get("npm_overrides"),
+        )
     except dependency_boundary.DependencyBoundaryError as exc:
         raise PreparationError("generated npm lock escapes the source policy") from exc
     _run(
@@ -462,6 +479,8 @@ def _validate_tracked_dependency_inputs(cohort: str, config: dict[str, Any]) -> 
             dependency_boundary.validate_npm_lock(
                 ROOT / manifest,
                 ROOT / lock,
+                expected_dependencies=config["npm"],
+                expected_overrides=config.get("npm_overrides"),
             )
         if config["python"]:
             manifest = dependency_boundary.repository_file(
