@@ -1,0 +1,144 @@
+{
+  "base_images": [
+    "node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436",
+    "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91"
+  ],
+  "build_commands": [
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima-mcp-trust-sandbox",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.live-batch-20260628",
+      "--output=type=oci,dest=tmp/qualification/live-batch-first.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-qualification:v0-8185baf74b1551477bc06d46f43dda5d0afd33b8b39b631b8911aacce0b0e516-first",
+      "."
+    ],
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima-mcp-trust-sandbox",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.live-batch-20260628",
+      "--output=type=oci,dest=tmp/qualification/live-batch-second.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-live-batch:20260628",
+      "."
+    ]
+  ],
+  "build_input_digest": "sha256:ebbedb1d0b169e20ce8cae02aa72c8a241c2cd7822b6cf5e1c3005f96af34c0e",
+  "build_network_policy": [
+    "none"
+  ],
+  "build_options": {
+    "builder": "buildx",
+    "cache": "disabled",
+    "load": false,
+    "output": "oci",
+    "provenance": false,
+    "pull": false,
+    "rewrite_timestamps": true,
+    "sbom": false
+  },
+  "build_source_sha256": "sha256:8b9543e530e9a3302c5ce26a844cf873b69eb41a5fce82fd43baa1cab1fbf96c",
+  "dependency_artifacts": {
+    "npm": {
+      "path": "docker/refresh/artifact-manifests/live-batch/npm.json",
+      "sha256": "sha256:29c5c627af18b43e83f5293b9be4313f9c9cb396043e4407ec58c532538b3ea0"
+    },
+    "python": {
+      "path": "docker/refresh/artifact-manifests/live-batch/python.json",
+      "sha256": "sha256:d79f752f2f23ef5d828c4eac73661f738a7536d43aa03a67a005f53184cd2ec8"
+    }
+  },
+  "dependency_locks": {
+    "npm": {
+      "path": "docker/refresh/locks/live-batch/package-lock.json",
+      "sha256": "sha256:458b7cab4283761a8c0cdbdf9958eab1e24176ae73d697d46b692d25584ba876"
+    },
+    "python": {
+      "path": "docker/refresh/locks/live-batch/requirements.lock",
+      "sha256": "sha256:58035793a4607c38ba38733dbfa78f634c4fd798b40d0c239cb587cbb6d6aaba"
+    }
+  },
+  "dependency_manifests": {
+    "npm": {
+      "path": "docker/refresh/locks/live-batch/package.json",
+      "sha256": "sha256:cc1552d89791dfc97d6eee47e6adfec1125fe6876b2e11dff58520646cf8d67d"
+    },
+    "python": {
+      "path": "docker/refresh/locks/live-batch/requirements.in",
+      "sha256": "sha256:beb8ae75c6c590eef9b09b30de78038b2bce07d2eb6cacbc02aeaa7e1b6b586b"
+    }
+  },
+  "execution_boundary": {
+    "builder_driver": "docker",
+    "builder_endpoint_matches_context": true,
+    "builder_name": "colima-mcp-trust-sandbox",
+    "docker_context": "colima-mcp-trust-sandbox",
+    "docker_transport": "local-unix",
+    "redirect_environment_policy": "exact-context-no-proxy",
+    "tool_execution_policy": "owner-private-digest-pinned-copies"
+  },
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "first_build_image_id": "sha256:69c9d21aaaadc50a175730c5bacc887efffad3c3eeaf9f4e78b657ce5ddf77b2",
+  "image_reference": "mcp-trust-live-batch:20260628",
+  "load_commands": [
+    [
+      "docker",
+      "--context",
+      "colima-mcp-trust-sandbox",
+      "load",
+      "-i",
+      "tmp/qualification/live-batch-first.oci.tar"
+    ],
+    [
+      "docker",
+      "--context",
+      "colima-mcp-trust-sandbox",
+      "load",
+      "-i",
+      "tmp/qualification/live-batch-second.oci.tar"
+    ]
+  ],
+  "observed_at": "2026-10-05T07:44:32.576350+00:00",
+  "platform": "linux/arm64",
+  "qualification_max_age_seconds": 86400,
+  "receipt_digest": "sha256:4b0e67a8b1871ffdeb40a1d4af06d91a4afd6bab445e0b350e518b136d17fba4",
+  "repeatable": true,
+  "schema": "McpTrustImageBuildQualificationV4",
+  "second_build_image_id": "sha256:69c9d21aaaadc50a175730c5bacc887efffad3c3eeaf9f4e78b657ce5ddf77b2",
+  "tool_digests": {
+    "docker": "sha256:deacb23aa53ec2514f15064ecb66125749d87cc122d29ad25c06f5d2e36702b5",
+    "docker_buildx": "sha256:5d6d95b711e7232beb39e011b3d20846b97ea0fb1cd7457f97cd27e89e235647"
+  },
+  "tool_versions": {
+    "buildkit_colima": "v0.30.0",
+    "docker_buildx": "v0.37.2",
+    "docker_client": "29.8.2",
+    "docker_server": "29.5.2"
+  }
+}
