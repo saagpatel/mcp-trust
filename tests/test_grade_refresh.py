@@ -1568,6 +1568,32 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
     [
         'RUN node --eval "console.log(1)"',
         'RUN nodejs --eval "console.log(1)"',
+        "RUN n'o'de -e 'console.log(1)'",
+        "RUN /usr/bin/n'o'de -e 'console.log(1)'",
+        'RUN env -Snode --eval "console.log(1)"',
+        'RUN env -Snodejs --eval "console.log(1)"',
+        "RUN env -S\"node\" -e 'console.log(1)'",
+        "RUN env -S'node' -e 'console.log(1)'",
+        "RUN env -S'no'\"de\" -e 'console.log(1)'",
+        'RUN env --split\'-string\'=\'no\'"de -e console.log(1)"',
+        'RUN env -iS\'no\'"de -e console.log(1)"',
+        'RUN /usr/bin/env -Snode --eval "console.log(1)"',
+        "RUN env --split-string='node -e console.log(1)'",
+        "RUN env --split-string \"node -e console.log(1)\"",
+        'RUN env --split-string=node --eval "console.log(1)"',
+        'RUN env --split-string node --eval "console.log(1)"',
+        'RUN ["env", "-Snode", "--eval", "console.log(1)"]',
+        'RUN ["env", "-S", "node -e console.log(1)"]',
+        'RUN ["env", "--split-string", "node -e console.log(1)"]',
+        'RUN ["node", "-e", "console.log(1)"]',
+        'RUN ["/usr/bin/node", "-e", "console.log(1)"]',
+        'RUN /usr/bin/node --eval "console.log(1)"',
+        "RUN sh -c 'env -Snode -e console.log(1)'",
+        'RUN ["sh", "-c", "env -Snode -e console.log(1)"]',
+        "RUN [\"sh\", \"-c\", \"env -S'n'\\\"o'\\\"'d'\\\"'e' -e console.log(1)\"]",
+        'RUN ["/bin/sh", "-c", "env --split-string=node -e console.log(1)"]',
+        "RUN node -e 'unterminated",
+        'RUN ["node", "-e",',
         'RUN node -p "process.env.SECRET"',
         'RUN node --print "process.env.SECRET"',
         "RUN node -econsole.log(1)",
@@ -1613,6 +1639,16 @@ def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
     negative.mkdir()
     _qualification_fixture(negative, docker_text=docker_text(extra_instruction))
     assert _qualification(negative) is None
+
+    combined = tmp_path / "combined"
+    combined.mkdir()
+    _qualification_fixture(
+        combined,
+        docker_text=docker_text(
+            smoke + " && env -S'no'\"de\" --eval 'console.log(process.env.SECRET)'"
+        ),
+    )
+    assert _qualification(combined) is None
 
     altered = tmp_path / "altered"
     altered.mkdir()

@@ -101,20 +101,87 @@ _APPROVED_NODE_SMOKE_SHA256 = (
 
 
 def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
-    node_runs = [
+    run_instructions = [
         instruction
         for instruction in instructions
         if instruction.upper().startswith("RUN ")
-        and re.search(
-            r"(?<![A-Za-z0-9_.-])node(?:js|\.exe)?(?=\s|$)",
-            instruction,
-            flags=re.IGNORECASE,
-        )
+    ]
+    parsed_runs = [
+        (instruction, _run_instruction_words(instruction))
+        for instruction in run_instructions
+    ]
+    if any(words is None for _, words in parsed_runs):
+        return False
+    if any(_run_uses_env_split_string(words) for _, words in parsed_runs if words is not None):
+        # env split-string accepts shell-like quoting and concatenation. Reject
+        # the option itself instead of trying to recover the resulting argv.
+        return False
+    if any(_run_uses_shell_c(words) for _, words in parsed_runs if words is not None):
+        # Nested shell programs are outside this bounded command inspection.
+        return False
+
+    node_runs = [
+        instruction
+        for instruction, words in parsed_runs
+        if words is not None and _run_has_node_executable(words)
     ]
     return not node_runs or (
         len(node_runs) == 1
         and node_runs[0].upper().startswith("RUN NODE -E ")
         and digest_bytes(node_runs[0].encode("utf-8")) == _APPROVED_NODE_SMOKE_SHA256
+    )
+
+
+def _run_instruction_words(instruction: str) -> list[str] | None:
+    """Normalize one Docker RUN instruction or fail closed on invalid syntax."""
+    body = instruction[4:].strip()
+    if body.startswith("["):
+        try:
+            words = json.loads(body)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(words, list) or not all(isinstance(word, str) for word in words):
+            return None
+    else:
+        try:
+            words = shlex.split(body, comments=True, posix=True)
+        except ValueError:
+            return None
+    return words
+
+
+def _run_uses_env_split_string(words: list[str]) -> bool:
+    """Detect env split-string options in normalized shell or JSON words."""
+
+    has_env = any(Path(word).name.lower() == "env" for word in words)
+    has_split_option = any(
+        word == "-S"
+        or (word.startswith("-") and not word.startswith("--") and "S" in word[1:])
+        or word == "--split-string"
+        or word.startswith("--split-string=")
+        for word in words
+    )
+    return has_env and has_split_option
+
+
+def _run_uses_shell_c(words: list[str]) -> bool:
+    """Reject explicit shell -c wrappers, whose nested programs are unparsed."""
+    shell_names = {"sh", "bash", "dash", "ash", "zsh"}
+    return any(
+        Path(word).name.lower() in shell_names
+        and any(
+            option == "-c" or (option.startswith("-") and "c" in option[1:])
+            for option in words[index + 1 :]
+        )
+        for index, word in enumerate(words)
+    )
+
+
+def _run_has_node_executable(words: list[str]) -> bool:
+    """Recognize Node executable words after shell/JSON quote normalization."""
+    return any(
+        Path(word).name.lower() in {"node", "nodejs", "node.exe", "nodejs.exe"}
+        for word in words
     )
 
 
