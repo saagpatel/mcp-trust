@@ -95,6 +95,29 @@ _STABLE_VERSION = re.compile(r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?
 _IMAGE_BUILD_TOOL_VERSION_KEYS = frozenset(
     {"docker_client", "docker_server", "docker_buildx", "buildkit_colima"}
 )
+_APPROVED_NODE_SMOKE_SHA256 = (
+    "sha256:fe859d7c6b4da26141d0e872870c1fd85fa0d7a98decda69864c0d01b9644206"
+)
+
+
+def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
+    node_runs = [
+        instruction
+        for instruction in instructions
+        if instruction.upper().startswith("RUN ")
+        and re.search(
+            r"(?<![A-Za-z0-9_.-])node(?:js|\.exe)?(?=\s|$)",
+            instruction,
+            flags=re.IGNORECASE,
+        )
+    ]
+    return not node_runs or (
+        len(node_runs) == 1
+        and node_runs[0].upper().startswith("RUN NODE -E ")
+        and digest_bytes(node_runs[0].encode("utf-8")) == _APPROVED_NODE_SMOKE_SHA256
+    )
+
+
 _GRADE_INDEX = {grade: index for index, grade in enumerate(("A", "B", "C", "D", "F"))}
 
 
@@ -1885,11 +1908,10 @@ def _image_build_qualification(
             " sh -c ",
             " bash -c ",
             "python -c ",
-            "node -e ",
             "$(",
             "`",
         )
-    ):
+    ) or not _only_approved_inline_node_smoke(instructions):
         return None
     if "npm ci" in normalized and "npm" not in locks:
         return None

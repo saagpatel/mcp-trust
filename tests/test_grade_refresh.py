@@ -1563,6 +1563,68 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
     )
 
 
+@pytest.mark.parametrize(
+    "extra_instruction",
+    [
+        'RUN node --eval "console.log(1)"',
+        'RUN nodejs --eval "console.log(1)"',
+        'RUN node -p "process.env.SECRET"',
+        'RUN node --print "process.env.SECRET"',
+        "RUN node -econsole.log(1)",
+        "RUN node -pconsole.log(1)",
+    ],
+)
+def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
+    tmp_path: Path,
+    extra_instruction: str,
+) -> None:
+    source = ROOT / "docker/refresh/Dockerfile.live-batch-20260628"
+    instructions: list[str] = []
+    continuation = ""
+    for raw_line in source.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            continuation += line[:-1].rstrip() + " "
+            continue
+        instructions.append((continuation + line).strip())
+        continuation = ""
+    smoke = next(item for item in instructions if item.startswith("RUN node -e "))
+
+    def docker_text(node_instruction: str = smoke) -> str:
+        rows = [
+            "FROM node@sha256:" + "b" * 64,
+            "COPY package.json /build/package.json",
+            "COPY package-lock.json /build/package-lock.json",
+            "COPY artifacts/npm.tar /offline/npm.tar",
+            node_instruction,
+        ]
+        rows.append(
+            "RUN mkdir -p /offline/npm && tar -xf /offline/npm.tar -C /offline/npm "
+            "&& npm ci --offline --cache /offline/npm"
+        )
+        return "\n".join(rows) + "\n"
+
+    _qualification_fixture(tmp_path, docker_text=docker_text())
+    assert _qualification(tmp_path)["state"] == "VERIFIED"
+
+    negative = tmp_path / "negative"
+    negative.mkdir()
+    _qualification_fixture(negative, docker_text=docker_text(extra_instruction))
+    assert _qualification(negative) is None
+
+    altered = tmp_path / "altered"
+    altered.mkdir()
+    changed_smoke = smoke.replace(
+        'assert.equal(sharp.versions.sharp,"0.35.4")',
+        'assert.equal(sharp.versions.sharp,"0.35.3")',
+    )
+    assert changed_smoke != smoke
+    _qualification_fixture(altered, docker_text=docker_text(changed_smoke))
+    assert _qualification(altered) is None
+
+
 def _source_build_receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
     input_path = tmp_path / "source-input.json"
     builder_path = tmp_path / "builder.py"
