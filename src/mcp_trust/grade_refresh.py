@@ -161,7 +161,7 @@ def _run_instruction_words(instruction: str) -> list[str] | None:
             return None
     else:
         try:
-            lexer = shlex.shlex(body, posix=True, punctuation_chars=";&|")
+            lexer = shlex.shlex(body, posix=True, punctuation_chars=";&|(){}")
             lexer.whitespace_split = True
             lexer.commenters = "#"
             words = list(lexer)

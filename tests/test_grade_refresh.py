@@ -1623,6 +1623,8 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         'RUN ${X}\\\nnode -e \'require("some-package")\'',
         "RUN printf x; $CMD -e 'require(\"some-package\")'",
         "RUN true;node -e 'require(\"some-package\")'",
+        "RUN (node -e 'require(\"some-package\")')",
+        "RUN launch(){node -e 'require(\"some-package\")';};launch",
         "RUN printf 'node -e \"require(some-package)\"' | sh",
         "RUN printf 'node -e require(pkg)' | /bin/bash",
     ],
