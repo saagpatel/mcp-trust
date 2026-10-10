@@ -161,7 +161,11 @@ def _run_instruction_words(instruction: str) -> list[str] | None:
             return None
     else:
         try:
-            lexer = shlex.shlex(body, posix=True, punctuation_chars=";&|(){}")
+            # Redirections can be attached directly to an executable token
+            # (for example, ``node</dev/null``). Tokenize their operators so
+            # the executable remains visible to the bounded command check.
+            # JSON exec form above intentionally keeps every argument literal.
+            lexer = shlex.shlex(body, posix=True, punctuation_chars=";&|(){}<>")
             lexer.whitespace_split = True
             lexer.commenters = "#"
             words = list(lexer)

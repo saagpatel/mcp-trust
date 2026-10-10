@@ -1627,6 +1627,11 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         "RUN launch(){node -e 'require(\"some-package\")';};launch",
         "RUN printf 'node -e \"require(some-package)\"' | sh",
         "RUN printf 'node -e require(pkg)' | /bin/bash",
+        "RUN node</dev/null /opt/npm/node_modules/pkg/script.js",
+        "RUN node>/tmp/node-output /opt/npm/node_modules/pkg/script.js",
+        "RUN node>>/tmp/node-output /opt/npm/node_modules/pkg/script.js",
+        "RUN node 3</dev/null /opt/npm/node_modules/pkg/script.js",
+        "RUN 2>/tmp/node-error node /opt/npm/node_modules/pkg/script.js",
     ],
 )
 def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
@@ -1688,6 +1693,16 @@ def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
     assert changed_smoke != smoke
     _qualification_fixture(altered, docker_text=docker_text(changed_smoke))
     assert _qualification(altered) is None
+
+
+def test_image_build_readback_keeps_json_exec_arguments_literal() -> None:
+    instruction = 'RUN ["printf", "node</dev/null"]'
+
+    assert grade_refresh._run_instruction_words(instruction) == [
+        "printf",
+        "node</dev/null",
+    ]
+    assert grade_refresh._only_approved_inline_node_smoke([instruction])
 
 
 def _source_build_receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
