@@ -116,8 +116,25 @@ def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
         # env split-string accepts shell-like quoting and concatenation. Reject
         # the option itself instead of trying to recover the resulting argv.
         return False
-    if any(_run_uses_shell_c(words) for _, words in parsed_runs if words is not None):
-        # Nested shell programs are outside this bounded command inspection.
+    if any(
+        _run_uses_shell_interpreter(words)
+        for _, words in parsed_runs
+        if words is not None
+    ):
+        # An explicit shell interpreter can consume quoted text or stdin as a
+        # nested program; these Docker RUN owners do not need one.
+        return False
+    if any(
+        _run_uses_shell_evaluation(words)
+        for _, words in parsed_runs
+        if words is not None
+    ):
+        # eval concatenates and executes shell input, including when reached
+        # through the command builtin. Do not inspect its nested text as argv.
+        return False
+    if any(_run_uses_unsupported_shell_expansion(instruction) for instruction in run_instructions):
+        # This bounded policy rejects dynamic shell syntax instead of trying to
+        # emulate expansion. The exact pinned smoke is the sole shell exception.
         return False
 
     node_runs = [
@@ -144,7 +161,10 @@ def _run_instruction_words(instruction: str) -> list[str] | None:
             return None
     else:
         try:
-            words = shlex.split(body, comments=True, posix=True)
+            lexer = shlex.shlex(body, posix=True, punctuation_chars=";&|")
+            lexer.whitespace_split = True
+            lexer.commenters = "#"
+            words = list(lexer)
         except ValueError:
             return None
     return words
@@ -164,17 +184,38 @@ def _run_uses_env_split_string(words: list[str]) -> bool:
     return has_env and has_split_option
 
 
-def _run_uses_shell_c(words: list[str]) -> bool:
-    """Reject explicit shell -c wrappers, whose nested programs are unparsed."""
-    shell_names = {"sh", "bash", "dash", "ash", "zsh"}
-    return any(
-        Path(word).name.lower() in shell_names
-        and any(
-            option == "-c" or (option.startswith("-") and "c" in option[1:])
-            for option in words[index + 1 :]
-        )
-        for index, word in enumerate(words)
-    )
+def _run_uses_shell_interpreter(words: list[str]) -> bool:
+    """Reject explicit shell invocations, including piped or quoted scripts."""
+    shell_names = {
+        "sh", "bash", "dash", "ash", "zsh", "ksh", "mksh",
+        "csh", "tcsh", "fish", "busybox",
+    }
+    return any(Path(word).name.lower() in shell_names for word in words)
+
+
+def _run_uses_shell_evaluation(words: list[str]) -> bool:
+    """Reject direct shell eval regardless of a command builtin prefix."""
+    return any(word == "eval" for word in words)
+
+
+def _run_uses_unsupported_shell_expansion(instruction: str) -> bool:
+    """Fail closed on shell expansion and evaluation syntax in RUN commands."""
+    body = instruction[4:].strip()
+    if body.startswith("["):
+        # JSON exec form passes literal argv and performs no shell expansion.
+        return False
+    if (
+        instruction.upper().startswith("RUN NODE -E ")
+        and digest_bytes(instruction.encode("utf-8")) == _APPROVED_NODE_SMOKE_SHA256
+    ):
+        return False
+    words = _run_instruction_words(instruction)
+    if words is None or any(word in {".", "source", "trap", "alias"} for word in words):
+        # Dot/source are shell evaluation builtins outside this command policy.
+        return True
+    # Cover parameter/command/arithmetic expansion, backtick substitution,
+    # pathname globs and brace expansion without partially parsing shell.
+    return bool(re.search(r"[$`*?~\[]|\{[^{}]*,[^{}]*\}", body))
 
 
 def _run_has_node_executable(words: list[str]) -> bool:

@@ -1598,6 +1598,33 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         'RUN node --print "process.env.SECRET"',
         "RUN node -econsole.log(1)",
         "RUN node -pconsole.log(1)",
+        "RUN X=; ${X}node -e 'require(\"some-package\")'",
+        "RUN $CMD -e 'require(\"some-package\")'",
+        "RUN \"${CMD}\" -e 'require(\"some-package\")'",
+        "RUN `printf node` -e 'require(\"some-package\")'",
+        "RUN $(printf node) -e 'require(\"some-package\")'",
+        "RUN *node -e 'require(\"some-package\")'",
+        "RUN ~root/bin/node -e 'require(\"some-package\")'",
+        "RUN env ${X}node -e 'require(\"some-package\")'",
+        "RUN command env X= ${X}node -e 'require(\"some-package\")'",
+        "RUN nice ${X}node -e 'require(\"some-package\")'",
+        "RUN exec \"${CMD}\" -e 'require(\"some-package\")'",
+        "RUN eval \"$CMD -e require('some-package')\"",
+        "RUN eval 'node -e \"require(some-package)\"'",
+        "RUN command eval 'node -e require(pkg)'",
+        "RUN source \"${SCRIPT}\"",
+        "RUN . \"${SCRIPT}\"",
+        "RUN source ./script.sh",
+        "RUN eval 'node -e \"require(some-package)\"'",
+        "RUN trap 'node -e \"require(some-package)\"' EXIT",
+        "RUN alias launch='node -e require(some-package)'",
+        "RUN . ./script.sh",
+        "RUN printf '%s' \"$(node -e 'require(\\\"some-package\\\")')\"",
+        'RUN ${X}\\\nnode -e \'require("some-package")\'',
+        "RUN printf x; $CMD -e 'require(\"some-package\")'",
+        "RUN true;node -e 'require(\"some-package\")'",
+        "RUN printf 'node -e \"require(some-package)\"' | sh",
+        "RUN printf 'node -e require(pkg)' | /bin/bash",
     ],
 )
 def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
@@ -2729,3 +2756,34 @@ def test_state_card_fails_closed_for_malformed_receipt_roots(
     assert expected_gate in state["outstanding_gates"]
     assert state["production_freshness"] == "UNKNOWN"
     assert "controlled-sandbox-candidate-repeat" not in state["completed_controls"]
+
+
+
+def test_image_build_readback_preserves_all_owned_refresh_dockerfiles() -> None:
+    paths = [
+        ROOT / "Dockerfile.scan",
+        ROOT / "docker/refresh/Dockerfile.live-batch-20260628",
+        ROOT / "docker/refresh/Dockerfile.batch3-20260703",
+        ROOT / "docker/refresh/Dockerfile.batch4-20260703",
+        ROOT / "docker/refresh/Dockerfile.basic-memory-20260823",
+    ]
+    assert all(path.is_file() for path in paths)
+    for path in paths:
+        instructions = _dockerfile_instructions(path)
+        assert grade_refresh._only_approved_inline_node_smoke(instructions), path.name
+
+
+def _dockerfile_instructions(path: Path) -> list[str]:
+    instructions: list[str] = []
+    continuation = ""
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            continuation += line[:-1].rstrip() + " "
+            continue
+        instructions.append((continuation + line).strip())
+        continuation = ""
+    assert not continuation
+    return instructions
