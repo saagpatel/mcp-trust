@@ -6,6 +6,7 @@ import subprocess
 import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -32,6 +33,12 @@ SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
 MASKED = ROOT / "masked-grades.json"
 POLICY = ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 NOW = datetime(2026, 8, 23, 13, 0, tzinfo=UTC)
+_TEST_ONLY_FIXED_DOCKERFILE_PINS = frozenset(
+    {
+        "sha256:4f996bda2f57bac26802c98849334ea4753d908bbbe40743308edf9a7c50977a",
+        "sha256:072c44721f94d04bb7f0c13fb4f9f7a36817fc4863386684033f706fa76e04ed",
+    }
+)
 
 
 @pytest.fixture(autouse=True)
@@ -1553,14 +1560,252 @@ def _rewrite_receipt(path: Path, payload: dict[str, object]) -> None:
 
 
 def _qualification(tmp_path: Path) -> dict[str, object] | None:
+    source_sha256 = grade_refresh.digest_file(tmp_path / "Dockerfile")
+    if source_sha256 in _TEST_ONLY_FIXED_DOCKERFILE_PINS:
+        pins = dict(grade_refresh._REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256)
+        pins["Dockerfile"] = source_sha256
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                grade_refresh,
+                "_REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256",
+                MappingProxyType(pins),
+            )
+            return grade_refresh._image_build_qualification(
+                repo_root=tmp_path,
+                reference="mcp-trust:test",
+                build_source="Dockerfile",
+                build_source_sha256=source_sha256,
+                receipt_path="qualification.json",
+                now=NOW,
+            )
     return grade_refresh._image_build_qualification(
         repo_root=tmp_path,
         reference="mcp-trust:test",
         build_source="Dockerfile",
-        build_source_sha256=grade_refresh.digest_file(tmp_path / "Dockerfile"),
+        build_source_sha256=source_sha256,
         receipt_path="qualification.json",
         now=NOW,
     )
+
+
+@pytest.mark.parametrize(
+    "extra_instruction",
+    [
+        'RUN node --eval "console.log(1)"',
+        'RUN nodejs --eval "console.log(1)"',
+        "RUN n'o'de -e 'console.log(1)'",
+        "RUN /usr/bin/n'o'de -e 'console.log(1)'",
+        'RUN env -Snode --eval "console.log(1)"',
+        'RUN env -Snodejs --eval "console.log(1)"',
+        "RUN env -S\"node\" -e 'console.log(1)'",
+        "RUN env -S'node' -e 'console.log(1)'",
+        "RUN env -S'no'\"de\" -e 'console.log(1)'",
+        'RUN env --split\'-string\'=\'no\'"de -e console.log(1)"',
+        'RUN env -iS\'no\'"de -e console.log(1)"',
+        'RUN /usr/bin/env -Snode --eval "console.log(1)"',
+        "RUN env --split-string='node -e console.log(1)'",
+        "RUN env --split-string \"node -e console.log(1)\"",
+        'RUN env --split-string=node --eval "console.log(1)"',
+        'RUN env --split-string node --eval "console.log(1)"',
+        'RUN ["env", "-Snode", "--eval", "console.log(1)"]',
+        'RUN ["env", "-S", "node -e console.log(1)"]',
+        'RUN ["env", "--split-string", "node -e console.log(1)"]',
+        'RUN ["node", "-e", "console.log(1)"]',
+        'RUN ["/usr/bin/node", "-e", "console.log(1)"]',
+        'RUN /usr/bin/node --eval "console.log(1)"',
+        "RUN sh -c 'env -Snode -e console.log(1)'",
+        'RUN ["sh", "-c", "env -Snode -e console.log(1)"]',
+        "RUN [\"sh\", \"-c\", \"env -S'n'\\\"o'\\\"'d'\\\"'e' -e console.log(1)\"]",
+        'RUN ["/bin/sh", "-c", "env --split-string=node -e console.log(1)"]',
+        "RUN node -e 'unterminated",
+        'RUN ["node", "-e",',
+        'RUN node -p "process.env.SECRET"',
+        'RUN node --print "process.env.SECRET"',
+        "RUN node -econsole.log(1)",
+        "RUN node -pconsole.log(1)",
+        "RUN X=; ${X}node -e 'require(\"some-package\")'",
+        "RUN $CMD -e 'require(\"some-package\")'",
+        "RUN \"${CMD}\" -e 'require(\"some-package\")'",
+        "RUN `printf node` -e 'require(\"some-package\")'",
+        "RUN $(printf node) -e 'require(\"some-package\")'",
+        "RUN *node -e 'require(\"some-package\")'",
+        "RUN ~root/bin/node -e 'require(\"some-package\")'",
+        "RUN env ${X}node -e 'require(\"some-package\")'",
+        "RUN command env X= ${X}node -e 'require(\"some-package\")'",
+        "RUN nice ${X}node -e 'require(\"some-package\")'",
+        "RUN exec \"${CMD}\" -e 'require(\"some-package\")'",
+        "RUN eval \"$CMD -e require('some-package')\"",
+        "RUN eval 'node -e \"require(some-package)\"'",
+        "RUN command eval 'node -e require(pkg)'",
+        "RUN source \"${SCRIPT}\"",
+        "RUN . \"${SCRIPT}\"",
+        "RUN source ./script.sh",
+        "RUN eval 'node -e \"require(some-package)\"'",
+        "RUN trap 'node -e \"require(some-package)\"' EXIT",
+        "RUN python3 -c 'import subprocess; subprocess.run([\"node\", \"-e\", \"require(pkg)\"])'",
+        "RUN awk 'BEGIN { system(\"node -e require(pkg)\") }'",
+        (
+            "RUN printf '%s\\n' 'node -e require(pkg)' | xargs -I{} python3 -c "
+            "'import subprocess; subprocess.run([\"node\", \"-e\", \"require(pkg)\"])'"
+        ),
+        "ENV NODE_OPTIONS=--require=/tmp/attacker.js PATH=/tmp/bin:$PATH",
+        "RUN alias launch='node -e require(some-package)'",
+        "RUN . ./script.sh",
+        "RUN printf '%s' \"$(node -e 'require(\\\"some-package\\\")')\"",
+        'RUN ${X}\\\nnode -e \'require("some-package")\'',
+        "RUN printf x; $CMD -e 'require(\"some-package\")'",
+        "RUN true;node -e 'require(\"some-package\")'",
+        "RUN (node -e 'require(\"some-package\")')",
+        "RUN launch(){node -e 'require(\"some-package\")';};launch",
+        "RUN printf 'node -e \"require(some-package)\"' | sh",
+        "RUN printf 'node -e require(pkg)' | /bin/bash",
+        "RUN node</dev/null /opt/npm/node_modules/pkg/script.js",
+        "RUN node>/tmp/node-output /opt/npm/node_modules/pkg/script.js",
+        "RUN node>>/tmp/node-output /opt/npm/node_modules/pkg/script.js",
+        "RUN node 3</dev/null /opt/npm/node_modules/pkg/script.js",
+        "RUN 2>/tmp/node-error node /opt/npm/node_modules/pkg/script.js",
+    ],
+)
+def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
+    tmp_path: Path,
+    extra_instruction: str,
+) -> None:
+    source = ROOT / "docker/refresh/Dockerfile.live-batch-20260628"
+    instructions: list[str] = []
+    continuation = ""
+    for raw_line in source.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            continuation += line[:-1].rstrip() + " "
+            continue
+        instructions.append((continuation + line).strip())
+        continuation = ""
+    smoke = next(item for item in instructions if item.startswith("RUN node -e "))
+
+    def docker_text(node_instruction: str = smoke) -> str:
+        rows = [
+            "FROM node@sha256:" + "b" * 64,
+            "COPY package.json /build/package.json",
+            "COPY package-lock.json /build/package-lock.json",
+            "COPY artifacts/npm.tar /offline/npm.tar",
+            node_instruction,
+        ]
+        rows.append(
+            "RUN mkdir -p /offline/npm && tar -xf /offline/npm.tar -C /offline/npm "
+            "&& npm ci --offline --cache /offline/npm"
+        )
+        return "\n".join(rows) + "\n"
+
+    _qualification_fixture(tmp_path, docker_text=docker_text())
+    assert _qualification(tmp_path)["state"] == "VERIFIED"
+
+    negative = tmp_path / "negative"
+    negative.mkdir()
+    _qualification_fixture(negative, docker_text=docker_text(extra_instruction))
+    assert _qualification(negative) is None
+
+    combined = tmp_path / "combined"
+    combined.mkdir()
+    _qualification_fixture(
+        combined,
+        docker_text=docker_text(
+            smoke + " && env -S'no'\"de\" --eval 'console.log(process.env.SECRET)'"
+        ),
+    )
+    assert _qualification(combined) is None
+
+    altered = tmp_path / "altered"
+    altered.mkdir()
+    changed_smoke = smoke.replace(
+        'assert.equal(sharp.versions.sharp,"0.35.4")',
+        'assert.equal(sharp.versions.sharp,"0.35.3")',
+    )
+    assert changed_smoke != smoke
+    _qualification_fixture(altered, docker_text=docker_text(changed_smoke))
+    assert _qualification(altered) is None
+
+    heredoc = tmp_path / "heredoc"
+    heredoc.mkdir()
+    _qualification_fixture(
+        heredoc,
+        docker_text=(
+            docker_text().replace(
+                smoke + "\n",
+                "RUN --mount=type=cache,target=/tmp <<-EOF\n"
+                "node -e 'require(\"some-package\")'\n"
+                "EOF\n"
+                + smoke
+                + "\n",
+                1,
+            )
+        ),
+    )
+    assert _qualification(heredoc) is None
+
+    custom_shell = tmp_path / "custom-shell"
+    custom_shell.mkdir()
+    _qualification_fixture(
+        custom_shell,
+        docker_text=(
+            docker_text().replace(
+                smoke + "\n",
+                'SHELL ["node", "-e"]\n'
+                'RUN require("some-package")\n'
+                'SHELL ["/bin/sh", "-c"]\n'
+                + smoke
+                + "\n",
+                1,
+            )
+        ),
+    )
+    assert _qualification(custom_shell) is None
+
+
+def test_image_build_readback_keeps_json_exec_arguments_literal() -> None:
+    instruction = 'RUN ["printf", "node</dev/null"]'
+
+    assert grade_refresh._run_instruction_words(instruction) == [
+        "printf",
+        "node</dev/null",
+    ]
+    assert grade_refresh._only_approved_inline_node_smoke([instruction])
+
+
+@pytest.mark.parametrize(
+    "extra_instruction",
+    [
+        'RUN\tnode -e \'require("some-package")\'',
+        'run   node -e \'require("some-package")\'',
+        "RUN\t",
+    ],
+)
+def test_image_build_readback_rejects_noncanonical_run_separators_in_receipt(
+    tmp_path: Path,
+    extra_instruction: str,
+) -> None:
+    source = ROOT / "docker/refresh/Dockerfile.live-batch-20260628"
+    smoke = next(
+        instruction
+        for instruction in _dockerfile_instructions(source)
+        if instruction.startswith("RUN node -e ")
+    )
+    docker_text = "\n".join(
+        [
+            "FROM node@sha256:" + "b" * 64,
+            "COPY package.json /build/package.json",
+            "COPY package-lock.json /build/package-lock.json",
+            "COPY artifacts/npm.tar /offline/npm.tar",
+            smoke,
+            extra_instruction,
+            "RUN mkdir -p /offline/npm && tar -xf /offline/npm.tar -C /offline/npm "
+            "&& npm ci --offline --cache /offline/npm",
+        ]
+    ) + "\n"
+    _qualification_fixture(tmp_path, docker_text=docker_text)
+
+    assert _qualification(tmp_path) is None
 
 
 def _source_build_receipt_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
@@ -2631,3 +2876,39 @@ def test_state_card_fails_closed_for_malformed_receipt_roots(
     assert expected_gate in state["outstanding_gates"]
     assert state["production_freshness"] == "UNKNOWN"
     assert "controlled-sandbox-candidate-repeat" not in state["completed_controls"]
+
+
+
+def test_image_build_readback_preserves_all_owned_refresh_dockerfiles() -> None:
+    pins = grade_refresh._REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256
+    assert set(pins) == {
+        "Dockerfile.scan",
+        "docker/refresh/Dockerfile.live-batch-20260628",
+        "docker/refresh/Dockerfile.batch3-20260703",
+        "docker/refresh/Dockerfile.batch4-20260703",
+        "docker/refresh/Dockerfile.basic-memory-20260823",
+    }
+    paths = [ROOT / path for path in pins]
+    assert all(path.is_file() for path in paths)
+    for path in paths:
+        instructions = _dockerfile_instructions(path)
+        assert grade_refresh._only_approved_inline_node_smoke(instructions), path.name
+        relative = path.relative_to(ROOT).as_posix()
+        assert grade_refresh.digest_file(path) == pins[relative]
+        assert grade_refresh._reviewed_image_build_source_matches(ROOT, relative)
+
+
+def _dockerfile_instructions(path: Path) -> list[str]:
+    instructions: list[str] = []
+    continuation = ""
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            continuation += line[:-1].rstrip() + " "
+            continue
+        instructions.append((continuation + line).strip())
+        continuation = ""
+    assert not continuation
+    return instructions

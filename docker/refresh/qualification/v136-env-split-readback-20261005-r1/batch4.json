@@ -1,0 +1,133 @@
+{
+  "base_images": [
+    "mcr.microsoft.com/playwright@sha256:5361940f845a5077926d54746122f7b68a121cc2aa27df6241087b774203fc44",
+    "node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03",
+    "python@sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91"
+  ],
+  "build_commands": [
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima-mcp-trust-sandbox",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.batch4-20260703",
+      "--output=type=oci,dest=tmp/qualification/batch4-first.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-qualification:v0-efa8c34ef6eebfa283af053b6c1151afb21e078d1f98444dbcda57ca8fda8a37-first",
+      "."
+    ],
+    [
+      "docker-buildx",
+      "build",
+      "--builder",
+      "colima-mcp-trust-sandbox",
+      "--network",
+      "none",
+      "--pull=false",
+      "--no-cache",
+      "--platform",
+      "linux/arm64",
+      "--provenance=false",
+      "--sbom=false",
+      "--build-arg",
+      "SOURCE_DATE_EPOCH=1710000000",
+      "-f",
+      "docker/refresh/Dockerfile.batch4-20260703",
+      "--output=type=oci,dest=tmp/qualification/batch4-second.oci.tar,rewrite-timestamp=true",
+      "-t",
+      "mcp-trust-batch4:20260703",
+      "."
+    ]
+  ],
+  "build_input_digest": "sha256:e60a59b68ccedb51c84544c35543d755c7f74f134b1e1a2c2d20f35384d85752",
+  "build_network_policy": [
+    "none"
+  ],
+  "build_options": {
+    "builder": "buildx",
+    "cache": "disabled",
+    "load": false,
+    "output": "oci",
+    "provenance": false,
+    "pull": false,
+    "rewrite_timestamps": true,
+    "sbom": false
+  },
+  "build_source_sha256": "sha256:dee9fdd58e100ed7e7ad8ea6de8b143ef8f70ee20d408a81df09d868a4655b51",
+  "dependency_artifacts": {
+    "npm": {
+      "path": "docker/refresh/artifact-manifests/batch4/npm.json",
+      "sha256": "sha256:031b9ecc85e9653fee9bee6af7cde0e0981c87668b9dfb93f32dc491428179f8"
+    }
+  },
+  "dependency_locks": {
+    "npm": {
+      "path": "docker/refresh/locks/batch4/package-lock.json",
+      "sha256": "sha256:3e625874045a7022d507cb38a9cf508c95522ee203f914d39d791ced937f6740"
+    }
+  },
+  "dependency_manifests": {
+    "npm": {
+      "path": "docker/refresh/locks/batch4/package.json",
+      "sha256": "sha256:0be486bbbd9d3602dad6bee45908cf6ee3b1c2a470d76193c8e511ab0cdc4978"
+    }
+  },
+  "execution_boundary": {
+    "builder_driver": "docker",
+    "builder_endpoint_matches_context": true,
+    "builder_name": "colima-mcp-trust-sandbox",
+    "docker_context": "colima-mcp-trust-sandbox",
+    "docker_transport": "local-unix",
+    "redirect_environment_policy": "exact-context-no-proxy",
+    "tool_execution_policy": "owner-private-digest-pinned-copies"
+  },
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "first_build_image_id": "sha256:757af81c253c08d1c809d6bac2c4a65a0996193fb7f36a56bad41425285808f8",
+  "image_reference": "mcp-trust-batch4:20260703",
+  "load_commands": [
+    [
+      "docker",
+      "--context",
+      "colima-mcp-trust-sandbox",
+      "load",
+      "-i",
+      "tmp/qualification/batch4-first.oci.tar"
+    ],
+    [
+      "docker",
+      "--context",
+      "colima-mcp-trust-sandbox",
+      "load",
+      "-i",
+      "tmp/qualification/batch4-second.oci.tar"
+    ]
+  ],
+  "observed_at": "2026-10-10T04:41:28.120009+00:00",
+  "platform": "linux/arm64",
+  "qualification_max_age_seconds": 86400,
+  "receipt_digest": "sha256:914c6d0e761d247227333ee802d8edd2fc2d38aaca9d0b7095d7b75332348024",
+  "repeatable": true,
+  "schema": "McpTrustImageBuildQualificationV4",
+  "second_build_image_id": "sha256:757af81c253c08d1c809d6bac2c4a65a0996193fb7f36a56bad41425285808f8",
+  "tool_digests": {
+    "docker": "sha256:d5a8e97986df13467ff99f71740267e60a96ad098397b204e8cf32dc2f1a8f4a",
+    "docker_buildx": "sha256:cad958b66cf6a0ade495bb9560341509dd8747e61345ba14303207f9bac2d9a3"
+  },
+  "tool_versions": {
+    "buildkit_colima": "v0.30.0",
+    "docker_buildx": "v0.38.0",
+    "docker_client": "29.9.0",
+    "docker_server": "29.5.2"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "attempt_id": "2bb34fcc866df09e98eca5e6a6a9e12e90a92a85329e6578468f42a7762475d9",
+  "attempt_path": "attempt-batch3-2bb34fcc866df09e98eca5e6a6a9e12e90a92a85329e6578468f42a7762475d9.json",
+  "attempt_sha256": "sha256:c8780bd941c960cc0c09534e4986dc05696e1eb04d4fa655d05b2728648fd80c",
+  "cohort": "batch3",
+  "exit_classification": "QUALIFIED_REPEATABLE",
+  "qualification_receipt": "batch3.json",
+  "qualification_receipt_digest": "sha256:2041ddecac98b993059c6156fd1a170513d728af4c264b0a23ff31376d9b57fa",
+  "qualification_receipt_sha256": "sha256:5ed29faabf8f39fdb2369eea29d8ea4eef5e915f2420e5f5bc3601566548439e",
+  "receipt_digest": "sha256:88239b12126c3fbf87a769afb1b02a1af07c4bc318314f22aade498c4e3d3c03",
+  "schema": "McpTrustImageQualificationCompletionV1"
+}

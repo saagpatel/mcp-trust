@@ -1,0 +1,30 @@
+{
+  "attempt_id": "729c927032855d4d90ac786b3c300c2c23daf2409d2710fb9b622f3924be1030",
+  "capacity_receipt": "capacity-basic-memory-95333bbf3f672d2e238f946f1242eefa13c06286e9796ae87ad749937fed8f04.json",
+  "capacity_receipt_digest": "sha256:95333bbf3f672d2e238f946f1242eefa13c06286e9796ae87ad749937fed8f04",
+  "capacity_receipt_sha256": "sha256:f2bec9048e42eb7ce333dca81614e626a7b27e34602893ceb012f87928fe7de2",
+  "claim_ceiling": "Pessimistic pre-mutation intent only; absent completion or cleanup evidence means Docker tag state and qualification remain UNKNOWN.",
+  "cohort": "basic-memory",
+  "exit_classification": "PENDING_DOCKER_MUTATION_CLEANUP",
+  "image_reference": "mcp-trust-basic-memory:20260823",
+  "oci_outputs": [
+    "tmp/qualification/basic-memory-first.oci.tar",
+    "tmp/qualification/basic-memory-second.oci.tar"
+  ],
+  "previous_final_image_id": null,
+  "receipt_digest": "sha256:0f45eca8e2247d1d5307b36d29a8b3c57e3d3d74ea4a649fb37c96f3158fa8a3",
+  "schema": "McpTrustImageQualificationAttemptV1",
+  "set_receipt_digest": "sha256:cad5b38fad4b6b249ae95c5ef1e691d6e6b2fd999374b37e7b3c014b191d380c",
+  "temporary_reference": "mcp-trust-qualification:v0-729c927032855d4d90ac786b3c300c2c23daf2409d2710fb9b622f3924be1030-first",
+  "tool_snapshot": {
+    "docker": {
+      "path": "tmp/qualification/tools/docker",
+      "sha256": "sha256:deacb23aa53ec2514f15064ecb66125749d87cc122d29ad25c06f5d2e36702b5"
+    },
+    "docker-buildx": {
+      "path": "tmp/qualification/tools/docker-buildx",
+      "sha256": "sha256:5d6d95b711e7232beb39e011b3d20846b97ea0fb1cd7457f97cd27e89e235647"
+    }
+  },
+  "validation_receipt": "tmp/qualification/basic-memory-receipt.json"
+}

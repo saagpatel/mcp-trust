@@ -1,0 +1,115 @@
+{
+  "authority": {
+    "append_only": true,
+    "deployment_performed": false,
+    "mcp_execution": false,
+    "publication_performed": false,
+    "scheduler_change_performed": false
+  },
+  "claim_ceiling": "Local append-only image qualification set binding only; incomplete, interrupted, or unadopted sets remain UNKNOWN and do not prove publication, deployment, scheduler operation, production freshness, or endorsement.",
+  "cohort_bindings": {
+    "basic-memory": {
+      "build_input_digest": "sha256:17c013303998341dbde73c97c94a52607a75d49e0fdc0531d1be09d095bc4955",
+      "build_source": "docker/refresh/Dockerfile.basic-memory-20260823",
+      "build_source_sha256": "sha256:c30e42fec27c98a7ff5edd3158df0a2b7c77064325179db83d0890d06c3a26c5",
+      "image_reference": "mcp-trust-basic-memory:20260823"
+    },
+    "batch3": {
+      "build_input_digest": "sha256:90fd0df3930356c24e0599b93b3bfedc22442d5b3994f1a94d4bc4b8197cf293",
+      "build_source": "docker/refresh/Dockerfile.batch3-20260703",
+      "build_source_sha256": "sha256:a4ec9084d726cf45acabc260b6a0b919b06db2d11d093a5a89dd314db633f248",
+      "image_reference": "mcp-trust-batch3:20260703"
+    },
+    "batch4": {
+      "build_input_digest": "sha256:e60a59b68ccedb51c84544c35543d755c7f74f134b1e1a2c2d20f35384d85752",
+      "build_source": "docker/refresh/Dockerfile.batch4-20260703",
+      "build_source_sha256": "sha256:dee9fdd58e100ed7e7ad8ea6de8b143ef8f70ee20d408a81df09d868a4655b51",
+      "image_reference": "mcp-trust-batch4:20260703"
+    },
+    "live-batch": {
+      "build_input_digest": "sha256:ebbedb1d0b169e20ce8cae02aa72c8a241c2cd7822b6cf5e1c3005f96af34c0e",
+      "build_source": "docker/refresh/Dockerfile.live-batch-20260628",
+      "build_source_sha256": "sha256:8b9543e530e9a3302c5ce26a844cf873b69eb41a5fce82fd43baa1cab1fbf96c",
+      "image_reference": "mcp-trust-live-batch:20260628"
+    },
+    "reference": {
+      "build_input_digest": "sha256:eb5cc78f8dbc7e37dc343c8b1fc3dd81ce906b94504dcee963507398a434c2a6",
+      "build_source": "Dockerfile.scan",
+      "build_source_sha256": "sha256:5f1d4dba3bd0fdc8b241736d427d9e52e25c513bbcd7c53476536006932ae048",
+      "image_reference": "mcp-trust-scan:corpus-2026-07-03"
+    }
+  },
+  "cohorts": [
+    "reference",
+    "live-batch",
+    "batch3",
+    "batch4",
+    "basic-memory"
+  ],
+  "dependency_inputs": {
+    "path": "docker/refresh/dependency-inputs.json",
+    "sha256": "sha256:2654073c43b7ac5b5af7eac6e7bb819b48ff1206e673b1cbeaa176f75b1d3fd4"
+  },
+  "qualification_script": {
+    "path": "scripts/qualify_refresh_images.py",
+    "sha256": "sha256:afaaeed9f002c386bc8e42924feecb64c7a957b161a442a99c478bdbea3da3e7"
+  },
+  "receipt_digest": "sha256:768a261793ef7c376198beeafdb99a33fe16c9c3fa4432e3d9c176ae44c460b6",
+  "receipt_set": "v138-redirection-readback-20261009-r1",
+  "schema": "McpTrustImageQualificationSetV1",
+  "source_binding": {
+    "file_digests": {
+      ".dockerignore": "sha256:d08a3c7a5090ce4d58c4260434480c4d4b2a7ab674128fe826dc7d322e48a487",
+      ".python-version": "sha256:db82937e1f1830581a9553c7814f5c5fcacb6dfdef8310b43e9a812c887acaf5",
+      "Dockerfile.scan": "sha256:5f1d4dba3bd0fdc8b241736d427d9e52e25c513bbcd7c53476536006932ae048",
+      "docker/refresh/Dockerfile.basic-memory-20260823": "sha256:c30e42fec27c98a7ff5edd3158df0a2b7c77064325179db83d0890d06c3a26c5",
+      "docker/refresh/Dockerfile.batch3-20260703": "sha256:a4ec9084d726cf45acabc260b6a0b919b06db2d11d093a5a89dd314db633f248",
+      "docker/refresh/Dockerfile.batch4-20260703": "sha256:dee9fdd58e100ed7e7ad8ea6de8b143ef8f70ee20d408a81df09d868a4655b51",
+      "docker/refresh/Dockerfile.live-batch-20260628": "sha256:8b9543e530e9a3302c5ce26a844cf873b69eb41a5fce82fd43baa1cab1fbf96c",
+      "docker/refresh/artifact-manifests/basic-memory/python.json": "sha256:22334d147a67399ed94acf89d399d449738423d072feb2aa1745fa3f2690710b",
+      "docker/refresh/artifact-manifests/batch3/npm.json": "sha256:0c561c9d13722454965c0c657d68c20f1b0771a95dfe5a70b48bee7ea28dafbe",
+      "docker/refresh/artifact-manifests/batch4/npm.json": "sha256:031b9ecc85e9653fee9bee6af7cde0e0981c87668b9dfb93f32dc491428179f8",
+      "docker/refresh/artifact-manifests/live-batch/npm.json": "sha256:29c5c627af18b43e83f5293b9be4313f9c9cb396043e4407ec58c532538b3ea0",
+      "docker/refresh/artifact-manifests/live-batch/python.json": "sha256:d79f752f2f23ef5d828c4eac73661f738a7536d43aa03a67a005f53184cd2ec8",
+      "docker/refresh/artifact-manifests/reference/npm.json": "sha256:045bfd9c8903182a286ae97332f0689fe1634e596da3f0476f5a6776c7d2b747",
+      "docker/refresh/artifact-manifests/reference/python.json": "sha256:de536c39f2e81d3cf943353a4caf5efb5622465d2c7260f2c15b10fa821fe15e",
+      "docker/refresh/dependency-inputs.json": "sha256:2654073c43b7ac5b5af7eac6e7bb819b48ff1206e673b1cbeaa176f75b1d3fd4",
+      "docker/refresh/locks/basic-memory/requirements.in": "sha256:3900171289bf950536014309eec3435257d3972e4a6f1a9e7ffa2cbd82351085",
+      "docker/refresh/locks/basic-memory/requirements.lock": "sha256:67fa8d9549bdd972f26086c4fa6b9e2168d2d2f9c586494310493794be1582c4",
+      "docker/refresh/locks/batch3/package-lock.json": "sha256:2c739104bab1080b5225a66af7b6a91dc66ece46d8c068074540553b740e2a99",
+      "docker/refresh/locks/batch3/package.json": "sha256:e6135c56c908eafa1cce36945698d59918d2b14f47cabd2a87aa9b94ff8454b1",
+      "docker/refresh/locks/batch4/package-lock.json": "sha256:3e625874045a7022d507cb38a9cf508c95522ee203f914d39d791ced937f6740",
+      "docker/refresh/locks/batch4/package.json": "sha256:0be486bbbd9d3602dad6bee45908cf6ee3b1c2a470d76193c8e511ab0cdc4978",
+      "docker/refresh/locks/live-batch/package-lock.json": "sha256:458b7cab4283761a8c0cdbdf9958eab1e24176ae73d697d46b692d25584ba876",
+      "docker/refresh/locks/live-batch/package.json": "sha256:cc1552d89791dfc97d6eee47e6adfec1125fe6876b2e11dff58520646cf8d67d",
+      "docker/refresh/locks/live-batch/requirements.in": "sha256:beb8ae75c6c590eef9b09b30de78038b2bce07d2eb6cacbc02aeaa7e1b6b586b",
+      "docker/refresh/locks/live-batch/requirements.lock": "sha256:58035793a4607c38ba38733dbfa78f634c4fd798b40d0c239cb587cbb6d6aaba",
+      "docker/refresh/locks/reference/package-lock.json": "sha256:033698780c32b8fe660512e75a50adc9b77eed2721bfa1db0bd0786efd3d86af",
+      "docker/refresh/locks/reference/package.json": "sha256:9e4164b43f9b10e64d172dcb471029a6e960dda31ba6213ebb51b3b446302d9a",
+      "docker/refresh/locks/reference/requirements.in": "sha256:d31dee2039eaeaaaa1fa55c6066784ed20ec472d245b89e755cf0c7195fd8009",
+      "docker/refresh/locks/reference/requirements.lock": "sha256:580d7d610837939780e822ad2fbc82097ab0b1c9cc019b0eef9d7d2a49b43aff",
+      "docker/refresh/source-build-inputs/basic-memory.json": "sha256:360bc4162758bef8ae8930120b441c592a760887d40868d7ad7f12f18f3dff3c",
+      "docker/refresh/source-builds/basic-memory.json": "sha256:d1977a1b289986088b8bccec01f5312972fe4e75f295834be9db0e6314369dba",
+      "pyproject.toml": "sha256:d8b7bca0b224fb5e47b6bb33062f6783b82ca7132d41e412da591c91cbd4228d",
+      "scripts/build_legacy_python_wheels.py": "sha256:33651b8b4a5a5eb3fa95d4c6a16790df3a21a090ed4b1c86893bb2a0a3f7ba77",
+      "scripts/grade_refresh.py": "sha256:7130cb50caaf0cdc40aacb9e92e8c5a7d52b0fe9163a1a66e76f421d0eec96c2",
+      "scripts/prepare_basic_memory_dependencies.py": "sha256:5d00f42a8c209cb7da1ee49f9aa151b2ef8555acc5425038fb9d9983da22b8e2",
+      "scripts/qualify_refresh_images.py": "sha256:afaaeed9f002c386bc8e42924feecb64c7a957b161a442a99c478bdbea3da3e7",
+      "src/mcp_trust/__init__.py": "sha256:3b00503f30f669e1066c807627b9c84a94040e7dea40cd8ed96cb6418c78fc47",
+      "src/mcp_trust/core/__init__.py": "sha256:81841721dd63f9e29736f6d0a0fbe7326cc692f22e0ce813882c82c0c8383049",
+      "src/mcp_trust/core/grading.py": "sha256:d4de2e3d4cd5be75f7de214db68ccab70559edb269e8474a5abb7440cee00cb9",
+      "src/mcp_trust/core/models.py": "sha256:13e2eb07ce2ff3f2e523d1ffc8beaa62a0935b6e95c9eba6972bd251d42aa7ba",
+      "src/mcp_trust/dependency_boundary.py": "sha256:5b6dbb2d27cb1429865783b1b9305717e4ed5ad888cbd838326eec53b17cd3b6",
+      "src/mcp_trust/engine/__init__.py": "sha256:748521278614331c07b97fff61d2a6d45ead0621e4a6482d0470de8b65dec435",
+      "src/mcp_trust/engine/base.py": "sha256:c2c9c2cabb8864e053ee5b597e4257dbd63704198a7f7ca6a9a95cfc1bf23bc4",
+      "src/mcp_trust/engine/runtime.py": "sha256:33e7661948a9cd8db9462aefb9c89e457175d06a5680ba430920615d1a52646c",
+      "src/mcp_trust/engine/sandbox.py": "sha256:aec6ea3ba365ef580da92f1c65ce30d82a9ee9882c2130cb70a7f92151ba3c35",
+      "src/mcp_trust/engine/stub.py": "sha256:0f3a9a100925b36b43094920cff8d1df510d8403cf4fc38779f6d6f626c5c072",
+      "src/mcp_trust/grade_refresh.py": "sha256:216010689fdf91fc077c1c7e685fb359d6b32fe6b6474c4d0ba6190f643ff19d",
+      "src/mcp_trust/host_capacity.py": "sha256:a9080cd31cfbaf7114ccc38b070f40e56cd933455ebfeb59076483d2488d9443",
+      "uv.lock": "sha256:fb3a5227f2ee35465572e81d2b6c5e8ff51dcf663fcee0528e05544cf2b92a20"
+    },
+    "origin_revision": "7986f960585014e99a71012fef63994e18473db9",
+    "source_digest": "sha256:fd9472133fd097e1088c069389fa3cccc4ae3139dece3d402f7c6bf9bc2bf39f"
+  }
+}

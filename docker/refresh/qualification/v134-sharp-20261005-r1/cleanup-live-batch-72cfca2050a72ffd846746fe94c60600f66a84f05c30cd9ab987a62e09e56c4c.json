@@ -1,0 +1,35 @@
+{
+  "attempt_id": "72cfca2050a72ffd846746fe94c60600f66a84f05c30cd9ab987a62e09e56c4c",
+  "attempt_path": "attempt-live-batch-72cfca2050a72ffd846746fe94c60600f66a84f05c30cd9ab987a62e09e56c4c.json",
+  "attempt_sha256": "sha256:a5a759a0c1b9518e5c0f0bcf63f028e47808d8c9cd2fcbff8f2b0abbe1285252",
+  "capacity_receipt": "capacity-live-batch-56758e518dd727b63165d80c4c2980072b98974261eda1a18be26366d44ffe38.json",
+  "capacity_receipt_digest": "sha256:56758e518dd727b63165d80c4c2980072b98974261eda1a18be26366d44ffe38",
+  "capacity_receipt_sha256": "sha256:6ce2b338f07b68af7ba09d347721f1eb3bb5408ac6a2bf9895189baeea783a8b",
+  "claim_ceiling": "Exact task-owned interruption cleanup readback only; no image qualification, MCP execution, publication, deployment, or freshness claim.",
+  "cohort": "live-batch",
+  "execution_boundary": {
+    "builder_driver": "docker",
+    "builder_endpoint_matches_context": true,
+    "builder_name": "colima-mcp-trust-sandbox",
+    "docker_context": "colima-mcp-trust-sandbox",
+    "docker_transport": "local-unix",
+    "redirect_environment_policy": "exact-context-no-proxy",
+    "tool_execution_policy": "owner-private-digest-pinned-copies"
+  },
+  "exit_classification": "CLEANUP_CONFIRMED",
+  "final_tag_state": "TASK_OWNED_RETAINED",
+  "oci_outputs_absent": true,
+  "receipt_digest": "sha256:040e7ec6797bbaa26c904fe706e659e3c6de7d5ebed0a74a6210f63b25b52491",
+  "schema": "McpTrustImageQualificationCleanupV1",
+  "temporary_tag_absent": true,
+  "tool_digests": {
+    "docker": "sha256:deacb23aa53ec2514f15064ecb66125749d87cc122d29ad25c06f5d2e36702b5",
+    "docker_buildx": "sha256:5d6d95b711e7232beb39e011b3d20846b97ea0fb1cd7457f97cd27e89e235647"
+  },
+  "tool_versions": {
+    "buildkit_colima": "v0.30.0",
+    "docker_buildx": "v0.37.2",
+    "docker_client": "29.8.2",
+    "docker_server": "29.5.2"
+  }
+}

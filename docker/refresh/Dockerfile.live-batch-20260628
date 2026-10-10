@@ -36,7 +36,21 @@ ENV HOME=/scan \
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY --from=npm-dependencies /opt/npm/node_modules /opt/npm/node_modules
 COPY --from=python-dependencies /opt/venv /opt/venv
-RUN readlink /opt/npm/node_modules/.bin/adeu-mcp-server | grep -Fqx -- "../@adeu/mcp-server/dist/index.js" \
+RUN node -e 'const assert=require("node:assert/strict"); \
+    const {createRequire}=require("node:module"); \
+    const imageDiffRequire=createRequire("/opt/npm/node_modules/@pulsemcp/image-diff-mcp-server/build/index.js"); \
+    const sharp=imageDiffRequire("sharp"); \
+    assert.equal(sharp.versions.sharp,"0.35.4"); \
+    assert.equal(sharp.versions.vips,"8.18.6"); \
+    (async()=>{ \
+      const pixels=Buffer.from([255,0,0,255,0,0,255,0,0,255,0,0]); \
+      const png=await sharp(pixels,{raw:{width:2,height:2,channels:3}}).png().toBuffer(); \
+      const {data,info}=await sharp(png).resize(1,1).raw().toBuffer({resolveWithObject:true}); \
+      assert.deepEqual({width:info.width,height:info.height,channels:info.channels},{width:1,height:1,channels:3}); \
+      assert.deepEqual([...data],[255,0,0]); \
+      console.log("sharp native smoke passed: sharp 0.35.4, libvips 8.18.6, PNG encode/decode/resize"); \
+    })().catch((error)=>{console.error(error);process.exitCode=1;});' \
+    && readlink /opt/npm/node_modules/.bin/adeu-mcp-server | grep -Fqx -- "../@adeu/mcp-server/dist/index.js" \
     && readlink /opt/npm/node_modules/.bin/kage-graph-mcp | grep -Fqx -- "../@kage-core/kage-graph-mcp/dist/index.js" \
     && readlink /opt/npm/node_modules/.bin/image-diff-mcp-server | grep -Fqx -- "../@pulsemcp/image-diff-mcp-server/build/index.js" \
     && readlink /opt/npm/node_modules/.bin/intent-engineering-mcp | grep -Fqx -- "../@swins/intent-engineering-mcp/build/index.js" \
