@@ -11,7 +11,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -604,6 +604,34 @@ def test_direct_qualifier_rechecks_set_source_before_any_runtime_action(
             tools=_tool_paths(),
             capacity_gate=_capacity_gate(module),
             cohorts=cohorts,
+        )
+
+
+def test_qualification_preflight_rejects_unreviewed_recipe_before_set_or_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _script("qualify_refresh_images.py")
+    monkeypatch.setattr(
+        module.grade_refresh,
+        "_reviewed_image_build_source_matches",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        module,
+        "_open_receipt_set",
+        lambda *_args, **_kwargs: pytest.fail("receipt set opened before recipe admission"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("runner invoked before recipe admission"),
+    )
+
+    with pytest.raises(module.QualificationError, match="unreviewed Dockerfile recipe: reference"):
+        module._main_locked(
+            args=SimpleNamespace(receipt_set="v122-unreviewed", cohort="reference"),
+            cohort="reference",
+            capacity_gate=_capacity_gate(module),
         )
 
 

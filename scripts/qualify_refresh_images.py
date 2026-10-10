@@ -19,6 +19,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from mcp_trust import dependency_boundary, grade_refresh
@@ -43,6 +44,15 @@ _SAFE_RECEIPT_SET = re.compile(
     r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$"
 )
 COHORTS = ("reference", "live-batch", "batch3", "batch4", "basic-memory")
+_REVIEWED_DOCKERFILE_BY_COHORT = MappingProxyType(
+    {
+        "reference": "Dockerfile.scan",
+        "live-batch": "docker/refresh/Dockerfile.live-batch-20260628",
+        "batch3": "docker/refresh/Dockerfile.batch3-20260703",
+        "batch4": "docker/refresh/Dockerfile.batch4-20260703",
+        "basic-memory": "docker/refresh/Dockerfile.basic-memory-20260823",
+    }
+)
 QUALIFICATION_SET_SCHEMA = "McpTrustImageQualificationSetV1"
 QUALIFICATION_ATTEMPT_SCHEMA = "McpTrustImageQualificationAttemptV1"
 QUALIFICATION_COMPLETION_SCHEMA = "McpTrustImageQualificationCompletionV1"
@@ -832,6 +842,24 @@ def _validate_console_script_contract(cohorts: dict[str, Any]) -> None:
             observed.add(reference)
     if observed != set(NPM_CONSOLE_SCRIPT_BINDINGS):
         raise QualificationError("npm console-script qualification coverage differs")
+
+
+def _validate_reviewed_build_sources(cohorts: dict[str, Any]) -> None:
+    if set(cohorts) != set(_REVIEWED_DOCKERFILE_BY_COHORT):
+        raise QualificationError("reviewed Dockerfile cohort coverage differs")
+    for cohort, expected_path in _REVIEWED_DOCKERFILE_BY_COHORT.items():
+        config = cohorts.get(cohort)
+        if not isinstance(config, dict):
+            raise QualificationError(f"dependency cohort is unavailable: {cohort}")
+        try:
+            dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
+        except (KeyError, dependency_boundary.DependencyBoundaryError) as exc:
+            raise QualificationError(f"reviewed Dockerfile is unavailable: {cohort}") from exc
+        if (
+            dockerfile != expected_path
+            or not grade_refresh._reviewed_image_build_source_matches(ROOT, dockerfile)
+        ):
+            raise QualificationError(f"unreviewed Dockerfile recipe: {cohort}")
 
 
 def _cohort_base_images(config: dict[str, Any]) -> list[str]:
@@ -1709,6 +1737,9 @@ def qualify(
         )
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
+    dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
+    if not grade_refresh._reviewed_image_build_source_matches(ROOT, dockerfile):
+        raise QualificationError(f"unreviewed Dockerfile recipe: {cohort}")
     if cohorts is not None:
         _require_current_set_source(set_manifest, cohorts)
     _require_safe_directory(receipt_root, label="qualification receipt set")
@@ -1726,7 +1757,6 @@ def qualify(
         if current_cohort_binding != expected_cohort_binding:
             raise QualificationError("qualification cohort input changed during execution")
     image_reference = dependency_boundary.local_image_tag(config["image_reference"])
-    dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
     build_source_sha256 = grade_refresh.digest_file(ROOT / dockerfile)
     base_images = _cohort_base_images(config)
     manifests, locks, artifacts, normalized_locks, normalized_artifacts = (
@@ -2161,6 +2191,7 @@ def _main_locked(
     except dependency_boundary.DependencyBoundaryError as exc:
         raise QualificationError(str(exc)) from exc
     cohorts = payload["cohorts"]
+    _validate_reviewed_build_sources(cohorts)
     _validate_console_script_contract(cohorts)
     platform = payload.get("platform")
     if not isinstance(platform, str):

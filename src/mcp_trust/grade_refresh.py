@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -98,19 +99,57 @@ _IMAGE_BUILD_TOOL_VERSION_KEYS = frozenset(
 _APPROVED_NODE_SMOKE_SHA256 = (
     "sha256:fe859d7c6b4da26141d0e872870c1fd85fa0d7a98decda69864c0d01b9644206"
 )
+_REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256 = MappingProxyType(
+    {
+        "Dockerfile.scan": (
+            "sha256:5f1d4dba3bd0fdc8b241736d427d9e52e25c513bbcd7c53476536006932ae048"
+        ),
+        "docker/refresh/Dockerfile.live-batch-20260628": (
+            "sha256:8b9543e530e9a3302c5ce26a844cf873b69eb41a5fce82fd43baa1cab1fbf96c"
+        ),
+        "docker/refresh/Dockerfile.batch3-20260703": (
+            "sha256:a4ec9084d726cf45acabc260b6a0b919b06db2d11d093a5a89dd314db633f248"
+        ),
+        "docker/refresh/Dockerfile.batch4-20260703": (
+            "sha256:dee9fdd58e100ed7e7ad8ea6de8b143ef8f70ee20d408a81df09d868a4655b51"
+        ),
+        "docker/refresh/Dockerfile.basic-memory-20260823": (
+            "sha256:c30e42fec27c98a7ff5edd3158df0a2b7c77064325179db83d0890d06c3a26c5"
+        ),
+    }
+)
+
+
+def _reviewed_image_build_source_matches(repo_root: Path, build_source: str) -> bool:
+    """Require the exact reviewed recipe bytes before accepting build evidence."""
+    expected = _REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256.get(build_source)
+    if expected is None:
+        return False
+    try:
+        return digest_bytes((repo_root / build_source).read_bytes()) == expected
+    except OSError:
+        return False
 
 
 def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
+    if any(
+        re.match(r"^SHELL(?:\s|$)", instruction, re.IGNORECASE)
+        for instruction in instructions
+    ):
+        # SHELL changes how later shell-form RUN instructions are interpreted.
+        # These owned Dockerfiles do not need a custom shell, so reject the
+        # directive rather than trying to model Docker's stateful semantics.
+        return False
     run_instructions = [
         instruction
         for instruction in instructions
-        if instruction.upper().startswith("RUN ")
+        if instruction.split(None, 1) and instruction.split(None, 1)[0].upper() == "RUN"
     ]
     parsed_runs = [
         (instruction, _run_instruction_words(instruction))
         for instruction in run_instructions
     ]
-    if any(words is None for _, words in parsed_runs):
+    if any(not words for _, words in parsed_runs):
         return False
     if any(_run_uses_env_split_string(words) for _, words in parsed_runs if words is not None):
         # env split-string accepts shell-like quoting and concatenation. Reject
@@ -151,7 +190,12 @@ def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
 
 def _run_instruction_words(instruction: str) -> list[str] | None:
     """Normalize one Docker RUN instruction or fail closed on invalid syntax."""
-    body = instruction[4:].strip()
+    parts = instruction.split(None, 1)
+    if len(parts) != 2 or parts[0].upper() != "RUN":
+        return None
+    body = parts[1].strip()
+    if not body:
+        return None
     if body.startswith("["):
         try:
             words = json.loads(body)
@@ -204,7 +248,10 @@ def _run_uses_shell_evaluation(words: list[str]) -> bool:
 
 def _run_uses_unsupported_shell_expansion(instruction: str) -> bool:
     """Fail closed on shell expansion and evaluation syntax in RUN commands."""
-    body = instruction[4:].strip()
+    parts = instruction.split(None, 1)
+    if len(parts) != 2 or parts[0].upper() != "RUN":
+        return True
+    body = parts[1].strip()
     if body.startswith("["):
         # JSON exec form passes literal argv and performs no shell expansion.
         return False
@@ -214,8 +261,12 @@ def _run_uses_unsupported_shell_expansion(instruction: str) -> bool:
     ):
         return False
     words = _run_instruction_words(instruction)
-    if words is None or any(word in {".", "source", "trap", "alias"} for word in words):
+    if words is None or any(
+        word in {".", "source", "trap", "alias", "<<", "<<-"} for word in words
+    ):
         # Dot/source are shell evaluation builtins outside this command policy.
+        # Heredocs turn following Dockerfile lines into shell input, so the
+        # physical RUN line alone cannot describe the executed program.
         return True
     # Cover parameter/command/arithmetic expansion, backtick substitution,
     # pathname globs and brace expansion without partially parsing shell.
@@ -1867,6 +1918,12 @@ def _image_build_qualification(
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Validate a deterministic two-build receipt against tracked source bytes."""
+    if (
+        not _reviewed_image_build_source_matches(repo_root, build_source)
+        or _REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256.get(build_source)
+        != build_source_sha256
+    ):
+        return None
     path = repo_root / receipt_path
     if not path.is_file():
         return None
