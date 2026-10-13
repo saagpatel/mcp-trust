@@ -187,8 +187,8 @@ def _receipts(
             "secret_policy": "no-live-secrets-dummy-network-off-only",
         },
         "tool_versions": {
-            "python": "3.11.15",
-            "python_executable": "python3.11",
+            "python": "3.15.0",
+            "python_executable": "python3.15",
             "mcp_audits": "2.7.0",
             "mcp_audits_locked": "2.7.0",
             "mcp_trust": "0.1.0",
@@ -306,25 +306,25 @@ def test_operator_package_sanitizes_installed_launchagent_path(tmp_path: Path) -
         scheduler={
             "state": "DISABLED_UNLOADED",
             "installed_plist": (
-                "/Users/private/Library/LaunchAgents/"
-                "com.d.mcp-trust-refresh.plist"
+                "/Users/private/Library/LaunchAgents/com.d.mcp-trust-refresh.plist"
             ),
             "mutation_performed": False,
         },
     )
 
     state = json.loads((output / "state-card.json").read_text(encoding="utf-8"))
-    assert state["scheduler_state"]["installed_plist"] == (
-        "com.d.mcp-trust-refresh.plist"
+    assert state["scheduler_state"]["installed_plist"] == ("com.d.mcp-trust-refresh.plist")
+    assert (
+        verify_operator_review_package(
+            output,
+            task_id="task-fixture",
+            preflight_path=preflight,
+            repeatability_path=repeatability,
+            seed_path=SEED,
+            masked_path=MASKED,
+        )["privacy_validated"]
+        is True
     )
-    assert verify_operator_review_package(
-        output,
-        task_id="task-fixture",
-        preflight_path=preflight,
-        repeatability_path=repeatability,
-        seed_path=SEED,
-        masked_path=MASKED,
-    )["privacy_validated"] is True
 
 
 def test_operator_package_binds_exact_candidate_and_rollback_lineage(
@@ -761,9 +761,7 @@ def test_operator_package_routes_absent_engine_materialization_before_images(
     )
     payload["authority"]["candidate_build"] = False
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     output = tmp_path / "package"
@@ -800,9 +798,7 @@ def test_operator_package_routes_absent_engine_materialization_before_images(
         capsule["capsule"]["waiting_condition"]["code"]
         == "exact-mcp-audits-materialization-approval-required"
     )
-    assert capsule["capsule"]["resume_states"] == [
-        "exact-mcp-audits-materialization-authorized"
-    ]
+    assert capsule["capsule"]["resume_states"] == ["exact-mcp-audits-materialization-authorized"]
 
 
 @pytest.mark.parametrize("engine_state", ["missing", "malformed"])
@@ -831,9 +827,7 @@ def test_operator_package_rejects_hidden_blocked_engine_failure(
             grade_refresh.canonical_bytes(materialization)
         )
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     with pytest.raises(
@@ -867,9 +861,7 @@ def test_operator_package_preserves_image_gate_with_ready_engine(
     )
     payload["authority"]["candidate_build"] = False
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
 
     output = tmp_path / "package"
@@ -909,9 +901,7 @@ def test_operator_package_reproduces_blocked_engine_before_image_gate(
     )
     payload["authority"]["candidate_build"] = False
     payload.pop("receipt_digest")
-    payload["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(payload)
-    )
+    payload["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(payload))
     _write_json(preflight, payload)
     monkeypatch.setattr(
         operator_package,

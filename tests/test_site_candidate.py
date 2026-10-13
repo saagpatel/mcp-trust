@@ -142,7 +142,7 @@ def _fixture(tmp_path: Path) -> dict[str, object]:
             "source_revision": "b" * 40,
             "source_tree_digest": "sha256:" + "c" * 64,
             "qualified_images": {"fixture": "sha256:" + "d" * 64},
-            "tool_versions": {"python": "3.11.15", "python_executable": "python3.11"},
+            "tool_versions": {"python": "3.15.0", "python_executable": "python3.15"},
         },
         "scheduler_disposition": {
             "activation_authorized": False,

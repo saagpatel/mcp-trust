@@ -112,6 +112,7 @@ _MAX_ARTIFACT_PATH_DEPTH = 16
 _MAX_JSON_STRING_CHARS = 65_536
 _MAX_JSON_NODES = 100_000
 _MAX_JSON_NUMBER_CHARS = 256
+_MAX_JSON_NESTING = 1_000
 _CANDIDATE_STATES = frozenset({"fixture", "partial", "complete"})
 _MANIFEST_KEYS_V1 = frozenset(
     {
@@ -354,9 +355,33 @@ def _json_values_are_bounded_and_display_safe(payload: Any) -> bool:
     return True
 
 
+def _check_json_nesting(text: str) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > _MAX_JSON_NESTING:
+                raise _UnsafeJSONValueError
+        elif character in "]}" and depth:
+            depth -= 1
+
+
 def _strict_json_loads(content: bytes) -> Any:
+    text = content.decode("utf-8")
+    _check_json_nesting(text)
     payload = json.loads(
-        content.decode("utf-8"),
+        text,
         object_pairs_hook=_reject_duplicate_json_keys,
         parse_constant=_reject_nonfinite_json_number,
         parse_float=_parse_bounded_json_float,
