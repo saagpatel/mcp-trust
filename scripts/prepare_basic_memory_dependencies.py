@@ -94,15 +94,41 @@ def _fetch_inputs(payload: dict[str, Any], destination: Path) -> None:
 
 def _container_prefix(payload: dict[str, Any], work: Path, *, network: str) -> list[str]:
     return [
-        "docker", "run", "--rm", "--network", network, "--read-only",
-        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-        "--memory", "512m", "--memory-swap", "512m", "--pids-limit", "64",
-        "--cpus", "1", "--tmpfs", "/tmp:rw,size=1g,mode=1777",
-        "--env", "HOME=/tmp", "--env", "PYTHONDONTWRITEBYTECODE=1",
-        "--env", "PYTHONHASHSEED=0", "--env", "SOURCE_DATE_EPOCH=1710000000",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "--mount", f"type=bind,src={work.resolve()},dst=/work",
-        "--workdir", "/work", payload["python_base"],
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        network,
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--memory",
+        "512m",
+        "--memory-swap",
+        "512m",
+        "--pids-limit",
+        "64",
+        "--cpus",
+        "1",
+        "--tmpfs",
+        "/tmp:rw,size=1g,mode=1777",
+        "--env",
+        "HOME=/tmp",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "--env",
+        "PYTHONHASHSEED=0",
+        "--env",
+        "SOURCE_DATE_EPOCH=1710000000",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        "--mount",
+        f"type=bind,src={work.resolve()},dst=/work",
+        "--workdir",
+        "/work",
+        payload["python_base"],
     ]
 
 
@@ -110,16 +136,32 @@ def _build_once(payload: dict[str, Any], source_inputs: Path, work: Path) -> dic
     shutil.copytree(source_inputs, work / "inputs")
     shutil.copyfile(BUILDER, work / "build_legacy_python_wheels.py")
     tools = [item for item in payload["inputs"] if item["role"] == "build-tool"]
-    _run([
-        *_container_prefix(payload, work, network="none"), "python", "-m", "pip", "install",
-        "--disable-pip-version-check", "--quiet", "--no-index", "--no-deps", "--no-compile",
-        "--target", "/work/build-tools",
-        *[f"/work/inputs/{item['filename']}" for item in tools],
-    ])
-    _run([
-        *_container_prefix(payload, work, network="none"), "env",
-        "PYTHONPATH=/work/build-tools", "python", "/work/build_legacy_python_wheels.py",
-    ])
+    _run(
+        [
+            *_container_prefix(payload, work, network="none"),
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--quiet",
+            "--no-index",
+            "--no-deps",
+            "--no-compile",
+            "--target",
+            "/work/build-tools",
+            *[f"/work/inputs/{item['filename']}" for item in tools],
+        ]
+    )
+    _run(
+        [
+            *_container_prefix(payload, work, network="none"),
+            "env",
+            "PYTHONPATH=/work/build-tools",
+            "python",
+            "/work/build_legacy_python_wheels.py",
+        ]
+    )
     actual = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted((work / "out").glob("*.whl"))
@@ -156,19 +198,23 @@ def _receipt(payload: dict[str, Any], wheels: dict[str, str], observed_at: str) 
         "schema": "McpTrustPythonSourceBuildReceiptV1",
         "observed_at": observed_at,
         "input_descriptor": {
-            "path": INPUT.relative_to(ROOT).as_posix(), "sha256": _digest_file(INPUT)
+            "path": INPUT.relative_to(ROOT).as_posix(),
+            "sha256": _digest_file(INPUT),
         },
-        "builder": {
-            "path": BUILDER.relative_to(ROOT).as_posix(), "sha256": _digest_file(BUILDER)
-        },
+        "builder": {"path": BUILDER.relative_to(ROOT).as_posix(), "sha256": _digest_file(BUILDER)},
         "python_base": payload["python_base"],
         "platform": payload["platform"],
         "source_date_epoch": payload["source_date_epoch"],
         "network_policy": "none-during-all-package-code-execution",
         "sandbox_controls": {
-            "read_only_root": True, "cap_drop": ["ALL"], "no_new_privileges": True,
-            "memory": "512m", "pids": 64, "cpus": 1,
-            "writable_mounts": ["task-owned-/work", "ephemeral-/tmp"], "secrets": "none",
+            "read_only_root": True,
+            "cap_drop": ["ALL"],
+            "no_new_privileges": True,
+            "memory": "512m",
+            "pids": 64,
+            "cpus": 1,
+            "writable_mounts": ["task-owned-/work", "ephemeral-/tmp"],
+            "secrets": "none",
         },
         "input_artifacts": payload["inputs"],
         "first_build_wheels": wheels,
@@ -224,35 +270,48 @@ def prepare(*, create_receipts: bool) -> dict[str, Any]:
         shutil.copyfile(requirements_lock, root / "requirements.lock")
         for path in (second / "out").glob("*.whl"):
             shutil.copyfile(path, wheelhouse / path.name)
-        _run([
-            *_container_prefix(payload, root, network="bridge"), "python", "-m", "pip", "download",
-            "--disable-pip-version-check", "--quiet", "--require-hashes",
-            "--only-binary=:all:", "--no-deps", "--dest", "/work/wheelhouse",
-            "--find-links", "/work/wheelhouse", "--index-url", "https://pypi.org/simple",
-            "-r", "/work/requirements.lock",
-        ])
+        _run(
+            [
+                *_container_prefix(payload, root, network="bridge"),
+                "python",
+                "-m",
+                "pip",
+                "download",
+                "--disable-pip-version-check",
+                "--quiet",
+                "--require-hashes",
+                "--only-binary=:all:",
+                "--no-deps",
+                "--dest",
+                "/work/wheelhouse",
+                "--find-links",
+                "/work/wheelhouse",
+                "--index-url",
+                "https://pypi.org/simple",
+                "-r",
+                "/work/requirements.lock",
+            ]
+        )
         bundle = root / "python-wheels.tar"
         metadata = _bundle_tree(wheelhouse, bundle)
         observed_at = datetime.now(tz=UTC).isoformat()
         source_receipt = _receipt(payload, first_wheels, observed_at)
-        source_receipt_bytes = (
-            json.dumps(source_receipt, indent=2, sort_keys=True).encode() + b"\n"
-        )
+        source_receipt_bytes = json.dumps(source_receipt, indent=2, sort_keys=True).encode() + b"\n"
         descriptor: dict[str, Any] = {
-            "schema": "McpTrustDependencyArtifactBundleV1", "kind": "python",
+            "schema": "McpTrustDependencyArtifactBundleV1",
+            "kind": "python",
             "registry_endpoints": ["https://files.pythonhosted.org", "https://pypi.org/simple"],
             "lock_sha256": _digest_file(LOCK_ROOT / "requirements.lock"),
             "bundle_path": ARTIFACT.relative_to(ROOT).as_posix(),
-            "bundle_sha256": _digest_file(bundle), "prepared_at": observed_at,
+            "bundle_sha256": _digest_file(bundle),
+            "prepared_at": observed_at,
             "tool_versions": {"python": "Python 3.12.14", "pip": "pip 25.0.1"},
             "preparation_network_policy": "registry-client-allowlist-build-code-network-none",
             "package_code_executed": True,
             "source_build_receipt": {
                 "path": RECEIPT.relative_to(ROOT).as_posix(),
                 "sha256": (
-                    _digest(source_receipt_bytes)
-                    if create_receipts
-                    else _digest_file(RECEIPT)
+                    _digest(source_receipt_bytes) if create_receipts else _digest_file(RECEIPT)
                 ),
             },
             **metadata,
@@ -303,8 +362,11 @@ def prepare(*, create_receipts: bool) -> dict[str, Any]:
     return {
         "schema": "McpTrustBasicMemoryDependencyPreparationReceiptV1",
         "status": "PREPARED" if create_receipts else "MATERIALIZED",
-        "source_build_repeatable": True, "package_code_network_policy": "none",
-        "wheel_count": 167, "publication_allowed": False, "deployment_allowed": False,
+        "source_build_repeatable": True,
+        "package_code_network_policy": "none",
+        "wheel_count": 167,
+        "publication_allowed": False,
+        "deployment_allowed": False,
     }
 
 

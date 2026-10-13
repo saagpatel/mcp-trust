@@ -312,9 +312,7 @@ def _write_deployable_site_candidate(
             "authority, and not exercised rollback proof."
         ),
     }
-    rollback["receipt_digest"] = "sha256:" + hashlib.sha256(
-        _canonical_bytes(rollback)
-    ).hexdigest()
+    rollback["receipt_digest"] = "sha256:" + hashlib.sha256(_canonical_bytes(rollback)).hexdigest()
     manifest: dict[str, object] = {
         "schema": "McpTrustSiteCandidateV2",
         "state": "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW",
@@ -493,9 +491,7 @@ def _write_approval(
         }
     )
     provider.pop("receipt_digest", None)
-    provider["receipt_digest"] = "sha256:" + hashlib.sha256(
-        _canonical_bytes(provider)
-    ).hexdigest()
+    provider["receipt_digest"] = "sha256:" + hashlib.sha256(_canonical_bytes(provider)).hexdigest()
     publication_payload["issued_at"] = publication_issued.isoformat()
     publication_payload["expires_at"] = (publication_issued + timedelta(minutes=45)).isoformat()
     publication_payload["operator_acceptance"]["accepted_at"] = (
@@ -541,9 +537,7 @@ def _write_approval(
         "python_invocation_path": str(PYTHON_BIN.absolute()),
         "python_bin": str(PYTHON_BIN.resolve()),
         "python_sha256": hashlib.sha256(PYTHON_BIN.read_bytes()).hexdigest(),
-        "publication_verifier_path": str(
-            (repo / "scripts/build_publication_package.py").resolve()
-        ),
+        "publication_verifier_path": str((repo / "scripts/build_publication_package.py").resolve()),
         "publication_verifier_sha256": hashlib.sha256(
             (repo / "scripts/build_publication_package.py").read_bytes()
         ).hexdigest(),
@@ -561,9 +555,9 @@ def _write_approval(
         + hashlib.sha256(publication_approval.read_bytes()).hexdigest(),
         "publication_approval_receipt_digest": publication_payload["receipt_digest"],
         "provider_prepublication_receipt_digest": provider["receipt_digest"],
-        "operator_acceptance_statement_sha256": publication_payload[
-            "operator_acceptance"
-        ]["statement_sha256"],
+        "operator_acceptance_statement_sha256": publication_payload["operator_acceptance"][
+            "statement_sha256"
+        ],
     }
     site_manifest = json.loads((repo / "site/SITE_CANDIDATE.json").read_text())
     rollback_path = repo.parent / "prior-site"
@@ -577,9 +571,9 @@ def _write_approval(
     payload["rollback_artifact_path"] = str(rollback_path.resolve())
     payload["rollback_site_candidate_receipt_digest"] = rollback_manifest["receipt_digest"]
     payload["rollback_site_candidate_content_digest"] = rollback_manifest["content"]["digest"]
-    payload["approval_receipt_digest"] = "sha256:" + hashlib.sha256(
-        _canonical_bytes(payload)
-    ).hexdigest()
+    payload["approval_receipt_digest"] = (
+        "sha256:" + hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+    )
     path.write_bytes(_canonical_bytes(payload))
     path.chmod(0o600)
 
@@ -668,9 +662,10 @@ def test_refresh_and_scheduler_have_no_deployment_authority() -> None:
     installer = INSTALLER.read_text(encoding="utf-8")
     assert "vercel deploy" not in refresh
     assert "MCP_TRUST_AUTO_DEPLOY" not in plist
-    assert plistlib.loads(PLIST.read_bytes())["EnvironmentVariables"][
-        "MCP_TRUST_SCHEDULER_CONTEXT"
-    ] == "1"
+    assert (
+        plistlib.loads(PLIST.read_bytes())["EnvironmentVariables"]["MCP_TRUST_SCHEDULER_CONTEXT"]
+        == "1"
+    )
     scheduler_guard = (
         'if [ -n "${LAUNCH_JOBKEY_LABEL:-}" ] || '
         '[ "${XPC_SERVICE_NAME:-0}" != "0" ] \\\n'
@@ -875,19 +870,14 @@ def test_qualification_docs_require_an_evergreen_receipt_set_name() -> None:
     for path in (OPERATOR_RUNBOOK, README):
         documentation = path.read_text(encoding="utf-8")
         assert re.search(r"--receipt-set\s+['\"]?v\d+\b", documentation) is None
-        assert re.search(
-            r"docker/refresh/qualification/v\d+\b", documentation
-        ) is None
+        assert re.search(r"docker/refresh/qualification/v\d+\b", documentation) is None
         assert "v89" not in documentation
         assert "v104" not in documentation
         assert (
             ': "${MCP_TRUST_QUALIFICATION_RECEIPT_SET:'
             '?set a new reviewed task-owned receipt-set name}"'
         ) in documentation
-        assert (
-            '--receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"'
-            in documentation
-        )
+        assert '--receipt-set "${MCP_TRUST_QUALIFICATION_RECEIPT_SET}"' in documentation
         assert "src/mcp_trust/catalog/refresh_policy.json" in documentation
 
 

@@ -43,6 +43,8 @@ _SEED = _ROOT / "src/mcp_trust/catalog/seed_servers.json"
 _MASKED = _ROOT / "masked-grades.json"
 _POLICY = _ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 _DISPOSITIONS = _ROOT / "src/mcp_trust/catalog/refresh_disposition_policy.json"
+
+
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -202,9 +204,7 @@ def _parser() -> argparse.ArgumentParser:
     publication_review.add_argument("--repeatability", type=Path, required=True)
     publication_review.add_argument("--triage", type=Path, required=True)
     publication_review.add_argument("--repo-root", type=Path, default=_ROOT)
-    publication_review.add_argument(
-        "--dispositions", type=Path, default=_DISPOSITIONS
-    )
+    publication_review.add_argument("--dispositions", type=Path, default=_DISPOSITIONS)
     publication_review.add_argument(
         "--accepted-review",
         type=Path,

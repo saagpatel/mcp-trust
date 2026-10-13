@@ -108,9 +108,7 @@ def test_current_dependency_descriptors_and_locks_are_admitted() -> None:
             dependency_boundary.validate_python_lock(
                 lock_root / "requirements.in", lock_root / "requirements.lock"
             )
-    source = json.loads(
-        (ROOT / "docker/refresh/source-build-inputs/basic-memory.json").read_text()
-    )
+    source = json.loads((ROOT / "docker/refresh/source-build-inputs/basic-memory.json").read_text())
     assert dependency_boundary.validate_source_build_inputs(source) is source
 
 
@@ -246,9 +244,7 @@ def test_cohort_names_cannot_escape_output_roots(name: str) -> None:
         ("dockerfile", "../Dockerfile"),
     ],
 )
-def test_cohort_rejects_mutable_images_and_external_dockerfiles(
-    field: str, value: str
-) -> None:
+def test_cohort_rejects_mutable_images_and_external_dockerfiles(field: str, value: str) -> None:
     payload = _inputs()
     payload["cohorts"]["reference"][field] = value
     with pytest.raises(dependency_boundary.DependencyBoundaryError):
@@ -407,9 +403,7 @@ def test_npm_preparation_keeps_registry_only_no_script_contract(
 
 def test_npm_overrides_must_be_nested_under_a_direct_parent() -> None:
     payload = _inputs()
-    payload["cohorts"]["live-batch"]["npm_overrides"] = {
-        "sharp": "0.35.4"
-    }
+    payload["cohorts"]["live-batch"]["npm_overrides"] = {"sharp": "0.35.4"}
     with pytest.raises(
         dependency_boundary.DependencyBoundaryError,
         match="override parent",
@@ -532,9 +526,7 @@ def test_qualify_validates_platform_separately_before_dependency_inputs(
     class ValidationPassed(RuntimeError):
         pass
 
-    def stop_after_validation(
-        cohort: str, validated: dict[str, object]
-    ) -> tuple[object, ...]:
+    def stop_after_validation(cohort: str, validated: dict[str, object]) -> tuple[object, ...]:
         observed["cohort"] = cohort
         observed["config"] = validated
         raise ValidationPassed
@@ -849,9 +841,7 @@ def test_qualification_source_binding_survives_adoption_metadata_only(
         },
     )
     before = module._tracked_source_binding(cohorts)
-    file_digests["docker/refresh/qualification/v125/reference.json"] = (
-        "sha256:" + "4" * 64
-    )
+    file_digests["docker/refresh/qualification/v125/reference.json"] = "sha256:" + "4" * 64
     file_digests["src/mcp_trust/catalog/refresh_policy.json"] = "sha256:" + "5" * 64
     monkeypatch.setattr(
         module.grade_refresh,
@@ -919,9 +909,7 @@ def test_real_git_adoption_commit_preserves_qualification_source_binding(
         ["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"],
         check=True,
     )
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.name", "V125 Fixture"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "V125 Fixture"], check=True)
     subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True)
     subprocess.run(
         ["git", "-C", str(repo), "commit", "-q", "-m", "qualification source"],
@@ -940,9 +928,7 @@ def test_real_git_adoption_commit_preserves_qualification_source_binding(
         encoding="utf-8",
     )
     subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-q", "-m", "adopt receipts"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "adopt receipts"], check=True)
     after = module._tracked_source_binding(cohorts)
 
     assert before["origin_revision"] != after["origin_revision"]
@@ -1016,9 +1002,7 @@ def test_qualification_source_inventory_rejects_excluded_dynamic_input() -> None
     module = _script("qualify_refresh_images.py")
     cohorts = copy.deepcopy(_inputs()["cohorts"])
     assert isinstance(cohorts, dict)
-    cohorts["reference"]["dockerfile"] = (
-        "docker/refresh/qualification/v125-test/Dockerfile"
-    )
+    cohorts["reference"]["dockerfile"] = "docker/refresh/qualification/v125-test/Dockerfile"
 
     with pytest.raises(module.QualificationError, match="excluded adoption evidence"):
         module._qualification_source_paths(cohorts)
@@ -1118,9 +1102,7 @@ def test_append_only_set_blocks_retry_until_attempt_is_resolved(
     manifest = {
         "schema": module.QUALIFICATION_SET_SCHEMA,
         "receipt_digest": "sha256:" + "1" * 64,
-        "cohort_bindings": {
-            "reference": {"image_reference": "mcp-trust:test"}
-        },
+        "cohort_bindings": {"reference": {"image_reference": "mcp-trust:test"}},
     }
     module._write_new(root / "qualification-set.json", manifest)
     scoped = _scoped_capacity()
@@ -1142,9 +1124,7 @@ def test_append_only_set_blocks_retry_until_attempt_is_resolved(
     for path in tools.values():
         path.write_bytes(path.name.encode())
         path.chmod(0o500)
-    attempt_id = module._attempt_id(
-        set_manifest=manifest, cohort="reference", capacity_gate=gate
-    )
+    attempt_id = module._attempt_id(set_manifest=manifest, cohort="reference", capacity_gate=gate)
     temporary_reference = f"mcp-trust-qualification:v0-{attempt_id}-first"
 
     attempt_path, attempt = module._begin_attempt(
@@ -1224,9 +1204,7 @@ def test_append_only_set_rejects_reused_underlying_capacity_observation(
         )
 
 
-def test_set_graph_rejects_orphan_receipt(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_set_graph_rejects_orphan_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     module = _script("qualify_refresh_images.py")
     monkeypatch.setattr(module, "ROOT", tmp_path)
     root = tmp_path / "v122-test"
@@ -1277,9 +1255,7 @@ def test_set_graph_rejects_orphan_completion(
         )
 
 
-def test_set_graph_rejects_orphan_capacity(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_set_graph_rejects_orphan_capacity(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     module = _script("qualify_refresh_images.py")
     monkeypatch.setattr(module, "ROOT", tmp_path)
     root = tmp_path / "v122-test"
@@ -1317,9 +1293,7 @@ def test_set_graph_rejects_completion_without_ownership(
 
     def artifacts(
         _root: Path, *, cohort: str, set_manifest: dict[str, object]
-    ) -> tuple[
-        list[tuple[Path, dict[str, object]]], set[str], set[str], set[str]
-    ]:
+    ) -> tuple[list[tuple[Path, dict[str, object]]], set[str], set[str], set[str]]:
         assert set_manifest["receipt_digest"] == "sha256:" + "5" * 64
         attempts = [(attempt_path, attempt)] if cohort == "reference" else []
         return attempts, {attempt_id}, set(), set()
@@ -1355,20 +1329,14 @@ def test_owned_final_image_id_rejects_malformed_marker(tmp_path: Path) -> None:
         "exit_classification": "FINAL_TAG_MUTATION_AUTHORIZED",
     }
     ownership["receipt_digest"] = module._unsigned_digest(ownership)
-    module._write_new(
-        root / f"ownership-reference-{attempt_id}.json", ownership
-    )
+    module._write_new(root / f"ownership-reference-{attempt_id}.json", ownership)
 
     with pytest.raises(module.QualificationError, match="ownership receipt is invalid"):
-        module._owned_final_image_id(
-            root, attempt_path=attempt_path, attempt=attempt
-        )
+        module._owned_final_image_id(root, attempt_path=attempt_path, attempt=attempt)
 
 
 @pytest.mark.parametrize("name", ["../outside.json", "/tmp/outside.json", "a/b.json"])
-def test_set_artifact_references_must_be_contained_children(
-    tmp_path: Path, name: str
-) -> None:
+def test_set_artifact_references_must_be_contained_children(tmp_path: Path, name: str) -> None:
     module = _script("qualify_refresh_images.py")
     with pytest.raises(module.QualificationError, match="contained set file"):
         module._safe_set_child(tmp_path, name, label="fixture")
@@ -1449,9 +1417,7 @@ def test_cohort_lock_rejects_concurrent_invocation(
                 pytest.fail("concurrent cohort lock was admitted")
 
 
-def test_cohort_lock_rejects_symlink_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_cohort_lock_rejects_symlink_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     module = _script("qualify_refresh_images.py")
     monkeypatch.setattr(module, "ROOT", tmp_path)
     lock_root = tmp_path / "tmp/qualification-locks"
@@ -1504,9 +1470,7 @@ def test_expired_cleanup_capacity_emits_no_completion_or_docker_call(
         "_unresolved_attempts",
         lambda *_a, **_k: [(attempt_path, attempt)],
     )
-    scoped = _scoped_capacity(
-        operation="cleanup", receipt_set="v122-test"
-    )
+    scoped = _scoped_capacity(operation="cleanup", receipt_set="v122-test")
     gate = module.QualificationCapacityGate(
         receipt=scoped["host_capacity"],
         scope_receipt=scoped,
@@ -1528,9 +1492,7 @@ def test_expired_cleanup_capacity_emits_no_completion_or_docker_call(
             receipt_root=root,
             set_manifest={
                 "receipt_digest": "sha256:" + "2" * 64,
-                "cohort_bindings": {
-                    "reference": {"image_reference": "mcp-trust:test"}
-                },
+                "cohort_bindings": {"reference": {"image_reference": "mcp-trust:test"}},
             },
             tools=_tool_paths(),
             capacity_gate=gate,
@@ -1574,9 +1536,7 @@ def test_cleanup_success_binds_owned_final_tag_and_appends_receipt(
     capacity_path = root / "capacity-cleanup.json"
     capacity_path.write_text(json.dumps(scoped), encoding="utf-8")
     capacity_path.chmod(0o600)
-    monkeypatch.setattr(
-        module, "_capacity_snapshot", lambda **_kwargs: (capacity_path, scoped)
-    )
+    monkeypatch.setattr(module, "_capacity_snapshot", lambda **_kwargs: (capacity_path, scoped))
     monkeypatch.setattr(
         module,
         "_execution_boundary",
@@ -1601,8 +1561,7 @@ def test_cleanup_success_binds_owned_final_tag_and_appends_receipt(
         module,
         "_final_tag_state",
         lambda _reference, prior, *, owned_final_image_id, **_kwargs: (
-            observed.append((prior, owned_final_image_id))
-            or "TASK_OWNED_RETAINED"
+            observed.append((prior, owned_final_image_id)) or "TASK_OWNED_RETAINED"
         ),
     )
     reads = iter((None,))
@@ -1618,9 +1577,7 @@ def test_cleanup_success_binds_owned_final_tag_and_appends_receipt(
         receipt_root=root,
         set_manifest={
             "receipt_digest": "sha256:" + "2" * 64,
-            "cohort_bindings": {
-                "reference": {"image_reference": "mcp-trust:test"}
-            },
+            "cohort_bindings": {"reference": {"image_reference": "mcp-trust:test"}},
         },
         tools=_tool_paths(),
         capacity_gate=gate,
@@ -2065,11 +2022,7 @@ def test_qualification_retains_only_owned_final_tag_after_post_load_failure(
     ) -> str | None:
         assert tools == _tool_paths()
         assert capacity_gate is gate
-        reads = (
-            first_reads
-            if reference.startswith("mcp-trust-qualification:")
-            else final_reads
-        )
+        reads = first_reads if reference.startswith("mcp-trust-qualification:") else final_reads
         return next(reads)
 
     def boundary(

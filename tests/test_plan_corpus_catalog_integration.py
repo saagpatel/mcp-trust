@@ -227,9 +227,7 @@ def test_plan_corpus_catalog_integration_cli_writes_optional_output(
     )
 
     assert rc == 0
-    assert json.loads(capsys.readouterr().out)["summary"]["actions"] == {
-        "add-seed-entry": 1
-    }
+    assert json.loads(capsys.readouterr().out)["summary"]["actions"] == {"add-seed-entry": 1}
     loaded = json.loads(out.read_text(encoding="utf-8"))
     assert loaded["actions"][0]["record_id"] == "alpha"
     assert load_corpus_records(input_path).records[0].status == "published"

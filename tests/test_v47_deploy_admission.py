@@ -112,20 +112,18 @@ def _publication_fixture(
         "output_sha256": "e" * 64,
         "commit": "9" * 40,
         "publication_package_path": str(package_path.resolve()),
-        "publication_package_manifest_sha256": _sha256_bytes(
-            package_manifest_path.read_bytes()
-        ),
+        "publication_package_manifest_sha256": _sha256_bytes(package_manifest_path.read_bytes()),
         "implementation_source_tree_digest": PUBLICATION.DIGESTS["d"],
         "publication_package_receipt_digest": package["receipt_digest"],
         "publication_approval_path": str(approval_path.resolve()),
         "publication_approval_sha256": _sha256_bytes(approval_path.read_bytes()),
         "publication_approval_receipt_digest": approval_payload["receipt_digest"],
-        "provider_prepublication_receipt_digest": approval_payload[
-            "provider_prepublication"
-        ]["receipt_digest"],
-        "operator_acceptance_statement_sha256": approval_payload[
-            "operator_acceptance"
-        ]["statement_sha256"],
+        "provider_prepublication_receipt_digest": approval_payload["provider_prepublication"][
+            "receipt_digest"
+        ],
+        "operator_acceptance_statement_sha256": approval_payload["operator_acceptance"][
+            "statement_sha256"
+        ],
         "site_candidate_receipt_digest": manifest["receipt_digest"],
         "site_candidate_content_digest": manifest["content"]["digest"],
         "implementation_revision": manifest["implementation_binding"]["revision"],
@@ -137,13 +135,9 @@ def _publication_fixture(
     deployment_path.write_bytes(canonical_bytes(deployment))
 
     expected_readback = manifest["public_readback"]
-    public_files = [
-        item for item in manifest["content"]["files"] if item["path"] != "vercel.json"
-    ]
+    public_files = [item for item in manifest["content"]["files"] if item["path"] != "vercel.json"]
     routes = []
-    for expected, expected_file in zip(
-        expected_readback["routes"], public_files, strict=True
-    ):
+    for expected, expected_file in zip(expected_readback["routes"], public_files, strict=True):
         routes.append(
             {
                 "id": expected["id"],
@@ -337,9 +331,7 @@ def test_pa029_provider_exit_zero_does_not_claim_freshness(tmp_path: Path) -> No
 
 
 def test_pa030_sentinel_only_route_count_mismatch_is_rejected(tmp_path: Path) -> None:
-    _, approval, package, deployment_path, readback, deployment, _ = _publication_fixture(
-        tmp_path
-    )
+    _, approval, package, deployment_path, readback, deployment, _ = _publication_fixture(tmp_path)
     exact_readback_payload = json.loads(readback.read_text())
     readback_payload = json.loads(json.dumps(exact_readback_payload))
     readback_payload["summary"]["total"] -= 1
@@ -458,9 +450,7 @@ def test_pa035_provider_failure_leaves_adoption_and_freshness_unknown(tmp_path: 
 
 
 def test_p07_route_equality_without_provider_identity_remains_unknown(tmp_path: Path) -> None:
-    _, approval, package, deployment_path, readback, deployment, _ = _publication_fixture(
-        tmp_path
-    )
+    _, approval, package, deployment_path, readback, deployment, _ = _publication_fixture(tmp_path)
     receipt = _production_receipt(
         tmp_path,
         package_path=package,
