@@ -55,13 +55,13 @@ real filesystem/SQL servers). Instead it uses `core.grading.danger_score()`: a
 danger-weighted aggregate (shell-execution dominant; destructive/exfiltration
 down-weighted as spec-default noise) banded A–F, plus a critical-finding cap.
 
-**Known limitation → v2 (transparency axis).** A fully *unannotated* server is
+**Known limitation.** A fully *unannotated* server is
 indistinguishable from a capable one on every dimension, so it is still
-over-graded. The real fix is a second axis — **transparency** (annotation
-coverage, available from the engine's `annotation_coverage`) — surfaced as a
-separate caveat, not folded into the danger grade. Until then, a poor grade on
-an unannotated server means "cannot verify safe," not "known dangerous." Public
-copy must keep that distinction visible.
+over-graded. The implemented **transparency** axis (annotation coverage,
+available from the engine's `annotation_coverage`) is surfaced as a separate
+caveat, not folded into the danger grade. A poor grade on an unannotated server
+means "cannot verify safe," not "known dangerous." Public copy must keep that
+distinction visible.
 
 ### Freshness and public projection contract
 

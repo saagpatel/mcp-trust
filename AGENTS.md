@@ -1,132 +1,118 @@
-# AGENTS.md — MCP Trust Registry
+# MCP Trust Registry
 
-## Project Summary
-MCP Trust Registry is a neutral public trust registry for MCP servers. Its product
-loop is "check before you connect": register public MCP servers, scan them with a
-pluggable engine, normalize the results into an A-F danger grade plus transparency
-signal, persist the record, and serve it through a public API, web catalog, and
-README badge endpoint.
+## Purpose
 
-This repo is not trying to win by being another scanner. The scanner is a
-replaceable backend; the durable layer is the public catalog, stable lookup API,
-trust-grade normalization, and author badge distribution loop. The current real
-engine adapter wraps `mcp-audits`, while the default `StubEngine` keeps the full
-system testable without launching untrusted code.
+MCP Trust Registry is a neutral public trust registry for MCP servers. Its
+product loop is "check before you connect": register public MCP servers, scan
+them with a pluggable engine, normalize results into an A-F danger grade plus a
+transparency signal, persist the record, and serve it through a public API, web
+catalog, and README badge endpoint.
 
-## Current State
-The MVP is built and tested end to end: seed catalog, scan, grade, persist,
-serve JSON and web views, and emit shields.io-compatible badge JSON. The
-repository is public. Treat anything committed here, and anything written in an
-issue or pull request, as published the moment it lands. The product itself is
-pre-launch. The seed catalog now contains official reference
-MCP servers for launch calibration. Product launch is gated by validating
-sandboxed real-engine scans, inspecting the grade distribution, deciding whether
-to broaden beyond reference servers, deploying the FastAPI app with persistent
-SQLite storage, and smoke-testing the badge loop against the public base URL.
+The scanner is a replaceable backend. The durable product is the public catalog,
+stable lookup API, trust-grade normalization, and author badge distribution
+loop. The real engine adapter wraps `mcp-audits`; `StubEngine` keeps the system
+testable without launching untrusted code.
 
-## Stack
-- Python 3.11, pinned by `.python-version` so `uv venv` and `uv run` match CI
-- FastAPI and Uvicorn for the API/web surface
-- Typer for the CLI
-- Pydantic domain models
-- SQLite persistence
-- Pytest and Ruff for local verification
-- Optional `mcp-audits` engine extra for real MCP-server scanning
+## Layout
 
-## How To Run
-Use the README's [Quickstart](README.md#quickstart) for an isolated stub demo and
-[local development and verification](README.md#local-development-and-verification)
-for frozen core/dev setup, focused and broader pytest checks, Ruff, packaging,
-and conditional browser preview. `.python-version` pins the CI interpreter;
-keep it and `uv.lock`. The routine verification path does not install the engine
-extra or opt into real-server/Docker tests.
+- `src/mcp_trust/api/`: FastAPI service and public API projection.
+- `src/mcp_trust/core/`: domain models, grading, governance, and provenance.
+- `src/mcp_trust/engine/`: scan engine contract, stub, and optional real adapter.
+- `src/mcp_trust/store/`: SQLite schema and repositories.
+- `src/mcp_trust/site/`: static site and badge generation.
+- `scripts/`, `deploy/`, `docker/`, `docs/`: operator tooling, deployment
+  assets, scan environments, and product/runbook documentation.
+- `contracts/web-release-readback-v1/`: additive readback schemas and policy.
 
-Real scans, qualification, refresh, and launch are separate operator workflows:
-follow the [operator runbook](docs/GRADE-REFRESH-OPERATOR-RUNBOOK.md) and
-`LAUNCH.md` with their target-specific authorization and prerequisites. Use
-`SPEC.md` as the product and module-boundary contract.
+`SPEC.md` is the product and module-boundary contract. `LAUNCH.md` and the
+operator runbook describe separately authorized operator workflows.
 
-## Known Risks
-- Real scans launch server processes. Never scan untrusted servers without an
-  isolation decision; prefer `MCP_TRUST_SANDBOX=docker` and a purpose-built
-  image for public catalog scans.
-- API scan triggering with the real `mcpaudit` engine is operator-gated by
-  `MCP_TRUST_SCAN_TOKEN`; public callers must not be able to launch scans.
-- The current seed catalog contains official reference servers. Public grades
-  are not meaningful until real sandbox scans run and grading bands are checked
-  against that distribution.
-- Low-transparency servers can look risky because annotations are missing; keep
-  danger grade and transparency as separate signals instead of collapsing them
-  into one overconfident verdict.
-- Product launch is a one-way trust event. The repository is already public, so
-  code, issue text, and pull request descriptions are world-readable as soon as
-  they land. Check visibility before writing anything that characterizes an
-  unreported third-party finding; the verdict data is published deliberately,
-  prose that editorializes on it is a separate decision. Do not send
-  author-badge outreach until the live catalog, sandbox path, deployment, and
-  smoke tests are green.
+## Setup
 
-## Review guidelines
+Use Python 3.12 or newer. `.python-version` pins Python 3.15.0, and `uv.lock`
+locks the project and development dependencies. Install the pinned uv version
+(`0.13.0`) and run:
 
-Focus Codex review on public trust claims, grade/risk masking, API and badge
-behavior, scan sandbox boundaries, provenance and source binding, launch-gate
-evidence, corpus refresh scripts, executable runbooks, and spec drift. Treat
-any path that can launch scans, publish grades, or expose public JSON as
-security-sensitive.
+```bash
+make setup
+```
 
-For masking, provenance, and public-output changes, trace the claim through
-every surface that can reach an operator or server author: API JSON, web detail
-pages, static site generation, badge payloads, README snippets, launch bundles,
-catalog snapshots, receipts, and generated docs. Operator masking and
-scan-specific grade masking are related but not identical: operator-masked
-metadata must stay neutral even before a first scan exists, while scan-specific
-grade/risk/finding/report references are withheld only when a scan exists.
+This installs the core and development dependencies. It does not install the
+optional `mcp-audits` engine extra or enable real-server/Docker scans.
 
-Missing sandbox image, network mode, receipt, source binding, or scan
-provenance is an unknown, not proof of safety, isolation, hosted execution, or
-unsandboxed execution. Review wording should preserve that uncertainty. Demo or
-stub provenance must win over remote-source wording, and remote entries with a
-local launch command should keep local-launch/sandbox context instead of being
-described as plain hosted endpoints.
+## Checks
 
-For docs-only PRs, comment only when the docs overstate scan safety, sandbox
-use, provenance, launch readiness, grade meaning, or evidence that is missing
-from the reviewed tree.
+Run the aggregate local gate with:
 
-## Next Recommended Move
-Start Docker/Colima, build `Dockerfile.scan`, run one sandboxed `mcp-audits`
-smoke scan against `mcp-reference-time`, then run the full reference corpus,
-inspect the resulting grade distribution, recalibrate bands if needed, and
-deploy the API with persistent SQLite storage for a live badge-loop smoke test.
+```bash
+make check
+```
 
-## Agent Operating Notes
+It checks the lockfile, Ruff lint and formatting, Pyright, deterministic pytest
+coverage, and package builds. Opt-in integration and Docker tests remain off.
+See the README Quickstart and local development instructions for focused test
+commands and a stub-only preview.
+
+## Boundaries
+
 - Keep `core/` and `engine/base.py` contracts stable unless the spec is updated
   first.
 - Do not put secrets or environment values in server source specs; `env_keys`
   are names only.
-- Prefer adding tests beside the module being changed.
 - Treat scanner behavior, grading changes, and public-launch steps as
-  high-trust-surface changes that require explicit verification.
-- `contracts/web-release-readback-v1/` owns the additive
-  `WebReleaseReadbackV1` schemas and compatibility policy. Keep the reference
-  verifier limited to explicit-target GET/HEAD readback with no credentials,
-  proxy environment, deployment, alias, DNS, promotion, or output-file
-  capability. Consumer-specific release and denied-mutation checks remain
-  local until receipt parity is demonstrated.
-- `deploy/web-release-readback.json` is this product's self-adoption profile.
-  Keep it wired into `deploy/smoke-readonly.sh` ahead of, and additive to, the
-  health, API, badge, portable-reference, and denied scan-POST assertions.
+  high-trust-surface changes requiring explicit verification.
+- Real scans launch server processes. Never scan untrusted servers without an
+  isolation decision; prefer `MCP_TRUST_SANDBOX=docker` and a purpose-built image
+  for public catalog scans.
+- API scan triggering with the real `mcpaudit` engine is operator-gated by
+  `MCP_TRUST_SCAN_TOKEN`; public callers must not be able to launch scans.
+- The seed catalog contains official reference MCP servers. Public grades are
+  not meaningful until real sandbox scans run and grading bands are checked
+  against that distribution.
+- Low-transparency servers can look risky because annotations are missing. Keep
+  danger grade and transparency as separate signals instead of collapsing them
+  into one verdict.
+- Missing sandbox image, network mode, receipt, source binding, or scan
+  provenance is unknown, not proof of safety, isolation, hosted execution, or
+  unsandboxed execution. Preserve that uncertainty in wording.
+- Demo or stub provenance must win over remote-source wording. Remote entries
+  with a local launch command must retain local-launch and sandbox context.
+- The repository is public. Treat committed code and issue/PR text as public.
+  Check visibility before prose characterizes an unreported third-party finding;
+  verdict data is published deliberately, while editorial prose is separate.
+  Do not send author-badge outreach until live catalog, sandbox path, deployment,
+  and smoke tests are green.
+- Do not infer production or external-service readiness from local/cloud checks.
 
-## Cursor Cloud specific instructions
+## Delivery
 
-- The repository-level `.cursor/environment.json` is the Cloud environment
-  definition. It installs the CI-pinned `uv==0.12.4`, provisions Python
-  `3.11.15` from `.python-version`, and runs `uv sync --frozen --extra dev`.
-- Cloud validation is local and deterministic: run
-  `uv run --no-sync pytest -q` and
-  `uv run --no-sync ruff check src scripts tests`.
-- Cloud setup does not require credentials, Docker, or network access to MCP
-  servers. The optional `mcp-audits` extra and Docker sandbox scans are
-  operator-gated workflows and are not part of environment initialization.
-- Do not add secrets to this repository or infer production, deployment, or
-  external-service readiness from local/cloud test results.
+Review public trust claims, grade/risk masking, API and badge behavior, scan
+sandbox boundaries, provenance and source binding, launch-gate evidence, corpus
+refresh scripts, executable runbooks, and spec drift. Treat any path that can
+launch scans, publish grades, or expose public JSON as security-sensitive.
+
+For masking, provenance, and public-output changes, trace claims through API
+JSON, web detail pages, static site generation, badge payloads, README snippets,
+launch bundles, catalog snapshots, receipts, and generated docs. Operator-masked
+metadata must stay neutral before a first scan; scan-specific grade, risk,
+finding, and report references are withheld only when a scan exists.
+
+For docs-only changes, comment only when docs overstate scan safety, sandbox
+use, provenance, launch readiness, grade meaning, or evidence absent from the
+reviewed tree.
+
+The reference verifier in `contracts/web-release-readback-v1/` is limited to
+explicit-target GET/HEAD readback with no credentials, proxy environment,
+deployment, alias, DNS, promotion, or output-file capability. Consumer-specific
+release and denied-mutation checks remain local until receipt parity is
+demonstrated. `deploy/web-release-readback.json` is the product self-adoption
+profile; keep it wired into `deploy/smoke-readonly.sh` ahead of, and additive to,
+health, API, badge, portable-reference, and denied scan-POST assertions.
+
+### Cursor Cloud
+
+`.cursor/environment.json` installs the pinned uv and Python versions and runs
+`make check` after setup. Cloud validation is local and deterministic. It needs
+no credentials, Docker, or network access to MCP servers. The optional
+`mcp-audits` extra and Docker sandbox scans are operator-gated workflows and are
+not part of environment initialization.
