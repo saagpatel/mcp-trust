@@ -148,8 +148,7 @@ def test_version_from_slug_preserves_non_npm_numeric_release_segments() -> None:
     module = _load_module("draft_corpus_records_pypi", SCRIPTS / "draft_corpus_records.py")
 
     assert (
-        module._version_from_slug("org-example-server-1-2-3-4", registry_type="pypi")
-        == "1.2.3.4"
+        module._version_from_slug("org-example-server-1-2-3-4", registry_type="pypi") == "1.2.3.4"
     )
 
 

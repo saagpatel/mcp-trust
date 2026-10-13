@@ -81,9 +81,7 @@ def _registry_payload() -> dict[str, object]:
                         "registryType": "npm",
                         "identifier": "@example/optional-secret",
                         "version": "1.0.0",
-                        "environmentVariables": [
-                            {"name": "OPTIONAL_TOKEN", "isSecret": True}
-                        ],
+                        "environmentVariables": [{"name": "OPTIONAL_TOKEN", "isSecret": True}],
                     }
                 ],
                 "_meta": {

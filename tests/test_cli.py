@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -125,6 +126,22 @@ def test_scan_unknown_slug_exits_nonzero(db_path) -> None:
 def test_scan_without_seed_exits_nonzero(db_path) -> None:
     result = runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
     assert result.exit_code != 0
+
+
+def test_scan_engine_failure_is_concise_and_nonzero(db_path) -> None:
+    runner.invoke(app, ["seed", "--db", db_path])
+
+    class SecretErrorEngine:
+        def scan(self, source):  # noqa: ANN001
+            raise RuntimeError("sentinel-secret-from-engine")
+
+    with patch("mcp_trust.engine.factory.select_engine", return_value=SecretErrorEngine()):
+        result = runner.invoke(app, ["scan", "mcp-reference-time", "--db", db_path])
+
+    assert result.exit_code != 0
+    assert "scan failed" in result.output.lower()
+    assert "sentinel-secret-from-engine" not in result.output
+    assert "Traceback" not in result.output
 
 
 # ---------------------------------------------------------------------------

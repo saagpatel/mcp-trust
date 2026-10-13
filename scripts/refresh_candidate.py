@@ -184,9 +184,7 @@ def _target_receipt_inputs(
         else repo_root / "src/mcp_trust/catalog/seed_servers.json"
     )
     masked_path = (
-        args.masked_grades
-        if args.masked_grades is not None
-        else repo_root / "masked-grades.json"
+        args.masked_grades if args.masked_grades is not None else repo_root / "masked-grades.json"
     )
     policy_path = (
         args.policy

@@ -40,9 +40,7 @@ DOCKER_CONTEXT = "colima-mcp-trust-sandbox"
 EXPECTED_DOCKER_HOST = (
     "unix://" + (Path.home() / ".colima/mcp-trust-sandbox/docker.sock").as_posix()
 )
-_SAFE_RECEIPT_SET = re.compile(
-    r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$"
-)
+_SAFE_RECEIPT_SET = re.compile(r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$")
 COHORTS = ("reference", "live-batch", "batch3", "batch4", "basic-memory")
 _REVIEWED_DOCKERFILE_BY_COHORT = MappingProxyType(
     {
@@ -85,9 +83,7 @@ _QUALIFICATION_STATIC_SOURCE_PATHS = frozenset(
     }
 )
 _QUALIFICATION_EXCLUDED_PREFIX = "docker/refresh/qualification/"
-_QUALIFICATION_EXCLUDED_EXACT = frozenset(
-    {"src/mcp_trust/catalog/refresh_policy.json"}
-)
+_QUALIFICATION_EXCLUDED_EXACT = frozenset({"src/mcp_trust/catalog/refresh_policy.json"})
 _ATTEMPT_KEYS = frozenset(
     {
         "schema",
@@ -174,9 +170,7 @@ EXECUTION_BOUNDARY = {
     "redirect_environment_policy": "exact-context-no-proxy",
     "tool_execution_policy": "owner-private-digest-pinned-copies",
 }
-_STABLE_VERSION = re.compile(
-    r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?"
-)
+_STABLE_VERSION = re.compile(r"v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?")
 _BUILDKIT_VERSION_LINE = re.compile(
     r"^\s*BuildKit version:\s*(v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)\s*$",
     flags=re.MULTILINE,
@@ -186,9 +180,7 @@ _BUILDX_VERSION_LINE = re.compile(
     r"(v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)"
     r"(?: [0-9a-f]{7,64}| Homebrew)?"
 )
-_BUILDER_HEADER = re.compile(
-    r"\AName:\s*(\S+)\s*\nDriver:\s*(\S+)\s*$", flags=re.MULTILINE
-)
+_BUILDER_HEADER = re.compile(r"\AName:\s*(\S+)\s*\nDriver:\s*(\S+)\s*$", flags=re.MULTILINE)
 _BUILDER_ENDPOINT_LINE = re.compile(r"^\s*Endpoint:\s*(\S+)\s*$", flags=re.MULTILINE)
 _BUILDER_STATUS_LINE = re.compile(r"^\s*Status:\s*(\S+)\s*$", flags=re.MULTILINE)
 _REDIRECT_ENVIRONMENT = {
@@ -228,9 +220,7 @@ class QualificationCapacityGate:
         reader: Callable[[Path], HostCapacitySample] = read_host_capacity,
     ) -> None:
         if scope_receipt is not None and scope_receipt.get("host_capacity") != receipt:
-            raise QualificationError(
-                "qualification scope and dynamic capacity receipts differ"
-            )
+            raise QualificationError("qualification scope and dynamic capacity receipts differ")
         self._receipt = receipt
         self._scope_receipt = scope_receipt
         self._anchor = anchor
@@ -480,9 +470,7 @@ def _cohort_lock(receipt_set: str, cohort: str) -> Any:
     path = lock_root / f"{lock_id}.lock"
     if path.is_symlink():
         raise QualificationError("qualification cohort lock is a symlink")
-    descriptor = os.open(
-        path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600
-    )
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         metadata = os.fstat(descriptor)
         if (
@@ -518,10 +506,7 @@ def _reference(path: str) -> dict[str, str]:
 
 def _exact_version(value: str, *, label: str, require_v: bool) -> str:
     version = value.strip()
-    if (
-        _STABLE_VERSION.fullmatch(version) is None
-        or require_v != version.startswith("v")
-    ):
+    if _STABLE_VERSION.fullmatch(version) is None or require_v != version.startswith("v"):
         raise QualificationError(f"{label} did not return one exact version")
     return version
 
@@ -606,9 +591,7 @@ def _cleanup_orphan_tool_snapshot(output_root: Path, buildx: str) -> None:
     _cleanup_tool_snapshot(paths, snapshot_root=snapshot_root)
 
 
-def _cleanup_tool_snapshot(
-    tools: dict[str, Path], *, snapshot_root: Path | None = None
-) -> None:
+def _cleanup_tool_snapshot(tools: dict[str, Path], *, snapshot_root: Path | None = None) -> None:
     root = snapshot_root or next(iter(tools.values())).parent
     for path in tools.values():
         metadata = _lstat(path)
@@ -732,12 +715,8 @@ def _tool_versions(
         capture=True,
     )
     return {
-        "docker_client": _exact_version(
-            docker_client, label="Docker client", require_v=False
-        ),
-        "docker_server": _exact_version(
-            docker_server, label="Docker server", require_v=False
-        ),
+        "docker_client": _exact_version(docker_client, label="Docker client", require_v=False),
+        "docker_server": _exact_version(docker_server, label="Docker server", require_v=False),
         "docker_buildx": _buildx_version(buildx_version),
         "buildkit_colima": _buildkit_version(buildkit_inspect),
     }
@@ -783,9 +762,7 @@ def _dependency_inputs(
                     ROOT / manifest_ref["path"], ROOT / lock_ref["path"]
                 )
         except dependency_boundary.DependencyBoundaryError as exc:
-            raise QualificationError(
-                f"dependency source policy failed: {cohort}/{kind}"
-            ) from exc
+            raise QualificationError(f"dependency source policy failed: {cohort}/{kind}") from exc
         artifact_ref = _reference(descriptor_path)
         normalized = grade_refresh._dependency_artifact(
             repo_root=ROOT,
@@ -825,9 +802,7 @@ def _validate_console_script_contract(cohorts: dict[str, Any]) -> None:
                 bindings,
             )
         except dependency_boundary.DependencyBoundaryError as exc:
-            raise QualificationError(
-                f"npm console-script contract failed: {cohort}"
-            ) from exc
+            raise QualificationError(f"npm console-script contract failed: {cohort}") from exc
         dockerfile_path = dependency_boundary.repository_file(ROOT, config["dockerfile"])
         dockerfile = (ROOT / dockerfile_path).read_text(encoding="utf-8")
         for reference, (command, target) in bindings.items():
@@ -855,9 +830,8 @@ def _validate_reviewed_build_sources(cohorts: dict[str, Any]) -> None:
             dockerfile = dependency_boundary.repository_file(ROOT, config["dockerfile"])
         except (KeyError, dependency_boundary.DependencyBoundaryError) as exc:
             raise QualificationError(f"reviewed Dockerfile is unavailable: {cohort}") from exc
-        if (
-            dockerfile != expected_path
-            or not grade_refresh._reviewed_image_build_source_matches(ROOT, dockerfile)
+        if dockerfile != expected_path or not grade_refresh._reviewed_image_build_source_matches(
+            ROOT, dockerfile
         ):
             raise QualificationError(f"unreviewed Dockerfile recipe: {cohort}")
 
@@ -878,8 +852,8 @@ def _cohort_binding(cohort: str, config: dict[str, Any], *, platform: str) -> di
         raise QualificationError(str(exc)) from exc
     dockerfile = dependency_boundary.repository_file(ROOT, validated["dockerfile"])
     build_source_sha256 = grade_refresh.digest_file(ROOT / dockerfile)
-    manifests, _locks, _artifacts, normalized_locks, normalized_artifacts = (
-        _dependency_inputs(cohort, validated)
+    manifests, _locks, _artifacts, normalized_locks, normalized_artifacts = _dependency_inputs(
+        cohort, validated
     )
     build_input = {
         "build_source_sha256": build_source_sha256,
@@ -892,9 +866,7 @@ def _cohort_binding(cohort: str, config: dict[str, Any], *, platform: str) -> di
         "execution_boundary": EXECUTION_BOUNDARY,
     }
     return {
-        "image_reference": dependency_boundary.local_image_tag(
-            validated["image_reference"]
-        ),
+        "image_reference": dependency_boundary.local_image_tag(validated["image_reference"]),
         "build_source": dockerfile,
         "build_source_sha256": build_source_sha256,
         "build_input_digest": grade_refresh.digest_bytes(
@@ -937,9 +909,7 @@ def _qualification_source_paths(cohorts: dict[str, Any]) -> set[str]:
                     if isinstance(reference, dict) and isinstance(reference.get("path"), str):
                         paths.add(str(reference["path"]))
     for path in paths:
-        if path in _QUALIFICATION_EXCLUDED_EXACT or path.startswith(
-            _QUALIFICATION_EXCLUDED_PREFIX
-        ):
+        if path in _QUALIFICATION_EXCLUDED_EXACT or path.startswith(_QUALIFICATION_EXCLUDED_PREFIX):
             raise QualificationError(
                 "qualification source input resolves inside excluded adoption evidence"
             )
@@ -969,15 +939,12 @@ def _tracked_source_binding(cohorts: dict[str, Any]) -> dict[str, Any]:
         raise QualificationError("qualification source inventory is not fully tracked")
     selected = {path: file_digests[path] for path in sorted(paths)}
     if not all(
-        isinstance(value, str) and value.startswith("sha256:")
-        for value in selected.values()
+        isinstance(value, str) and value.startswith("sha256:") for value in selected.values()
     ):
         raise QualificationError("qualification source inventory digest is invalid")
     return {
         "origin_revision": revision,
-        "source_digest": grade_refresh.digest_bytes(
-            grade_refresh.canonical_bytes(selected)
-        ),
+        "source_digest": grade_refresh.digest_bytes(grade_refresh.canonical_bytes(selected)),
         "file_digests": selected,
     }
 
@@ -1077,9 +1044,7 @@ def _origin_source_binding_matches(source: object) -> bool:
     return True
 
 
-def _require_current_set_source(
-    set_manifest: dict[str, Any], cohorts: dict[str, Any]
-) -> None:
+def _require_current_set_source(set_manifest: dict[str, Any], cohorts: dict[str, Any]) -> None:
     current = _tracked_source_binding(cohorts)
     recorded = set_manifest.get("source_binding")
     if (
@@ -1094,9 +1059,7 @@ def _open_receipt_set(
     receipt_set: str, *, cohorts: dict[str, Any], platform: str
 ) -> tuple[Path, dict[str, Any]]:
     root = _receipt_set_root(receipt_set)
-    expected = _expected_set_manifest(
-        receipt_set=receipt_set, cohorts=cohorts, platform=platform
-    )
+    expected = _expected_set_manifest(receipt_set=receipt_set, cohorts=cohorts, platform=platform)
     if _lstat(root) is None:
         root.mkdir(mode=0o700)
         try:
@@ -1107,9 +1070,7 @@ def _open_receipt_set(
             raise
     else:
         _require_private_directory(root, label="qualification receipt set")
-    actual = _read_bound_json(
-        root / "qualification-set.json", schema=QUALIFICATION_SET_SCHEMA
-    )
+    actual = _read_bound_json(root / "qualification-set.json", schema=QUALIFICATION_SET_SCHEMA)
     if not _set_manifest_matches(actual, expected) or not _origin_source_binding_matches(
         actual.get("source_binding")
     ):
@@ -1126,9 +1087,7 @@ def _open_receipt_set(
             receipt_path=receipt.relative_to(ROOT).as_posix(),
         )
         if validated is None:
-            raise QualificationError(
-                f"existing qualification receipt is invalid: {receipt.name}"
-            )
+            raise QualificationError(f"existing qualification receipt is invalid: {receipt.name}")
     _validate_set_graph(root, set_manifest=actual)
     return root, actual
 
@@ -1148,10 +1107,7 @@ def _valid_attempt_tool_snapshot(value: object) -> bool:
             or set(descriptor) != {"path", "sha256"}
             or descriptor.get("path") != f"tmp/qualification/tools/{name}"
             or not isinstance(descriptor.get("sha256"), str)
-            or _HEX_DIGEST.fullmatch(
-                descriptor["sha256"].removeprefix("sha256:")
-            )
-            is None
+            or _HEX_DIGEST.fullmatch(descriptor["sha256"].removeprefix("sha256:")) is None
         ):
             return False
     return True
@@ -1200,9 +1156,7 @@ def _validated_set_attempts(
                         cohort=matched_cohort,
                     )
                 except HostCapacityError as exc:
-                    raise QualificationError(
-                        f"capacity artifact scope is invalid: {name}"
-                    ) from exc
+                    raise QualificationError(f"capacity artifact scope is invalid: {name}") from exc
                 host_digest = payload["host_capacity"]["receipt_digest"]
                 if host_digest in host_capacity_digests:
                     raise QualificationError(
@@ -1215,33 +1169,26 @@ def _validated_set_attempts(
                     root, capacity_name, label="attempt capacity receipt"
                 )
                 capacity = (
-                    _read_bound_json(
-                        capacity_path, schema="McpTrustQualificationCapacityReceiptV1"
-                    )
-                    if isinstance(capacity_name, str) else None
+                    _read_bound_json(capacity_path, schema="McpTrustQualificationCapacityReceiptV1")
+                    if isinstance(capacity_name, str)
+                    else None
                 )
                 expected_attempt_id = grade_refresh.digest_bytes(
                     grade_refresh.canonical_bytes(
                         {
                             "set_receipt_digest": payload.get("set_receipt_digest"),
                             "cohort": payload.get("cohort"),
-                            "capacity_receipt_digest": payload.get(
-                                "capacity_receipt_digest"
-                            ),
+                            "capacity_receipt_digest": payload.get("capacity_receipt_digest"),
                         }
                     )
                 ).removeprefix("sha256:")
-                cohort_binding = set_manifest.get("cohort_bindings", {}).get(
-                    matched_cohort, {}
-                )
+                cohort_binding = set_manifest.get("cohort_bindings", {}).get(matched_cohort, {})
                 if (
                     set(payload) != _ATTEMPT_KEYS
                     or payload.get("attempt_id") != suffix
                     or suffix != expected_attempt_id
-                    or payload.get("set_receipt_digest")
-                    != set_manifest.get("receipt_digest")
-                    or payload.get("image_reference")
-                    != cohort_binding.get("image_reference")
+                    or payload.get("set_receipt_digest") != set_manifest.get("receipt_digest")
+                    or payload.get("image_reference") != cohort_binding.get("image_reference")
                     or payload.get("temporary_reference")
                     != f"mcp-trust-qualification:v0-{suffix}-first"
                     or payload.get("oci_outputs")
@@ -1249,28 +1196,22 @@ def _validated_set_attempts(
                         f"tmp/qualification/{matched_cohort}-first.oci.tar",
                         f"tmp/qualification/{matched_cohort}-second.oci.tar",
                     ]
-                    or payload.get("exit_classification")
-                    != "PENDING_DOCKER_MUTATION_CLEANUP"
+                    or payload.get("exit_classification") != "PENDING_DOCKER_MUTATION_CLEANUP"
                     or payload.get("validation_receipt")
                     != f"tmp/qualification/{matched_cohort}-receipt.json"
                     or not _valid_attempt_tool_snapshot(payload.get("tool_snapshot"))
                     or (
                         payload.get("previous_final_image_id") is not None
                         and (
-                            not isinstance(
-                                payload.get("previous_final_image_id"), str
-                            )
+                            not isinstance(payload.get("previous_final_image_id"), str)
                             or _HEX_DIGEST.fullmatch(
-                                payload["previous_final_image_id"].removeprefix(
-                                    "sha256:"
-                                )
+                                payload["previous_final_image_id"].removeprefix("sha256:")
                             )
                             is None
                         )
                     )
                     or not isinstance(capacity, dict)
-                    or payload.get("capacity_receipt_digest")
-                    != capacity.get("receipt_digest")
+                    or payload.get("capacity_receipt_digest") != capacity.get("receipt_digest")
                     or payload.get("capacity_receipt_sha256")
                     != grade_refresh.digest_file(capacity_path)
                 ):
@@ -1298,10 +1239,8 @@ def _validate_set_graph(root: Path, *, set_manifest: dict[str, Any]) -> None:
     cleanups: set[str] = set()
     ownerships: set[str] = set()
     for cohort in COHORTS:
-        attempts, found_completions, found_cleanups, found_ownerships = (
-            _validated_set_attempts(
-                root, cohort=cohort, set_manifest=set_manifest
-            )
+        attempts, found_completions, found_cleanups, found_ownerships = _validated_set_attempts(
+            root, cohort=cohort, set_manifest=set_manifest
         )
         completions = found_completions
         cleanups = found_cleanups
@@ -1319,14 +1258,10 @@ def _validate_set_graph(root: Path, *, set_manifest: dict[str, Any]) -> None:
     if not ownerships <= attempt_ids:
         raise QualificationError("qualification set has orphan ownership evidence")
     if not completions <= ownerships:
-        raise QualificationError(
-            "qualification completion lacks final-tag ownership evidence"
-        )
+        raise QualificationError("qualification completion lacks final-tag ownership evidence")
     for attempt_id in ownerships:
         attempt_path, attempt = attempts_by_id[attempt_id]
-        _owned_final_image_id(
-            root, attempt_path=attempt_path, attempt=attempt
-        )
+        _owned_final_image_id(root, attempt_path=attempt_path, attempt=attempt)
 
     for attempt_id in completions | cleanups:
         attempt_path, attempt = attempts_by_id[attempt_id]
@@ -1351,13 +1286,10 @@ def _validate_set_graph(root: Path, *, set_manifest: dict[str, Any]) -> None:
                 f"qualification receipt lacks one completion graph: {receipt.name}"
             )
         if not receipt.is_file() and matching:
-            raise QualificationError(
-                f"qualification completion lacks its receipt: {cohort}.json"
-            )
+            raise QualificationError(f"qualification completion lacks its receipt: {cohort}.json")
 
     referenced_capacity = {
-        str(attempt.get("capacity_receipt"))
-        for _path, attempt in attempts_by_id.values()
+        str(attempt.get("capacity_receipt")) for _path, attempt in attempts_by_id.values()
     }
     for attempt_id in cleanups:
         _attempt_path, attempt = attempts_by_id[attempt_id]
@@ -1366,9 +1298,7 @@ def _validate_set_graph(root: Path, *, set_manifest: dict[str, Any]) -> None:
             schema=QUALIFICATION_CLEANUP_SCHEMA,
         )
         referenced_capacity.add(str(cleanup.get("capacity_receipt")))
-    actual_capacity = {
-        path.name for path in root.iterdir() if path.name.startswith("capacity-")
-    }
+    actual_capacity = {path.name for path in root.iterdir() if path.name.startswith("capacity-")}
     if actual_capacity != referenced_capacity:
         raise QualificationError("qualification set has orphan capacity evidence")
 
@@ -1495,9 +1425,7 @@ def _attempt_resolved(
         capacity_name = cleanup.get("capacity_receipt")
         if not isinstance(capacity_name, str):
             return False
-        capacity_path = _safe_set_child(
-            root, capacity_name, label="cleanup capacity receipt"
-        )
+        capacity_path = _safe_set_child(root, capacity_name, label="cleanup capacity receipt")
         try:
             capacity = _read_bound_json(
                 capacity_path, schema="McpTrustQualificationCapacityReceiptV1"
@@ -1510,26 +1438,20 @@ def _attempt_resolved(
             )
         except (QualificationError, HostCapacityError):
             return False
-        owned_final_id = _owned_final_image_id(
-            root, attempt_path=attempt_path, attempt=attempt
-        )
+        owned_final_id = _owned_final_image_id(root, attempt_path=attempt_path, attempt=attempt)
         final_state = cleanup.get("final_tag_state")
         return (
             cleanup.get("attempt_path") == attempt_path.name
             and cleanup.get("attempt_sha256") == attempt_sha256
-            and cleanup.get("capacity_receipt_sha256")
-            == grade_refresh.digest_file(capacity_path)
-            and cleanup.get("capacity_receipt_digest")
-            == capacity.get("receipt_digest")
+            and cleanup.get("capacity_receipt_sha256") == grade_refresh.digest_file(capacity_path)
+            and cleanup.get("capacity_receipt_digest") == capacity.get("receipt_digest")
             and cleanup.get("exit_classification") == "CLEANUP_CONFIRMED"
             and cleanup.get("temporary_tag_absent") is True
             and final_state in {"BASELINE_UNCHANGED", "TASK_OWNED_RETAINED"}
             and (final_state != "TASK_OWNED_RETAINED" or owned_final_id is not None)
             and cleanup.get("oci_outputs_absent") is True
             and cleanup.get("execution_boundary") == EXECUTION_BOUNDARY
-            and grade_refresh._stable_image_build_tool_versions(
-                cleanup.get("tool_versions")
-            )
+            and grade_refresh._stable_image_build_tool_versions(cleanup.get("tool_versions"))
             and isinstance(cleanup.get("tool_digests"), dict)
             and set(cleanup["tool_digests"]) == {"docker", "docker_buildx"}
             and all(
@@ -1554,8 +1476,7 @@ def _attempt_resolved(
             completion.get("attempt_path") == attempt_path.name
             and completion.get("attempt_sha256") == attempt_sha256
             and completion.get("qualification_receipt") == receipt.name
-            and completion.get("qualification_receipt_sha256")
-            == grade_refresh.digest_file(receipt)
+            and completion.get("qualification_receipt_sha256") == grade_refresh.digest_file(receipt)
             and completion.get("qualification_receipt_digest")
             == receipt_payload.get("receipt_digest")
             and completion.get("exit_classification") == "QUALIFIED_REPEATABLE"
@@ -1665,9 +1586,7 @@ def _write_ownership(
     return path
 
 
-def _owned_final_image_id(
-    root: Path, *, attempt_path: Path, attempt: dict[str, Any]
-) -> str | None:
+def _owned_final_image_id(root: Path, *, attempt_path: Path, attempt: dict[str, Any]) -> str | None:
     path = root / f"ownership-{attempt['cohort']}-{attempt['attempt_id']}.json"
     if _lstat(path) is None:
         return None
@@ -1751,16 +1670,14 @@ def qualify(
     )
     expected_cohort_binding = set_manifest.get("cohort_bindings", {}).get(cohort)
     if isinstance(expected_cohort_binding, dict):
-        current_cohort_binding = _cohort_binding(
-            cohort, cohort_config, platform=str(platform)
-        )
+        current_cohort_binding = _cohort_binding(cohort, cohort_config, platform=str(platform))
         if current_cohort_binding != expected_cohort_binding:
             raise QualificationError("qualification cohort input changed during execution")
     image_reference = dependency_boundary.local_image_tag(config["image_reference"])
     build_source_sha256 = grade_refresh.digest_file(ROOT / dockerfile)
     base_images = _cohort_base_images(config)
-    manifests, locks, artifacts, normalized_locks, normalized_artifacts = (
-        _dependency_inputs(cohort, config)
+    manifests, locks, artifacts, normalized_locks, normalized_artifacts = _dependency_inputs(
+        cohort, config
     )
     platform_name = str(platform)
     build_input = {
@@ -1798,9 +1715,7 @@ def qualify(
     second_output = f"tmp/qualification/{cohort}-second.oci.tar"
     if _lstat(ROOT / first_output) is not None or _lstat(ROOT / second_output) is not None:
         raise QualificationError(f"qualification output already exists: {cohort}")
-    attempt_id = _attempt_id(
-        set_manifest=set_manifest, cohort=cohort, capacity_gate=capacity_gate
-    )
+    attempt_id = _attempt_id(set_manifest=set_manifest, cohort=cohort, capacity_gate=capacity_gate)
     first_reference = f"mcp-trust-qualification:v0-{attempt_id}-first"
     if (
         _image_id(
@@ -1892,9 +1807,11 @@ def qualify(
             raise QualificationError("qualification image IDs are unavailable")
         if cohorts is not None:
             _require_current_set_source(set_manifest, cohorts)
-        if isinstance(expected_cohort_binding, dict) and _cohort_binding(
-            cohort, cohort_config, platform=platform_name
-        ) != expected_cohort_binding:
+        if (
+            isinstance(expected_cohort_binding, dict)
+            and _cohort_binding(cohort, cohort_config, platform=platform_name)
+            != expected_cohort_binding
+        ):
             raise QualificationError("qualification cohort input changed during execution")
         payload: dict[str, Any] = {
             "schema": grade_refresh.IMAGE_BUILD_QUALIFICATION_SCHEMA,
@@ -1976,11 +1893,7 @@ def _remove_attempt_outputs(attempt: dict[str, Any]) -> None:
         metadata = _lstat(path)
         if metadata is None:
             continue
-        if (
-            path.is_symlink()
-            or not path.is_file()
-            or metadata.st_uid != os.getuid()
-        ):
+        if path.is_symlink() or not path.is_file() or metadata.st_uid != os.getuid():
             raise QualificationError("cleanup OCI output target is unsafe")
         path.unlink()
     validation = attempt.get("validation_receipt")
@@ -2018,9 +1931,7 @@ def _remove_attempt_outputs(attempt: dict[str, Any]) -> None:
         path.unlink()
     snapshot_root = ROOT / "tmp/qualification/tools"
     if _lstat(snapshot_root) is not None:
-        if snapshot_root.is_symlink() or not snapshot_root.is_dir() or any(
-            snapshot_root.iterdir()
-        ):
+        if snapshot_root.is_symlink() or not snapshot_root.is_dir() or any(snapshot_root.iterdir()):
             raise QualificationError("cleanup tool snapshot directory is unsafe")
         snapshot_root.rmdir()
 
@@ -2041,12 +1952,8 @@ def cleanup_interrupted(
     capacity_gate: QualificationCapacityGate,
     buildx: str,
 ) -> Path:
-    capacity_gate.require_scope(
-        operation="cleanup", receipt_set=receipt_root.name, cohort=cohort
-    )
-    unresolved = _unresolved_attempts(
-        receipt_root, cohort=cohort, set_manifest=set_manifest
-    )
+    capacity_gate.require_scope(operation="cleanup", receipt_set=receipt_root.name, cohort=cohort)
+    unresolved = _unresolved_attempts(receipt_root, cohort=cohort, set_manifest=set_manifest)
     if len(unresolved) != 1:
         raise QualificationError(
             f"cleanup requires exactly one unresolved attempt for cohort: {cohort}"
@@ -2058,33 +1965,24 @@ def cleanup_interrupted(
     if (
         attempt.get("set_receipt_digest") != set_manifest["receipt_digest"]
         or image_reference != binding["image_reference"]
-        or temporary_reference
-        != f"mcp-trust-qualification:v0-{attempt['attempt_id']}-first"
+        or temporary_reference != f"mcp-trust-qualification:v0-{attempt['attempt_id']}-first"
         or attempt.get("exit_classification") != "PENDING_DOCKER_MUTATION_CLEANUP"
     ):
         raise QualificationError("cleanup intent binding is invalid")
     capacity_path, capacity = _capacity_snapshot(
         root=receipt_root, cohort=cohort, capacity_gate=capacity_gate
     )
-    boundary_before = _execution_boundary(
-        buildx, tools=tools, capacity_gate=capacity_gate
-    )
+    boundary_before = _execution_boundary(buildx, tools=tools, capacity_gate=capacity_gate)
     tools_before = _tool_digests(tools, buildx)
-    versions_before = _tool_versions(
-        buildx, tools=tools, capacity_gate=capacity_gate
-    )
-    _remove_tag(
-        temporary_reference, tools=tools, capacity_gate=capacity_gate
-    )
+    versions_before = _tool_versions(buildx, tools=tools, capacity_gate=capacity_gate)
+    _remove_tag(temporary_reference, tools=tools, capacity_gate=capacity_gate)
     previous = attempt.get("previous_final_image_id")
     if previous is not None and (
         not isinstance(previous, str)
         or _HEX_DIGEST.fullmatch(previous.removeprefix("sha256:")) is None
     ):
         raise QualificationError("cleanup prior final image binding is invalid")
-    owned_final_id = _owned_final_image_id(
-        receipt_root, attempt_path=attempt_path, attempt=attempt
-    )
+    owned_final_id = _owned_final_image_id(receipt_root, attempt_path=attempt_path, attempt=attempt)
     final_tag_state = _final_tag_state(
         image_reference,
         previous,
@@ -2101,13 +1999,9 @@ def cleanup_interrupted(
         )
         is None
     )
-    boundary_after = _execution_boundary(
-        buildx, tools=tools, capacity_gate=capacity_gate
-    )
+    boundary_after = _execution_boundary(buildx, tools=tools, capacity_gate=capacity_gate)
     tools_after = _tool_digests(tools, buildx)
-    versions_after = _tool_versions(
-        buildx, tools=tools, capacity_gate=capacity_gate
-    )
+    versions_after = _tool_versions(buildx, tools=tools, capacity_gate=capacity_gate)
     outputs_absent = all(_lstat(ROOT / path) is None for path in attempt["oci_outputs"])
     if (
         not temporary_absent
@@ -2203,23 +2097,17 @@ def _main_locked(
     if args.cohort:
         if _lstat(receipt_root / f"{cohort}.json") is not None:
             raise QualificationError(f"qualification receipt already exists: {cohort}.json")
-        if _unresolved_attempts(
-            receipt_root, cohort=cohort, set_manifest=set_manifest
-        ):
+        if _unresolved_attempts(receipt_root, cohort=cohort, set_manifest=set_manifest):
             raise QualificationError(
                 f"qualification cleanup is required before retrying cohort: {cohort}"
             )
     else:
-        unresolved = _unresolved_attempts(
-            receipt_root, cohort=cohort, set_manifest=set_manifest
-        )
+        unresolved = _unresolved_attempts(receipt_root, cohort=cohort, set_manifest=set_manifest)
         if len(unresolved) != 1:
             raise QualificationError(
                 f"cleanup requires exactly one unresolved attempt for cohort: {cohort}"
             )
-        _admit_cleanup_residue(
-            capacity_gate=capacity_gate, attempt=unresolved[0][1]
-        )
+        _admit_cleanup_residue(capacity_gate=capacity_gate, attempt=unresolved[0][1])
     if shutil.which("docker-buildx") is None:
         raise QualificationError("docker-buildx executable is unavailable")
     output_root = ROOT / "tmp/qualification"

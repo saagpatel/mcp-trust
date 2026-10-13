@@ -300,13 +300,10 @@ def sandbox_server_process_digests(
             )
         )
     if allowed_process_title is not None:
-        if (
-            _BARE_EXECUTABLE.fullmatch(allowed_process_title) is None
-            or len(allowed_process_title.encode("utf-8")) > len(encoded)
-        ):
-            raise DockerSandboxRuntimeReadbackError(
-                "allowed server process title is invalid"
-            )
+        if _BARE_EXECUTABLE.fullmatch(allowed_process_title) is None or len(
+            allowed_process_title.encode("utf-8")
+        ) > len(encoded):
+            raise DockerSandboxRuntimeReadbackError("allowed server process title is invalid")
         title = allowed_process_title.encode("utf-8")
         rewritten = title + b"\0" * (len(encoded) - len(title))
         digests.append("sha256:" + hashlib.sha256(rewritten).hexdigest())
@@ -366,8 +363,7 @@ def valid_sandbox_runtime_readback(
         and expected_attestor == "python"
         and value.get("schema") == SANDBOX_RUNTIME_READBACK_SCHEMA
         and value.get("state") == "VERIFIED"
-        and value.get("proof_boundary")
-        == "live-mcp-server-process-and-docker-daemon-config"
+        and value.get("proof_boundary") == "live-mcp-server-process-and-docker-daemon-config"
         and value.get("image_id") == expected_image_id
         and isinstance(value.get("container_identity_digest"), str)
         and re.fullmatch(r"sha256:[0-9a-f]{64}", value["container_identity_digest"])
@@ -389,30 +385,23 @@ def valid_sandbox_runtime_readback(
         and observed["cpu_quota"] > 0
         and type(observed.get("cpu_period")) is int
         and observed["cpu_period"] > 0
-        and Decimal(observed["cpu_quota"]) / Decimal(observed["cpu_period"])
-        == expected_cpus
+        and Decimal(observed["cpu_quota"]) / Decimal(observed["cpu_period"]) == expected_cpus
         and isinstance(observed.get("environment_names"), list)
         and observed["environment_names"] == expected_environment_names
         and all(isinstance(name, str) and name for name in observed["environment_names"])
         and image_environment_names == sorted(set(image_environment_names))
-        and observed.get("runtime_managed_environment_names")
-        == runtime_managed_environment_names
+        and observed.get("runtime_managed_environment_names") == runtime_managed_environment_names
         and isinstance(observed.get("injected_dummy_env_names"), list)
         and observed["injected_dummy_env_names"] == expected_dummy_names
-        and set(observed["injected_dummy_env_names"]).issubset(
-            observed["environment_names"]
-        )
+        and set(observed["injected_dummy_env_names"]).issubset(observed["environment_names"])
         and observed.get("secret_values_emitted_in_readback") is False
         and expected_process_digests
         and all(
-            isinstance(digest, str)
-            and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is not None
+            isinstance(digest, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is not None
             for digest in expected_process_digests
         )
         and observed.get("server_process_cmdline_digest") in expected_process_digests
-        and re.fullmatch(
-            r"sha256:[0-9a-f]{64}", str(observed["server_process_cmdline_digest"])
-        )
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", str(observed["server_process_cmdline_digest"]))
         and observed.get("workdir") == expected_workdir
         and observed.get("root_write_denied") is True
         and observed.get("workdir_write_verified") is True
@@ -505,13 +494,9 @@ class DockerSandbox:
     env: dict[str, str] = field(default_factory=dict)
     # A per-sandbox unguessable identity lets cleanup target only the container
     # created by this exact scan lifecycle. Neither value is caller-controlled.
-    _owner_token: str = field(
-        default_factory=lambda: secrets.token_hex(16), init=False, repr=False
-    )
+    _owner_token: str = field(default_factory=lambda: secrets.token_hex(16), init=False, repr=False)
     _container_id: str | None = field(default=None, init=False, repr=False)
-    _server_process_digests: tuple[str, ...] | None = field(
-        default=None, init=False, repr=False
-    )
+    _server_process_digests: tuple[str, ...] | None = field(default=None, init=False, repr=False)
 
     name: ClassVar[str] = "docker"
     isolates: ClassVar[bool] = True
@@ -632,8 +617,7 @@ class DockerSandbox:
             )
         container_ids = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
         if len(container_ids) > 1 or any(
-            _FULL_CONTAINER_ID.fullmatch(container_id) is None
-            for container_id in container_ids
+            _FULL_CONTAINER_ID.fullmatch(container_id) is None for container_id in container_ids
         ):
             raise DockerSandboxCleanupError(
                 "Docker cleanup readback returned an ambiguous owned-container identity"
@@ -744,9 +728,7 @@ class DockerSandbox:
             # A failed CLI can still have created a daemon object. Query by the
             # unique identity and remove it before returning the preparation error.
             self.cleanup_owned_container(runner=runner)
-            raise DockerSandboxCleanupError(
-                "Docker did not return one immutable scan container ID"
-            )
+            raise DockerSandboxCleanupError("Docker did not return one immutable scan container ID")
         self._container_id = created_ids[0]
         self._server_process_digests = sandbox_server_process_digests(
             command,
@@ -795,9 +777,7 @@ class DockerSandbox:
         except (json.JSONDecodeError, TypeError):
             payload = _INVALID_JSON_READBACK
         if payload is _INVALID_JSON_READBACK:
-            raise DockerSandboxRuntimeReadbackError(
-                "Docker runtime readback returned invalid JSON"
-            )
+            raise DockerSandboxRuntimeReadbackError("Docker runtime readback returned invalid JSON")
         if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
             raise DockerSandboxRuntimeReadbackError(
                 "Docker runtime readback returned an ambiguous object"
@@ -866,9 +846,7 @@ class DockerSandbox:
             self.workdir,
         )
         if attested.returncode != 0:
-            raise DockerSandboxRuntimeReadbackError(
-                "Docker in-container runtime attestor failed"
-            )
+            raise DockerSandboxRuntimeReadbackError("Docker in-container runtime attestor failed")
         try:
             process = json.loads(attested.stdout)
         except (json.JSONDecodeError, TypeError):
@@ -945,9 +923,7 @@ class DockerSandbox:
         )
         no_host_mount = bool(
             host_config.get("Binds") in (None, [])
-            and all(
-                isinstance(mount, dict) and mount.get("Type") != "bind" for mount in mounts
-            )
+            and all(isinstance(mount, dict) and mount.get("Type") != "bind" for mount in mounts)
         )
 
         def _process_int(key: str) -> int:
@@ -976,14 +952,11 @@ class DockerSandbox:
         interfaces = process.get("network_interfaces")
         server_process_digest = process.get("server_process_cmdline_digest")
         expected_server_process_digests = self._server_process_digests
-        cpu_valid = (
-            cpu_period > 0
-            and Decimal(cpu_quota) / Decimal(cpu_period) == Decimal(self.cpus)
+        cpu_valid = cpu_period > 0 and Decimal(cpu_quota) / Decimal(cpu_period) == Decimal(
+            self.cpus
         )
         controls = {
-            "network_none": (
-                host_config.get("NetworkMode") == "none" and interfaces == ["lo"]
-            ),
+            "network_none": (host_config.get("NetworkMode") == "none" and interfaces == ["lo"]),
             "read_only_root": (
                 host_config.get("ReadonlyRootfs") is True
                 and "ro" in process.get("root_mount_options", [])
@@ -1000,14 +973,12 @@ class DockerSandbox:
                 and process.get("no_new_privs") == "1"
             ),
             "memory_limit": (
-                host_config.get("Memory") == expected_memory
-                and memory_max == expected_memory
+                host_config.get("Memory") == expected_memory and memory_max == expected_memory
             ),
             "memory_swap_disabled": host_config.get("MemorySwap") == expected_memory,
             "cpu_limit": host_config.get("NanoCpus") == expected_nano_cpus and cpu_valid,
             "pids_limit": (
-                host_config.get("PidsLimit") == self.pids_limit
-                and pids_max == self.pids_limit
+                host_config.get("PidsLimit") == self.pids_limit and pids_max == self.pids_limit
             ),
             "non_root_user": (
                 self.user is not None

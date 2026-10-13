@@ -70,12 +70,11 @@ Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
 
 ## Prerequisites
 
-- Python 3.11 for development; `.python-version` pins 3.11.15 to match CI
+- Python 3.12 or newer; `.python-version` pins 3.15.0 for local setup
 - [`uv`](https://docs.astral.sh/uv/) (used for dependency management and running the project)
 
-CI and Cursor Cloud install `uv==0.12.4`. Run the commands below from the
-repository root; `uv sync` creates the project virtualenv using the pinned
-Python version and committed lockfile.
+The project requires `uv==0.13.0`. Run the commands below from the repository
+root; `uv sync` creates the project virtualenv using the committed lockfile.
 
 ## MCP config portability studio
 
@@ -104,7 +103,7 @@ register a server  ->  scan via engine  ->  derive grade  ->  persist  ->  serve
 
 The registry does **not** reimplement vulnerability detection. It orchestrates a
 pluggable scan engine -- the shipping backend wraps the public
-[`mcp-audits`](https://pypi.org/project/mcp-audits/) (>=2.4.0,<3) package -- and owns the
+[`mcp-audits`](https://pypi.org/project/mcp-audits/) (>=2.7.0,<3) package -- and owns the
 catalog, the public trust-grade normalization, persistence, and the lookup API.
 
 ## Quickstart
@@ -454,6 +453,14 @@ checkpoint owner described in the offline trust contract.
 
 ## Status
 
+### Stack
+
+The project uses Python, FastAPI, SQLite, Typer, Pydantic, `mcp-audits` as an
+optional scan engine, Ruff, Pyright and pytest. Dependency versions are locked
+in `uv.lock`; the project requires Python 3.12 or newer.
+
+### Known risks
+
 **Live** at [mcp-trust.vercel.app](https://mcp-trust.vercel.app) as a statically
 generated catalog, regenerated from the local registry. The bundled catalog
 snapshot contains 23 visible real `mcp-audits` grades; eight seed entries
@@ -481,17 +488,33 @@ for launch history. The deployed catalog reports scan timestamps as its
 freshness authority; static HTML does not claim to attest machine-local
 scheduler state.
 
+The deployed catalog may therefore be stale. A live URL response can be served
+from cache; current catalog content recency is unverified by this repository
+description. Static HTML freshness does not attest current scheduler state, and
+local tests do not establish live provider or deployment behavior. Current
+GitHub Actions status is also unverified by this repository description.
+
+On this macOS host, Python 3.15.0 required a source build of locked
+`pydantic-core` 2.46.4; the build completed, but its extension failed to load.
+The full Python 3.15 CI result is unverified. The supported CI matrix remains
+3.12 through 3.15 pending that hosted check.
+
+### Next steps
+
 ## Contributing
 
 `uv.lock` is intentionally committed to the repository to ensure reproducible
 installs across environments. When adding or updating dependencies, commit the
 updated `uv.lock` alongside your `pyproject.toml` changes.
 
+Run `make setup` to install the frozen development dependencies and `make check`
+for the aggregate local gate.
+
 ### Local development and verification
 
-Use `uv sync --frozen --extra dev` from the repository root. This is the same
-core/dev environment as [CI](.github/workflows/ci.yml); it does not install the
-optional real scan engine. Prepare a development shell with a temporary
+Use `make setup` from the repository root. This is the same core/dev environment
+as [CI](.github/workflows/ci.yml); it does not install the optional real scan
+engine. Prepare a development shell with a temporary
 database and no operator scan/receipt overrides:
 
 ```bash
@@ -504,11 +527,8 @@ unset MCP_TRUST_MASKED_GRADES MCP_TRUST_RECEIPTS_DIR \
 
 # Focused CLI/API fixtures; choose the test file or node for your changed module.
 uv run --no-sync pytest -q tests/test_cli.py tests/test_api.py
-# Broader deterministic regression gate, as used by CI.
-uv run --no-sync pytest -q
-uv run --no-sync ruff check src scripts tests
-# Build the wheel and source distribution into this temporary output directory.
-uv build --out-dir "$verification_dir/packages"
+# Aggregate deterministic local gate, as used by CI.
+make check
 ```
 
 Fixtures use temporary data and mocked runtime/provider boundaries. Keep both
@@ -520,9 +540,8 @@ Ubuntu CI runner when the local platform cannot provide a pseudo-terminal.
 `MCP_TRUST_TEST_TTY_TIMEOUT` adjusts their subprocess
 budget for a loaded machine without weakening the assertions.
 
-Ruff also provides `uv run --no-sync ruff format --check path/to/changed.py`
-for changed Python files; formatting is not currently a CI gate. No separate
-typechecker is configured in `pyproject.toml`. For web/static/badge changes,
+`make check` runs Ruff lint and format checks, Pyright, pytest and a package
+build. For web/static/badge changes,
 focus on `tests/test_web.py`, `tests/test_site_generator.py`,
 `tests/test_build_site_script.py` and `tests/test_api.py`, then run the broader
 gate before delivery.

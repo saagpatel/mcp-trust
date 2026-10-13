@@ -58,9 +58,7 @@ def test_stub_provenance_is_explicit_across_api_web_static_and_badge(
     live_catalog = client.get("/").text
     build = generate_site(conn, tmp_path / "site", base_url="https://example.invalid")
     static_html = (build.out_dir / "ui/servers/synthetic-server/index.html").read_text()
-    static_badge = json.loads(
-        (build.out_dir / "servers/synthetic-server/badge.json").read_text()
-    )
+    static_badge = json.loads((build.out_dir / "servers/synthetic-server/badge.json").read_text())
 
     assert summary["provenance"] == "demo"
     assert detail["latest_scan"]["provenance"] == "demo"
@@ -98,9 +96,7 @@ def test_stale_state_is_explicit_across_api_web_static_and_badge(tmp_path) -> No
         now=datetime(2026, 8, 14, tzinfo=UTC),
     )
     static_html = (build.out_dir / "ui/servers/synthetic-server/index.html").read_text()
-    static_badge = json.loads(
-        (build.out_dir / "servers/synthetic-server/badge.json").read_text()
-    )
+    static_badge = json.loads((build.out_dir / "servers/synthetic-server/badge.json").read_text())
 
     assert summary["provenance"] == "real"
     assert summary["stale"] is True
@@ -153,9 +149,7 @@ def test_future_scan_withholds_grade_and_history_across_public_surfaces(tmp_path
         now=now,
     )
     static_html = (build.out_dir / "ui/servers/synthetic-server/index.html").read_text()
-    static_badge = json.loads(
-        (build.out_dir / "servers/synthetic-server/badge.json").read_text()
-    )
+    static_badge = json.loads((build.out_dir / "servers/synthetic-server/badge.json").read_text())
 
     assert summary["grade"] == "unknown"
     assert detail["latest_scan"]["grade"] == "unknown"
@@ -215,18 +209,14 @@ def test_corrupt_latest_scan_is_unknown_everywhere_without_older_grade_fallback(
     live_response = client.get("/ui/servers/synthetic-server")
     build = generate_site(conn, tmp_path / "site", base_url="https://example.invalid")
     static_html = (build.out_dir / "ui/servers/synthetic-server/index.html").read_text()
-    static_badge = json.loads(
-        (build.out_dir / "servers/synthetic-server/badge.json").read_text()
-    )
+    static_badge = json.loads((build.out_dir / "servers/synthetic-server/badge.json").read_text())
 
     assert summary_response.status_code == 200
     assert summary_response.json()[0]["grade"] == "unknown"
     assert summary_response.json()[0]["provenance"] == "unknown"
     assert detail_response.status_code == 200
     assert detail_response.json()["latest_scan"]["status"] == "UNKNOWN"
-    assert detail_response.json()["latest_scan"]["reason_codes"] == [
-        "SCAN_RECORD_UNREADABLE"
-    ]
+    assert detail_response.json()["latest_scan"]["reason_codes"] == ["SCAN_RECORD_UNREADABLE"]
     assert badge_response.json()["message"] == "unknown"
     assert "UNKNOWN" in live_response.text
     assert "UNKNOWN" in static_html

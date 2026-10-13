@@ -37,7 +37,6 @@ import subprocess
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
 
 from mcp_trust.core.models import (
     Finding,
@@ -143,8 +142,6 @@ def _apply_dummy_credentials(sandbox: Sandbox, source: ServerSource) -> None:
     sandbox.env = build_dummy_env(source.env_keys)
 
 
-_T = TypeVar("_T")
-
 # Fallback if the installed version can't be read at runtime.
 _FALLBACK_VERSION = "2.1.0"
 
@@ -155,13 +152,13 @@ _HIGH_CONFIDENCE = {"high", "llm"}
 _CRITICAL_CATEGORIES = {"destructive", "exfiltration"}
 
 
-def _run_sync(
-    factory: Callable[[], Awaitable[_T]],
+def _run_sync[T](
+    factory: Callable[[], Awaitable[T]],
     *,
     outer_timeout: float | None = None,
     runtime_probe: Callable[[], dict[str, object]] | None = None,
     attestation_release: threading.Event | None = None,
-) -> tuple[_T, dict[str, object] | None]:
+) -> tuple[T, dict[str, object] | None]:
     """Run an async coroutine to completion from sync code.
 
     Uses ``asyncio.run`` when no loop is active; if called from inside a running
@@ -178,13 +175,13 @@ def _run_sync(
         except RuntimeError:
             return asyncio.run(factory()), None
 
-    box: dict[str, _T] = {}
+    box: dict[str, T] = {}
     err: dict[str, BaseException] = {}
 
     def worker() -> None:
         try:
             box["v"] = asyncio.run(factory())
-        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread
+        except BaseException as exc:  # Preserve cancellation and re-raise on the calling thread.
             err["e"] = exc
 
     thread = threading.Thread(target=worker, daemon=True)
@@ -195,7 +192,7 @@ def _run_sync(
     if runtime_probe is not None:
         try:
             runtime_readback = runtime_probe()
-        except BaseException as exc:  # cleanup is owned by the lifecycle caller
+        except BaseException as exc:  # Preserve cancellation while releasing the attestation gate.
             runtime_error = exc
         finally:
             if attestation_release is not None:
@@ -393,15 +390,13 @@ class MCPAuditEngine:
                 else None,
                 attestation_release=attestation_release,
             )
-        except BaseException as exc:  # cleanup must also run for cancellation/system exit
+        except BaseException as exc:  # Keep cleanup ahead of cancellation and system-exit re-raise.
             connect_error = exc
 
         cleanup_evidence: str | None = None
         if launches_process and isinstance(sandbox, DockerSandbox):
             try:
-                cleanup_evidence = sandbox.cleanup_owned_container(
-                    runner=self._cleanup_runner
-                )
+                cleanup_evidence = sandbox.cleanup_owned_container(runner=self._cleanup_runner)
             except DockerSandboxCleanupError as exc:
                 raise ScanError(
                     "Docker scan cleanup could not prove the owned container absent; "
@@ -412,9 +407,7 @@ class MCPAuditEngine:
             if isinstance(connect_error, (KeyboardInterrupt, SystemExit)):
                 raise connect_error
             if isinstance(connect_error, TimeoutError):
-                logger.warning(
-                    "mcp-audits connect exceeded the outer deadline: %s", connect_error
-                )
+                logger.warning("mcp-audits connect exceeded the outer deadline: %s", connect_error)
                 raise ScanTimeoutError(
                     "Could not scan: configured connection timeout expired.",
                     hard_termination_evidence=(
@@ -426,9 +419,7 @@ class MCPAuditEngine:
             if isinstance(connect_error, DockerSandboxRuntimeReadbackError):
                 failed_controls = connect_error.failed_controls
                 diagnostic = (
-                    "; failed controls: " + ", ".join(failed_controls)
-                    if failed_controls
-                    else ""
+                    "; failed controls: " + ", ".join(failed_controls) if failed_controls else ""
                 )
                 raise ScanError(
                     "Docker live runtime controls could not be attested"
@@ -439,8 +430,7 @@ class MCPAuditEngine:
             raise ScanError("mcp-audits returned no connection result")
         if launches_process and isinstance(sandbox, DockerSandbox) and runtime_readback is None:
             raise ScanError(
-                "Docker live runtime controls were not attested; refusing to return "
-                "scan evidence."
+                "Docker live runtime controls were not attested; refusing to return scan evidence."
             )
         return audit, cleanup_evidence, runtime_readback
 
@@ -529,7 +519,7 @@ class MCPAuditEngine:
                 sandbox,
                 launch_override=prepared_launch,
             )
-        except BaseException:
+        except BaseException:  # Preserve cancellation after cleaning up any prepared launch.
             if prepared_launch is not None:
                 try:
                     sandbox.cleanup_owned_container(runner=self._cleanup_runner)

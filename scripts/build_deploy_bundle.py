@@ -441,10 +441,7 @@ def build_deploy_bundle(
             )
         except json.JSONDecodeError as exc:
             raise ValueError("publication approval is invalid JSON") from exc
-        if (
-            isinstance(approval, dict)
-            and approval.get("schema") == "McpTrustPublicationApprovalV1"
-        ):
+        if isinstance(approval, dict) and approval.get("schema") == "McpTrustPublicationApprovalV1":
             raise ValueError(
                 "static Vercel publication approval cannot authorize a VM deploy bundle"
             )

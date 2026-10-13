@@ -478,9 +478,10 @@ def test_recovery_threshold_can_rotate_the_trust_root() -> None:
     assert result["new_root"] == new_root
     assert result["new_root_json"] == canonical_root_bytes(new_root).decode("utf-8")
     assert result["next_checkpoint"]["root_version"] == 2
-    assert result["next_checkpoint"]["root_sha256"] == hashlib.sha256(
-        canonical_root_bytes(new_root)
-    ).hexdigest()
+    assert (
+        result["next_checkpoint"]["root_sha256"]
+        == hashlib.sha256(canonical_root_bytes(new_root)).hexdigest()
+    )
     assert result["next_checkpoint"]["publication_id"] == 1
 
     rotated_root_bytes = result["new_root_json"].encode("utf-8")

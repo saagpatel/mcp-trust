@@ -20,12 +20,8 @@ SEED = ROOT / "src/mcp_trust/catalog/seed_servers.json"
 MASKED = ROOT / "masked-grades.json"
 POLICY = ROOT / "src/mcp_trust/catalog/refresh_policy.json"
 DISPOSITIONS = ROOT / "src/mcp_trust/catalog/refresh_disposition_policy.json"
-BUNDLED_ACCEPTED_REVIEW = (
-    ROOT / "src/mcp_trust/catalog/accepted_publication_review_v38.json"
-)
-BUNDLED_ACCEPTED_DISPOSITION = (
-    ROOT / "src/mcp_trust/catalog/accepted_disposition_artifact_v38.json"
-)
+BUNDLED_ACCEPTED_REVIEW = ROOT / "src/mcp_trust/catalog/accepted_publication_review_v38.json"
+BUNDLED_ACCEPTED_DISPOSITION = ROOT / "src/mcp_trust/catalog/accepted_disposition_artifact_v38.json"
 CATALOG_INVENTORY = grade_refresh.catalog_inventory
 
 
@@ -141,9 +137,7 @@ def _inputs() -> tuple[
 def _legacy_v38_inventory() -> dict[str, object]:
     """Project the retained V38 masking boundary without changing current policy."""
     inventory = copy.deepcopy(
-        CATALOG_INVENTORY(
-            seed_path=SEED, masked_path=MASKED, policy_path=POLICY
-        )
+        CATALOG_INVENTORY(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
     )
     promoted = {
         "io-github-chromedevtools-chrome-devtools-mcp-1-5-0",
@@ -225,6 +219,7 @@ def _build(
 ) -> dict[str, object]:
     preflight, repeatability, triage, default_projections = _inputs()
     projection = projections or default_projections
+
     def recompute_triage(**kwargs):
         assert kwargs["repo_root"] == ROOT
         return triage
@@ -242,9 +237,7 @@ def _build(
         }
         proposed_policy.pop("acceptance")
         proposed_policy_path = tmp_path / "proposed-dispositions.json"
-        proposed_policy_path.write_text(
-            json.dumps(proposed_policy), encoding="utf-8"
-        )
+        proposed_policy_path.write_text(json.dumps(proposed_policy), encoding="utf-8")
         proposed = build_publication_review_decision(
             candidate=tmp_path / "first",
             repeat_candidate=tmp_path / "second",
@@ -265,9 +258,7 @@ def _build(
             "decision": "OPERATOR_ACCEPTED_EXACT_V38",
             "acceptance": {
                 "state": "ACCEPTED_EXACT_V38",
-                "scope": (
-                    "all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"
-                ),
+                "scope": ("all-eight-current-masked-dispositions-and-exact-v37-forward-baseline"),
                 "proposal_policy_sha256": proposed["disposition_policy"]["sha256"],
             },
             "forward_baseline": {
@@ -285,9 +276,7 @@ def _build(
                         "disposition": entry["disposition"],
                         "rationale_code": entry["rationale_code"],
                         "next_review_condition": entry["next_review_condition"],
-                        "projection_digest": entry["controlled_evidence"][
-                            "projection_digest"
-                        ],
+                        "projection_digest": entry["controlled_evidence"]["projection_digest"],
                     }
                     for entry in proposed["entry_dispositions"]
                 ],
@@ -305,27 +294,21 @@ def _build(
                 "relationship_to_v38": "NOT_PUBLISHED_AND_NOT_DEPLOYED",
             },
         }
-        artifact["receipt_digest"] = grade_refresh.digest_bytes(
-            canonical_bytes(artifact)
-        )
+        artifact["receipt_digest"] = grade_refresh.digest_bytes(canonical_bytes(artifact))
         artifact_path = tmp_path / "accepted_disposition_artifact_v38.json"
         artifact_path.write_bytes(canonical_bytes(artifact))
         accepted_policy = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
-        accepted_policy["acceptance"]["accepted_review_receipt_digest"] = proposed[
-            "receipt_digest"
-        ]
+        accepted_policy["acceptance"]["accepted_review_receipt_digest"] = proposed["receipt_digest"]
         accepted_policy["acceptance"]["accepted_review_artifact_sha256"] = (
             grade_refresh.digest_file(accepted_review_path)
         )
-        accepted_policy["acceptance"]["accepted_review_path"] = (
-            accepted_review_path.name
-        )
+        accepted_policy["acceptance"]["accepted_review_path"] = accepted_review_path.name
         accepted_policy["acceptance"]["accepted_review_policy_sha256"] = proposed[
             "disposition_policy"
         ]["sha256"]
-        accepted_policy["acceptance"]["accepted_disposition_receipt_digest"] = (
-            artifact["receipt_digest"]
-        )
+        accepted_policy["acceptance"]["accepted_disposition_receipt_digest"] = artifact[
+            "receipt_digest"
+        ]
         accepted_policy["acceptance"]["accepted_disposition_artifact_sha256"] = (
             grade_refresh.digest_file(artifact_path)
         )
@@ -367,15 +350,10 @@ def test_publication_review_is_deterministic_and_fail_closed(
         "retain_masked": 8,
     }
     assert first["historical_baseline"]["state"] == "UNKNOWN"
-    assert first["forward_baseline"]["state"] == (
-        "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY"
-    )
-    assert first["forward_baseline"]["tool_versions"]["python_executable"] == (
-        "python3.11"
-    )
+    assert first["forward_baseline"]["state"] == ("OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY")
+    assert first["forward_baseline"]["tool_versions"]["python_executable"] == ("python3.11")
     assert all(
-        entry["acceptance_state"] == "HUMAN_ACCEPTED_V38"
-        for entry in first["entry_dispositions"]
+        entry["acceptance_state"] == "HUMAN_ACCEPTED_V38" for entry in first["entry_dispositions"]
     )
     assert first["scheduler_disposition"]["observed_state"] == "DISABLED_UNLOADED"
     assert "masked_disposition_acceptance_required" not in first["blocking_gates"]
@@ -383,9 +361,7 @@ def test_publication_review_is_deterministic_and_fail_closed(
     assert "sanitized_review_acceptance_required" not in first["blocking_gates"]
     assert "exact_source_review_and_landing_required" not in first["blocking_gates"]
     assert "explicit_publication_authority_required" in first["blocking_gates"]
-    assert "dormant_scheduler_definition_drift_before_activation" in first[
-        "quarantined_gates"
-    ]
+    assert "dormant_scheduler_definition_drift_before_activation" in first["quarantined_gates"]
     rendered = json.dumps(first, sort_keys=True)
     assert '"fresh_grade"' not in rendered
     assert '"risk"' not in rendered
@@ -400,9 +376,7 @@ def test_publication_review_is_deterministic_and_fail_closed(
         "Medium": 10,
         "Low": 0,
     }
-    assert "masked-disposition-accepted-v38-current-source" in state[
-        "completed_controls"
-    ]
+    assert "masked-disposition-accepted-v38-current-source" in state["completed_controls"]
     assert "v37-forward-baseline-accepted-v38" in state["completed_controls"]
     assert state["next_action"].startswith("Build and verify")
 
@@ -411,9 +385,7 @@ def test_v131_boundary_review_accepts_exact_post_policy_lineage(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     inventory = _v131_inventory()
-    monkeypatch.setattr(
-        grade_refresh, "catalog_inventory", lambda **_kwargs: _v131_inventory()
-    )
+    monkeypatch.setattr(grade_refresh, "catalog_inventory", lambda **_kwargs: _v131_inventory())
     blocked = sorted(
         row["slug"]
         for row in inventory["entries"]
@@ -428,8 +400,7 @@ def test_v131_boundary_review_accepts_exact_post_policy_lineage(
     assert len(scannable) == 20
     preflight, repeatability, _, _ = _inputs()
     findings = [
-        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug}
-        for slug in blocked
+        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug} for slug in blocked
     ]
     findings.extend(
         {"severity": "Medium", "code": "baseline_or_drift_unknown", "slug": slug}
@@ -460,12 +431,7 @@ def test_v131_boundary_review_accepts_exact_post_policy_lineage(
         }
         for slug in blocked
     }
-    projections.update(
-        {
-            slug: {"server_slug": slug, "state": "fresh"}
-            for slug in scannable
-        }
-    )
+    projections.update({slug: {"server_slug": slug, "state": "fresh"} for slug in scannable})
     monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
     historical = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
     proposed_policy = {
@@ -481,9 +447,7 @@ def test_v131_boundary_review_accepts_exact_post_policy_lineage(
                 "slug": slug,
                 "disposition": "KEEP_BLOCKED_POLICY",
                 "rationale_code": "execution-prohibited-by-reviewed-policy",
-                "next_review_condition": (
-                    "separate-policy-change-and-fresh-controlled-evidence"
-                ),
+                "next_review_condition": ("separate-policy-change-and-fresh-controlled-evidence"),
             }
             for slug in blocked
         ],
@@ -580,9 +544,7 @@ def test_v131_boundary_review_accepts_exact_post_policy_lineage(
             "acceptance_state": "ACCEPTED_EXACT_V131_BOUNDARY",
             "accepted_review_path": proposed_review_path.name,
             "accepted_review_receipt_digest": proposed["receipt_digest"],
-            "accepted_review_artifact_sha256": grade_refresh.digest_file(
-                proposed_review_path
-            ),
+            "accepted_review_artifact_sha256": grade_refresh.digest_file(proposed_review_path),
             "accepted_review_policy_sha256": proposed["disposition_policy"]["sha256"],
             "accepted_disposition_path": accepted_artifact_path.name,
             "accepted_disposition_receipt_digest": accepted_artifact["receipt_digest"],
@@ -600,9 +562,9 @@ def test_v131_boundary_review_accepts_exact_post_policy_lineage(
     )
     assert accepted["review_state"] == "ACCEPTED_FOR_BOUNDARY_REVIEW"
     assert accepted["disposition_counts"]["accepted_human"] == 11
-    assert "blocked_policy_change_and_fresh_controlled_evidence_required" in accepted[
-        "blocking_gates"
-    ]
+    assert (
+        "blocked_policy_change_and_fresh_controlled_evidence_required" in accepted["blocking_gates"]
+    )
     state = build_publication_review_state_card(accepted)
     assert state["severity_findings"] == {
         "Critical": 11,
@@ -633,8 +595,7 @@ def test_v132_boundary_review_accepts_exact_authorized_lineage(
     assert len(scannable) == 22
     preflight, repeatability, _, _ = _inputs()
     findings = [
-        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug}
-        for slug in blocked
+        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug} for slug in blocked
     ]
     findings.extend(
         {"severity": "Medium", "code": "baseline_or_drift_unknown", "slug": slug}
@@ -665,9 +626,7 @@ def test_v132_boundary_review_accepts_exact_authorized_lineage(
         }
         for slug in blocked
     }
-    projections.update(
-        {slug: {"server_slug": slug, "state": "fresh"} for slug in scannable}
-    )
+    projections.update({slug: {"server_slug": slug, "state": "fresh"} for slug in scannable})
     monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
     historical = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
     proposed_policy = {
@@ -683,9 +642,7 @@ def test_v132_boundary_review_accepts_exact_authorized_lineage(
                 "slug": slug,
                 "disposition": "KEEP_BLOCKED_POLICY",
                 "rationale_code": "execution-prohibited-by-reviewed-policy",
-                "next_review_condition": (
-                    "separate-policy-change-and-fresh-controlled-evidence"
-                ),
+                "next_review_condition": ("separate-policy-change-and-fresh-controlled-evidence"),
             }
             for slug in blocked
         ],
@@ -715,9 +672,10 @@ def test_v132_boundary_review_accepts_exact_authorized_lineage(
         "total": 31,
     }
     assert proposed["disposition_counts"]["retain_blocked"] == 9
-    assert "browser-runtime-revision-mismatch-is-exact-combination-only" in proposed[
-        "false_green_guards"
-    ]
+    assert (
+        "browser-runtime-revision-mismatch-is-exact-combination-only"
+        in proposed["false_green_guards"]
+    )
     proposed_review_path = tmp_path / "publication-review-v132-proposed.json"
     proposed_review_path.write_bytes(canonical_bytes(proposed))
     authorization_digest = "sha256:" + "9" * 64
@@ -735,9 +693,7 @@ def test_v132_boundary_review_accepts_exact_authorized_lineage(
     assert artifact["schema"] == "McpTrustAcceptedDispositionArtifactV4"
     assert artifact["blocked_dispositions"]["count"] == 9
     assert artifact["browser_compatibility"]["runtime_chromium_revision"] == 1234
-    assert accepted_policy["acceptance"]["authorization_statement_sha256"] == (
-        authorization_digest
-    )
+    assert accepted_policy["acceptance"]["authorization_statement_sha256"] == (authorization_digest)
 
     accepted = build_publication_review_decision(
         **build_kwargs,
@@ -757,9 +713,7 @@ def test_v132_boundary_review_accepts_exact_authorized_lineage(
         "Medium": 24,
         "Low": 0,
     }
-    assert "policy-block-disposition-accepted-v132-current-boundary" in state[
-        "completed_controls"
-    ]
+    assert "policy-block-disposition-accepted-v132-current-boundary" in state["completed_controls"]
 
 
 def test_v132_acceptance_rejects_unbound_authorization(
@@ -811,9 +765,7 @@ def test_v132_acceptance_rejects_unbound_authorization(
                 "slug": slug,
                 "disposition": "KEEP_BLOCKED_POLICY",
                 "rationale_code": "execution-prohibited-by-reviewed-policy",
-                "next_review_condition": (
-                    "separate-policy-change-and-fresh-controlled-evidence"
-                ),
+                "next_review_condition": ("separate-policy-change-and-fresh-controlled-evidence"),
             }
             for slug in blocked
         ],
@@ -912,8 +864,7 @@ def test_historical_boundary_schemas_reject_current_v132_projection(
     disposition_path.write_bytes(canonical_bytes(policy))
     preflight, repeatability, _, _ = _inputs()
     findings = [
-        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug}
-        for slug in blocked
+        {"severity": "Critical", "code": "result_blocked-policy", "slug": slug} for slug in blocked
     ]
     triage = {
         "counts": {"Critical": critical, "High": 0, "Medium": medium, "Low": 0},
@@ -924,14 +875,8 @@ def test_historical_boundary_schemas_reject_current_v132_projection(
     }
     monkeypatch.setattr(grade_refresh, "triage_candidate", lambda **_kwargs: triage)
     projections = {
-        **{
-            slug: {"server_slug": slug, "state": "blocked-policy"}
-            for slug in blocked
-        },
-        **{
-            slug: {"server_slug": slug, "state": "fresh"}
-            for slug in scannable
-        },
+        **{slug: {"server_slug": slug, "state": "blocked-policy"} for slug in blocked},
+        **{slug: {"server_slug": slug, "state": "fresh"} for slug in scannable},
     }
 
     with pytest.raises(GradeRefreshError, match="candidate denominator is invalid"):
@@ -992,21 +937,15 @@ def test_bundled_v38_acceptance_is_receipt_bound_and_privacy_hardened() -> None:
     artifact = json.loads(BUNDLED_ACCEPTED_DISPOSITION.read_text(encoding="utf-8"))
 
     assert policy["review_state"] == "ACCEPTED_CURRENT_SOURCE_REVIEW"
-    assert policy["acceptance"]["accepted_review_path"] == (
-        BUNDLED_ACCEPTED_REVIEW.name
-    )
+    assert policy["acceptance"]["accepted_review_path"] == (BUNDLED_ACCEPTED_REVIEW.name)
     assert policy["acceptance"]["accepted_review_artifact_sha256"] == (
         grade_refresh.digest_file(BUNDLED_ACCEPTED_REVIEW)
     )
-    assert policy["acceptance"]["accepted_review_receipt_digest"] == review[
-        "receipt_digest"
-    ]
+    assert policy["acceptance"]["accepted_review_receipt_digest"] == review["receipt_digest"]
     assert policy["acceptance"]["accepted_disposition_artifact_sha256"] == (
         grade_refresh.digest_file(BUNDLED_ACCEPTED_DISPOSITION)
     )
-    assert policy["acceptance"]["accepted_disposition_receipt_digest"] == artifact[
-        "receipt_digest"
-    ]
+    assert policy["acceptance"]["accepted_disposition_receipt_digest"] == artifact["receipt_digest"]
     assert artifact["prior_acceptance_lineage"]["transfer_to_v38"] is False
     assert artifact["historical_baseline"]["state"] == "UNKNOWN"
     combined = BUNDLED_ACCEPTED_REVIEW.read_text() + BUNDLED_ACCEPTED_DISPOSITION.read_text()
@@ -1044,9 +983,7 @@ def test_current_acceptance_rejects_absolute_interpreter_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     review = json.loads(BUNDLED_ACCEPTED_REVIEW.read_text(encoding="utf-8"))
-    review["forward_baseline"]["tool_versions"]["python_executable"] = (
-        "/private/host/python3.11"
-    )
+    review["forward_baseline"]["tool_versions"]["python_executable"] = "/private/host/python3.11"
     review_path = tmp_path / "accepted_publication_review_v38.json"
     review_path.write_bytes(canonical_bytes(review))
 
@@ -1111,9 +1048,7 @@ def test_publication_review_rejects_inventory_inconsistent_disposition(
 ) -> None:
     payload = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
     discourse = next(
-        entry
-        for entry in payload["entries"]
-        if entry["slug"] == "io-github-discourse-mcp-0-2-9"
+        entry for entry in payload["entries"] if entry["slug"] == "io-github-discourse-mcp-0-2-9"
     )
     discourse["rationale_code"] = "backing-service-not-exercised"
     dispositions = tmp_path / "dispositions.json"

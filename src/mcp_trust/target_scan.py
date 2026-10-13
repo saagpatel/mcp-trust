@@ -132,6 +132,7 @@ def _current_catalog_binding(
         raise RefreshCandidateError("target receipt requires the reviewed V132 catalog counts")
     return dict(counts), digest_bytes(canonical_bytes(inventory))
 
+
 _ARTIFACT_KEYS = frozenset(
     {
         "schema",
@@ -809,8 +810,7 @@ def _validate_artifact_shape(payload: object) -> dict[str, Any]:
         or set(source) != _SOURCE_KEYS
         or not isinstance(registry, dict)
         or set(registry) != _REGISTRY_KEYS
-        or _SHA256.fullmatch(str(registry.get("authorized_canonical_path_sha256")))
-        is None
+        or _SHA256.fullmatch(str(registry.get("authorized_canonical_path_sha256"))) is None
         or _SHA256.fullmatch(str(registry.get("authorized_content_sha256"))) is None
         or registry.get("required_mode") != "0400"
         or registry.get("observed_mode") != "0400"
@@ -1206,8 +1206,7 @@ def create_target_scan_artifact(
                 expected_processes = sandbox_server_process_digests(
                     *docker_launch_spec(target.source),
                     allow_python_console_script=(
-                        target.source.kind == SourceKind.PYPI
-                        and target.source.command is not None
+                        target.source.kind == SourceKind.PYPI and target.source.command is not None
                     ),
                     allowed_process_title=docker_process_title(target.source),
                 )
@@ -1666,12 +1665,9 @@ def verify_target_scan_artifact_history(
             }
         )
     target_requested_image = qualification.get("target_requested_image")
-    if (
-        qualification.get("complete_qualified_image_set_digest")
-        != digest_bytes(canonical_bytes(complete))
-        or image_ids.get(target_requested_image)
-        != qualification.get("target_immutable_image_id")
-    ):
+    if qualification.get("complete_qualified_image_set_digest") != digest_bytes(
+        canonical_bytes(complete)
+    ) or image_ids.get(target_requested_image) != qualification.get("target_immutable_image_id"):
         raise RefreshCandidateError("historical target scan qualification binding differs")
 
     capacity_age_now = (fixed_now - capacity_observed).total_seconds()

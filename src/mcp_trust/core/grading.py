@@ -22,13 +22,13 @@ which appear on benign servers as often as dangerous ones. On the calibration
 corpus this correctly ranks the genuinely-dangerous SQL server at the top and
 the trivial clock/fetch servers at the bottom.
 
-KNOWN LIMITATION (drives the v2 roadmap)
-----------------------------------------
+KNOWN LIMITATION
+----------------
 A fully unannotated server is indistinguishable from a capable one on every
-dimension, so it is still over-graded. The real fix is a second axis —
-*transparency* (annotation coverage) — surfaced as a separate caveat rather than
-folded into the danger grade. Until then, a low grade on an unannotated server
-means "cannot verify it's safe," not "known dangerous." See SPEC roadmap.
+dimension, so it is still over-graded. The separate *transparency* axis
+(annotation coverage) is implemented and surfaced as a caveat rather than
+folded into the danger grade. A low grade on an unannotated server means
+"cannot verify it's safe," not "known dangerous." See SPEC for current behavior.
 
 Two rules combine: band the danger score into A–F, then apply a *critical cap*
 (any CRITICAL finding can never grade above D — one tool-poisoning or rug-pull

@@ -571,6 +571,7 @@ def test_historical_verifier_cli_has_no_execution_or_registry_inputs(
     )
     assert set(vars(parsed)) == {"command", "artifact", "qualification_receipt"}
 
+
 @pytest.mark.parametrize(
     "hostile",
     [
@@ -923,13 +924,17 @@ def test_complete_image_set_is_validated_but_live_preflight_is_target_only(
     assert len(expected_sets) == 2
     assert all(len(images) == 5 for images in expected_sets)
     assert expected_count_sets == [EXPECTED_CATALOG_COUNTS] * 2
-    assert expected_inventory_digests == [
-        digest_bytes(
-            canonical_bytes(
-                catalog_inventory(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
+    assert (
+        expected_inventory_digests
+        == [
+            digest_bytes(
+                canonical_bytes(
+                    catalog_inventory(seed_path=SEED, masked_path=MASKED, policy_path=POLICY)
+                )
             )
-        )
-    ] * 2
+        ]
+        * 2
+    )
     assert live_counts == [1, 1]
 
 
@@ -1191,12 +1196,10 @@ def test_historical_verifier_reports_expired_without_current_admission(tmp_path:
         "registry_accessed": False,
         "target_slug": TARGET,
         "artifact_file_sha256": digest_file(artifact),
-        "artifact_digest": json.loads(artifact.read_text(encoding="utf-8"))[
-            "artifact_digest"
+        "artifact_digest": json.loads(artifact.read_text(encoding="utf-8"))["artifact_digest"],
+        "scan_receipt_digest": json.loads(artifact.read_text(encoding="utf-8"))["scan_receipt"][
+            "receipt_digest"
         ],
-        "scan_receipt_digest": json.loads(artifact.read_text(encoding="utf-8"))[
-            "scan_receipt"
-        ]["receipt_digest"],
         "verification_observed_at": (FIXED_NOW + timedelta(seconds=121))
         .isoformat()
         .replace("+00:00", "Z"),
@@ -1429,9 +1432,7 @@ def test_verifier_rejects_forged_registry_authorization_binding(
         target_scan.verify_target_scan_artifact(
             artifact,
             source_db=kwargs["source_db"],
-            expected_db_canonical_path_sha256=kwargs[
-                "expected_db_canonical_path_sha256"
-            ],
+            expected_db_canonical_path_sha256=kwargs["expected_db_canonical_path_sha256"],
             expected_db_content_sha256=kwargs["expected_db_content_sha256"],
             seed_path=SEED,
             masked_path=MASKED,

@@ -134,8 +134,7 @@ def _validation_reasons(snapshot: dict[str, Any]) -> set[str]:
     if "schema_version" not in snapshot:
         reasons.add("SCHEMA_VERSION_MISSING")
     elif (
-        not _is_integer(snapshot["schema_version"])
-        or snapshot["schema_version"] != _SCHEMA_VERSION
+        not _is_integer(snapshot["schema_version"]) or snapshot["schema_version"] != _SCHEMA_VERSION
     ):
         reasons.add("SCHEMA_VERSION_UNSUPPORTED")
 
@@ -364,9 +363,7 @@ def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
     grade = server.get("grade")
     danger = server.get("danger_score")
     findings = server.get("findings")
-    if _supported_string(grade, _GRADES) and _number_in_range(
-        danger, minimum=0, maximum=10
-    ):
+    if _supported_string(grade, _GRADES) and _number_in_range(danger, minimum=0, maximum=10):
         numeric = float(danger)
         candidates = {
             _danger_band(max(0.0, numeric - 0.005)),
@@ -572,10 +569,7 @@ def _validate_grade_change(value: Any, current_grade: Any, reasons: set[str]) ->
         reasons.add("GRADE_CHANGE_INVALID")
     if current != current_grade:
         reasons.add("GRADE_CHANGE_INVALID")
-    if (
-        not _supported_string(value["cause"], _GRADE_CHANGE_CAUSES)
-        or value["cause"] == "no-change"
-    ):
+    if not _supported_string(value["cause"], _GRADE_CHANGE_CAUSES) or value["cause"] == "no-change":
         reasons.add("GRADE_CHANGE_INVALID")
     if not _supported_string(value["surface_comparison"], _SURFACE_COMPARISONS):
         reasons.add("GRADE_CHANGE_INVALID")

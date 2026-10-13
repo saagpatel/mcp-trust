@@ -854,8 +854,10 @@ def render_catalog(
                 grade = "unknown"
                 transparency = ""
                 composite = None
-            composite_str = "—" if grade_withheld or freshness_unknown else (
-                f"{composite:.1f}" if composite is not None else "—"
+            composite_str = (
+                "—"
+                if grade_withheld or freshness_unknown
+                else (f"{composite:.1f}" if composite is not None else "—")
             )
             scanned_str = scanned_at[:19].replace("T", " ") if scanned_at else "—"
             if stale_after_raw and not grade_withheld and not freshness_unknown:
@@ -986,11 +988,7 @@ def render_detail(
     )
     composite_str = f"{composite_val:.1f}" if composite_val is not None else "—"
     danger_cell = (
-        "withheld"
-        if masked
-        else "UNKNOWN"
-        if unknown_scan
-        else f"{escape(composite_str)} / 10"
+        "withheld" if masked else "UNKNOWN" if unknown_scan else f"{escape(composite_str)} / 10"
     )
     scanned_str = (
         scanned_at_raw[:19].replace("T", " ")
