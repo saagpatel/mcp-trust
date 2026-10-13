@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  check:
+    name: test (${{ matrix.python-version }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -38,3 +39,13 @@ jobs:
 
       - name: Check project
         run: make check
+
+  # Branch protection requires a single check named `test`; it passes only when every
+  # Python lane above passed.
+  test:
+    needs: check
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every Python lane to pass
+        run: test "${{ needs.check.result }}" = "success"
