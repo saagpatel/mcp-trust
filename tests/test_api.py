@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -75,6 +78,114 @@ def test_healthz(client) -> None:
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+def test_lazy_mask_validation_failure_reopens_and_closes_connection(monkeypatch) -> None:
+    opened = []
+
+    def make_connection(_path):
+        connection = connect(":memory:")
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr("mcp_trust.api.app.connect", make_connection)
+    application = create_app(engine=StubEngine(), masked_slugs={"not-in-catalog"})
+    client = TestClient(application)
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="unknown catalog slug"):
+            client.get("/servers")
+
+    assert len(opened) == 2
+    for connection in opened:
+        with pytest.raises(Exception, match="closed"):
+            connection.execute("SELECT 1")
+
+
+def test_shutdown_closes_only_app_owned_connection(tmp_path, monkeypatch) -> None:
+    opened = []
+
+    def make_connection(path):
+        connection = connect(path)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr("mcp_trust.api.app.connect", make_connection)
+    monkeypatch.setenv("MCP_TRUST_DB", str(tmp_path / "registry.db"))
+    with TestClient(create_app(engine=StubEngine(), masked_slugs=set())) as lazy_client:
+        assert lazy_client.get("/servers").status_code == 200
+    assert len(opened) == 1
+    with pytest.raises(Exception, match="closed"):
+        opened[0].execute("SELECT 1")
+
+    injected = connect(":memory:")
+    with TestClient(create_app(conn=injected, engine=StubEngine())) as injected_client:
+        assert injected_client.get("/servers").status_code == 200
+    assert tuple(injected.execute("SELECT 1").fetchone()) == (1,)
+
+
+class _SlowScanEngine(StubEngine):
+    def __init__(self, *, delay: float = 0.15) -> None:
+        self.delay = delay
+        self.started = threading.Event()
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def scan(self, source):  # noqa: ANN001
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        self.started.set()
+        time.sleep(self.delay)
+        try:
+            return super().scan(source)
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+def test_slow_scan_does_not_block_healthz(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+    engine = _SlowScanEngine(delay=0.25)
+
+    with TestClient(create_app(conn=seeded_conn, engine=engine)) as client:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(client.post, "/servers/mcp-reference-time/scan")
+            assert engine.started.wait(timeout=2)
+            response = client.get("/healthz")
+            assert response.status_code == 200
+            assert pending.result(timeout=3).status_code == 200
+
+
+def test_concurrent_scans_are_serialized(seeded_conn, monkeypatch) -> None:
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+    engine = _SlowScanEngine(delay=0.15)
+
+    with TestClient(create_app(conn=seeded_conn, engine=engine)) as client:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(client.post, "/servers/mcp-reference-time/scan")
+            assert engine.started.wait(timeout=2)
+            second = pool.submit(client.post, "/servers/mcp-reference-git/scan")
+            assert first.result(timeout=3).status_code == 200
+            assert second.result(timeout=3).status_code == 200
+
+    assert engine.max_active == 1
+
+
+def test_scan_error_is_sanitized_and_logged(seeded_conn, monkeypatch, caplog) -> None:
+    monkeypatch.setenv("MCP_TRUST_ALLOW_UNAUTHENTICATED_STUB_SCANS", "1")
+
+    class SecretErrorEngine(StubEngine):
+        def scan(self, source):  # noqa: ANN001
+            raise RuntimeError("sentinel-secret-from-engine")
+
+    with TestClient(create_app(conn=seeded_conn, engine=SecretErrorEngine())) as client:
+        response = client.post("/servers/mcp-reference-time/scan")
+
+    assert response.status_code == 503
+    assert "sentinel-secret-from-engine" not in response.text
+    assert "sentinel-secret-from-engine" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +452,7 @@ def test_public_readonly_runtime_requires_masking_input(seeded_conn, monkeypatch
         create_app(conn=seeded_conn, engine=StubEngine())
 
 
-def test_public_readonly_runtime_loads_masking_input(
-    seeded_conn, monkeypatch, tmp_path
-) -> None:
+def test_public_readonly_runtime_loads_masking_input(seeded_conn, monkeypatch, tmp_path) -> None:
     masked = tmp_path / "masked.json"
     masked.write_text(json.dumps(["mcp-reference-time"]), encoding="utf-8")
     monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
@@ -358,9 +467,7 @@ def test_public_readonly_runtime_loads_masking_input(
     assert response.json()["latest_scan"] is None
 
 
-def test_runtime_masking_rejects_unknown_catalog_slug(
-    seeded_conn, monkeypatch, tmp_path
-) -> None:
+def test_runtime_masking_rejects_unknown_catalog_slug(seeded_conn, monkeypatch, tmp_path) -> None:
     masked = tmp_path / "masked.json"
     masked.write_text(json.dumps(["not-in-catalog"]), encoding="utf-8")
     monkeypatch.setenv("MCP_TRUST_PUBLIC_READONLY", "1")
