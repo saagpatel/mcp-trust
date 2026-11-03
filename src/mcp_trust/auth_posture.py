@@ -26,10 +26,12 @@ from typing import Any, Protocol
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 SCHEMA_VERSION = "McpAuthorizationPostureV1"
-CONTRACT_VERSION = "1.0.0"
-SPECIFICATION_PROFILE = "mcp-authorization-2025-11-25"
+CONTRACT_VERSION = "1.1.0"
+SPECIFICATION_PROFILE = "mcp-authorization-2026-07-28"
+# Servers that only meet the previous revision still reach metadata-ready.
+COMPATIBLE_PROFILES = ["mcp-authorization-2025-11-25"]
 MCP_AUTHORIZATION_URL = (
-    "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization"
+    "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization"
 )
 RFC_9728_URL = "https://datatracker.ietf.org/doc/html/rfc9728"
 RFC_8414_URL = "https://datatracker.ietf.org/doc/html/rfc8414"
@@ -794,6 +796,9 @@ def _validate_authorization_metadata(
     client_metadata = document.get("client_id_metadata_document_supported")
     if client_metadata is not None and not isinstance(client_metadata, bool):
         raise MetadataDocumentError("client_id_metadata_document_supported_invalid")
+    iss_supported = document.get("authorization_response_iss_parameter_supported")
+    if iss_supported is not None and not isinstance(iss_supported, bool):
+        raise MetadataDocumentError("authorization_response_iss_parameter_supported_invalid")
     registration_endpoint = document.get("registration_endpoint")
     if registration_endpoint is not None:
         registration_endpoint = _required_endpoint(document, "registration_endpoint")
@@ -805,6 +810,8 @@ def _validate_authorization_metadata(
         "scopes_supported": scopes,
         "client_id_metadata_document_supported": client_metadata,
         "registration_endpoint": registration_endpoint,
+        "authorization_response_iss_parameter_supported": iss_supported,
+        "issuer_match": True,
     }
 
 
@@ -826,6 +833,7 @@ def _base_result(binding: RegistryBinding, observed_at: datetime) -> dict[str, A
         "observed_at": _timestamp(observed_at),
         "specification": {
             "profile": SPECIFICATION_PROFILE,
+            "compatible_profiles": COMPATIBLE_PROFILES,
             "references": [
                 MCP_AUTHORIZATION_URL,
                 RFC_9728_URL,
@@ -972,6 +980,12 @@ def probe_authorization_posture(
                     "reason_codes": ["metadata_ready"],
                 }
             )
+            if (
+                metadata["registration_endpoint"]
+                and not metadata["client_id_metadata_document_supported"]
+            ):
+                # Dynamic Client Registration is Deprecated in 2026-07-28; note it only.
+                server_result["reason_codes"].append("deprecated_registration")
             ready_servers += 1
             break
         if server_result["state"] != "metadata-ready":

@@ -98,15 +98,30 @@ def _authorization_document(
     *,
     issuer: str = ISSUER,
     methods: list[str] | None = None,
+    extra: dict[str, Any] | None = None,
+    drop: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    return {
+    document = {
         "issuer": issuer,
         "authorization_endpoint": "https://auth.example.com/authorize",
         "token_endpoint": "https://auth.example.com/token",
         "code_challenge_methods_supported": methods or ["S256"],
         "scopes_supported": [],
         "client_id_metadata_document_supported": True,
+        **(extra or {}),
     }
+    for key in drop:
+        document.pop(key)
+    return document
+
+
+def _fetcher_for(document: dict[str, Any]) -> FakeFetcher:
+    return FakeFetcher(
+        {
+            RESOURCE_WELL_KNOWN: _json_response(RESOURCE_WELL_KNOWN, _resource_document()),
+            RFC8414_METADATA: _json_response(RFC8414_METADATA, document),
+        }
+    )
 
 
 def _valid_fetcher(*, resource_url: str = RESOURCE_WELL_KNOWN) -> FakeFetcher:
@@ -702,3 +717,65 @@ def test_cli_emits_json_and_uses_terminal_exit_codes(tmp_path: Path, monkeypatch
     assert json.loads(unknown.output)["state"] == "unknown"
     assert invalid.exit_code == 2
     assert "must match exactly one entry" in invalid.output
+
+
+@pytest.mark.parametrize("iss_supported", [True, False])
+def test_probe_records_rfc9207_iss_support(iss_supported: bool) -> None:
+    document = _authorization_document(
+        extra={"authorization_response_iss_parameter_supported": iss_supported}
+    )
+    result = probe_authorization_posture(_binding(), fetcher=_fetcher_for(document))
+
+    server = result["authorization_servers"][0]
+    assert result["state"] == "metadata-ready"
+    assert server["metadata"]["authorization_response_iss_parameter_supported"] is iss_supported
+    assert server["metadata"]["issuer_match"] is True
+
+
+def test_probe_records_absent_iss_support_and_cimd_as_unknown() -> None:
+    document = _authorization_document(drop=("client_id_metadata_document_supported",))
+    result = probe_authorization_posture(_binding(), fetcher=_fetcher_for(document))
+
+    metadata = result["authorization_servers"][0]["metadata"]
+    assert result["state"] == "metadata-ready"
+    assert metadata["authorization_response_iss_parameter_supported"] is None
+    assert metadata["client_id_metadata_document_supported"] is None
+
+
+def test_probe_rejects_non_boolean_iss_support() -> None:
+    document = _authorization_document(
+        extra={"authorization_response_iss_parameter_supported": "yes"}
+    )
+    result = probe_authorization_posture(_binding(), fetcher=_fetcher_for(document))
+
+    assert result["state"] == "unknown"
+    assert result["scan_eligibility"] == "blocked"
+
+
+def test_probe_notes_dcr_only_server_without_failing_it() -> None:
+    document = _authorization_document(
+        extra={"registration_endpoint": "https://auth.example.com/register"},
+        drop=("client_id_metadata_document_supported",),
+    )
+    result = probe_authorization_posture(_binding(), fetcher=_fetcher_for(document))
+
+    server = result["authorization_servers"][0]
+    assert result["state"] == "metadata-ready"
+    assert "deprecated_registration" in server["reason_codes"]
+
+
+def test_probe_does_not_note_registration_when_cimd_supported() -> None:
+    document = _authorization_document(
+        extra={"registration_endpoint": "https://auth.example.com/register"}
+    )
+    result = probe_authorization_posture(_binding(), fetcher=_fetcher_for(document))
+
+    assert "deprecated_registration" not in result["authorization_servers"][0]["reason_codes"]
+
+
+def test_probe_profile_is_2026_07_28_and_still_reads_2025_11_25_servers() -> None:
+    result = probe_authorization_posture(_binding(), fetcher=_valid_fetcher())
+
+    assert result["specification"]["profile"] == "mcp-authorization-2026-07-28"
+    assert result["specification"]["compatible_profiles"] == ["mcp-authorization-2025-11-25"]
+    assert result["state"] == "metadata-ready"
