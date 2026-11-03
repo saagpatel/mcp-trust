@@ -907,9 +907,7 @@ def verify_production_publication_receipt(
     never produce a fresh result.
     """
     deployment = _stable_json(deployment_authorization_path, "deployment authorization")
-    _require_exact(
-        deployment, _DEPLOYMENT_AUTHORIZATION_KEYS, "deployment authorization"
-    )
+    _require_exact(deployment, _DEPLOYMENT_AUTHORIZATION_KEYS, "deployment authorization")
     if deployment.get("schema") != "McpTrustProductionDeployAuthorizationV4":
         raise PublicationAdmissionError("deployment authorization V4 is required")
     deployment_unsigned = dict(deployment)
@@ -919,8 +917,7 @@ def verify_production_publication_receipt(
     deployment_issued_at = _aware(deployment.get("issued_at"), "deployment issued_at")
     deployment_expires_at = _aware(deployment.get("expires_at"), "deployment expires_at")
     if not (
-        deployment_issued_at < deployment_expires_at
-        <= deployment_issued_at + timedelta(minutes=15)
+        deployment_issued_at < deployment_expires_at <= deployment_issued_at + timedelta(minutes=15)
     ):
         raise PublicationAdmissionError("deployment authorization validity is invalid")
     package = verify_publication_package(
@@ -938,28 +935,21 @@ def verify_production_publication_receipt(
     )
     approval_payload = _stable_json(approval_path, "publication approval")
     package_manifest_sha256 = _sha256_bytes(
-        _stable_bytes(
-            package_path / PUBLICATION_PACKAGE_MANIFEST, "publication package manifest"
-        )
+        _stable_bytes(package_path / PUBLICATION_PACKAGE_MANIFEST, "publication package manifest")
     )
     approval_sha256 = _sha256_bytes(_stable_bytes(approval_path, "publication approval"))
     candidate_manifest_for_binding = _stable_json(
-        package_path
-        / package_manifest_for_path["candidate_path_name"]
-        / SITE_CANDIDATE_MANIFEST,
+        package_path / package_manifest_for_path["candidate_path_name"] / SITE_CANDIDATE_MANIFEST,
         "packaged site candidate",
     )
     if (
         deployment.get("approval_path") != str(deployment_authorization_path.resolve())
         or deployment.get("publication_package_path") != str(package_path.resolve())
         or deployment.get("publication_approval_path") != str(approval_path.resolve())
-        or deployment.get("publication_package_manifest_sha256")
-        != package_manifest_sha256
-        or deployment.get("publication_package_receipt_digest")
-        != package["receipt_digest"]
+        or deployment.get("publication_package_manifest_sha256") != package_manifest_sha256
+        or deployment.get("publication_package_receipt_digest") != package["receipt_digest"]
         or deployment.get("publication_approval_sha256") != approval_sha256
-        or deployment.get("publication_approval_receipt_digest")
-        != approval["receipt_digest"]
+        or deployment.get("publication_approval_receipt_digest") != approval["receipt_digest"]
         or deployment.get("provider_prepublication_receipt_digest")
         != approval["provider_revalidation_receipt_digest"]
         or deployment.get("operator_acceptance_statement_sha256")
@@ -1033,8 +1023,7 @@ def verify_production_publication_receipt(
         and readback.get("verifier") == _READBACK_VERIFIER
         and readback.get("state") == "passed"
         and checked_at <= observed_at
-        and summary
-        == {"total": len(expected_routes), "passed": len(expected_routes), "failed": 0}
+        and summary == {"total": len(expected_routes), "passed": len(expected_routes), "failed": 0}
         and all(
             isinstance(actual, dict)
             and set(actual) == _READBACK_ROUTE_KEYS
@@ -1053,8 +1042,7 @@ def verify_production_publication_receipt(
             and actual.get("body_sha256")
             == str(expected.get("body_sha256", "")).removeprefix("sha256:")
             and actual.get("required_sentinels") == {"expected": [], "missing": []}
-            and actual.get("forbidden_sentinels")
-            == {"expected_absent": [], "present": []}
+            and actual.get("forbidden_sentinels") == {"expected_absent": [], "present": []}
             and actual.get("state") == "passed"
             and actual.get("reason_codes") == ["matched"]
             for expected, expected_file, actual in zip(
@@ -1075,8 +1063,7 @@ def verify_production_publication_receipt(
     immutable_deployment_url = receipt["immutable_deployment_url"]
     provider_bound = (
         isinstance(receipt["provider_deployment_id"], str)
-        and re.fullmatch(r"dpl_[A-Za-z0-9]+", receipt["provider_deployment_id"])
-        is not None
+        and re.fullmatch(r"dpl_[A-Za-z0-9]+", receipt["provider_deployment_id"]) is not None
         and isinstance(immutable_deployment_url, str)
         and re.fullmatch(
             r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.vercel\.app",
@@ -1087,8 +1074,7 @@ def verify_production_publication_receipt(
         and receipt["project_id"] == deployment.get("vercel_project_id")
         and receipt["team_id"] == deployment.get("vercel_org_id")
         and receipt["provider_source_revision"] == deployment.get("commit")
-        and receipt["provider_source_tree"]
-        == deployment.get("implementation_source_tree_digest")
+        and receipt["provider_source_tree"] == deployment.get("implementation_source_tree_digest")
     )
     artifact_bound = (
         isinstance(receipt["provider_artifact_digest"], str)
@@ -1121,10 +1107,8 @@ def verify_production_publication_receipt(
     if receipt["state"] != expected_state or receipt["production_freshness"] != expected_freshness:
         raise PublicationAdmissionError("production freshness or adoption claim is invalid")
     rollback = approval_payload.get("rollback")
-    if (
-        not isinstance(rollback, dict)
-        or receipt["rollback_target_deployment_id"]
-        != rollback.get("immediate_previous_deployment_id")
+    if not isinstance(rollback, dict) or receipt["rollback_target_deployment_id"] != rollback.get(
+        "immediate_previous_deployment_id"
     ):
         raise PublicationAdmissionError("publication rollback target changed")
     claim = str(receipt["claim_ceiling"]).lower()

@@ -21,9 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 FORMAT_VERSION = 1
 
 REGISTRY_DOC_URL = "https://modelcontextprotocol.io/registry/about"
-REGISTRY_API_DOC_URL = (
-    "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/docs/reference/api/openapi.yaml"
-)
+REGISTRY_API_DOC_URL = "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/docs/reference/api/openapi.yaml"
 REGISTRY_SCHEMA_URL = (
     "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/"
     "docs/reference/server-json/server.schema.json"
@@ -79,9 +77,7 @@ def build_registry_candidate_manifest(
     candidates.sort(key=_candidate_sort_key)
 
     selected = [
-        candidate
-        for candidate in candidates
-        if candidate["eligible_for_first_live_batch"]
+        candidate for candidate in candidates if candidate["eligible_for_first_live_batch"]
     ][:first_batch_limit]
     selected_ids = {candidate["stable_id"] for candidate in selected}
 
@@ -446,10 +442,7 @@ def _dedupe_keys(
         identifier = package.get("identifier")
         if identifier:
             package_version = package.get("version") or "unversioned"
-            keys.append(
-                "package:"
-                f"{package.get('registry_type')}:{identifier}:{package_version}"
-            )
+            keys.append(f"package:{package.get('registry_type')}:{identifier}:{package_version}")
     for remote in remote_refs:
         if remote.get("normalized_url"):
             keys.append(f"remote:{remote['normalized_url']}")

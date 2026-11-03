@@ -9,13 +9,7 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = (
-    REPO_ROOT
-    / "fixtures"
-    / "contracts"
-    / "web-release-readback-v1"
-    / "manifest.json"
-)
+OUTPUT = REPO_ROOT / "fixtures" / "contracts" / "web-release-readback-v1" / "manifest.json"
 ARTIFACTS = {
     "reference_verifier": "scripts/web_release_readback.py",
     "route_manifest_schema": "contracts/web-release-readback-v1/manifest.schema.json",

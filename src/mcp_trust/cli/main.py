@@ -91,7 +91,11 @@ def scan(
         raise typer.Exit(code=1)
 
     engine = select_engine(engine_name)
-    result = engine.scan(server.source)
+    try:
+        result = engine.scan(server.source)
+    except Exception as exc:
+        typer.echo("Error: scan failed.", err=True)
+        raise typer.Exit(code=1) from exc
     trust_grade = grading.grade(result.risk)
     trust_transparency = grading.transparency(result.risk)
 

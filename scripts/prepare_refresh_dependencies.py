@@ -136,9 +136,7 @@ def _build_uv_python_image(payload: dict[str, Any]) -> str:
     }:
         raise PreparationError("uv preparation image descriptor is invalid")
     try:
-        dockerfile = dependency_boundary.repository_file(
-            ROOT, preparation["uv_python_dockerfile"]
-        )
+        dockerfile = dependency_boundary.repository_file(ROOT, preparation["uv_python_dockerfile"])
         reference = dependency_boundary.local_image_tag(
             preparation["uv_python_reference"], prefix="mcp-trust-dependency-prep:"
         )
@@ -256,9 +254,7 @@ def _normalize_npm_cache(cache: Path, *, source_date_epoch: int) -> None:
             }
         content = bytearray()
         for key in sorted(normalized):
-            raw = json.dumps(
-                normalized[key], sort_keys=True, separators=(",", ":")
-            ).encode()
+            raw = json.dumps(normalized[key], sort_keys=True, separators=(",", ":")).encode()
             checksum = hashlib.sha1(raw, usedforsecurity=False).hexdigest().encode()
             content.extend(b"\n" + checksum + b"\t" + raw)
         if not content:
@@ -279,8 +275,7 @@ def _package_json(
     }
     if overrides:
         manifest["overrides"] = {
-            parent: dict(sorted(children.items()))
-            for parent, children in sorted(overrides.items())
+            parent: dict(sorted(children.items())) for parent, children in sorted(overrides.items())
         }
     return manifest
 
@@ -518,9 +513,7 @@ def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[
     """Recreate ignored bundles from committed locks without resolving versions."""
     payload = _validate_inputs(json.loads(inputs_path.read_text(encoding="utf-8")))
     selected = cohorts or sorted(
-        name
-        for name, config in payload["cohorts"].items()
-        if "source_build_preparer" not in config
+        name for name, config in payload["cohorts"].items() if "source_build_preparer" not in config
     )
     unknown = sorted(set(selected) - set(payload["cohorts"]))
     if unknown:
@@ -546,9 +539,7 @@ def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[
             package_lock = LOCK_ROOT / name / "package-lock.json"
             shutil.copyfile(package_json, work / "package.json")
             shutil.copyfile(package_lock, work / "package-lock.json")
-            prefix = _container_prefix(
-                image=str(config["node_base"]), work=work, network="bridge"
-            )
+            prefix = _container_prefix(image=str(config["node_base"]), work=work, network="bridge")
             _run(
                 [
                     *prefix,
@@ -562,9 +553,7 @@ def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[
                 ]
             )
             cacache = work / "npm-cache/_cacache"
-            _normalize_npm_cache(
-                cacache, source_date_epoch=payload["source_date_epoch"]
-            )
+            _normalize_npm_cache(cacache, source_date_epoch=payload["source_date_epoch"])
             npm_bundle = work / "npm-cache.tar"
             npm_metadata = _bundle_tree(cacache, npm_bundle)
             _verify_materialized_bundle(
@@ -630,9 +619,7 @@ def materialize(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[
 def prepare(*, inputs_path: Path, cohorts: list[str] | None = None) -> dict[str, Any]:
     payload = _validate_inputs(json.loads(inputs_path.read_text(encoding="utf-8")))
     selected = cohorts or sorted(
-        name
-        for name, config in payload["cohorts"].items()
-        if "source_build_preparer" not in config
+        name for name, config in payload["cohorts"].items() if "source_build_preparer" not in config
     )
     unknown = sorted(set(selected) - set(payload["cohorts"]))
     if unknown:

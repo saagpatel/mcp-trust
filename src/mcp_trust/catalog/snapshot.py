@@ -139,8 +139,7 @@ def build_snapshot_from_connection(
                 "transparency": str(scan.transparency),
                 "danger_score": round(grading.danger_score(risk), 2),
                 "dimensions": {
-                    dimension: round(getattr(risk, dimension), 2)
-                    for dimension in _DIMS
+                    dimension: round(getattr(risk, dimension), 2) for dimension in _DIMS
                 },
                 "annotation_coverage": round(risk.annotation_coverage, 2),
                 "findings": [
@@ -165,9 +164,7 @@ def build_snapshot_from_connection(
                 "scanned_at": scanned_at_text,
                 "scan_age_days": round(scan_age_days, 6),
                 "stale_after": freshness.stale_after.isoformat(),
-                "grade_change": (
-                    grade_change.model_dump(mode="json") if grade_change else None
-                ),
+                "grade_change": (grade_change.model_dump(mode="json") if grade_change else None),
                 "requires_credentials": bool(server.source.env_keys),
             }
         )

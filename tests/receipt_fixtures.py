@@ -43,7 +43,7 @@ def engine_materialization_receipt(
     source_binding: dict[str, Any],
     observed_at: datetime,
     repo_root: Path,
-    python_version: str = "3.11.15",
+    python_version: str = "3.15.0",
 ) -> dict[str, Any]:
     """Build a structurally exact READY receipt without observing host state."""
     lock_binding = grade_refresh._locked_engine_binding(repo_root)
@@ -63,10 +63,10 @@ def engine_materialization_receipt(
             "required_python": python_version,
             "python_pin_sha256": "sha256:" + "1" * 64,
             "python_implementation": "CPython",
-            "python_executable": "python3.11",
+            "python_executable": "python3.15",
             "python_executable_sha256": "sha256:" + "2" * 64,
             "uv": {
-                "version": "0.12.5",
+                "version": "0.13.0",
                 "executable": "uv",
                 "executable_sha256": "sha256:" + "3" * 64,
             },

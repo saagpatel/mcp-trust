@@ -85,12 +85,8 @@ _SIGNED_STATEMENT_KEYS = frozenset(
         "previous",
     }
 )
-_SNAPSHOT_SUBJECT_KEYS = frozenset(
-    {"media_type", "schema_version", "length", "sha256"}
-)
-_PREVIOUS_KEYS = frozenset(
-    {"publication_id", "snapshot_sha256", "statement_sha256"}
-)
+_SNAPSHOT_SUBJECT_KEYS = frozenset({"media_type", "schema_version", "length", "sha256"})
+_PREVIOUS_KEYS = frozenset({"publication_id", "snapshot_sha256", "statement_sha256"})
 _CHECKPOINT_KEYS = frozenset(
     {
         "schema",
@@ -165,8 +161,7 @@ def _values_are_safe(value: Any) -> bool:
             pending.extend(current)
         elif isinstance(current, str):
             if len(current) > _MAX_JSON_STRING_CHARS or any(
-                unicodedata.category(character) in {"Cc", "Cf", "Cs"}
-                for character in current
+                unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in current
             ):
                 return False
         elif isinstance(current, float) and not math.isfinite(current):
@@ -266,14 +261,18 @@ def _read_stable_file(path: Path, *, limit: int) -> bytes:
     finally:
         os.close(descriptor)
     after_path = path.lstat()
-    if len(content) > limit or len(
-        {
-            _stat_signature(before),
-            _stat_signature(opened),
-            _stat_signature(after_read),
-            _stat_signature(after_path),
-        }
-    ) != 1:
+    if (
+        len(content) > limit
+        or len(
+            {
+                _stat_signature(before),
+                _stat_signature(opened),
+                _stat_signature(after_read),
+                _stat_signature(after_path),
+            }
+        )
+        != 1
+    ):
         raise OSError("verification input changed during read")
     return bytes(content)
 
@@ -532,9 +531,7 @@ def _verify_signatures(
     threshold = int(root[f"{role}_threshold"])
     if len(verified) < threshold:
         reasons.add(
-            "SIGNATURE_THRESHOLD_NOT_MET"
-            if role == "snapshot"
-            else "RECOVERY_THRESHOLD_NOT_MET"
+            "SIGNATURE_THRESHOLD_NOT_MET" if role == "snapshot" else "RECOVERY_THRESHOLD_NOT_MET"
         )
     return sorted(verified), reasons
 

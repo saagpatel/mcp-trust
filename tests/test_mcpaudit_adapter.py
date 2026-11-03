@@ -53,9 +53,7 @@ def _docker_lifecycle_runner(
     present = False
     server_process_digest = ""
 
-    def runner(
-        command: list[str], **_kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
+    def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         nonlocal present, server_process_digest
         if "create" in command:
             present = True
@@ -154,9 +152,7 @@ def test_docker_lifecycle_success_requires_verified_absence() -> None:
     audit, evidence, runtime_readback = MCPAuditEngine(
         timeout=1.0,
         cleanup_runner=runner,
-    )._connect_with_lifecycle(
-        _Connector(), object(), sandbox, launches_process=True
-    )
+    )._connect_with_lifecycle(_Connector(), object(), sandbox, launches_process=True)
 
     assert audit is not None
     assert evidence == "CONTAINER_ABSENCE_VERIFIED"
@@ -270,14 +266,9 @@ def test_docker_outer_deadline_verifies_absence_before_timeout_result() -> None:
     engine = MCPAuditEngine(timeout=0.001, cleanup_runner=runner)
 
     with pytest.raises(ScanTimeoutError) as caught:
-        engine._connect_with_lifecycle(
-            _Connector(), object(), sandbox, launches_process=True
-        )
+        engine._connect_with_lifecycle(_Connector(), object(), sandbox, launches_process=True)
 
-    assert (
-        caught.value.hard_termination_evidence
-        == "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
-    )
+    assert caught.value.hard_termination_evidence == "CONTAINER_ABSENCE_VERIFIED_AFTER_TIMEOUT"
 
 
 def test_docker_cleanup_failure_refuses_scan_evidence() -> None:
@@ -285,9 +276,7 @@ def test_docker_cleanup_failure_refuses_scan_evidence() -> None:
         async def connect(self, _cfg: object) -> object:
             return object()
 
-    def failed_runner(
-        command: list[str], **_kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
+    def failed_runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 1, "", "daemon unavailable")
 
     with pytest.raises(ScanError, match="refusing to return scan evidence"):
@@ -319,9 +308,7 @@ def test_runtime_probe_failure_does_not_wait_for_connector_deadline() -> None:
         MCPAuditEngine(
             timeout=5.0,
             cleanup_runner=failed_probe_runner,
-        )._connect_with_lifecycle(
-            _Connector(), object(), sandbox, launches_process=True
-        )
+        )._connect_with_lifecycle(_Connector(), object(), sandbox, launches_process=True)
 
     assert time.monotonic() - started < 1.0
     assert private_error not in "".join(traceback.format_exception(caught.value))
@@ -460,9 +447,7 @@ def test_docker_launch_spec_rejects_npm_path_alias() -> None:
         ("@adeu/mcp-server", "npx"),
     ],
 )
-def test_docker_launch_spec_rejects_unqualified_npm_binding(
-    reference: str, command: str
-) -> None:
+def test_docker_launch_spec_rejects_unqualified_npm_binding(reference: str, command: str) -> None:
     src = ServerSource(kind=SourceKind.NPM, reference=reference, command=command)
     with pytest.raises(ScanError, match="not qualified"):
         docker_launch_spec(src)

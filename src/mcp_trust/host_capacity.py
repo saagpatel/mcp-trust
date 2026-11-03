@@ -77,12 +77,8 @@ _AUTHORITY = {
     "scheduler_change_performed": False,
 }
 _QUALIFICATION_OPERATIONS = frozenset({"qualification", "cleanup"})
-_SAFE_QUALIFICATION_RECEIPT_SET = re.compile(
-    r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$"
-)
-_QUALIFICATION_COHORTS = frozenset(
-    {"reference", "live-batch", "batch3", "batch4", "basic-memory"}
-)
+_SAFE_QUALIFICATION_RECEIPT_SET = re.compile(r"^v[0-9]+(?:[-._][A-Za-z0-9][A-Za-z0-9._-]{0,119})?$")
+_QUALIFICATION_COHORTS = frozenset({"reference", "live-batch", "batch3", "batch4", "basic-memory"})
 _QUALIFICATION_RECEIPT_KEYS = frozenset(
     {
         "schema",
@@ -212,10 +208,7 @@ def build_host_capacity_receipt(
             # Wall-clock sampling can land a few microseconds short of the
             # requested sleep. Keep the signed policy floor exact and add a
             # small observation margin instead of weakening validation.
-            sleeper(
-                HOST_CAPACITY_MIN_INTERVAL_SECONDS
-                + HOST_CAPACITY_SLEEP_MARGIN_SECONDS
-            )
+            sleeper(HOST_CAPACITY_MIN_INTERVAL_SECONDS + HOST_CAPACITY_SLEEP_MARGIN_SECONDS)
             second = reader(anchor)
             second_at = _utc(clock())
             second_reading = _reading(second, sequence=2, observed_at=second_at)

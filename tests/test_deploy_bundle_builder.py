@@ -157,9 +157,7 @@ def _review_args(tmp_path: Path) -> dict[str, object]:
         "REVIEW_ONLY_ACCEPTED_FOR_SOURCE_REVIEW",
     ],
 )
-def test_build_deploy_bundle_rejects_review_only_state(
-    tmp_path: Path, review_state: str
-) -> None:
+def test_build_deploy_bundle_rejects_review_only_state(tmp_path: Path, review_state: str) -> None:
     _load_module("validate_launch_state", SCRIPTS / "validate_launch_state.py")
     builder = _load_module("build_deploy_bundle", SCRIPTS / "build_deploy_bundle.py")
     candidate = tmp_path / "candidate"

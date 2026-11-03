@@ -512,9 +512,7 @@ def test_v132_boundary_acceptance_is_not_publication_authority(tmp_path: Path) -
     approval["review_lineage"].update(
         {
             "acceptance_state": "ACCEPTED_EXACT_V132_BOUNDARY",
-            "acceptance_scope": (
-                "all-nine-current-policy-blocks-and-exact-v132-forward-baseline"
-            ),
+            "acceptance_scope": ("all-nine-current-policy-blocks-and-exact-v132-forward-baseline"),
         }
     )
     _resign(approval, approval_path)

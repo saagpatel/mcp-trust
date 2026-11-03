@@ -62,9 +62,7 @@ def _runtime_runner(
         "PYTHONDONTWRITEBYTECODE=1",
         "SOURCE_DATE_EPOCH=1710000000",
     ]
-    configured_env = {
-        key: value for key, value in (item.split("=", 1) for item in image_env)
-    }
+    configured_env = {key: value for key, value in (item.split("=", 1) for item in image_env)}
     configured_env.update({"HOME": sandbox.workdir, "TMPDIR": sandbox.workdir, **sandbox.env})
     container = {
         "Id": _CONTAINER_ID,
@@ -103,9 +101,7 @@ def _runtime_runner(
     process = {
         "uid": 1000,
         "gid": 1000,
-        "environment_names": sorted(
-            {*configured_env, "HOSTNAME"}
-        ),
+        "environment_names": sorted({*configured_env, "HOSTNAME"}),
         "network_interfaces": ["lo"],
         "cap_eff": "0000000000000000",
         "no_new_privs": "1",
@@ -302,9 +298,7 @@ def test_reviewed_process_title_rewrite_is_exactly_authorized() -> None:
     args = ["/opt/npm/node_modules/.bin/chrome-devtools-mcp", "--headless"]
     encoded = b"\0".join(item.encode() for item in (command, *args)) + b"\0"
     title = b"chrome-devtools-mcp"
-    expected = "sha256:" + hashlib.sha256(
-        title + b"\0" * (len(encoded) - len(title))
-    ).hexdigest()
+    expected = "sha256:" + hashlib.sha256(title + b"\0" * (len(encoded) - len(title))).hexdigest()
 
     assert expected in sandbox_server_process_digests(
         command, args, allowed_process_title="chrome-devtools-mcp"
@@ -647,9 +641,7 @@ def test_docker_cleanup_requires_untruncated_identity() -> None:
             return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
         if "ls" in command:
             listed_id = container_id if "--no-trunc" in command else container_id[:12]
-            return subprocess.CompletedProcess(
-                command, 0, listed_id + "\n" if present else "", ""
-            )
+            return subprocess.CompletedProcess(command, 0, listed_id + "\n" if present else "", "")
         if "inspect" in command:
             return subprocess.CompletedProcess(
                 command, 0, _owned_container_inspect(sandbox, container_id), ""
@@ -662,10 +654,7 @@ def test_docker_cleanup_requires_untruncated_identity() -> None:
 
     sandbox.prepare_owned_container("npx", ["server"], runner=runner)
 
-    assert (
-        sandbox.cleanup_owned_container(runner=runner)
-        == "CONTAINER_ABSENCE_VERIFIED"
-    )
+    assert sandbox.cleanup_owned_container(runner=runner) == "CONTAINER_ABSENCE_VERIFIED"
     list_queries = [command for command in calls if "ls" in command]
     assert len(list_queries) == 2
     assert all("--no-trunc" in command for command in list_queries)
@@ -712,19 +701,14 @@ def test_docker_cleanup_removes_only_owned_container_id_and_proves_absence() -> 
             )
         return subprocess.CompletedProcess(command, 0, container_id + "\n", "")
 
-    assert (
-        sandbox.cleanup_owned_container(runner=runner)
-        == "CONTAINER_ABSENCE_VERIFIED"
-    )
+    assert sandbox.cleanup_owned_container(runner=runner) == "CONTAINER_ABSENCE_VERIFIED"
     assert calls[1][-3:] == ["container", "inspect", container_id]
     assert calls[2][-4:] == ["container", "rm", "--force", container_id]
     for query in (calls[0], calls[3]):
         assert query[:3] == ["docker", "--host", "unix:///tmp/controlled-docker.sock"]
         assert "--no-trunc" in query
         assert f"name=^/{sandbox.container_name}$" in query
-        assert any(
-            value.startswith("label=com.mcp-trust.scan-owner=") for value in query
-        )
+        assert any(value.startswith("label=com.mcp-trust.scan-owner=") for value in query)
 
 
 def test_docker_sandbox_can_prepare_again_after_verified_cleanup() -> None:
@@ -755,9 +739,7 @@ def test_docker_sandbox_can_prepare_again_after_verified_cleanup() -> None:
     for expected_id in ("a" * 64, "b" * 64):
         sandbox.prepare_owned_container("npx", ["server"], runner=runner)
         assert sandbox._container_id == expected_id
-        assert sandbox.cleanup_owned_container(runner=runner) == (
-            "CONTAINER_ABSENCE_VERIFIED"
-        )
+        assert sandbox.cleanup_owned_container(runner=runner) == ("CONTAINER_ABSENCE_VERIFIED")
         assert sandbox._container_id is None
         assert sandbox._server_process_digests is None
 
@@ -805,9 +787,7 @@ def test_docker_cleanup_empty_readback_is_verified_without_removal() -> None:
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    assert DockerSandbox().cleanup_owned_container(runner=runner) == (
-        "CONTAINER_ABSENCE_VERIFIED"
-    )
+    assert DockerSandbox().cleanup_owned_container(runner=runner) == ("CONTAINER_ABSENCE_VERIFIED")
     assert len(calls) == 2
     assert all("ls" in command for command in calls)
     assert all("--no-trunc" in command for command in calls)

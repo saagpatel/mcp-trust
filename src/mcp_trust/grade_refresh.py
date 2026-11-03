@@ -61,7 +61,7 @@ IMAGE_BUILD_QUALIFICATION_SCHEMA = "McpTrustImageBuildQualificationV4"
 ENGINE_MATERIALIZATION_SCHEMA = "McpTrustEngineMaterializationReceiptV1"
 ENGINE_MATERIALIZATION_VERIFICATION_SCHEMA = "McpTrustEngineMaterializationVerificationV1"
 EXPECTED_MCP_AUDITS_VERSION = "2.7.0"
-EXPECTED_MCP_AUDITS_REQUIREMENT = "mcp-audits>=2.4.0,<3"
+EXPECTED_MCP_AUDITS_REQUIREMENT = "mcp-audits>=2.7.0,<3"
 ENGINE_MATERIALIZATION_MAX_AGE_SECONDS = 900
 _ENGINE_MATERIALIZATION_AUTHORITY = {
     "observation_only": True,
@@ -132,10 +132,7 @@ def _reviewed_image_build_source_matches(repo_root: Path, build_source: str) -> 
 
 
 def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
-    if any(
-        re.match(r"^SHELL(?:\s|$)", instruction, re.IGNORECASE)
-        for instruction in instructions
-    ):
+    if any(re.match(r"^SHELL(?:\s|$)", instruction, re.IGNORECASE) for instruction in instructions):
         # SHELL changes how later shell-form RUN instructions are interpreted.
         # These owned Dockerfiles do not need a custom shell, so reject the
         # directive rather than trying to model Docker's stateful semantics.
@@ -146,8 +143,7 @@ def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
         if instruction.split(None, 1) and instruction.split(None, 1)[0].upper() == "RUN"
     ]
     parsed_runs = [
-        (instruction, _run_instruction_words(instruction))
-        for instruction in run_instructions
+        (instruction, _run_instruction_words(instruction)) for instruction in run_instructions
     ]
     if any(not words for _, words in parsed_runs):
         return False
@@ -155,19 +151,11 @@ def _only_approved_inline_node_smoke(instructions: list[str]) -> bool:
         # env split-string accepts shell-like quoting and concatenation. Reject
         # the option itself instead of trying to recover the resulting argv.
         return False
-    if any(
-        _run_uses_shell_interpreter(words)
-        for _, words in parsed_runs
-        if words is not None
-    ):
+    if any(_run_uses_shell_interpreter(words) for _, words in parsed_runs if words is not None):
         # An explicit shell interpreter can consume quoted text or stdin as a
         # nested program; these Docker RUN owners do not need one.
         return False
-    if any(
-        _run_uses_shell_evaluation(words)
-        for _, words in parsed_runs
-        if words is not None
-    ):
+    if any(_run_uses_shell_evaluation(words) for _, words in parsed_runs if words is not None):
         # eval concatenates and executes shell input, including when reached
         # through the command builtin. Do not inspect its nested text as argv.
         return False
@@ -235,8 +223,17 @@ def _run_uses_env_split_string(words: list[str]) -> bool:
 def _run_uses_shell_interpreter(words: list[str]) -> bool:
     """Reject explicit shell invocations, including piped or quoted scripts."""
     shell_names = {
-        "sh", "bash", "dash", "ash", "zsh", "ksh", "mksh",
-        "csh", "tcsh", "fish", "busybox",
+        "sh",
+        "bash",
+        "dash",
+        "ash",
+        "zsh",
+        "ksh",
+        "mksh",
+        "csh",
+        "tcsh",
+        "fish",
+        "busybox",
     }
     return any(Path(word).name.lower() in shell_names for word in words)
 
@@ -276,8 +273,7 @@ def _run_uses_unsupported_shell_expansion(instruction: str) -> bool:
 def _run_has_node_executable(words: list[str]) -> bool:
     """Recognize Node executable words after shell/JSON quote normalization."""
     return any(
-        Path(word).name.lower() in {"node", "nodejs", "node.exe", "nodejs.exe"}
-        for word in words
+        Path(word).name.lower() in {"node", "nodejs", "node.exe", "nodejs.exe"} for word in words
     )
 
 
@@ -384,6 +380,8 @@ def _boundary_profile_for_counts(
         }:
             return profile
     return None
+
+
 _PREFLIGHT_KEYS = frozenset(
     {
         "schema",
@@ -526,10 +524,35 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _check_json_nesting(text: str, *, limit: int = 1_000) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > limit:
+                raise RecursionError("JSON nesting limit exceeded")
+        elif character in "]}" and depth:
+            depth -= 1
+
+
 def load_json(path: Path) -> Any:
     try:
+        text = path.read_text(encoding="utf-8")
+        # Keep hostile-input limits consistent across Python JSON parser versions.
+        _check_json_nesting(text)
         return json.loads(
-            path.read_text(encoding="utf-8"),
+            text,
             object_pairs_hook=_reject_duplicate_keys,
         )
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
@@ -844,8 +867,8 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
     if (
         not isinstance(lock, dict)
         or lock.get("version") != 1
-        or lock.get("revision") != 3
-        or lock.get("requires-python") != ">=3.11"
+        or lock.get("revision") != 5
+        or lock.get("requires-python") != ">=3.12"
     ):
         return None
     packages = lock.get("package")
@@ -860,7 +883,7 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
         or project_table.get("name") != "mcp-trust"
         or not isinstance(project_table.get("version"), str)
         or _STABLE_VERSION.fullmatch(project_table["version"]) is None
-        or project_table.get("requires-python") != ">=3.11"
+        or project_table.get("requires-python") != ">=3.12"
         or not isinstance(optional_dependencies, dict)
         or optional_dependencies.get("engine") != [EXPECTED_MCP_AUDITS_REQUIREMENT]
     ):
@@ -899,7 +922,7 @@ def _locked_engine_binding(repo_root: Path) -> dict[str, Any] | None:
             {
                 "name": "mcp-audits",
                 "marker": "extra == 'engine'",
-                "specifier": ">=2.4.0,<3",
+                "specifier": ">=2.7.0,<3",
             }
         ]
         or not isinstance(locked_extras, list)
@@ -1920,8 +1943,7 @@ def _image_build_qualification(
     """Validate a deterministic two-build receipt against tracked source bytes."""
     if (
         not _reviewed_image_build_source_matches(repo_root, build_source)
-        or _REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256.get(build_source)
-        != build_source_sha256
+        or _REVIEWED_IMAGE_BUILD_DOCKERFILE_SHA256.get(build_source) != build_source_sha256
     ):
         return None
     path = repo_root / receipt_path
@@ -3108,8 +3130,7 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
             "disposition": boundary_profile.accepted_forward_disposition,
         }
         if review_state == "ACCEPTED_CURRENT_BOUNDARY_REVIEW"
-        else
-        {
+        else {
             "state": "OPERATOR_ACCEPTED_EXACT_V38_LOCAL_REVIEW_ONLY",
             "disposition": ("adopt-exact-v37-candidate-bindings-as-current-forward-baseline"),
         }
@@ -3159,8 +3180,7 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
             or acceptance.get("scope") != boundary_profile.acceptance_scope
             or acceptance.get("acceptance_state") != boundary_profile.acceptance_state
             or not isinstance(acceptance.get("accepted_review_path"), str)
-            or Path(acceptance["accepted_review_path"]).name
-            != acceptance["accepted_review_path"]
+            or Path(acceptance["accepted_review_path"]).name != acceptance["accepted_review_path"]
             or not isinstance(acceptance.get("accepted_disposition_path"), str)
             or Path(acceptance["accepted_disposition_path"]).name
             != acceptance["accepted_disposition_path"]
@@ -3328,9 +3348,7 @@ def _load_disposition_policy(*, path: Path, inventory: dict[str, Any]) -> dict[s
             expected = {
                 "disposition": "KEEP_BLOCKED_POLICY",
                 "rationale_code": "execution-prohibited-by-reviewed-policy",
-                "next_review_condition": (
-                    "separate-policy-change-and-fresh-controlled-evidence"
-                ),
+                "next_review_condition": ("separate-policy-change-and-fresh-controlled-evidence"),
             }
         elif (
             inventory_row.get("unsupported_upstream") is True
@@ -3374,12 +3392,8 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
         raise GradeRefreshError("accepted disposition policy lacks acceptance evidence")
     sanitized = disposition_policy.get("review_state") == "SANITIZED_REACCEPTANCE_REQUIRED"
     current_source = disposition_policy.get("review_state") == "ACCEPTED_CURRENT_SOURCE_REVIEW"
-    current_boundary = (
-        disposition_policy.get("review_state") == "ACCEPTED_CURRENT_BOUNDARY_REVIEW"
-    )
-    boundary_profile = _BOUNDARY_DISPOSITION_PROFILES.get(
-        str(disposition_policy.get("schema"))
-    )
+    current_boundary = disposition_policy.get("review_state") == "ACCEPTED_CURRENT_BOUNDARY_REVIEW"
+    boundary_profile = _BOUNDARY_DISPOSITION_PROFILES.get(str(disposition_policy.get("schema")))
     artifact_key = (
         "sanitized_review_artifact_sha256" if sanitized else "accepted_review_artifact_sha256"
     )
@@ -3457,8 +3471,7 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
             or artifact.get("historical_baseline") != disposition_policy.get("historical_baseline")
             or not isinstance(artifact_blocked, dict)
             or artifact_blocked.get("count") != boundary_profile.blocked_count
-            or artifact_blocked.get("acceptance_state")
-            != boundary_profile.retain_blocked_state
+            or artifact_blocked.get("acceptance_state") != boundary_profile.retain_blocked_state
             or artifact_blocked.get("projection_repeatability") != "PASS"
             or artifact_privacy
             != {
@@ -3520,8 +3533,7 @@ def _load_accepted_review(*, path: Path, disposition_policy: dict[str, Any]) -> 
                 "external_write": False,
             }
             or not isinstance(artifact.get("claim_ceiling"), str)
-            or "another browser package/runtime combination"
-            not in artifact["claim_ceiling"]
+            or "another browser package/runtime combination" not in artifact["claim_ceiling"]
         ):
             raise GradeRefreshError("accepted V132 boundary metadata is invalid")
         shared_forward_fields = {
@@ -3919,9 +3931,7 @@ def build_publication_review_decision(
                     (
                         "HUMAN_ACCEPTED_V20"
                         if sanitized_reacceptance_required
-                        else (
-                            boundary_profile.human_acceptance_state
-                        )
+                        else (boundary_profile.human_acceptance_state)
                         if current_boundary_accepted
                         else "HUMAN_ACCEPTED_V38"
                         if current_source_accepted
@@ -4068,9 +4078,7 @@ def build_publication_review_decision(
             "total": len(entry_dispositions),
             "pending_human_acceptance": (0 if dispositions_accepted else len(entry_dispositions)),
             "accepted_human": (len(entry_dispositions) if dispositions_accepted else 0),
-            ("retain_blocked" if boundary_policy else "retain_masked"): len(
-                entry_dispositions
-            ),
+            ("retain_blocked" if boundary_policy else "retain_masked"): len(entry_dispositions),
         },
         "candidate_counts": candidate_counts,
         "historical_baseline": disposition_policy["historical_baseline"],
@@ -4414,11 +4422,9 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
             or boundary_profile is None
             or forward.get("state") != boundary_profile.accepted_forward_state
             or not isinstance(payload.get("acceptance"), dict)
-            or payload["acceptance"].get("acceptance_state")
-            != boundary_profile.acceptance_state
+            or payload["acceptance"].get("acceptance_state") != boundary_profile.acceptance_state
             or "exact_source_review_and_landing_required" in blockers
-            or "blocked_policy_change_and_fresh_controlled_evidence_required"
-            not in blockers
+            or "blocked_policy_change_and_fresh_controlled_evidence_required" not in blockers
         ):
             raise GradeRefreshError("current-boundary acceptance binding is invalid")
     elif payload.get("review_state") == "ACCEPTED_FOR_SOURCE_REVIEW":
@@ -4505,9 +4511,7 @@ def build_publication_review_state_card(payload: dict[str, Any]) -> dict[str, An
                 else "masked-disposition-proposal"
             ),
             (
-                (
-                    f"{boundary_profile.release_lower}-forward-boundary-accepted"
-                )
+                (f"{boundary_profile.release_lower}-forward-boundary-accepted")
                 if current_boundary_accepted
                 else "sanitized-review-receipt-generated"
                 if sanitized_pending
@@ -4607,8 +4611,11 @@ is a technical capability assessment, not an endorsement.
 {entry_lines or "- none"}
 
 No grade, risk detail, or finding detail is disclosed by this packet.
-{"The blocked projection proves only that reviewed policy prohibited execution."
-if boundary_policy else "Controlled success proves invocation and evidence presence only."}
+{
+        "The blocked projection proves only that reviewed policy prohibited execution."
+        if boundary_policy
+        else "Controlled success proves invocation and evidence presence only."
+    }
 
 ## Baseline
 

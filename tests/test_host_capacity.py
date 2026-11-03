@@ -192,9 +192,7 @@ def test_stale_or_future_receipt_is_rejected(now: datetime) -> None:
             "anchor changed",
         ),
         (
-            HostCapacitySample(
-                DEVICE_ID, TOTAL_BYTES, HOST_CAPACITY_MIN_AVAILABLE_BYTES - 1
-            ),
+            HostCapacitySample(DEVICE_ID, TOTAL_BYTES, HOST_CAPACITY_MIN_AVAILABLE_BYTES - 1),
             "does not satisfy policy",
         ),
     ],

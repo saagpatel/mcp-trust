@@ -445,9 +445,7 @@ def test_duplicate_scan_id_is_atomic_and_connection_recovers(
 ) -> None:
     server_repo.upsert(_make_server())
     original = _make_scan().model_copy(update={"id": "duplicate-scan"})
-    conflicting = _make_scan().model_copy(
-        update={"id": original.id, "grade": TrustGrade.F}
-    )
+    conflicting = _make_scan().model_copy(update={"id": original.id, "grade": TrustGrade.F})
     scan_repo.record(original)
 
     with pytest.raises(sqlite3.IntegrityError):

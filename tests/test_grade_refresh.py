@@ -64,9 +64,7 @@ def test_repeat_projection_ignores_only_per_run_container_identity() -> None:
     projected = grade_refresh._repeatable_execution_binding_projection(binding)
 
     assert "container_identity_digest" not in projected["sandbox"]["runtime_readback"]
-    assert projected["sandbox"]["runtime_readback"]["controls"] == {
-        "network_none": True
-    }
+    assert projected["sandbox"]["runtime_readback"]["controls"] == {"network_none": True}
     assert binding["sandbox"]["runtime_readback"]["container_identity_digest"] == (
         "sha256:" + "a" * 64
     )
@@ -101,9 +99,7 @@ def test_scannable_npm_console_scripts_are_bound_to_exact_image_paths() -> None:
         assert args[0] == f"/opt/npm/node_modules/.bin/{source.command}"
         expected_link = f"../{source.reference}/{script}"
         dockerfile = (ROOT / descriptor["path"]).read_text(encoding="utf-8")
-        assert (
-            f'readlink {args[0]} | grep -Fqx -- "{expected_link}"' in dockerfile
-        )
+        assert f'readlink {args[0]} | grep -Fqx -- "{expected_link}"' in dockerfile
         checked += 1
 
     assert checked == 17
@@ -128,9 +124,9 @@ def test_every_scannable_image_provides_the_fixed_runtime_attestor() -> None:
 
     assert len(images) == 5
     for image in images:
-        dockerfile = (
-            ROOT / policy["image_build_sources"][image]["path"]
-        ).read_text(encoding="utf-8")
+        dockerfile = (ROOT / policy["image_build_sources"][image]["path"]).read_text(
+            encoding="utf-8"
+        )
         assert (
             "COPY --from=python-dependencies /opt/venv /opt/venv" in dockerfile
             or "ln -s /usr/local/bin/python /opt/venv/bin/python" in dockerfile
@@ -347,6 +343,7 @@ def _ready_engine_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, object]:
     monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh.platform, "python_version", lambda: "3.15.0")
     monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
     monkeypatch.setattr(
         grade_refresh,
@@ -357,7 +354,7 @@ def _ready_engine_receipt(
         grade_refresh,
         "_uv_binding",
         lambda _runner: {
-            "version": "0.12.5",
+            "version": "0.13.0",
             "executable": "uv",
             "executable_sha256": "sha256:" + "c" * 64,
         },
@@ -393,11 +390,7 @@ def _write_engine_lock_fixture(
         encoding="utf-8",
     )
     (root / "pyproject.toml").write_text(
-        (
-            project
-            if project is not None
-            else (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        ),
+        (project if project is not None else (ROOT / "pyproject.toml").read_text(encoding="utf-8")),
         encoding="utf-8",
     )
 
@@ -447,13 +440,11 @@ def test_engine_lock_binding_rejects_format_and_noncanonical_urls(
     [
         (
             'engine = [\n    { name = "mcp-audits" },\n]',
-            'engine = [\n]',
+            "engine = [\n]",
         ),
         (
-            '{ name = "mcp-audits", marker = "extra == \'engine\'", '
-            'specifier = ">=2.4.0,<3" },',
-            '{ name = "mcp-audits", marker = "extra == \'dev\'", '
-            'specifier = ">=2.4.0,<3" },',
+            '{ name = "mcp-audits", marker = "extra == \'engine\'", specifier = ">=2.7.0,<3" },',
+            '{ name = "mcp-audits", marker = "extra == \'dev\'", specifier = ">=2.7.0,<3" },',
         ),
         (
             'provides-extras = ["engine", "dev"]',
@@ -509,12 +500,12 @@ def test_uv_binding_is_digest_bound_and_timeout_safe(
     def runner(args, **kwargs):
         assert args == [str(executable), "--version"]
         assert kwargs["timeout"] == 10
-        return _completed(args, stdout="uv 0.12.5\n")
+        return _completed(args, stdout="uv 0.13.0\n")
 
     binding = grade_refresh._uv_binding(runner)
 
     assert binding == {
-        "version": "0.12.5",
+        "version": "0.13.0",
         "executable": "uv",
         "executable_sha256": grade_refresh.digest_file(executable),
     }
@@ -573,6 +564,7 @@ def test_engine_materialization_runner_is_observation_only(
     executable = tmp_path / "uv"
     executable.write_bytes(b"controlled-uv-fixture")
     monkeypatch.setattr(grade_refresh.shutil, "which", lambda _name: str(executable))
+    monkeypatch.setattr(grade_refresh.platform, "python_version", lambda: "3.15.0")
     monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
     monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
     monkeypatch.setattr(
@@ -584,7 +576,7 @@ def test_engine_materialization_runner_is_observation_only(
 
     def runner(args, **_kwargs):
         calls.append(args)
-        return _completed(args, stdout="uv 0.12.5\n")
+        return _completed(args, stdout="uv 0.13.0\n")
 
     receipt = grade_refresh.build_engine_materialization_receipt(
         repo_root=ROOT,
@@ -601,6 +593,7 @@ def test_engine_materialization_integrity_mismatch_is_blocked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh.platform, "python_version", lambda: "3.15.0")
     monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
     monkeypatch.setattr(
         grade_refresh,
@@ -611,7 +604,7 @@ def test_engine_materialization_integrity_mismatch_is_blocked(
         grade_refresh,
         "_uv_binding",
         lambda _runner: {
-            "version": "0.12.5",
+            "version": "0.13.0",
             "executable": "uv",
             "executable_sha256": "sha256:" + "c" * 64,
         },
@@ -639,12 +632,13 @@ def test_engine_materialization_verifier_reproduces_blocked_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(grade_refresh, "source_binding", lambda _root: _clean_source_binding())
+    monkeypatch.setattr(grade_refresh.platform, "python_version", lambda: "3.15.0")
     monkeypatch.setattr(grade_refresh, "_package_version", lambda _name: "2.7.0")
     monkeypatch.setattr(
         grade_refresh,
         "_uv_binding",
         lambda _runner: {
-            "version": "0.12.5",
+            "version": "0.13.0",
             "executable": "uv",
             "executable_sha256": "sha256:" + "c" * 64,
         },
@@ -1600,11 +1594,11 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         "RUN env -S\"node\" -e 'console.log(1)'",
         "RUN env -S'node' -e 'console.log(1)'",
         "RUN env -S'no'\"de\" -e 'console.log(1)'",
-        'RUN env --split\'-string\'=\'no\'"de -e console.log(1)"',
-        'RUN env -iS\'no\'"de -e console.log(1)"',
+        "RUN env --split'-string'='no'\"de -e console.log(1)\"",
+        "RUN env -iS'no'\"de -e console.log(1)\"",
         'RUN /usr/bin/env -Snode --eval "console.log(1)"',
         "RUN env --split-string='node -e console.log(1)'",
-        "RUN env --split-string \"node -e console.log(1)\"",
+        'RUN env --split-string "node -e console.log(1)"',
         'RUN env --split-string=node --eval "console.log(1)"',
         'RUN env --split-string node --eval "console.log(1)"',
         'RUN ["env", "-Snode", "--eval", "console.log(1)"]',
@@ -1615,7 +1609,7 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         'RUN /usr/bin/node --eval "console.log(1)"',
         "RUN sh -c 'env -Snode -e console.log(1)'",
         'RUN ["sh", "-c", "env -Snode -e console.log(1)"]',
-        "RUN [\"sh\", \"-c\", \"env -S'n'\\\"o'\\\"'d'\\\"'e' -e console.log(1)\"]",
+        'RUN ["sh", "-c", "env -S\'n\'\\"o\'\\"\'d\'\\"\'e\' -e console.log(1)"]',
         'RUN ["/bin/sh", "-c", "env --split-string=node -e console.log(1)"]',
         "RUN node -e 'unterminated",
         'RUN ["node", "-e",',
@@ -1625,7 +1619,7 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         "RUN node -pconsole.log(1)",
         "RUN X=; ${X}node -e 'require(\"some-package\")'",
         "RUN $CMD -e 'require(\"some-package\")'",
-        "RUN \"${CMD}\" -e 'require(\"some-package\")'",
+        'RUN "${CMD}" -e \'require("some-package")\'',
         "RUN `printf node` -e 'require(\"some-package\")'",
         "RUN $(printf node) -e 'require(\"some-package\")'",
         "RUN *node -e 'require(\"some-package\")'",
@@ -1633,26 +1627,26 @@ def _qualification(tmp_path: Path) -> dict[str, object] | None:
         "RUN env ${X}node -e 'require(\"some-package\")'",
         "RUN command env X= ${X}node -e 'require(\"some-package\")'",
         "RUN nice ${X}node -e 'require(\"some-package\")'",
-        "RUN exec \"${CMD}\" -e 'require(\"some-package\")'",
+        'RUN exec "${CMD}" -e \'require("some-package")\'',
         "RUN eval \"$CMD -e require('some-package')\"",
         "RUN eval 'node -e \"require(some-package)\"'",
         "RUN command eval 'node -e require(pkg)'",
-        "RUN source \"${SCRIPT}\"",
-        "RUN . \"${SCRIPT}\"",
+        'RUN source "${SCRIPT}"',
+        'RUN . "${SCRIPT}"',
         "RUN source ./script.sh",
         "RUN eval 'node -e \"require(some-package)\"'",
         "RUN trap 'node -e \"require(some-package)\"' EXIT",
-        "RUN python3 -c 'import subprocess; subprocess.run([\"node\", \"-e\", \"require(pkg)\"])'",
+        'RUN python3 -c \'import subprocess; subprocess.run(["node", "-e", "require(pkg)"])\'',
         "RUN awk 'BEGIN { system(\"node -e require(pkg)\") }'",
         (
             "RUN printf '%s\\n' 'node -e require(pkg)' | xargs -I{} python3 -c "
-            "'import subprocess; subprocess.run([\"node\", \"-e\", \"require(pkg)\"])'"
+            '\'import subprocess; subprocess.run(["node", "-e", "require(pkg)"])\''
         ),
         "ENV NODE_OPTIONS=--require=/tmp/attacker.js PATH=/tmp/bin:$PATH",
         "RUN alias launch='node -e require(some-package)'",
         "RUN . ./script.sh",
         "RUN printf '%s' \"$(node -e 'require(\\\"some-package\\\")')\"",
-        'RUN ${X}\\\nnode -e \'require("some-package")\'',
+        "RUN ${X}\\\nnode -e 'require(\"some-package\")'",
         "RUN printf x; $CMD -e 'require(\"some-package\")'",
         "RUN true;node -e 'require(\"some-package\")'",
         "RUN (node -e 'require(\"some-package\")')",
@@ -1735,9 +1729,7 @@ def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
                 smoke + "\n",
                 "RUN --mount=type=cache,target=/tmp <<-EOF\n"
                 "node -e 'require(\"some-package\")'\n"
-                "EOF\n"
-                + smoke
-                + "\n",
+                "EOF\n" + smoke + "\n",
                 1,
             )
         ),
@@ -1753,9 +1745,7 @@ def test_image_build_readback_accepts_exact_current_sharp_smoke_only(
                 smoke + "\n",
                 'SHELL ["node", "-e"]\n'
                 'RUN require("some-package")\n'
-                'SHELL ["/bin/sh", "-c"]\n'
-                + smoke
-                + "\n",
+                'SHELL ["/bin/sh", "-c"]\n' + smoke + "\n",
                 1,
             )
         ),
@@ -1776,8 +1766,8 @@ def test_image_build_readback_keeps_json_exec_arguments_literal() -> None:
 @pytest.mark.parametrize(
     "extra_instruction",
     [
-        'RUN\tnode -e \'require("some-package")\'',
-        'run   node -e \'require("some-package")\'',
+        "RUN\tnode -e 'require(\"some-package\")'",
+        "run   node -e 'require(\"some-package\")'",
         "RUN\t",
     ],
 )
@@ -1791,18 +1781,21 @@ def test_image_build_readback_rejects_noncanonical_run_separators_in_receipt(
         for instruction in _dockerfile_instructions(source)
         if instruction.startswith("RUN node -e ")
     )
-    docker_text = "\n".join(
-        [
-            "FROM node@sha256:" + "b" * 64,
-            "COPY package.json /build/package.json",
-            "COPY package-lock.json /build/package-lock.json",
-            "COPY artifacts/npm.tar /offline/npm.tar",
-            smoke,
-            extra_instruction,
-            "RUN mkdir -p /offline/npm && tar -xf /offline/npm.tar -C /offline/npm "
-            "&& npm ci --offline --cache /offline/npm",
-        ]
-    ) + "\n"
+    docker_text = (
+        "\n".join(
+            [
+                "FROM node@sha256:" + "b" * 64,
+                "COPY package.json /build/package.json",
+                "COPY package-lock.json /build/package-lock.json",
+                "COPY artifacts/npm.tar /offline/npm.tar",
+                smoke,
+                extra_instruction,
+                "RUN mkdir -p /offline/npm && tar -xf /offline/npm.tar -C /offline/npm "
+                "&& npm ci --offline --cache /offline/npm",
+            ]
+        )
+        + "\n"
+    )
     _qualification_fixture(tmp_path, docker_text=docker_text)
 
     assert _qualification(tmp_path) is None
@@ -2454,8 +2447,7 @@ def test_state_card_sanitizes_installed_launchagent_path() -> None:
             "scheduler": {
                 "state": "DISABLED_UNLOADED",
                 "installed_plist": (
-                    "/Users/private/Library/LaunchAgents/"
-                    "com.d.mcp-trust-refresh.plist"
+                    "/Users/private/Library/LaunchAgents/com.d.mcp-trust-refresh.plist"
                 ),
                 "mutation_performed": False,
             },
@@ -2464,9 +2456,7 @@ def test_state_card_sanitizes_installed_launchagent_path() -> None:
         triage=None,
     )
 
-    assert state["scheduler_state"]["installed_plist"] == (
-        "com.d.mcp-trust-refresh.plist"
-    )
+    assert state["scheduler_state"]["installed_plist"] == ("com.d.mcp-trust-refresh.plist")
 
 
 def test_state_card_and_resume_capsule_keep_publication_waiting() -> None:
@@ -2544,22 +2534,16 @@ def test_state_card_and_resume_capsule_route_engine_materialization_first() -> N
     capsule = build_resume_capsule(task_id="task-1", state_card=state, now=NOW)
 
     assert any(
-        finding["code"] == "engine_materialization_not_ready"
-        for finding in state["findings"]
+        finding["code"] == "engine_materialization_not_ready" for finding in state["findings"]
     )
     assert "mcp-audits==2.7.0" in state["next_action"]
     assert "all five image cohorts" not in state["next_action"]
-    assert (
-        capsule["capsule"]["capsule_id"]
-        == "mcp-trust-grade-refresh-engine-materialization-gate"
-    )
+    assert capsule["capsule"]["capsule_id"] == "mcp-trust-grade-refresh-engine-materialization-gate"
     assert (
         capsule["capsule"]["waiting_condition"]["code"]
         == "exact-mcp-audits-materialization-approval-required"
     )
-    assert capsule["capsule"]["resume_states"] == [
-        "exact-mcp-audits-materialization-authorized"
-    ]
+    assert capsule["capsule"]["resume_states"] == ["exact-mcp-audits-materialization-authorized"]
     assert "until exact V68 approval" in capsule["capsule"]["authority"]["boundary"]
     assert "push, publication, deployment" in capsule["capsule"]["authority"]["boundary"]
     assert "credentials, backing services" in capsule["capsule"]["authority"]["boundary"]
@@ -2638,13 +2622,9 @@ def test_state_card_and_resume_capsule_do_not_infer_broad_remediation_authority(
     capsule = build_resume_capsule(task_id="task-1", state_card=state, now=NOW)
 
     assert "exact scoped approval" in state["next_action"]
+    assert capsule["capsule"]["capsule_id"] == "mcp-trust-grade-refresh-preflight-remediation-gate"
     assert (
-        capsule["capsule"]["capsule_id"]
-        == "mcp-trust-grade-refresh-preflight-remediation-gate"
-    )
-    assert (
-        capsule["capsule"]["waiting_condition"]["code"]
-        == "preflight-remediation-review-required"
+        capsule["capsule"]["waiting_condition"]["code"] == "preflight-remediation-review-required"
     )
     assert capsule["capsule"]["resume_states"] == ["preflight-remediation-authorized"]
     assert "grants no package, registry, Docker, MCP" in capsule["capsule"]["claim_ceiling"]
@@ -2787,9 +2767,7 @@ def test_state_card_marks_only_qualified_controlled_repeat_complete() -> None:
             "errors": [],
         },
     }
-    triage["receipt_digest"] = grade_refresh.digest_bytes(
-        grade_refresh.canonical_bytes(triage)
-    )
+    triage["receipt_digest"] = grade_refresh.digest_bytes(grade_refresh.canonical_bytes(triage))
 
     state = build_state_card(
         preflight=preflight,
@@ -2876,7 +2854,6 @@ def test_state_card_fails_closed_for_malformed_receipt_roots(
     assert expected_gate in state["outstanding_gates"]
     assert state["production_freshness"] == "UNKNOWN"
     assert "controlled-sandbox-candidate-repeat" not in state["completed_controls"]
-
 
 
 def test_image_build_readback_preserves_all_owned_refresh_dockerfiles() -> None:

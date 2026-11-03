@@ -121,9 +121,7 @@ def distribution_runtime_binding(
             return None
         entries = dict(zip(entry_paths, files, strict=True))
         record_matches = [
-            (path, item)
-            for path, item in entries.items()
-            if path.endswith(".dist-info/RECORD")
+            (path, item) for path, item in entries.items() if path.endswith(".dist-info/RECORD")
         ]
         expected_record = (
             _normalized_distribution_name(metadata_name).replace("-", "_")

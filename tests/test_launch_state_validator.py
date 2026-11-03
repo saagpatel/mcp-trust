@@ -25,8 +25,7 @@ def _load_validator():
 
 def _write_seed(path: Path, slugs: list[str]) -> None:
     payload = [
-        {"slug": slug, "name": slug, "source": {"kind": "npm", "reference": slug}}
-        for slug in slugs
+        {"slug": slug, "name": slug, "source": {"kind": "npm", "reference": slug}} for slug in slugs
     ]
     path.write_text(json.dumps(payload), encoding="utf-8")
 

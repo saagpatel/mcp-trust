@@ -156,9 +156,7 @@ def validate_evidence(
 
 def validate_docs(root: Path, payload: dict[str, Any]) -> None:
     distribution = validate_evidence(payload)
-    grade_summary = ", ".join(
-        f"{grade}={distribution['grades'][grade]}" for grade in _GRADES
-    )
+    grade_summary = ", ".join(f"{grade}={distribution['grades'][grade]}" for grade in _GRADES)
     transparency_summary = ", ".join(
         f"{level}={distribution['transparency'][level]}" for level in _TRANSPARENCY
     )

@@ -24,9 +24,7 @@ _FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,255}")
 _LOCAL_IMAGE = re.compile(r"mcp-trust-[a-z0-9][a-z0-9._-]*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 _IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
 _DIGEST_IMAGE = re.compile(r"([^@\s]+)@sha256:[0-9a-f]{64}")
-_NPM_NAME = re.compile(
-    r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*"
-)
+_NPM_NAME = re.compile(r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*")
 _SEMVER_PART = r"(?:0|[1-9][0-9]*)"
 _EXACT_SEMVER = re.compile(
     rf"{_SEMVER_PART}\.{_SEMVER_PART}\.{_SEMVER_PART}"
@@ -93,9 +91,7 @@ def repository_dockerfile(
         if tokens[0].upper() == "COPY":
             for token in tokens[1:]:
                 if token.startswith("--from=") and token.removeprefix("--from=") not in stages:
-                    raise DependencyBoundaryError(
-                        "Dockerfile COPY uses an external image source"
-                    )
+                    raise DependencyBoundaryError("Dockerfile COPY uses an external image source")
             continue
         if tokens[0].upper() != "FROM":
             continue
@@ -178,10 +174,7 @@ def python_requirements(value: object) -> list[str]:
         if not isinstance(requirement, str) or requirement.count("==") != 1:
             raise DependencyBoundaryError("python dependencies must use exact pins")
         name, version = requirement.split("==", 1)
-        if (
-            _PYTHON_NAME.fullmatch(name) is None
-            or _PYTHON_VERSION.fullmatch(version) is None
-        ):
+        if _PYTHON_NAME.fullmatch(name) is None or _PYTHON_VERSION.fullmatch(version) is None:
             raise DependencyBoundaryError("python dependencies must use exact pins")
         normalized.append(requirement)
     if len(normalized) != len(set(normalized)):
@@ -262,9 +255,7 @@ def validate_npm_lock(
         if expected_overrides is None:
             if isinstance(manifest, dict) and "overrides" in manifest:
                 raise DependencyBoundaryError("npm manifest overrides differ from descriptor")
-        elif overrides != npm_overrides(
-            expected_overrides, dependencies=dependencies
-        ):
+        elif overrides != npm_overrides(expected_overrides, dependencies=dependencies):
             raise DependencyBoundaryError("npm manifest overrides differ from descriptor")
     packages = lock.get("packages") if isinstance(lock, dict) else None
     if (
@@ -287,8 +278,7 @@ def validate_npm_lock(
             or not isinstance(package.get("resolved"), str)
             or not package["resolved"].startswith("https://registry.npmjs.org/")
             or not isinstance(package.get("integrity"), str)
-            or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"])
-            is None
+            or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"]) is None
         ):
             raise DependencyBoundaryError("npm lock escapes the approved registry source")
         found.add(path.rsplit("node_modules/", 1)[-1])
@@ -320,10 +310,7 @@ def validate_npm_lock(
                     break
                 marker = package_path.rfind("/node_modules/")
                 package_path = package_path[:marker] if marker >= 0 else ""
-            if (
-                not isinstance(resolved_package, dict)
-                or resolved_package.get("version") != version
-            ):
+            if not isinstance(resolved_package, dict) or resolved_package.get("version") != version:
                 raise DependencyBoundaryError("npm lock does not bind its parent-scoped override")
 
 
@@ -404,12 +391,8 @@ def validate_cohort(
     if platform not in {"linux/arm64", "linux/amd64"}:
         raise DependencyBoundaryError("dependency cohort platform is unsupported")
     local_image_tag(value["image_reference"])
-    node_base = immutable_image(
-        value["node_base"], repositories=frozenset({"node", "python"})
-    )
-    python_base = immutable_image(
-        value["python_base"], repositories=frozenset({"python"})
-    )
+    node_base = immutable_image(value["node_base"], repositories=frozenset({"node", "python"}))
+    python_base = immutable_image(value["python_base"], repositories=frozenset({"python"}))
     external_images = {node_base, python_base}
     if "browser_base" in value:
         browser_base = immutable_image(
@@ -422,9 +405,10 @@ def validate_cohort(
         value["dockerfile"],
         expected_external_images=frozenset(external_images),
     )
-    if not isinstance(value["python_version"], str) or re.fullmatch(
-        r"[0-9]+\.[0-9]+", value["python_version"]
-    ) is None:
+    if (
+        not isinstance(value["python_version"], str)
+        or re.fullmatch(r"[0-9]+\.[0-9]+", value["python_version"]) is None
+    ):
         raise DependencyBoundaryError("python version is invalid")
     npm = npm_dependencies(value["npm"])
     if "npm_overrides" in value:
@@ -465,13 +449,9 @@ def validate_preparation_inputs(payload: object, *, repo_root: Path) -> dict[str
     }:
         raise DependencyBoundaryError("preparation image descriptor is invalid")
     repository_dockerfile(repo_root, preparation["uv_python_dockerfile"])
-    if preparation["uv_python_dockerfile"] != (
-        "docker/refresh/Dockerfile.dependency-prep"
-    ):
+    if preparation["uv_python_dockerfile"] != ("docker/refresh/Dockerfile.dependency-prep"):
         raise DependencyBoundaryError("preparation Dockerfile is not approved")
-    local_image_tag(
-        preparation["uv_python_reference"], prefix="mcp-trust-dependency-prep:"
-    )
+    local_image_tag(preparation["uv_python_reference"], prefix="mcp-trust-dependency-prep:")
     cohorts = payload.get("cohorts")
     if not isinstance(cohorts, dict) or not cohorts:
         raise DependencyBoundaryError("dependency cohorts are missing")

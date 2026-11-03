@@ -309,9 +309,7 @@ def _content_inventory(root: Path) -> list[dict[str, Any]]:
 def _review_markdown(state: dict[str, Any], lineage: dict[str, Any]) -> str:
     gates = state.get("outstanding_gates")
     gate_lines = (
-        "\n".join(f"- {gate}" for gate in gates)
-        if isinstance(gates, list) and gates
-        else "- none"
+        "\n".join(f"- {gate}" for gate in gates) if isinstance(gates, list) and gates else "- none"
     )
     findings = state.get("findings")
     finding_lines = (
@@ -335,26 +333,26 @@ technical capability assessment, not an endorsement.
 
 ## Current decision
 
-- Source revision: `{state.get('source_revision', 'UNKNOWN')}`
-- Source tree digest: `{state.get('source_tree_digest', 'UNKNOWN')}`
-- Catalog denominator: `{state.get('catalog_denominator', 0)}`
-- Catalog execution ready: `{state.get('safe_to_execute_catalog', False)}`
-- Fixture repeatability: `{state.get('fixture_repeatability', 'UNKNOWN')}`
-- Production freshness: `{state.get('production_freshness', 'UNKNOWN')}`
-- Publication state: `{state.get('publication_state', 'UNKNOWN')}`
+- Source revision: `{state.get("source_revision", "UNKNOWN")}`
+- Source tree digest: `{state.get("source_tree_digest", "UNKNOWN")}`
+- Catalog denominator: `{state.get("catalog_denominator", 0)}`
+- Catalog execution ready: `{state.get("safe_to_execute_catalog", False)}`
+- Fixture repeatability: `{state.get("fixture_repeatability", "UNKNOWN")}`
+- Production freshness: `{state.get("production_freshness", "UNKNOWN")}`
+- Publication state: `{state.get("publication_state", "UNKNOWN")}`
 
 ## Engine materialization lineage
 
-- Evidence state: `{engine['evidence_state']}`
-- Receipt status: `{engine['status']}`
-- Receipt digest: `{engine['receipt_digest']}`
-- Lock binding digest: `{engine['lock_binding_digest']}`
-- Distribution binding digest: `{engine['distribution_binding_digest']}`
-- Distribution RECORD digest: `{engine['distribution_record_sha256']}`
-- Python version: `{tools['python']}`
-- uv version: `{tools['uv']}`
-- mcp-audits version: `{tools['mcp_audits']}`
-- Tool versions digest: `{engine['tool_versions_digest']}`
+- Evidence state: `{engine["evidence_state"]}`
+- Receipt status: `{engine["status"]}`
+- Receipt digest: `{engine["receipt_digest"]}`
+- Lock binding digest: `{engine["lock_binding_digest"]}`
+- Distribution binding digest: `{engine["distribution_binding_digest"]}`
+- Distribution RECORD digest: `{engine["distribution_record_sha256"]}`
+- Python version: `{tools["python"]}`
+- uv version: `{tools["uv"]}`
+- mcp-audits version: `{tools["mcp_audits"]}`
+- Tool versions digest: `{engine["tool_versions_digest"]}`
 
 ## Findings (Critical, High, Medium, Low)
 
@@ -366,7 +364,7 @@ technical capability assessment, not an endorsement.
 
 ## Next action
 
-{state.get('next_action', 'UNKNOWN')}
+{state.get("next_action", "UNKNOWN")}
 """
 
 
@@ -404,9 +402,7 @@ def _rollback_markdown(lineage: dict[str, Any]) -> str:
         triage.get("candidate_manifest_digest") if isinstance(triage, dict) else "UNKNOWN"
     )
     repeat_digest = (
-        triage.get("repeat_candidate_manifest_digest")
-        if isinstance(triage, dict)
-        else "UNKNOWN"
+        triage.get("repeat_candidate_manifest_digest") if isinstance(triage, dict) else "UNKNOWN"
     )
     catalog = lineage["catalog"]
     execution_boundary = catalog["execution_boundary"]
@@ -417,38 +413,35 @@ def _rollback_markdown(lineage: dict[str, Any]) -> str:
     )
     engine = lineage["engine_materialization"]
     tools = engine["tool_versions"]
-    tool_summary = (
-        f"python={tools['python']}; uv={tools['uv']}; "
-        f"mcp-audits={tools['mcp_audits']}"
-    )
+    tool_summary = f"python={tools['python']}; uv={tools['uv']}; mcp-audits={tools['mcp_audits']}"
     return f"""# Future publication rollback procedure
 
 This review-only rollback plan is bound to operator-package lineage
-`{lineage['lineage_digest']}`. It grants no rollback, publication, deployment,
+`{lineage["lineage_digest"]}`. It grants no rollback, publication, deployment,
 scheduler, credential, or provider mutation authority.
 
 ## Exact reviewed lineage
 
-- Source revision: `{lineage['source_revision']}`
-- Source tree digest: `{lineage['source_tree_digest']}`
-- Preflight receipt: `{lineage['preflight']['receipt_digest']}`
-- Engine evidence state: `{engine['evidence_state']}`
-- Engine receipt status: `{engine['status']}`
-- Engine receipt: `{engine['receipt_digest']}`
-- Engine lock binding: `{engine['lock_binding_digest']}`
-- Engine distribution binding: `{engine['distribution_binding_digest']}`
-- Engine distribution RECORD: `{engine['distribution_record_sha256']}`
+- Source revision: `{lineage["source_revision"]}`
+- Source tree digest: `{lineage["source_tree_digest"]}`
+- Preflight receipt: `{lineage["preflight"]["receipt_digest"]}`
+- Engine evidence state: `{engine["evidence_state"]}`
+- Engine receipt status: `{engine["status"]}`
+- Engine receipt: `{engine["receipt_digest"]}`
+- Engine lock binding: `{engine["lock_binding_digest"]}`
+- Engine distribution binding: `{engine["distribution_binding_digest"]}`
+- Engine distribution RECORD: `{engine["distribution_record_sha256"]}`
 - Engine tool versions: `{tool_summary}`
-- Engine tool versions digest: `{engine['tool_versions_digest']}`
-- Repeatability receipt: `{lineage['repeatability']['receipt_digest']}`
-- Triage receipt: `{triage.get('receipt_digest') if isinstance(triage, dict) else 'UNKNOWN'}`
+- Engine tool versions digest: `{engine["tool_versions_digest"]}`
+- Repeatability receipt: `{lineage["repeatability"]["receipt_digest"]}`
+- Triage receipt: `{triage.get("receipt_digest") if isinstance(triage, dict) else "UNKNOWN"}`
 - Candidate manifest: `{candidate_digest}`
 - Repeat candidate manifest: `{repeat_digest}`
-- Policy digest: `{catalog['policy_digest']}`
-- Seed digest: `{catalog['seed_digest']}`
-- Masking digest: `{catalog['masking_digest']}`
-- Inventory digest: `{catalog['inventory_digest']}`
-- Catalog denominator: `{catalog['denominator']}`
+- Policy digest: `{catalog["policy_digest"]}`
+- Seed digest: `{catalog["seed_digest"]}`
+- Masking digest: `{catalog["masking_digest"]}`
+- Inventory digest: `{catalog["inventory_digest"]}`
+- Catalog denominator: `{catalog["denominator"]}`
 - Inventory counts digest: `{counts_digest}`
 - Execution boundary: `{boundary_summary}`
 
@@ -488,9 +481,7 @@ def _inputs(
     effective_policy = policy_path or seed_path.parent / "refresh_policy.json"
     effective_repo_root = repo_root or effective_policy.resolve().parents[3]
     preflight, preflight_bytes = _strict_json(preflight_path, "preflight receipt")
-    repeatability, repeatability_bytes = _strict_json(
-        repeatability_path, "repeatability receipt"
-    )
+    repeatability, repeatability_bytes = _strict_json(repeatability_path, "repeatability receipt")
     triage: dict[str, Any] | None = None
     triage_bytes: bytes | None = None
     if triage_path is None:
@@ -536,9 +527,7 @@ def _inputs(
             raise OperatorPackageError("operator package catalog inputs changed while read")
     except GradeRefreshError as exc:
         raise OperatorPackageError(str(exc)) from exc
-    scannable = sorted(
-        row["slug"] for row in inventory["entries"] if row.get("scannable") is True
-    )
+    scannable = sorted(row["slug"] for row in inventory["entries"] if row.get("scannable") is True)
     blocked = sorted(
         row["slug"] for row in inventory["entries"] if row.get("scannable") is not True
     )
@@ -558,8 +547,7 @@ def _inputs(
             {
                 row["sandbox_image"]
                 for row in inventory["entries"]
-                if row.get("scannable") is True
-                and isinstance(row.get("sandbox_image"), str)
+                if row.get("scannable") is True and isinstance(row.get("sandbox_image"), str)
             }
         ),
     }
@@ -569,9 +557,7 @@ def _inputs(
     except (OSError, GradeRefreshError) as exc:
         raise OperatorPackageError("operator package current source read failed") from exc
     engine_materialization = preflight.get("engine_materialization")
-    if preflight.get("status") == "BLOCKED" and isinstance(
-        engine_materialization, dict
-    ):
+    if preflight.get("status") == "BLOCKED" and isinstance(engine_materialization, dict):
         try:
             materialization_verification = verify_engine_materialization_receipt(
                 engine_materialization,
@@ -582,11 +568,11 @@ def _inputs(
             raise OperatorPackageError(
                 "operator package current engine materialization revalidation failed"
             ) from exc
-        if (
-            materialization_verification.get("receipt_valid") is not True
-            or materialization_verification.get("receipt_digest")
-            != engine_materialization.get("receipt_digest")
-        ):
+        if materialization_verification.get(
+            "receipt_valid"
+        ) is not True or materialization_verification.get(
+            "receipt_digest"
+        ) != engine_materialization.get("receipt_digest"):
             raise OperatorPackageError(
                 "operator package current engine materialization evidence changed"
             )
@@ -622,14 +608,9 @@ def _inputs(
             not isinstance(current_preflight, dict)
             or set(current_preflight) != set(preflight)
             or not _receipt_valid(current_preflight)
-            or any(
-                current_preflight.get(key) != preflight.get(key)
-                for key in critical_fields
-            )
+            or any(current_preflight.get(key) != preflight.get(key) for key in critical_fields)
         ):
-            raise OperatorPackageError(
-                "operator package current preflight evidence changed"
-            )
+            raise OperatorPackageError("operator package current preflight evidence changed")
     try:
         lineage = build_operator_package_lineage(
             preflight=preflight,
@@ -637,9 +618,7 @@ def _inputs(
             triage=triage,
             preflight_file_sha256=digest_bytes(preflight_bytes),
             repeatability_file_sha256=digest_bytes(repeatability_bytes),
-            triage_file_sha256=(
-                digest_bytes(triage_bytes) if triage_bytes is not None else None
-            ),
+            triage_file_sha256=(digest_bytes(triage_bytes) if triage_bytes is not None else None),
             catalog_inputs=catalog_inputs,
             current_source=current_source,
             now=now,
@@ -665,9 +644,7 @@ def _expected_content(
         )
         _validate_state_card(state)
         evidence_time = datetime.fromisoformat(lineage["evidence_as_of"]).astimezone(UTC)
-        capsule = build_resume_capsule(
-            task_id=task_id, state_card=state, now=evidence_time
-        )
+        capsule = build_resume_capsule(task_id=task_id, state_card=state, now=evidence_time)
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise OperatorPackageError("operator package input semantics are invalid") from exc
     review = _review_markdown(state, lineage)
@@ -758,9 +735,7 @@ def build_operator_review_package(
         triage=triage,
         lineage=lineage,
     )
-    temporary = Path(
-        tempfile.mkdtemp(prefix=f".{output_path.name}.tmp-", dir=output_path.parent)
-    )
+    temporary = Path(tempfile.mkdtemp(prefix=f".{output_path.name}.tmp-", dir=output_path.parent))
     finalized_identity: tuple[int, int] | None = None
     try:
         for name, content in expected.items():
@@ -866,9 +841,7 @@ def verify_operator_review_package(
         triage=triage,
         lineage=lineage,
     )
-    manifest, _ = _strict_json(
-        root / OPERATOR_PACKAGE_MANIFEST, "operator package manifest"
-    )
+    manifest, _ = _strict_json(root / OPERATOR_PACKAGE_MANIFEST, "operator package manifest")
     if set(manifest) != _MANIFEST_KEYS or not _receipt_valid(manifest):
         raise OperatorPackageError("operator package manifest receipt is invalid")
     files = _content_inventory(root)

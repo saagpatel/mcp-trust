@@ -369,7 +369,7 @@ def _qualification_receipt(
             "secret_policy": "no-live-secrets-dummy-network-off-only",
         },
         "tool_versions": {
-            "python": "3.11.15",
+            "python": "3.15.0",
             "python_executable": "/fixture/python",
             "mcp_audits": "2.7.0",
             "mcp_audits_locked": "2.7.0",

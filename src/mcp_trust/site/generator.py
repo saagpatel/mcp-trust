@@ -185,9 +185,7 @@ def generate_site(
             masked_count += 1
 
         grade = (
-            "unknown"
-            if unknown_scan
-            else str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
+            "unknown" if unknown_scan else str(scan.grade) if scan else str(TrustGrade.UNSCANNED)
         )
         row = project_public_summary(
             srv,
@@ -236,9 +234,7 @@ def generate_site(
                     masked=scan_masked,
                     masked_scan_succeeded=masked_scan_succeeded,
                     historical_at=(
-                        scan.scanned_at
-                        if scan is not None and not freshness_unknown
-                        else None
+                        scan.scanned_at if scan is not None and not freshness_unknown else None
                     ),
                 ),
                 indent=2,

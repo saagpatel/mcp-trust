@@ -91,9 +91,7 @@ def test_promote_record_set_only_promotes_named_receipt_backed_records(tmp_path:
     assert by_id["alpha"].status == "published"
     assert by_id["alpha"].receipt is not None
     assert by_id["alpha"].receipt.grade == "C"
-    assert "Review-only promotion artifact: promotion-review-1." in by_id[
-        "alpha"
-    ].publish_caveats
+    assert "Review-only promotion artifact: promotion-review-1." in by_id["alpha"].publish_caveats
     assert by_id["beta"].status == "scanned-temp"
 
 

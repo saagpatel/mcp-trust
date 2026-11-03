@@ -477,10 +477,9 @@ def _validate_publication_inputs(
         _fail("publication package candidate name is invalid")
     candidate_root = package_path / candidate_name
     package_files = _candidate_files(candidate_root)
-    if (
-        package.get("content_files") != package_files
-        or package.get("content_digest") != _prefixed_digest(_canonical_bytes(package_files))
-    ):
+    if package.get("content_files") != package_files or package.get(
+        "content_digest"
+    ) != _prefixed_digest(_canonical_bytes(package_files)):
         _fail("publication package content changed")
 
     publication_approval_path = _regular_file(
@@ -489,14 +488,10 @@ def _validate_publication_inputs(
     publication_approval_bytes = _stable_file_bytes(
         publication_approval_path, "publication content approval"
     )
-    publication_approval = _strict_json(
-        publication_approval_bytes, "publication content approval"
-    )
+    publication_approval = _strict_json(publication_approval_bytes, "publication content approval")
     if not isinstance(publication_approval, dict):
         _fail("publication content approval must be a JSON object")
-    publication_receipt = _receipt_digest(
-        publication_approval, "publication content approval"
-    )
+    publication_receipt = _receipt_digest(publication_approval, "publication content approval")
     authority = publication_approval.get("authority")
     if (
         publication_approval.get("schema") != PUBLICATION_APPROVAL_SCHEMA
@@ -519,8 +514,10 @@ def _validate_publication_inputs(
     provider = publication_approval.get("provider_prepublication")
     operator = publication_approval.get("operator_acceptance")
     candidate = publication_approval.get("candidate")
-    if not isinstance(provider, dict) or not isinstance(operator, dict) or not isinstance(
-        candidate, dict
+    if (
+        not isinstance(provider, dict)
+        or not isinstance(operator, dict)
+        or not isinstance(candidate, dict)
     ):
         _fail("publication content approval lineage is incomplete")
     provider_receipt = _receipt_digest(provider, "provider prepublication")
@@ -530,9 +527,7 @@ def _validate_publication_inputs(
     site_manifest_path = _regular_file(
         candidate_root / SITE_MANIFEST, "packaged site candidate manifest"
     )
-    site_manifest_bytes = _stable_file_bytes(
-        site_manifest_path, "packaged site candidate manifest"
-    )
+    site_manifest_bytes = _stable_file_bytes(site_manifest_path, "packaged site candidate manifest")
     site_manifest = _strict_json(site_manifest_bytes, "packaged site candidate manifest")
     if not isinstance(site_manifest, dict):
         _fail("packaged site candidate manifest must be an object")
@@ -692,23 +687,13 @@ def validate(
         "publication_verifier_path": str(publication_verifier),
         "output_path": str(output_path.resolve(strict=True)),
         "output_sha256": output_sha256,
-        "site_candidate_receipt_digest": publication_identity[
-            "site_candidate_receipt_digest"
-        ],
-        "site_candidate_content_digest": publication_identity[
-            "site_candidate_content_digest"
-        ],
+        "site_candidate_receipt_digest": publication_identity["site_candidate_receipt_digest"],
+        "site_candidate_content_digest": publication_identity["site_candidate_content_digest"],
         "publication_package_path": str(publication_package.resolve(strict=True)),
-        "publication_package_manifest_sha256": publication_identity[
-            "package_manifest_sha256"
-        ],
-        "publication_package_receipt_digest": publication_identity[
-            "package_receipt_digest"
-        ],
+        "publication_package_manifest_sha256": publication_identity["package_manifest_sha256"],
+        "publication_package_receipt_digest": publication_identity["package_receipt_digest"],
         "publication_approval_path": str(publication_approval.resolve(strict=True)),
-        "publication_approval_sha256": publication_identity[
-            "publication_approval_sha256"
-        ],
+        "publication_approval_sha256": publication_identity["publication_approval_sha256"],
         "publication_approval_receipt_digest": publication_identity[
             "publication_approval_receipt_digest"
         ],
@@ -758,9 +743,8 @@ def validate(
     if not isinstance(expected_node_digest, str) or expected_node_digest != _sha256(node_resolved):
         _fail("approval node_sha256 mismatch")
     expected_python_digest = payload.get("python_sha256")
-    if (
-        not isinstance(expected_python_digest, str)
-        or expected_python_digest != _sha256(python_resolved)
+    if not isinstance(expected_python_digest, str) or expected_python_digest != _sha256(
+        python_resolved
     ):
         _fail("approval python_sha256 mismatch")
     if payload.get("publication_verifier_sha256") != _sha256(publication_verifier):
