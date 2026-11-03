@@ -188,3 +188,7 @@ submission moderation queue, the public marketing site, the verification-badge
 program for server authors. These are the post-MVP roadmap, not part of the one loop.
 The metadata-only `auth-posture` command is an advisory preflight and does not
 bring credentialed scans or OAuth client behavior into the MVP.
+The 2026-07-28 signals it records (`iss` support, Client ID Metadata Document
+support, issuer match, deprecated registration) are informational except an
+issuer mismatch, which invalidates that metadata document. None of them affects
+a trust grade.
