@@ -216,7 +216,13 @@ the command tries the MCP-required protected-resource well-known paths, followed
 by RFC 8414 and OpenID Connect authorization-server discovery in specification
 order.
 
-The command emits `McpAuthorizationPostureV1` JSON. Exit 0 and
+The command emits `McpAuthorizationPostureV1` JSON (contract 1.1.0, additive).
+It reads against the MCP 2026-07-28 authorization profile and still accepts
+servers that only meet 2025-11-25. Per authorization server it records whether
+RFC 9207 `iss` support is advertised, whether Client ID Metadata Documents are
+supported, and that the metadata `issuer` matched; a server that offers only
+Dynamic Client Registration (deprecated in 2026-07-28) gets a
+`deprecated_registration` note, not a failure. Exit 0 and
 `state=metadata-ready` mean only that at least one authorization server exposes
 the endpoints and PKCE `S256` metadata needed for policy review. They do **not**
 prove authorization, credential availability, runtime security, scan
@@ -232,7 +238,7 @@ and represented in output only by byte count and SHA-256. Successful metadata
 responses must also carry a valid HTTP `Date`; declared cache freshness is
 honored up to a 24-hour policy cap, while missing, future-dated, or stale source
 evidence remains unknown. The implementation is based on the
-[MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization),
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html),
 [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html), and
 [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html).
