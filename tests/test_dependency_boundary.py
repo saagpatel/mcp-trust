@@ -348,19 +348,81 @@ def test_parent_scoped_npm_override_survives_manifest_generation_and_binds_lock(
         dependency_boundary.validate_npm_lock(manifest_path, lock_path)
 
 
+@pytest.mark.parametrize(
+    ("field", "failure"),
+    [
+        ("dependencies", None),
+        ("optionalDependencies", None),
+        ("peerDependencies", None),
+        ("dependencies", "wrong-version"),
+        ("dependencies", "missing"),
+        ("dependencies", "unreachable"),
+        ("dependencies", "helper-edge-wrong"),
+        ("optionalDependencies", "helper-edge-wrong"),
+        ("peerDependencies", "helper-edge-wrong"),
+    ],
+)
+def test_descendant_scoped_override_checks_every_resolved_edge(
+    tmp_path: Path, field: str, failure: str | None
+) -> None:
+    def package(name: str, version: str, **fields: object) -> dict[str, object]:
+        return {
+            "version": version,
+            "resolved": f"https://registry.npmjs.org/{name}/-/{name}-{version}.tgz",
+            "integrity": "sha512-AAAA",
+            **fields,
+        }
+
+    manifest = {
+        "dependencies": {"parent": "1.0.0", "unrelated": "1.0.0"},
+        "overrides": {"parent": {"target": "11.0.1"}},
+    }
+    packages = {
+        "": {"dependencies": manifest["dependencies"]},
+        "node_modules/parent": package(
+            "parent", "1.0.0", dependencies={"helper": "1.0.0", "sibling": "1.0.0"}
+        ),
+        "node_modules/helper": package(
+            "helper", "1.0.0", **{field: {"target": "^9", "parent": "1.0.0"}}
+        ),
+        "node_modules/sibling": package("sibling", "1.0.0", dependencies={"target": "^10"}),
+        "node_modules/target": package("target", "11.0.1"),
+        "node_modules/sibling/node_modules/target": package("target", "11.0.1"),
+        "node_modules/unrelated": package("unrelated", "1.0.0", dependencies={"target": "^9"}),
+        "node_modules/unrelated/node_modules/target": package("target", "9.0.0"),
+    }
+    if failure == "wrong-version":
+        # The first hoisted copy is patched; a second, nested copy must also match.
+        packages["node_modules/sibling/node_modules/target"]["version"] = "10.0.0"
+    elif failure == "missing":
+        del packages["node_modules/target"]
+    elif failure == "helper-edge-wrong":
+        # Only the helper's edge (of the parametrized field) reaches the hoisted copy;
+        # the sibling's nested copy stays patched, so the field must actually be walked.
+        packages["node_modules/target"]["version"] = "9.0.0"
+    elif failure == "unreachable":
+        # An unrelated root can reach target, but the override parent cannot.
+        packages["node_modules/parent"]["dependencies"] = {}
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps(manifest))
+    lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    if failure:
+        with pytest.raises(dependency_boundary.DependencyBoundaryError, match="override"):
+            dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+    else:
+        dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+
+@pytest.mark.parametrize("cohort", ["reference", "live-batch", "batch3", "batch4"])
 def test_npm_preparation_keeps_registry_only_no_script_contract(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cohort: str
 ) -> None:
     module = _script("prepare_refresh_dependencies.py")
     payload = _inputs()
-    config = payload["cohorts"]["live-batch"]
-    assert all(
-        "npm_overrides" not in cohort
-        for name, cohort in payload["cohorts"].items()
-        if name != "live-batch"
-    )
+    config = payload["cohorts"][cohort]
     calls: list[list[str]] = []
-    tracked_lock = ROOT / "docker/refresh/locks/live-batch/package-lock.json"
+    tracked_lock = ROOT / f"docker/refresh/locks/{cohort}/package-lock.json"
 
     def fake_run(command: list[str], *, capture: bool = False) -> str:
         assert capture is False
@@ -380,7 +442,7 @@ def test_npm_preparation_keeps_registry_only_no_script_contract(
     monkeypatch.setattr(module, "_tool_version", lambda *_args, **_kwargs: "test-version")
 
     tracked, _bundle, descriptor = module._prepare_npm(
-        cohort="live-batch",
+        cohort=cohort,
         config=config,
         work=tmp_path,
         prepared_at="2026-10-05T00:00:00+00:00",

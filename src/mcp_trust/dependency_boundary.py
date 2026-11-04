@@ -289,29 +289,49 @@ def validate_npm_lock(
         parent_package = packages.get(parent_path)
         if not isinstance(parent_package, dict):
             raise DependencyBoundaryError("npm override parent is absent from lock")
-        declared = parent_package.get("dependencies", {})
-        if not isinstance(declared, dict):
-            raise DependencyBoundaryError("npm override parent dependencies are invalid")
         for child, version in children.items():
-            if child not in declared:
+            # npm parent-scoped overrides also apply below an immediate child.
+            # Follow dependency edges, rather than path prefixes: npm hoists packages.
+            pending = [parent_path]
+            visited: set[str] = set()
+            matches = 0
+            while pending:
+                path = pending.pop()
+                if path in visited:
+                    continue
+                visited.add(path)
+                package = packages[path]
+                declared: dict[str, Any] = {}
+                for field in ("dependencies", "optionalDependencies", "peerDependencies"):
+                    entries = package.get(field, {})
+                    if not isinstance(entries, dict):
+                        raise DependencyBoundaryError(
+                            "npm override parent dependencies are invalid"
+                        )
+                    declared.update(entries)
+                for dependency in declared:
+                    resolved_path = _resolve_npm_dependency(packages, path, dependency)
+                    if dependency == child:
+                        matches += 1
+                        if resolved_path is None or packages[resolved_path]["version"] != version:
+                            raise DependencyBoundaryError(
+                                "npm lock does not bind its parent-scoped override"
+                            )
+                    if resolved_path is not None:
+                        pending.append(resolved_path)
+            if not matches:
                 raise DependencyBoundaryError("npm override target is not a parent dependency")
-            package_path = parent_path
-            resolved_package = None
-            while True:
-                candidate = (
-                    f"{package_path}/node_modules/{child}"
-                    if package_path
-                    else f"node_modules/{child}"
-                )
-                resolved_package = packages.get(candidate)
-                if isinstance(resolved_package, dict):
-                    break
-                if not package_path:
-                    break
-                marker = package_path.rfind("/node_modules/")
-                package_path = package_path[:marker] if marker >= 0 else ""
-            if not isinstance(resolved_package, dict) or resolved_package.get("version") != version:
-                raise DependencyBoundaryError("npm lock does not bind its parent-scoped override")
+
+
+def _resolve_npm_dependency(packages: dict[str, Any], parent_path: str, name: str) -> str | None:
+    while True:
+        candidate = f"{parent_path}/node_modules/{name}" if parent_path else f"node_modules/{name}"
+        if candidate in packages:
+            return candidate
+        if not parent_path:
+            return None
+        marker = parent_path.rfind("/node_modules/")
+        parent_path = parent_path[:marker] if marker >= 0 else ""
 
 
 def validate_npm_console_script_bindings(
