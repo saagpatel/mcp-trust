@@ -340,11 +340,121 @@ def test_parent_scoped_npm_override_survives_manifest_generation_and_binds_lock(
 
     lock = json.loads(lock_path.read_text())
     lock["packages"]["node_modules/sharp"]["version"] = "0.33.5"
+    lock["packages"]["node_modules/sharp"]["resolved"] = (
+        "https://registry.npmjs.org/sharp/-/sharp-0.33.5.tgz"
+    )
     lock_path.write_text(json.dumps(lock))
     with pytest.raises(
         dependency_boundary.DependencyBoundaryError,
         match="parent-scoped override",
     ):
+        dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+
+def _npm_lock_package(name: str, version: str, **fields: object) -> dict[str, object]:
+    basename = name.rsplit("/", 1)[-1]
+    return {
+        "version": version,
+        "resolved": f"https://registry.npmjs.org/{name}/-/{basename}-{version}.tgz",
+        "integrity": "sha512-AAAA",
+        **fields,
+    }
+
+
+@pytest.mark.parametrize("parent", ["foo", "@scope/foo"])
+@pytest.mark.parametrize("resolution", ["local", "ancestor", "root"])
+@pytest.mark.parametrize(
+    "failure", [None, "wrong-version", "missing-child", "invalid-dependencies"]
+)
+def test_npm_override_checks_every_parent_copy(
+    tmp_path: Path, parent: str, resolution: str, failure: str | None
+) -> None:
+    child = "@scope/child"
+    dependencies = {parent: "1.0.0"}
+    manifest = {"dependencies": dependencies, "overrides": {parent: {child: "2.0.0"}}}
+    nested_parent = f"node_modules/x/node_modules/{parent}"
+    packages = {
+        "": {"dependencies": dependencies},
+        f"node_modules/{parent}": _npm_lock_package(parent, "1.0.0", dependencies={child: "^1"}),
+        f"node_modules/{child}": _npm_lock_package(child, "2.0.0"),
+        "node_modules/x": _npm_lock_package("x", "1.0.0"),
+        nested_parent: _npm_lock_package(parent, "1.0.0", dependencies={child: "^1"}),
+    }
+    child_path = {
+        "local": f"{nested_parent}/node_modules/{child}",
+        "ancestor": f"node_modules/x/node_modules/{child}",
+        "root": f"node_modules/{child}",
+    }[resolution]
+    packages[child_path] = _npm_lock_package(child, "2.0.0")
+    if failure == "wrong-version":
+        # Keep the top-level parent's resolution valid even for the root case.
+        packages[f"node_modules/{parent}/node_modules/{child}"] = _npm_lock_package(child, "2.0.0")
+        packages[child_path] = _npm_lock_package(child, "1.0.0")
+    elif failure == "missing-child":
+        packages[nested_parent]["dependencies"] = {}
+    elif failure == "invalid-dependencies":
+        packages[nested_parent]["dependencies"] = []
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps(manifest))
+    lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    if failure:
+        with pytest.raises(dependency_boundary.DependencyBoundaryError, match="override"):
+            dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+    else:
+        dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+
+@pytest.mark.parametrize("parent", ["foo", "@scope/foo"])
+def test_npm_override_ignores_prefix_similar_parent(tmp_path: Path, parent: str) -> None:
+    dependencies = {parent: "1.0.0"}
+    manifest = {"dependencies": dependencies, "overrides": {parent: {"child": "2.0.0"}}}
+    packages = {
+        "": {"dependencies": dependencies},
+        f"node_modules/{parent}": _npm_lock_package(parent, "1.0.0", dependencies={"child": "^1"}),
+        "node_modules/child": _npm_lock_package("child", "2.0.0"),
+        f"node_modules/{parent}-bar": _npm_lock_package(f"{parent}-bar", "1.0.0"),
+        f"node_modules/x/node_modules/{parent}-bar": _npm_lock_package(f"{parent}-bar", "1.0.0"),
+    }
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps(manifest))
+    lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+
+@pytest.mark.parametrize("name", ["left-pad", "@scope/pkg"])
+@pytest.mark.parametrize("prefix", ["", "node_modules/x/"])
+@pytest.mark.parametrize(
+    "tamper", ["other-package", "other-version", "encoded-slash", "query", "fragment"]
+)
+def test_npm_lock_binds_resolved_url_to_package_path(
+    tmp_path: Path, name: str, prefix: str, tamper: str
+) -> None:
+    dependencies = {name: "1.0.0"}
+    package = _npm_lock_package(name, "1.0.0")
+    resolved = str(package["resolved"])
+    if tamper == "other-package":
+        other = "@other/evil" if name.startswith("@") else "evil"
+        resolved = str(_npm_lock_package(other, "1.0.0")["resolved"])
+    elif tamper == "other-version":
+        resolved = str(_npm_lock_package(name, "2.0.0")["resolved"])
+    elif tamper == "encoded-slash":
+        resolved = resolved.replace("/-/", "%2f-/")
+    elif tamper == "query":
+        resolved += "?download=1"
+    elif tamper == "fragment":
+        resolved += "#archive"
+    package["resolved"] = resolved
+    packages = {
+        "": {"dependencies": dependencies},
+        f"{prefix}node_modules/{name}": package,
+    }
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps({"dependencies": dependencies}))
+    lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    with pytest.raises(dependency_boundary.DependencyBoundaryError, match="registry source"):
         dependency_boundary.validate_npm_lock(manifest_path, lock_path)
 
 
@@ -380,8 +490,12 @@ def test_descendant_scoped_override_checks_every_resolved_edge(
     packages = {
         "": {"dependencies": manifest["dependencies"]},
         "node_modules/parent": package(
-            "parent", "1.0.0", dependencies={"helper": "1.0.0", "sibling": "1.0.0"}
+            "parent",
+            "1.0.0",
+            dependencies={"target": "^9", "helper": "1.0.0", "sibling": "1.0.0"},
         ),
+        # The direct edge is patched independently; helper edges still resolve at root.
+        "node_modules/parent/node_modules/target": package("target", "11.0.1"),
         "node_modules/helper": package(
             "helper", "1.0.0", **{field: {"target": "^9", "parent": "1.0.0"}}
         ),
@@ -393,13 +507,13 @@ def test_descendant_scoped_override_checks_every_resolved_edge(
     }
     if failure == "wrong-version":
         # The first hoisted copy is patched; a second, nested copy must also match.
-        packages["node_modules/sibling/node_modules/target"]["version"] = "10.0.0"
+        packages["node_modules/sibling/node_modules/target"] = package("target", "10.0.0")
     elif failure == "missing":
         del packages["node_modules/target"]
     elif failure == "helper-edge-wrong":
         # Only the helper's edge (of the parametrized field) reaches the hoisted copy;
         # the sibling's nested copy stays patched, so the field must actually be walked.
-        packages["node_modules/target"]["version"] = "9.0.0"
+        packages["node_modules/target"] = package("target", "9.0.0")
     elif failure == "unreachable":
         # An unrelated root can reach target, but the override parent cannot.
         packages["node_modules/parent"]["dependencies"] = {}

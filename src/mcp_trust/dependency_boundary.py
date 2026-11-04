@@ -276,23 +276,40 @@ def validate_npm_lock(
             or package.get("link") is True
             or not isinstance(package.get("version"), str)
             or not isinstance(package.get("resolved"), str)
-            or not package["resolved"].startswith("https://registry.npmjs.org/")
             or not isinstance(package.get("integrity"), str)
             or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"]) is None
         ):
             raise DependencyBoundaryError("npm lock escapes the approved registry source")
-        found.add(path.rsplit("node_modules/", 1)[-1])
+        name = path.rsplit("node_modules/", 1)[-1]
+        basename = name.rsplit("/", 1)[-1]
+        resolved = package["resolved"]
+        if (
+            _NPM_NAME.fullmatch(name) is None
+            or resolved
+            != f"https://registry.npmjs.org/{name}/-/{basename}-{package['version']}.tgz"
+            or any(marker in resolved.lower() for marker in ("%2f", "?", "#"))
+        ):
+            raise DependencyBoundaryError("npm lock escapes the approved registry source")
+        found.add(name)
     if not dependencies or not set(dependencies) <= found:
         raise DependencyBoundaryError("npm lock is incomplete")
     for parent, children in overrides.items():
-        parent_path = f"node_modules/{parent}"
-        parent_package = packages.get(parent_path)
-        if not isinstance(parent_package, dict):
+        parent_suffix = f"node_modules/{parent}"
+        parent_paths = [
+            path for path in packages if path == parent_suffix or path.endswith(f"/{parent_suffix}")
+        ]
+        if not parent_paths:
             raise DependencyBoundaryError("npm override parent is absent from lock")
+        for parent_path in parent_paths:
+            declared = packages[parent_path].get("dependencies", {})
+            if not isinstance(declared, dict):
+                raise DependencyBoundaryError("npm override parent dependencies are invalid")
+            if not set(children) <= declared.keys():
+                raise DependencyBoundaryError("npm override target is not a parent dependency")
         for child, version in children.items():
             # npm parent-scoped overrides also apply below an immediate child.
             # Follow dependency edges, rather than path prefixes: npm hoists packages.
-            pending = [parent_path]
+            pending = parent_paths.copy()
             visited: set[str] = set()
             matches = 0
             while pending:
