@@ -398,7 +398,8 @@ def test_npm_override_checks_every_parent_copy(
     lock_path = tmp_path / "package-lock.json"
     manifest_path.write_text(json.dumps(manifest))
     lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
-    if failure:
+    if failure and failure != "missing-child":
+        # A copy that never depends on the child has nothing to override (npm semantics).
         with pytest.raises(dependency_boundary.DependencyBoundaryError, match="override"):
             dependency_boundary.validate_npm_lock(manifest_path, lock_path)
     else:

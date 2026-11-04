@@ -300,12 +300,6 @@ def validate_npm_lock(
         ]
         if not parent_paths:
             raise DependencyBoundaryError("npm override parent is absent from lock")
-        for parent_path in parent_paths:
-            declared = packages[parent_path].get("dependencies", {})
-            if not isinstance(declared, dict):
-                raise DependencyBoundaryError("npm override parent dependencies are invalid")
-            if not set(children) <= declared.keys():
-                raise DependencyBoundaryError("npm override target is not a parent dependency")
         for child, version in children.items():
             # npm parent-scoped overrides also apply below an immediate child.
             # Follow dependency edges, rather than path prefixes: npm hoists packages.
