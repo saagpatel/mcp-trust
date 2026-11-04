@@ -357,6 +357,9 @@ def test_parent_scoped_npm_override_survives_manifest_generation_and_binds_lock(
         ("dependencies", "wrong-version"),
         ("dependencies", "missing"),
         ("dependencies", "unreachable"),
+        ("dependencies", "helper-edge-wrong"),
+        ("optionalDependencies", "helper-edge-wrong"),
+        ("peerDependencies", "helper-edge-wrong"),
     ],
 )
 def test_descendant_scoped_override_checks_every_resolved_edge(
@@ -393,6 +396,10 @@ def test_descendant_scoped_override_checks_every_resolved_edge(
         packages["node_modules/sibling/node_modules/target"]["version"] = "10.0.0"
     elif failure == "missing":
         del packages["node_modules/target"]
+    elif failure == "helper-edge-wrong":
+        # Only the helper's edge (of the parametrized field) reaches the hoisted copy;
+        # the sibling's nested copy stays patched, so the field must actually be walked.
+        packages["node_modules/target"]["version"] = "9.0.0"
     elif failure == "unreachable":
         # An unrelated root can reach target, but the override parent cannot.
         packages["node_modules/parent"]["dependencies"] = {}
