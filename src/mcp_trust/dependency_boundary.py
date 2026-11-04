@@ -26,6 +26,12 @@ _IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
 _DIGEST_IMAGE = re.compile(r"([^@\s]+)@sha256:[0-9a-f]{64}")
 _NPM_NAME = re.compile(r"(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*")
 _SEMVER_PART = r"(?:0|[1-9][0-9]*)"
+# Transitive lock entries may carry legacy mixed-case registry names (e.g. JSONStream);
+# manifest and override names stay on the lowercase _NPM_NAME rule.
+_NPM_LOCK_NAME_PART = r"(?:@[a-z0-9][a-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*"
+_NPM_LOCK_PATH = re.compile(
+    rf"node_modules/({_NPM_LOCK_NAME_PART})(?:/node_modules/({_NPM_LOCK_NAME_PART}))*"
+)
 _EXACT_SEMVER = re.compile(
     rf"{_SEMVER_PART}\.{_SEMVER_PART}\.{_SEMVER_PART}"
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
@@ -271,28 +277,46 @@ def validate_npm_lock(
             continue
         if (
             not isinstance(path, str)
-            or "node_modules/" not in path
+            # Every segment must be a package directory: no "..", prefixes or empty parts.
+            or (path_match := _NPM_LOCK_PATH.fullmatch(path)) is None
             or not isinstance(package, dict)
             or package.get("link") is True
             or not isinstance(package.get("version"), str)
+            # The version is interpolated into the expected tarball URL below, so it
+            # must be exact semver; otherwise "1.0.0/../../evil/-/evil-1.0.0" would
+            # rebuild a matching URL that normalizes to another package.
+            or _EXACT_SEMVER.fullmatch(package["version"]) is None
             or not isinstance(package.get("resolved"), str)
-            or not package["resolved"].startswith("https://registry.npmjs.org/")
             or not isinstance(package.get("integrity"), str)
             or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"]) is None
         ):
             raise DependencyBoundaryError("npm lock escapes the approved registry source")
-        found.add(path.rsplit("node_modules/", 1)[-1])
+        # Take the innermost name from the path match; rsplit misreads scopes such as
+        # "@abcnode_modules/x". A repeated group keeps its last match.
+        name = path_match.group(2) or path_match.group(1)
+        basename = name.rsplit("/", 1)[-1]
+        resolved = package["resolved"]
+        if (
+            "name" in package  # npm aliases (e.g. string-width-cjs) are not admitted
+            or resolved
+            != f"https://registry.npmjs.org/{name}/-/{basename}-{package['version']}.tgz"
+            or any(marker in resolved.lower() for marker in ("%", "\\", "?", "#"))
+        ):
+            raise DependencyBoundaryError("npm lock escapes the approved registry source")
+        found.add(name)
     if not dependencies or not set(dependencies) <= found:
         raise DependencyBoundaryError("npm lock is incomplete")
     for parent, children in overrides.items():
-        parent_path = f"node_modules/{parent}"
-        parent_package = packages.get(parent_path)
-        if not isinstance(parent_package, dict):
+        parent_suffix = f"node_modules/{parent}"
+        parent_paths = [
+            path for path in packages if path == parent_suffix or path.endswith(f"/{parent_suffix}")
+        ]
+        if not parent_paths:
             raise DependencyBoundaryError("npm override parent is absent from lock")
         for child, version in children.items():
             # npm parent-scoped overrides also apply below an immediate child.
             # Follow dependency edges, rather than path prefixes: npm hoists packages.
-            pending = [parent_path]
+            pending = parent_paths.copy()
             visited: set[str] = set()
             matches = 0
             while pending:
