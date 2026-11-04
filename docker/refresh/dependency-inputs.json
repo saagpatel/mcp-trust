@@ -41,7 +41,35 @@
         "mcp-server-git==2026.6.16",
         "mcp-server-sqlite==2025.4.25",
         "mcp-server-time==2026.6.4"
-      ]
+      ],
+      "npm_overrides": {
+        "@modelcontextprotocol/server-aws-kb-retrieval": {
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "@modelcontextprotocol/server-brave-search": {
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "@modelcontextprotocol/server-everart": {
+          "@modelcontextprotocol/sdk": "1.32.2",
+          "uuid": "11.1.1"
+        },
+        "@modelcontextprotocol/server-github": {
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "@modelcontextprotocol/server-gitlab": {
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "@modelcontextprotocol/server-google-maps": {
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "@modelcontextprotocol/server-slack": {
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "@modelcontextprotocol/server-filesystem": {
+          "glob": "14.0.2",
+          "minimatch": "11.0.1"
+        }
+      }
     },
     "live-batch": {
       "image_reference": "mcp-trust-live-batch:20260628",
@@ -59,8 +87,28 @@
         "sovereign-ai-act-mcp": "1.2.0"
       },
       "npm_overrides": {
+        "@adeu/mcp-server": {
+          "zod": "4.6.7"
+        },
+        "@kage-core/kage-graph-mcp": {
+          "zod": "4.6.7"
+        },
         "@pulsemcp/image-diff-mcp-server": {
-          "sharp": "0.35.4"
+          "zod": "4.6.7",
+          "sharp": "0.35.5"
+        },
+        "@swins/intent-engineering-mcp": {
+          "zod": "4.6.7",
+          "@modelcontextprotocol/sdk": "1.32.2"
+        },
+        "mythsensus-mcp": {
+          "zod": "4.6.7"
+        },
+        "raven-mcp": {
+          "zod": "4.6.7"
+        },
+        "sovereign-ai-act-mcp": {
+          "zod": "4.6.7"
         }
       },
       "python": [
@@ -77,7 +125,12 @@
         "@microsoft/powerbi-modeling-mcp": "0.5.0-beta.11",
         "redacta-mcp": "1.2.1"
       },
-      "python": []
+      "python": [],
+      "npm_overrides": {
+        "redacta-mcp": {
+          "zod": "4.6.7"
+        }
+      }
     },
     "batch4": {
       "image_reference": "mcp-trust-batch4:20260703",
@@ -93,7 +146,15 @@
         "@ui5/webcomponents-react-mcp": "2.28.2",
         "chrome-devtools-mcp": "1.5.0"
       },
-      "python": []
+      "python": [],
+      "npm_overrides": {
+        "@discourse/mcp": {
+          "zod": "4.6.7"
+        },
+        "@nvidia-elements/cli": {
+          "minimatch": "11.0.1"
+        }
+      }
     },
     "basic-memory": {
       "image_reference": "mcp-trust-basic-memory:20260823",

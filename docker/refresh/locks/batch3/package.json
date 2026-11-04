@@ -1,1 +1,1 @@
-{"dependencies":{"@microsoft/powerbi-modeling-mcp":"0.5.0-beta.11","redacta-mcp":"1.2.1"},"name":"mcp-trust-refresh-batch3","private":true,"version":"1.0.0"}
+{"//":["GHSA-mrhx-c7xc-m3w5: redacta-mcp still requires Zod 3, including its latest release; scope the compatible Zod 4 override to it."],"dependencies":{"@microsoft/powerbi-modeling-mcp":"0.5.0-beta.11","redacta-mcp":"1.2.1"},"name":"mcp-trust-refresh-batch3","overrides":{"redacta-mcp":{"zod":"4.6.7"}},"private":true,"version":"1.0.0"}
