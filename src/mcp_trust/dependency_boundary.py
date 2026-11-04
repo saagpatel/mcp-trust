@@ -278,7 +278,7 @@ def validate_npm_lock(
         if (
             not isinstance(path, str)
             # Every segment must be a package directory: no "..", prefixes or empty parts.
-            or _NPM_LOCK_PATH.fullmatch(path) is None
+            or (path_match := _NPM_LOCK_PATH.fullmatch(path)) is None
             or not isinstance(package, dict)
             or package.get("link") is True
             or not isinstance(package.get("version"), str)
@@ -291,7 +291,9 @@ def validate_npm_lock(
             or re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", package["integrity"]) is None
         ):
             raise DependencyBoundaryError("npm lock escapes the approved registry source")
-        name = path.rsplit("node_modules/", 1)[-1]
+        # Take the innermost name from the path match; rsplit misreads scopes such as
+        # "@abcnode_modules/x". A repeated group keeps its last match.
+        name = path_match.group(2) or path_match.group(1)
         basename = name.rsplit("/", 1)[-1]
         resolved = package["resolved"]
         if (

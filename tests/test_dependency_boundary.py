@@ -440,6 +440,7 @@ def test_npm_override_ignores_prefix_similar_parent(tmp_path: Path, parent: str)
         "alias",
         "traversal-path",
         "prefixed-path",
+        "node-modules-scope",
     ],
 )
 def test_npm_lock_binds_resolved_url_to_package_path(
@@ -474,6 +475,9 @@ def test_npm_lock_binds_resolved_url_to_package_path(
         path = f"node_modules/app/../../outside/node_modules/{name}"
     elif tamper == "prefixed-path":
         path = f"lib/node_modules/{name}"
+    elif tamper == "node-modules-scope":
+        # The path names @abcnode_modules/<name> while resolved points at <name>.
+        path = f"{prefix}node_modules/@abcnode_modules/{name.rsplit('/', 1)[-1]}"
     package["resolved"] = resolved
     packages = {
         "": {"dependencies": dependencies},
