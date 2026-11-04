@@ -427,7 +427,20 @@ def test_npm_override_ignores_prefix_similar_parent(tmp_path: Path, parent: str)
 @pytest.mark.parametrize("name", ["left-pad", "@scope/pkg"])
 @pytest.mark.parametrize("prefix", ["", "node_modules/x/"])
 @pytest.mark.parametrize(
-    "tamper", ["other-package", "other-version", "encoded-slash", "query", "fragment"]
+    "tamper",
+    [
+        "other-package",
+        "other-version",
+        "encoded-slash",
+        "query",
+        "fragment",
+        "dotdot-version",
+        "encoded-dot-version",
+        "backslash-version",
+        "alias",
+        "traversal-path",
+        "prefixed-path",
+    ],
 )
 def test_npm_lock_binds_resolved_url_to_package_path(
     tmp_path: Path, name: str, prefix: str, tamper: str
@@ -446,10 +459,25 @@ def test_npm_lock_binds_resolved_url_to_package_path(
         resolved += "?download=1"
     elif tamper == "fragment":
         resolved += "#archive"
+    path = f"{prefix}node_modules/{name}"
+    if tamper in {"dotdot-version", "encoded-dot-version", "backslash-version"}:
+        # Keep version and resolved consistent so only normalization would differ.
+        up = {"dotdot-version": "..", "encoded-dot-version": "%2e%2e"}.get(tamper, "..")
+        sep = "\\" if tamper == "backslash-version" else "/"
+        depth = name.count("/") + 3
+        package["version"] = "1.0.0" + (sep + up) * depth + sep + "evil/-/evil-1.0.0"
+        basename = name.rsplit("/", 1)[-1]
+        resolved = f"https://registry.npmjs.org/{name}/-/{basename}-{package['version']}.tgz"
+    elif tamper == "alias":
+        package["name"] = "evil"
+    elif tamper == "traversal-path":
+        path = f"node_modules/app/../../outside/node_modules/{name}"
+    elif tamper == "prefixed-path":
+        path = f"lib/node_modules/{name}"
     package["resolved"] = resolved
     packages = {
         "": {"dependencies": dependencies},
-        f"{prefix}node_modules/{name}": package,
+        path: package,
     }
     manifest_path = tmp_path / "package.json"
     lock_path = tmp_path / "package-lock.json"
@@ -2397,3 +2425,19 @@ def test_basic_memory_mutable_base_is_rejected_before_execution() -> None:
     payload["python_base"] = "python:3.12"
     with pytest.raises(dependency_boundary.DependencyBoundaryError, match="immutable"):
         dependency_boundary.validate_source_build_inputs(payload)
+
+
+def test_npm_lock_admits_legacy_mixed_case_transitive_name(tmp_path: Path) -> None:
+    dependencies = {"left-pad": "1.0.0"}
+    packages = {
+        "": {"dependencies": dependencies},
+        "node_modules/left-pad": _npm_lock_package(
+            "left-pad", "1.0.0", dependencies={"JSONStream": "^1.3.5"}
+        ),
+        "node_modules/JSONStream": _npm_lock_package("JSONStream", "1.3.5"),
+    }
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps({"dependencies": dependencies}))
+    lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    dependency_boundary.validate_npm_lock(manifest_path, lock_path)
