@@ -1,0 +1,804 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T14:26:03Z",
+  "target": "io.github.MathiasPaulenko/wavexis-mcp",
+  "server_name": "io.github.MathiasPaulenko/wavexis-mcp",
+  "package": "pypi:wavexis-mcp",
+  "version": "1.6.24",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "644824803a888adbe25eef99e6a0feea38c8f16004182abae54be25e3c28f9f6",
+  "tools": [
+    {
+      "name": "wavexis_act",
+      "description": "Execute a natural language instruction on the current page (M1).\n\nTakes an a11y snapshot, matches the instruction to an element,\nand performs the detected action (click, type, fill, hover).\n\nArgs:\n    input: Act parameters (instruction, session_id, max_retries).\n\nReturns:\n    JSON string with ``action``, ``element``, ``score``, ``status``.\n",
+      "description_sha256": "b52a49d5fc6940de33dbc0951c1a411968baae3fb33a6896993c646c880b2621",
+      "input_schema_sha256": "b3e926f4c5a3e2b703cc9a3d252c19ce46676f12e18bc8287c3ce5ea6ad617dc",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_activate_tab",
+      "description": "Focus (bring to front) a browser tab by its ID.\n\nUse to switch the active tab before running navigation or interaction\ntools; use wavexis_list_tabs to obtain tab IDs first.\n\nSide effects: Changes the browser's active tab; subsequent tool calls\noperate on the newly focused tab.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "26ef16fd75228f83b7da1e4f0ca9188bbc4a2468cc314571851c48dd1062e93e",
+      "input_schema_sha256": "211ebf3bf58375e011a2e3605ea1cd67c0f7c0ac66663d19df4b01fad4414b4d",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_annotated_screenshot",
+      "description": "Capture a screenshot with numbered labels overlaid on elements.\n\nInjects overlay divs with labels @e1, @e2, ... on each element\nmatching the provided selectors, captures a screenshot, removes\nthe overlays, and returns the image plus a label-to-selector map.\n\nUse ``wavexis_screenshot`` for plain captures, or this tool when\nvisual element identification is needed for follow-up actions.\n\nSide effects: uses an existing session backend, injects and removes\ntemporary overlay DOM nodes; writes to ``output_path`` when given.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'format'\n(str), 'base64' (str) or 'path' (str), 'size_bytes' (int), 'labels'\n(dict[str, str]).\n",
+      "description_sha256": "6b28dc953e46d1aad0adb7ffb4ec5a54b9ce29c784c97638c6de821622c3c3ba",
+      "input_schema_sha256": "17d7d2179f456a07d66c5966257078a7fb6dd741598e5c2e1d5e2f3bd8a659c2",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_back",
+      "description": "Navigate backward one step in the browser history.\n\nUse for history navigation instead of wavexis_navigate when the target\nis the previous page.\n\nSide effects: Changes the active page to the previous history entry;\nmay trigger network requests if that page was not cached.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "4de28d77c934e64a7242b735633647e2f64de7b31cb9ac5698f79db68b7fdd9c",
+      "input_schema_sha256": "e388047b568d4752b446830beb0bb703e9616feb57d3665ab3f937a86e7505ea",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_backends",
+      "description": "List installed browser backends and their versions without launching a browser.\n\nUse ``wavexis_browser_version`` instead when you need the version of a\nspecific running session's backend.\n\nSide effects: None; queries the local filesystem only.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'backends' (dict), 'available' (list[str]).\n",
+      "description_sha256": "8e48c049a1e31a4ba3da82ac09815fcefd20ea2b1d2f39816657c3864979f16f",
+      "input_schema_sha256": "70ed8d773dba3673a2417435cd3fbeb1a4136af302ff70bf39d8e1013b811f62",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_browser_version",
+      "description": "Query the active browser's version string via the selected backend.\n\nUse ``wavexis_backends`` instead when you need a list of all installed\nbackends without launching a browser.\n\nSide effects: Acquires (and may launch) a browser backend, then releases it.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'version' (str), 'backend' (str).\n",
+      "description_sha256": "1361aadafac18f515e9dd0c66f900369408b5fc8ec86b922fe59954c198161ba",
+      "input_schema_sha256": "c6b2420ddfb1791d96e04990dd50976ec58c37ff64f9b5e7de19904f8c094d96",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_check",
+      "description": "Check a checkbox or radio button matching a CSS selector.\n\nUse wavexis_uncheck to uncheck a checkbox or wavexis_click for generic\nelement activation.\n\nSide effects: Clicks the target checkbox/radio, toggling its checked\nstate and firing change events.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'checked'\n(bool, the element's checked state after the action). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "339cddadb935d6be83a1e007f96c57a761d1fbafa2a4aea695378577812144df",
+      "input_schema_sha256": "8f5e71dc714ddc55c8d570fee3b91d3a0932fe5044ec97d90b4858a869b79ea5",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_click",
+      "description": "Click an element matching a CSS selector.\n\nUse wavexis_double_click for double clicks, wavexis_right_click for\ncontext menus, or wavexis_nl_click when you only have a text description.\n\nSide effects: Triggers a click event on the target element, which may\nsubmit forms, toggle controls, or navigate the page.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "1d5f417264b57dc626ef8248c4b0e67d6d52c4891d2eb19c81e9398b7d423776",
+      "input_schema_sha256": "22ceda021adf13aac0818e854d52c771c7ee6bbc4c37a55f301c42fc037d4df1",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_close_page",
+      "description": "Close a browser page/tab by target id, or the current page if omitted.\n\nThis tool mirrors Playwright's API for compatibility; use it to free\nresources. The session itself remains active for other tabs.\n\nSide effects: Closes the specified browser target; destructive and\nirreversible.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'closed' (str).\n",
+      "description_sha256": "501fcbc697a3a9c035590398912ba2490be9ffe1efd0126df7dcdfab55cdf501",
+      "input_schema_sha256": "ddfcbbd4322c9c68f0fb7b6805e3e6002c2ba2926e5168726bdd37b141e0e595",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_close_tab",
+      "description": "Close a browser tab by its ID.\n\nUse to clean up tabs created with wavexis_new_tab; use\nwavexis_session_close to terminate the entire session instead.\n\nSide effects: Closes the specified tab and discards its page state.\nDestructive — unsaved data in that tab is lost.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "29734559660ca3257fefcc6055101e1d1972f5597c82be21074491b6cee6b7c8",
+      "input_schema_sha256": "30eedd37c462aa11f37be85d0df50f2dd102242b01e800061580f3ab63164371",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_console_clear",
+      "description": "Clear all buffered console messages for the session.\n\nThis tool mirrors Playwright's API for compatibility; use it before\ncapturing a fresh set of console logs to avoid stale entries.\n\nSide effects: Resets the session's in-memory console message buffer.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "aec316715ecff650f3301298e0b6ed8e21d4560d6b3afc7bcb3d239b33bd0f81",
+      "input_schema_sha256": "f67f8f9751515272507b6ffad42a1ea04f65e2321855657695498c13dac8cac8",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_cookie_get",
+      "description": "Retrieve a single cookie by name (and optional domain/path) from the browser.\n\nUse ``wavexis_cookie_list`` instead when you need multiple cookies or\nbroad filtering.\n\nSide effects: None; reads cookie state from the browser session.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'cookie' (dict|null).\n",
+      "description_sha256": "2cb124d64a4196f75470236bf7a1fd172a301671dc594b7b3596e469a80e00c5",
+      "input_schema_sha256": "0e3a74fabde5e05d64f5cc65a3aa30c9114016d21ccf146120e2963404946a76",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_cookie_list",
+      "description": "List browser cookies with optional name, domain, and path filters.\n\nUse ``wavexis_cookie_get`` instead when you need a single named cookie.\n\nSide effects: None; reads cookie state from the browser session.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'cookies' (list[dict]), 'count' (int).\n",
+      "description_sha256": "58f4918d146b0db405c7e435896fd1c29b78a64d8fc24714390402e1c0f06be0",
+      "input_schema_sha256": "5e58b68810190f1f0612bf9d51136ff605a520d9db45cd444f2b963be80fb581",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_cookies_clear",
+      "description": "Clear all cookies from the browser session.\n\nUse ``wavexis_cookies_delete`` to remove a specific cookie, or\n``wavexis_cookies_get`` to inspect cookies before clearing.\n\nSide effects: uses an existing session backend, destructively removes\nall cookies from the browser.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "687bb662eec870a51c231281cbe718591df9f92e619168a5a7677bfa1db48afc",
+      "input_schema_sha256": "03ccd11e06adc58f460cee3a4e84456241fe03ccd786a3111cd874950a1fd5d4",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_cookies_delete",
+      "description": "Delete cookies matching a name and domain in the browser.\n\nUse ``wavexis_cookies_clear`` to remove all cookies, or\n``wavexis_cookies_set`` to add a new cookie.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided, destructively removes matching cookies from browser state.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "0f36baa4ca9ce5553359d7e80681d4436c34a7907c9626c3c8b7f23653391dfb",
+      "input_schema_sha256": "b7909780676a189c9dbb05e06c2b24d3aed889661ea71d917c4f2076d82b77cc",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_cookies_get",
+      "description": "Retrieve all cookies for the current page context.\n\nUse ``wavexis_cookies_set`` to add a cookie, or\n``wavexis_cookies_clear`` to remove all cookies at once.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided; read-only with respect to browser state.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'cookies'\n(list[dict]), 'count' (int).\n",
+      "description_sha256": "0b9d3a98dfee078b53d254e73f54bf867fb2b8bd23ed908139b297fb71add135",
+      "input_schema_sha256": "79b84bd1a68be45e36a38ba7361f645dfb3637dc69547bb8d4104feae27374ef",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_cookies_set",
+      "description": "Set a single cookie in the browser for the current page.\n\nUse ``wavexis_cookies_get`` to read cookies, or\n``wavexis_cookies_delete`` to remove a specific cookie.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided, mutates browser cookie state.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "5b6118468aab7164a0ba1a9098afc5111d13c7cc0918b553b270cc61aac50aed",
+      "input_schema_sha256": "6c22e56a1c582b5021e4595ba223fc88e1eb4c89a6c0d9ea6c1cb3829a28bbaf",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_dom_focus",
+      "description": "Focus an element matching a CSS selector.\n\nUse wavexis_dom_click instead when the intent is to activate a control rather than focus it.\n\nSide effects: Mutates DOM focus state; may trigger focus event handlers on the element.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "56cb189b430906fcc0c8c203df68d607122188489121263cb50edd594b149ce7",
+      "input_schema_sha256": "249533df0efa3e13f9e4f8ff9175dfca004db007f64e87548f54d5f85dbafed3",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_dom_get",
+      "description": "Retrieve the HTML of an element matching a CSS selector.\n\nUse wavexis_dom_query instead when you need element metadata rather than raw HTML.\n\nSide effects: None; read-only. May navigate to ``url`` if provided.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'html' (str), 'selector' (str).\n",
+      "description_sha256": "81383ff18724ddd53bc5b27ee73977e5672daaa1c201efebc16d85688b2aafb9",
+      "input_schema_sha256": "85da18728fed720c89fccbda4f22d1ea8bd43709fa8e54438fe97b6c7af04fe9",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_dom_get_attr",
+      "description": "Read an attribute value from an element matching a CSS selector.\n\nUse wavexis_dom_set_attr to write an attribute value.\n\nSide effects: None; read-only.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'value' (str|None),\n    'selector' (str), 'name' (str).\n",
+      "description_sha256": "2316f00f0eedbf4c85053a62a95bf652542cc97b79f18596e166ff8551295e3b",
+      "input_schema_sha256": "6c25f882005d2af5c0a19557948bfc612c0448f24cfd127cf95e7cb2b8bd20f6",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_dom_query",
+      "description": "Query elements by CSS selector and return paginated metadata.\n\nUse wavexis_dom_get instead when you only need the raw HTML of a single element.\n\nSide effects: None; read-only. May navigate to ``url`` if provided.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'elements' (list[dict]),\n    'count' (int), 'total' (int).\n",
+      "description_sha256": "d501c894f2f996dab0b708d5dcf4bc9a986bbfdeef4994142ea7d73a5f18dc54",
+      "input_schema_sha256": "e909c1dba6e2a7c6a171988406b14b9a55fad48ee2293d79e2c9a17eed563452",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_dom_remove",
+      "description": "Remove an element matching a CSS selector from the DOM.\n\nUse wavexis_dom_set_attr to hide an element (e.g. ``display:none``) instead of deleting it.\n\nSide effects: Destructive; permanently removes the matched element from the live DOM.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "bcb10f4b7949458bd7222c0a766eccc549b432144123878fd5a239f9e7741953",
+      "input_schema_sha256": "2ce9c02ecb456ae2897e903a88468a1b2f0e1a59b08fe76296cdf877c2854525",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_dom_remove_attr",
+      "description": "Remove an attribute from an element matching a CSS selector.\n\nUse wavexis_dom_set_attr to restore or change an attribute instead of removing it.\n\nSide effects: Mutates the DOM by deleting the attribute from the matched element.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "91ad1fb930726bd319b7080bbb13eca48ef583f57cd633f06549827a8a5dc7aa",
+      "input_schema_sha256": "b9a2203cae4783e5a409afd4153bf0f08ffbcae614a89de046352bad1bac03dd",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_dom_scroll",
+      "description": "Scroll to an element or by a pixel offset.\n\nUse wavexis_dom_get to inspect an element's position before scrolling by offset.\n\nSide effects: Changes the page scroll position; may trigger scroll event listeners.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "94c472d65ba6d7205d993ab9885116edb4744c0e001aefd38fca84783090fc7f",
+      "input_schema_sha256": "acfb4f4f58f5eb1f8e61b4b4206ab5f5271c61590c7d367f71ee93cb5c8ffebc",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_dom_set_attr",
+      "description": "Set an attribute on an element matching a CSS selector.\n\nUse wavexis_dom_get_attr to read the current value before setting.\n\nSide effects: Mutates the DOM by writing the attribute on the matched element.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "834873ffd52d2bc72f183e68a1fdef56b37d8f9d1dee5514f4d159b0005d733f",
+      "input_schema_sha256": "e7bc3366242b5f3fbf43b666e384066578352ea644d4448ab86b13c5917a6dbc",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_dom_snapshot",
+      "description": "Capture a full DOM snapshot of the page including iframes and shadow roots.\n\nUse wavexis_dom_query for lightweight element metadata instead of a full snapshot.\n\nSide effects: None; read-only.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'snapshot' (dict),\n    'documents' (int).\n",
+      "description_sha256": "4110b1290747a98ea9710fd876c8f0a03734c89b5f8c523ccb75914f4bd977e4",
+      "input_schema_sha256": "70c3301f368dd8d1094996dd053b4e8ba7f53db22ac452e7059b034bb4972a8f",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_double_click",
+      "description": "Double-click an element matching a CSS selector.\n\nUse wavexis_click for single clicks or wavexis_nl_click when you only\nhave a natural language description of the element.\n\nSide effects: Fires two rapid click events on the element, which may\nopen files, edit cells, or trigger application-specific actions.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "ef28b4014248c0a28bb2b2f4ad8d31acb4b5a9865cca2dec2188ca72117720ba",
+      "input_schema_sha256": "4066725e4200419d8b03f06c6425683e111f0dc90121d15e178bac1e1d0c3f71",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_drag",
+      "description": "Drag an element from a source selector to a target selector.\n\nUse wavexis_drop when you need to drop arbitrary MIME data or files\nonto an element rather than dragging an existing DOM element.\n\nSide effects: Performs a drag-and-drop operation between two elements,\nfiring drag/dragstart/dragend and drop events.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "62f77c10b722a5bd09aa35d8e1c71ef3a686013d24a88b5d038efb54b4a11f8e",
+      "input_schema_sha256": "b973e8d25e0464a1e9f78dd692094be729e0d4bc1232960c7518f19f7f842ed7",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_drop",
+      "description": "Drop files or MIME-typed data onto an element via drag events.\n\nUse wavexis_set_files for standard ``<input type=\"file\">`` uploads or\nwavexis_drag for dragging an existing DOM element to another element.\n\nSide effects: Dispatches dragEnter, dragOver, and drop events with the\nsupplied data and files onto the target element's coordinates.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'selector'\n(str), 'x' (float), 'y' (float), 'data_types' (list[str]), 'files'\n(list[str]). On error also 'error', 'tool', 'type', 'message',\n'suggestion' (all str).\n",
+      "description_sha256": "cf00cae813ba992389f4b7959bbbddee7f8024aebd983fdcdf4e3268461c64fa",
+      "input_schema_sha256": "07d3e5813f2176e548f56fefb203dbea13f1ac6908c8ab70c7a289b3bcd24464",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_eval",
+      "description": "Evaluate a JavaScript expression in the browser context and return the result.\n\nUse ``wavexis_scrape`` when the same expression must run across many\npages, or ``wavexis_act`` for natural-language interaction instead of\nraw JS.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided, executes arbitrary JS in the page (may trigger network\nrequests or DOM mutations).\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'result'\n(Any), 'type' (str).\n",
+      "description_sha256": "06d5121a71ea977dcee569f782a4ceffde06b310c1ffbd80927eae2737b8dacc",
+      "input_schema_sha256": "af81b3c2fba4623fa228f559c2a46d1d3ff5a0ebdab9fff67652ea1d7d1d1688",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_fill",
+      "description": "Fill an input element with a value, replacing existing content.\n\nUse wavexis_type for character-by-character typing with key events, or\nwavexis_fill_form when filling multiple fields in one call.\n\nSide effects: Clears the target input/textarea and sets its value to\nthe provided string, firing a single input event.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "4135a07bf2b833911e3a166b20b2b4ec25b5866fda5d23ff221a994b7ffc42c7",
+      "input_schema_sha256": "1364769f7e383abaa851e3911a57575a8de4ac360ed4267c28c82d816355f1e2",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_fill_form",
+      "description": "Fill multiple form fields in one call (convenience composite tool).\n\nUse wavexis_fill for a single field or wavexis_type when per-keystroke\nevents are required.\n\nSide effects: Clears and sets the value of each field in the provided\nlist, firing input events on every targeted element.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'fields_filled'\n(int, number of fields successfully filled). On error also 'error',\n'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "73b560b9253ed6719c86be9e523a9c9e8a8cccf7116517ecde5f3b4950518cf9",
+      "input_schema_sha256": "d162609d4763acdb4d4c1e2fb68c4514c93bc68dbfe55e11c3bf6b27b5a0278d",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_find",
+      "description": "Search the accessibility snapshot for nodes matching text or a regex pattern.\n\nUse ``wavexis_act`` instead for natural-language element interaction;\nthis tool mirrors Playwright's snapshot search for compatibility.\n\nSide effects: None; fetches and searches the a11y tree read-only.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'matches' (list[dict]), 'count' (int).\n",
+      "description_sha256": "449870cd1e7ea8571a98df516a045ef8ee17b2f917881069e12bcf54dfb9edf3",
+      "input_schema_sha256": "42f2ac5c06b494e95e7c871cb86fb33ec748f81bfc13e4f23ceae3e963689dae",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_find_by_text",
+      "description": "Find element selector(s) by visible text content without interacting.\n\nUse this to locate elements before calling wavexis_click or wavexis_fill\nwhen you know the visible text but not the CSS selector.\n\nSide effects: None — this is a read-only lookup that does not modify the\npage or interact with any element.\nReturns: JSON string with keys: 'selector' (str, first match) when\nall=False, or 'selectors' (list[str]) and 'count' (int) when all=True.\nOn error also 'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "fab465880285f197cb746a48f0a4de12f7489febc937f78dc39f14b8f2358cc1",
+      "input_schema_sha256": "a2c47ebe58ead84a388e7da2f9a1abb3d3aa3930c914cc161ce0a2f29e8a8820",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_forward",
+      "description": "Navigate forward one step in the browser history.\n\nUse after wavexis_back to restore a page; use wavexis_navigate for\ndirect URL navigation instead.\n\nSide effects: Changes the active page to the next history entry; may\ntrigger network requests if that page was not cached.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "f7003e8e6a9a78627d648e2b0350a049e59907f774f76ce1bacc78920b3383e3",
+      "input_schema_sha256": "1b593220c68e304f069dcbc0004a9967556aefa6a4502f9d5d6fd95d5a080217",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_get_config",
+      "description": "Return wavexis-mcp server configuration and available browser backends.\n\nUse ``wavexis_backends`` instead when you only need the backend list;\nthis tool additionally exposes the server name for introspection.\n\nSide effects: None; queries the local filesystem only.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'name' (str),\n'available_backends' (list[str]), 'backend_versions' (dict).\n",
+      "description_sha256": "ffc4281fb6b673503ba651947923e044d2e0f3cb6a455dab38c593891ced3d2a",
+      "input_schema_sha256": "19b054ef5c83ac2cb3251aa0c5594dd54576c21535217aec33765e447622a5a1",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_hover",
+      "description": "Hover over an element matching a CSS selector.\n\nUse wavexis_click to actually activate an element; hover only moves the\ncursor without clicking.\n\nSide effects: Moves the mouse cursor over the target element, firing\nmouseover/mouseenter events that may reveal tooltips or menus.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "256c28b078c9fac117ba09b5c9241ade691a14ad2e4b32fa5768b95f445f07a3",
+      "input_schema_sha256": "7471834dc8a0a9be77d4fcbbd1c8fd7f4f4882e0543e72965947c7a778748912",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_iframe_click",
+      "description": "Click an element inside an iframe.\n\nUse wavexis_iframe_eval only for custom JS that click/fill cannot express.\n\nSide effects: Triggers click handlers and may navigate or mutate the iframe DOM.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "13275129749e1b7ba6f3364dfda21df85a8078f7db3f0f8e9aff908956e171fd",
+      "input_schema_sha256": "4879af6aec94deb355b2ecce4e14284bffa5a85e5d416959c6462b0dd9268108",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_iframe_eval",
+      "description": "Evaluate a JavaScript expression inside an iframe.\n\nUse wavexis_iframe_click or wavexis_iframe_fill for standard interactions instead of raw JS.\n\nSide effects: Arbitrary; executes user-supplied JavaScript within the iframe context.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'result' (any).\n",
+      "description_sha256": "d8dbd56a572e58cde17a163614a36fcded6064a6a477724a05b2462c2b57f1bc",
+      "input_schema_sha256": "e6e7efd3be0472a057d603526109592818513f1ef9628088c9413c329961c192",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_iframe_fill",
+      "description": "Fill an input element inside an iframe with a value.\n\nUse wavexis_iframe_click to submit or activate the field after filling.\n\nSide effects: Mutates the input value within the iframe; may trigger input/change events.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "331798b2ee1f8391a5d77e8a85c6f345d7d73e5316a8193239e1d056cc5b75c0",
+      "input_schema_sha256": "e047792ade537160aaab4e28b268967a083d18042b1bebcc7711a15f7a56070d",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_invoke",
+      "description": "Invoke any wavexis backend method by name, the ultimate escape hatch.\n\nUse a dedicated MCP tool (e.g. ``wavexis_act``, ``wavexis_navigate``)\ninstead when one exists for the desired action; this tool exposes the\nfull ``AbstractBackend`` API (e.g. ``page_print_to_pdf``, ``perf_trace``,\n``runtime_evaluate``, ``pwa_install``) for methods without a wrapper.\n\nSide effects: May launch an ephemeral browser, navigate to a URL, and\nexecute arbitrary backend methods; potentially destructive.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'type' (str),\nand either 'result' (any), 'base64' (str), or 'path' (str) depending on output.\n",
+      "description_sha256": "47dbb071ad0c9737418ee56fcc34d989c904ea0032261453cb408cf06ce4288c",
+      "input_schema_sha256": "e5322abe119132205bc6c1671a21555adf60d3041d47c72c426258fc05c0ae05",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_key_down",
+      "description": "Dispatch a raw keyDown event to the active page via CDP.\n\nThis tool mirrors Playwright's API for compatibility; use\n``wavexis_press_keys`` for typing text and ``wavexis_act`` for\nnatural-language interaction.\n\nSide effects: Sends a key-down input event to the browser page.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "2b685ae38b094ccfacb1ebfbe70ff571423599c39dd2a8b8a97d9fcf598e58ec",
+      "input_schema_sha256": "182bf76276e07e7ba225691a2165b5af1c0e45d7df9c6608fd86d60d1d3e14da",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_key_press",
+      "description": "Press a single keyboard key on the focused element.\n\nUse wavexis_type for typing full strings or wavexis_fill for setting\nfield values without individual key events.\n\nSide effects: Dispatches a keydown/keypress/keyup sequence for the\ngiven key on whatever element currently has focus.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "79a5149b1cf1b0b0c3e845476bbfc9fd2d40fbf483166dc91045bae82fc91dcd",
+      "input_schema_sha256": "537162eb484ca6c46fbafc0ce83736e5e643e15539c99778164ab0f551fb461e",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_key_up",
+      "description": "Dispatch a raw keyUp event to the active page via CDP.\n\nThis tool mirrors Playwright's API for compatibility; pair with\n``wavexis_key_down`` for low-level key control, or use\n``wavexis_press_keys`` for simple text entry.\n\nSide effects: Sends a key-up input event to the browser page.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "58a21636cf84aeb9a59d57fa3e566e4bfb135bd45f3922a4dffcfb173b76593f",
+      "input_schema_sha256": "08f96ca2246fc065cba5ffa1cd3ec001aacdb65b217f0952507c73b4be38efab",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_list_tabs",
+      "description": "List all open browser tabs in the session.\n\nUse to discover tab IDs before calling wavexis_activate_tab or\nwavexis_close_tab; use wavexis_session_info for session-level metadata\ninstead.\n\nSide effects: None — read-only query of the browser's tab list.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'tabs' (list[dict]), 'count' (int).\n",
+      "description_sha256": "4549cdf326e43a2dd3ce3c3fc40b1975ba392c7cf5ed02c2f1ffac88eb4bda8d",
+      "input_schema_sha256": "3d680e0015caed9510af7fcf5034c60d6a74f4d051fb5b4b9349107a76a4b689",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_mouse_drag_xy",
+      "description": "Drag the mouse from one screen coordinate to another via CDP mouse events.\n\nThis tool mirrors Playwright's API for compatibility; use ``wavexis_act``\ninstead for natural-language drag interactions.\n\nSide effects: Dispatches mouseMoved, mousePressed, and mouseReleased\nevents to the browser page; may trigger page interactions.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "deb19aad8ab4b3bd4c7cebcd15fe2c920ce98b6cfe5b49a09ea453c8daebaf61",
+      "input_schema_sha256": "478d6ba0a4ad0a164470737b4641854a6c4d67fe7db0b26e5609834be7bb4bb2",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_navigate",
+      "description": "Navigate the browser to a URL with a configurable wait strategy.\n\nUse for direct URL navigation; use wavexis_back/wavexis_forward for\nhistory navigation, or wavexis_act for natural-language interaction\ninstead.\n\nSide effects: Issues a network request to the target URL and replaces\nthe current page content; may auto-create a stateless session if\nsession_id is omitted.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'url' (str).\n",
+      "description_sha256": "6cb64231b713870979c314ffd91ca3f62eeae476943a9f96391966d2570901c1",
+      "input_schema_sha256": "c36a0e614944d7069006f987cce9a113f77209c275653b0024e6394cc4f228ce",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_new_tab",
+      "description": "Create a new browser tab, optionally navigating to a URL.\n\nUse to open a parallel page without losing the current tab; use\nwavexis_navigate to change the current tab's URL instead.\n\nSide effects: Opens a new browser tab; if a URL is provided, issues a\nnetwork request to it.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'tab_id' (str), 'url' (str).\n",
+      "description_sha256": "477f727b6f252878a40f95821180a7218db5a949dacf36150cbc631c377e71d6",
+      "input_schema_sha256": "102add50c381f362bf6afb1b49e14a13d0359357ac5279b442922c3bae1b2f61",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_nl_click",
+      "description": "Click an element described in natural language.\n\nUse wavexis_click when you already know the CSS selector, or\nwavexis_nl_fill to fill a field described in natural language.\n\nSide effects: Locates the best-matching element via text/semantic\nmatching and triggers a click event on it.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "aa35e070e797f9fa535f1524a8466c5e681ed289531d8728b1a7de6f64b0ca7d",
+      "input_schema_sha256": "23a25d112829b5b0912e91e6ba9098ca224611cd910f0c8877511d3d6af8da2b",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_nl_fill",
+      "description": "Fill an element described in natural language with a value.\n\nUse wavexis_fill when you already know the CSS selector, or\nwavexis_nl_click to click an element described in natural language.\n\nSide effects: Locates the best-matching element via text/semantic\nmatching, clears it, and sets its value to the provided string.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "4953b46ab1eb3d82a88cf541c847924661d2f17141027e1a193a94dadc50ce81",
+      "input_schema_sha256": "db77ea57fa40a20ba25c249c2239de10e86ff277bf721f2e25d260018e91d737",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_page_pdf",
+      "description": "Generate a PDF via the low-level Page.printToPDF CDP method.\n\nOffers pixel-level control over paper size, margins, and print\noptions beyond ``wavexis_pdf``. Use ``wavexis_pdf`` for simpler\nhigh-level PDF generation.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided; writes to ``output_path`` when given.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'type'\n('pdf'), 'base64' (str) or 'path' (str), 'size_bytes' (int).\n",
+      "description_sha256": "23c928d8a50de5ded61fda6f9dd3da398df49f7414cd8d2f22fae9d16a130618",
+      "input_schema_sha256": "3815ba8a5f96572efe06d9b96b0c054afa1880653b489f10ae6429458d42bce5",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_page_snapshot",
+      "description": "Capture the page as MHTML or a plain text document.\n\nUse ``wavexis_scrape`` for structured data extraction, or this tool\nwhen a full page archive (MHTML) or text dump is required.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided; writes to ``output_path`` when given.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'format'\n(str), 'content' (str) or 'path' (str), 'size_bytes' (int).\n",
+      "description_sha256": "5c0bd520e26645bacb4eaed6d7c2bc15219ce8f1e3d939d4a64f087e0e4efcb6",
+      "input_schema_sha256": "87bfd331801090a8d251290605d9137687c7eac411e2fd007c949b08b18d0d83",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_pdf",
+      "description": "Generate a PDF document from a web page.\n\nUse ``wavexis_screenshot`` for image capture, or ``wavexis_page_pdf``\nwhen pixel-level control over paper size and margins is required.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided, optionally evaluates ``js``; writes to ``output_path`` when\ngiven.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'base64'\n(str) or 'path' (str), 'size_bytes' (int).\n",
+      "description_sha256": "fec0ec1905ca45c3d8de273b3b6bc5df1de247fc092166ca85ef8a2f1b5216ee",
+      "input_schema_sha256": "c4a3dcc0646c6777dfa80955b521e9f146587bdf756533c12e53935d453d2c6e",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_press_keys",
+      "description": "Type a sequence of characters at the page level without targeting an element.\n\nUse ``wavexis_key_down``/``wavexis_key_up`` instead for individual\nmodifier-key control, or ``wavexis_act`` for natural-language typing.\n\nSide effects: Dispatches keyDown/keyUp pairs to the browser page; no\nnetwork requests.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'typed' (str).\n",
+      "description_sha256": "d0325bd48b24d1aa937bb3dd22259a0ca462f538b08ba466d8b7e047746618c9",
+      "input_schema_sha256": "2a896de158619335645e875e2f1a0a7eff21a37bd244b79b1cfb24082a244d89",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_reload",
+      "description": "Reload the current page, optionally bypassing the cache.\n\nUse to refresh stale content or retry a failed load; use\nwavexis_navigate to go to a different URL instead.\n\nSide effects: Re-issues network requests for the current page and its\nresources; discards in-memory page state.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "0b82fc805dd46fc1258de8c8ec7da9dac20ac373cf6c912a5d92ac13c90836d3",
+      "input_schema_sha256": "af4456dafb4bc0d1e13271cc3009c9407bdf90de9e3831f44c2dc2bd95dc2260",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_right_click",
+      "description": "Right-click an element matching a CSS selector.\n\nUse wavexis_click for standard left clicks or wavexis_double_click for\ndouble clicks.\n\nSide effects: Fires a contextmenu event on the element, typically\nopening a context menu in the browser.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "007f655167beab626c4ca16cbd10907ab199be31062397c995e7089f2611c45b",
+      "input_schema_sha256": "785ac4d707d03cbff7e978f86a1cf2271d4372b2a5146ef04d9fd8bf4b574ddc",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_scrape",
+      "description": "Scrape data from multiple URLs by evaluating a JS expression on each.\n\nUse ``wavexis_eval`` for single-page evaluation, or ``wavexis_scrape``\nwhen the same expression must run across many pages with pagination.\n\nSide effects: launches/acquires a browser backend, navigates to each\nURL in ``urls`` sequentially, evaluates ``expression`` in every page\ncontext.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'results'\n(list[dict[str, Any]]), 'format' (str), 'count' (int), 'total' (int).\n",
+      "description_sha256": "0ae190c6ea8f4f813f703aba502f3f9da46d5436f90d33433a756431c4f3d47a",
+      "input_schema_sha256": "234082686e1d8a67cd83c8b1eb0d7d559f5c954444f6c5bdc353e9cd1484bc29",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_screencast",
+      "description": "Capture a frame-by-frame screenshot sequence over a duration.\n\nUse ``wavexis_screenshot`` for a single still image, or\n``wavexis_screencast`` when animation or time-series capture is needed.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided, captures frames for ``duration``; writes frame files to\n``output_dir`` when given.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'frames'\n(list[str]) or 'dir' (str), 'count' (int).\n",
+      "description_sha256": "77f4c7c78280a94222107053c8b415f9da6b8035c367ee35bd1413d12592f564",
+      "input_schema_sha256": "902ea1228b9ebea8718fe8991fabd4a175db2273e6527f320a4dd76c1ba040af",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_screenshot",
+      "description": "Capture a screenshot of a web page or matched element.\n\nUse ``wavexis_pdf`` when a print-ready document is needed, or\n``wavexis_annotated_screenshot`` when labelled element markers are\nrequired.\n\nSide effects: launches/acquires a browser backend, navigates to ``url``\nif provided, optionally evaluates ``js``; writes to ``output_path`` when\ngiven.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'format'\n(str), 'base64' (str) or 'path' (str), 'size_bytes' (int).\n",
+      "description_sha256": "2a3868ab59549999260a9bf6c3fc7a0422cd7f76f3f45ca3b30ab170b9ff562d",
+      "input_schema_sha256": "774e45b22d92b8b29cdb3d1cc17005c14d7bc982bc8217665a534dbd8e63bc86",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_select_option",
+      "description": "Select an option in a ``<select>`` element by value.\n\nUse wavexis_fill for text inputs or wavexis_click for custom dropdown\nwidgets that are not native ``<select>`` elements.\n\nSide effects: Changes the selected option of the ``<select>`` element,\nfiring change and input events.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "dcfd0545e80c4c625b9db4b49c35037578289719a149ca5bbe98e592ac3c8792",
+      "input_schema_sha256": "8fb8163c03600376acb564e8135ce22cd784bd465b77c57dab09bec45a9366ab",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_session_close",
+      "description": "Close a browser session and release all associated resources.\n\nCall when the session is no longer needed to free memory and browser\nprocesses; use wavexis_close_tab to close individual tabs instead.\n\nSide effects: Terminates the browser process (or disconnects from a\nremote one) and frees session state. Destructive — all unsaved page\nstate is lost.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'session_id' (str).\n",
+      "description_sha256": "06a2694c1b086e422dec7e32699d095ae6a85d629ee96584ceecacab9262c9a8",
+      "input_schema_sha256": "9721896701d3b6a09d35cf4e8c00f864b8acb9f62c7a0baa3b652e5289ceeb43",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_session_info",
+      "description": "Query metadata and current URL of an active browser session.\n\nUse to inspect session health or retrieve the current page URL; use\nwavexis_list_tabs for tab-level details instead.\n\nSide effects: None — read-only; queries in-memory session state and\nthe browser's current URL.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'session_id' (str), 'backend' (str), 'created_at' (str),\n'current_url' (str).\n",
+      "description_sha256": "d80025e27f75a9aac49b520a7ed51ac76f8fca63918703c15b88c5054e2cf061",
+      "input_schema_sha256": "0e44a88a2513ee11b1d21af63f8d62d4da2ef47a0f98cf070feac5e7c3cc5a5f",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_session_open",
+      "description": "Launch a persistent browser session for multi-step workflows.\n\nCall once at the start of a task and reuse the returned session_id for\nall subsequent calls; use wavexis_navigate with session_id omitted for\none-off page fetches instead.\n\nSide effects: Launches a browser process (or connects to an existing\none) and allocates server-side session state; may open network\nconnections to remote/cloud browsers.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'session_id' (str), 'backend' (str).\n",
+      "description_sha256": "075b5ca7f005e425d002806f7335bfeb65f5280ccb7039fc1dd5d3025f98b709",
+      "input_schema_sha256": "a4e95e4e4a9de4135c4b28df55835de5fb29483ee2b5697734741ec5d3cdc4d4",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_set_files",
+      "description": "Upload files to a file input element (``<input type=\"file\">``).\n\nUse wavexis_drop when you need to simulate drag-and-drop of files or\nMIME data onto a non-file-input element.\n\nSide effects: Sets the selected files on the target file input element,\nfiring change events that typically trigger upload logic.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "873eb919096808c9943e728f7dff6e254a2f30d63a0449d90f4239d83794f08f",
+      "input_schema_sha256": "d12bac8d828001e772379145273d4149d7aa4e8b60d3c8037809f76e5154ea87",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_shadow_click",
+      "description": "Click an element inside a shadow DOM tree.\n\nPierces shadow boundaries using the provided selector chain.\nUse wavexis_shadow_eval only for custom JS that click/fill cannot express.\n\nSide effects: Triggers click handlers and may navigate or mutate the shadow DOM.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "3bee230c272cae1a5694d03cc8198a7811b3ee28d2a04794732d4a008fb270e6",
+      "input_schema_sha256": "5ae017548f3aa0d7d07f4ce93b988cee8b54c511079a8b746fff2f338708323d",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_shadow_eval",
+      "description": "Evaluate a JavaScript expression inside a shadow DOM tree.\n\nPierces shadow boundaries using the provided selector chain: ``selectors[0]`` is in the\nmain document, ``selectors[1]`` in ``selectors[0].shadowRoot``, and so on.\nUse wavexis_shadow_click or wavexis_shadow_fill for standard interactions instead of raw JS.\n\nSide effects: Arbitrary; executes user-supplied JavaScript within the shadow DOM context.\nReturns: JSON string with keys: 'status' ('ok'/'error'), 'result' (any).\n",
+      "description_sha256": "f86b5e387993752a98662c456bb03f421aba5c36087d9be4545ec74750535c7f",
+      "input_schema_sha256": "d50ca4b5840b12cbbe7249438d0adf4c43f0dd2ad77fe981d96e2a904035bf3c",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_shadow_fill",
+      "description": "Fill an input element inside a shadow DOM tree with a value.\n\nPierces shadow boundaries using the provided selector chain.\nUse wavexis_shadow_click to submit or activate the field after filling.\n\nSide effects: Mutates the input value within the shadow DOM; may trigger\ninput/change events.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "fe813409250222f4724acd43a03ef2487da874f2f2a3ae7a8eb07855eee82343",
+      "input_schema_sha256": "1720513475fbcf6f411e3571b95adc517a18bcaa6c61d2e8ef9ec7d43bece989",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_stop",
+      "description": "Stop all pending navigations and resource loads in the session.\n\nUse when a page load is hanging or no longer needed; use wavexis_wait\nto wait for a load to complete instead.\n\nSide effects: Aborts in-flight network requests and pending\nnavigations; the page is left in its current partial state.\nReturns: JSON string with keys: 'status' ('ok'/'error').\n",
+      "description_sha256": "d356dbcca1eb4589cb8d76e8d521ec90cb0343a2bd8410f784b368157f5a72ab",
+      "input_schema_sha256": "dc497cdb9d1198d2bbcfa3a448bb84d254b707bd560ea6e85dbdb8808374cf98",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_tap",
+      "description": "Tap an element matching a CSS selector (touch-emulated click).\n\nUse wavexis_click for mouse-based clicking on desktop contexts or\nwavexis_nl_click when you only have a natural language description.\n\nSide effects: Dispatches a touch tap on the target element, which may\ntoggle controls or trigger navigation on mobile-optimised pages.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "e374e63c37cef5c617fff141621f4b9857d7b046e4bda5aa0cbb3819f1ba590b",
+      "input_schema_sha256": "22fec1f45ee2f8cec71cef4f2d68a3665880382567dd67d8b967ec732e54d1b6",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_type",
+      "description": "Type text into an element character by character with optional delay.\n\nUse wavexis_fill instead when you want to set a field's value instantly\nwithout per-keystroke delays, or wavexis_fill_form for multiple fields.\n\nSide effects: Appends characters to the target input/textarea element,\nfiring keydown/keypress/input/keyup events per character.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "ee88768c3be1a843f8a6f772bf68d2a16d82c716e0e9ee3c03fcf04235d70633",
+      "input_schema_sha256": "a4346fb41e8c1b1f424f138235de40e0db2ea4c094f2515df8915e5f394d903e",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "wavexis_uncheck",
+      "description": "Uncheck a checkbox matching a CSS selector by clicking it.\n\nUse wavexis_check to check a checkbox or wavexis_click for generic\nelement activation.\n\nSide effects: Clicks the target checkbox to toggle it to unchecked,\nfiring change events.\nReturns: JSON string with keys: 'status' ('ok'/'error'). On error also\n'error', 'tool', 'type', 'message', 'suggestion' (all str).\n",
+      "description_sha256": "299317c80cbe11edb92ce713834626f7938c2f85ca21819e7554239d0263b616",
+      "input_schema_sha256": "c991e574020d7664bc4089828008880d414e8307ac1cf589c5c74700fcbb4828",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wavexis_wait",
+      "description": "Block until a page condition (load, selector, URL, network idle) is met.\n\nUse after wavexis_navigate when the wait strategy was 'none', or to\nwait for dynamic content; use wavexis_stop to cancel a load instead.\n\nSide effects: None — read-only polling with no page mutations; blocks\nthe tool call up to the configured timeout.\nReturns: JSON string with keys: 'status' ('ok'/'error'),\n'elapsed_ms' (int).\n",
+      "description_sha256": "eb4c87f2643dff71faff9650db37adce290344dde0bf4683b6b1bb73107b203a",
+      "input_schema_sha256": "1f2f278453c8bef14082d4b849c0e1479a5aa7be7b0ba60d26dd57105db13d78",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ]
+}
