@@ -95,6 +95,13 @@ configuration proves only documented host-format compatibility, not a runtime
 connection or adoption. See
 [`docs/MCP-CONFIG-PORTABILITY-STUDIO.md`](docs/MCP-CONFIG-PORTABILITY-STUDIO.md).
 
+### Importing Trust Before Connect verdicts (experimental)
+
+`mcp-trust import-card card.json [--pin pin.json]` stores a verdict card from
+MCPAudit's experimental `mcp-audit trust` command as a catalog entry, graded by
+this registry's rubric. Imported verdicts stay demo-classified and are not
+published by importing. See [`docs/trust-card-import.md`](docs/trust-card-import.md).
+
 ## How it works
 
 ```

@@ -42,6 +42,7 @@ loop working end-to-end.
 | `store/repository.py` | `ServerRepository` (add/get/list) + `ScanRepository` (record latest scan, get latest by slug). | `store/db.py`, `core/models.py` |
 | `api/app.py` | FastAPI app + routes (below). Dependency-injects repositories + an engine. | `store/`, `core/`, `engine/` |
 | `cli/main.py` | Typer app: `scan`, `check`, `serve`, `seed`. | all of the above |
+| `catalog/trust_card.py` | Experimental import of an MCPAudit Trust Before Connect verdict card (`mcp-audit.trust-card/1`): maps the card to a `Server` and an `EngineResult` (engine `mcp-audit-trust`, mismatches as findings, dimensions from observed behaviour and declared annotations). Never grades; refuses incomplete cards; reads the card as plain JSON with no `mcp_audit` import. Imported verdicts stay demo-classified until the engine is vetted in `core/provenance.py`. | `core/models.py`, `engine/base.py` |
 | `catalog/seed.py` + `seed_servers.json` | Seed list of ~8–12 well-known *public* MCP servers (name, source spec, homepage). No private servers. | `core/models.py` |
 | `auth_posture.py` | Advisory, credential-free discovery of public protected-resource and authorization-server metadata for one exact Registry-manifest remote. No scan or grade authority. | saved Registry candidate manifest; RFC 9728, RFC 8414, OIDC discovery |
 | `portability/` | Local-only neutral MCP connection intent, pure Codex/Claude/VS Code adapters, semantic loss/widening reports, synthetic fixtures, and CLI. No real host-config discovery or mutation, server launch, network, secret values, trust verdict, or adoption claim. | official host configuration docs and current MCP/Registry metadata versions pinned as of 2026-08-11 |
@@ -126,6 +127,10 @@ evidence remains `UNKNOWN`, and crossing `earliest_stale_after` produces
 - `mcp-trust seed` — load the seed catalog into the DB.
 - `mcp-trust scan <slug>` — scan a catalog server, print grade + top findings, persist.
 - `mcp-trust check <slug>` — print the latest stored grade (no scan).
+- `mcp-trust import-card <card.json> [--pin pin.json] [--slug]` — experimental:
+  register the server a Trust Before Connect card resolved and store its verdict
+  as a scan graded by `core.grading`. Refuses incomplete cards and slugs already
+  owned by another source.
 - `mcp-trust serve [--host --port]` — run the API (uvicorn).
 - `mcp-trust auth-posture <stable-id> --manifest <path>` — perform bounded
   metadata-only HTTPS discovery for one exact remote Registry candidate. Exit 0
