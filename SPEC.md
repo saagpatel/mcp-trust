@@ -136,6 +136,9 @@ evidence remains `UNKNOWN`, and crossing `earliest_stale_after` produces
 - `mcp-trust import-cards [DIR]` — experimental: run `import-card` for every
   `<slug>.card.json` (with its `<slug>.pin.json`) in a directory, defaulting to the
   cards bundled in `catalog/trust_cards/`. Each import is independent and atomic.
+- `mcp-trust census [--out DIR] [--max-pages N]` — write the MCP Census, a local
+  one-page report built only from the registry's public REST API (no server is
+  contacted); every figure links to a CSV. Not published. See `docs/mcp-census.md`.
 - `mcp-trust serve [--host --port]` — run the API (uvicorn).
 - `mcp-trust auth-posture <stable-id> --manifest <path>` — perform bounded
   metadata-only HTTPS discovery for one exact remote Registry candidate. Exit 0

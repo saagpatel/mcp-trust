@@ -341,6 +341,35 @@ def _import_checks(
 
 
 @app.command()
+def census(
+    out: Annotated[
+        Path, typer.Option("--out", help="Directory for index.html and its data/ files.")
+    ] = Path("tmp/census"),
+    max_pages: Annotated[
+        int, typer.Option("--max-pages", min=1, max=5000, help="Stop after this many API pages.")
+    ] = 1000,
+) -> None:
+    """Write the MCP Census: a local one-page report on the official MCP Registry.
+
+    Reads only the registry's public REST API; no server is contacted. Every figure
+    links to a CSV, plus per-server rows and a JSON summary. Nothing is published.
+    """
+    from mcp_trust.census import CensusError, registry_fetcher, run_census  # noqa: PLC0415
+
+    cards = Path(__file__).resolve().parents[1] / "catalog" / "trust_cards"
+    try:
+        summary = run_census(out, registry_fetcher(), cards, max_pages=max_pages)
+    except CensusError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        f"Census of {summary['entries']} registry entries over {summary['pages']} pages"
+        + (" (page cap reached; counts are a lower bound)" if summary["truncated"] else "")
+        + f" written to {out / 'index.html'}"
+    )
+
+
+@app.command()
 def check(
     slug: Annotated[str, typer.Argument(help="Server slug to check.")],
     db: Annotated[
