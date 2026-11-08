@@ -94,11 +94,16 @@ safe", as it does for every other scan.
 | `review`, caused only by registry metadata | the behaviour grade (A–B) | Registry or namespace warnings (`TBC-RESOLVE`), such as a missing repository URL. The grade covers behaviour only; the verdict stays visible as a finding. |
 | `do_not_install` | D–F | A high-severity contradiction. **F** when observed behaviour broke a declaration (a read-only tool wrote files, or a closed-world tool reached the network). **D** (the critical cap) when the cause is tool text or a failed ownership check. |
 
+Worst-case evidence overrides the verdict band. A truncated change list (writes
+the card could not list in full) or a high-severity read-only contradiction
+grades F whatever the card's verdict, because the omitted or contradicted
+behaviour may be the worst kind.
+
 The dimensions that implement the rubric under `core.grading`'s frozen weights:
 
 | Evidence | Scoring (0–10 dimensions) |
 | --- | --- |
-| Concerns | Counted, not summed. Every card mismatch at medium severity or above is a concern unless it is registry metadata (`TBC-RESOLVE`), so an unknown rule fails safe. A lasting write outside home seen in the observation is a concern even without its label. The two network rules (unprompted egress, contradicted local claim) count as one concern, since one connection can raise both. One concern scores danger 3.6 (C) and two or more 7.2 (D), carried on file_access (3 when writes outside home are a concern) and network_access. Expected behaviour adds nothing once there is a concern. |
+| Concerns | Counted, not summed. Every card mismatch at medium severity or above is a concern unless it is registry metadata (`TBC-RESOLVE`), so an unknown rule, whatever its prefix, fails safe. A lasting write outside home seen in the observation is a concern even without its label. The two network rules (unprompted egress, contradicted local claim) count as one concern, since one connection can raise both. One concern scores danger 3.6 (C) and two or more 7.2 (D), carried on file_access (3 when writes outside home are a concern) and network_access. Expected behaviour adds nothing once there is a concern. |
 | Expected behaviour only | file_access: lasting writes in home 2, temporary churn 1. network_access: a remote observed from outside 2, egress during tool calls 1. Keeps a clean card in A–B. |
 | High-severity contradictions | A write during a read-only tool's call, or a truncated change list, sets file_access 8; egress breaking a closed-world declaration sets network_access 8. With the critical cap, that's F. |
 | shell_execution, exfiltration, destructive | 0 (not observable by the sandbox) |

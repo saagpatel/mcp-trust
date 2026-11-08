@@ -298,6 +298,8 @@ METADATA_RULES = frozenset({"TBC-RESOLVE"})
 # Rules that can describe one and the same unannounced connection count once.
 _CONCERN_KEY = {"TBC-UNPROMPTED-NET": "network", "TBC-LOCAL-CLAIM-NET": "network"}
 _COUNTED = frozenset({Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM})
+# Findings the importer adds itself to describe the card, never concerns.
+_INFORMATIONAL = frozenset({"TBC-VERDICT", "TBC-OUTSIDE-ONLY"})
 # Danger score for one concern (grade C) and for two or more (grade D).
 CONCERN_DANGER = {1: 3.6, 2: 7.2}
 
@@ -309,9 +311,8 @@ def concerns_of(findings: list[Finding], lasting_outside_home: bool) -> set[str]
         _CONCERN_KEY.get(f.rule_id, f.rule_id)
         for f in findings
         if f.severity in _COUNTED
-        and f.rule_id.startswith("TBC-")
         and f.rule_id not in METADATA_RULES
-        and f.rule_id not in {"TBC-VERDICT", "TBC-OUTSIDE-ONLY"}
+        and f.rule_id not in _INFORMATIONAL
     }
     if lasting_outside_home:
         concerns.add("TBC-WRITE-OUTSIDE-HOME")

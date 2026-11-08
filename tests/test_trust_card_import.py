@@ -831,6 +831,8 @@ def test_concerns_are_counted_not_summed(phases: Any, mismatches: Any, expected:
         # Non-network concerns and unknown rules fail safe.
         ([], _mm("TBC-DRIFT"), "C"),
         ([], _mm("TBC-SOMETHING-NEW"), "C"),
+        ([], _mm("SOMETHING-NEW"), "C"),
+        ([], [{"severity": "high", "rule": "MCPA-NEW", "summary": "x"}], "C"),
         # Registry metadata alone keeps the behaviour grade.
         ([], _mm("TBC-RESOLVE"), "A"),
         # Low severity never counts.
@@ -843,3 +845,13 @@ def test_concerns_fail_safe(phases: Any, mismatches: Any, expected: str) -> None
     card["observation"]["phases"] = phases
     card["mismatches"] = mismatches
     assert grading.grade(card_to_result(card).risk).value == expected
+
+
+@pytest.mark.parametrize("verdict", ["no_mismatches_observed", "review"])
+def test_worst_case_evidence_grades_f_whatever_the_verdict(verdict: str) -> None:
+    card = synthetic(verdict=verdict)
+    card["observation"]["phases"] = [
+        {"name": "startup", "file_changes": [], "network": [], "file_changes_truncated": 1}
+    ]
+    card["mismatches"] = []
+    assert grading.grade(card_to_result(card).risk) == TrustGrade.F
