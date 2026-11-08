@@ -1,0 +1,122 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T12:06:33Z",
+  "target": "io.github.cyanheads/nws-weather-mcp-server",
+  "server_name": "io.github.cyanheads/nws-weather-mcp-server",
+  "package": "npm:@cyanheads/nws-weather-mcp-server",
+  "version": "0.12.0",
+  "protocol_version": "2026-07-28",
+  "surface_sha256": "c85cd1a4b234ebcfbbf0009818b54f9880d0e6fe3b75d6476694fc5626cf55dd",
+  "tools": [
+    {
+      "name": "nws_find_stations",
+      "description": "Find weather observation stations near a location. Returns stations sorted by proximity with distance and bearing. Use to discover station IDs for nws_get_observations.",
+      "description_sha256": "642f0a6bbae861685e22e818564ab704f94cba3a2611337bc13e1f2f17cc9192",
+      "input_schema_sha256": "a9092ba3320c410302d0ece9b53ae51083bc4362f82515297f306e7121876ef5",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_alert",
+      "description": "Fetch one NWS alert message by ID — a current alert, or an earlier message that an update or cancellation has since superseded and that an active-alert search no longer returns. Takes an id from nws_search_alerts or a references[].identifier from any alert, and returns the same alert fields nws_search_alerts does. The message carries its own references, newest first, so a revision chain is walked one call per message. Every reference sharing the newest sent time is an immediate predecessor (an update can merge several earlier segments), so references[0] is one of them, not always the only one. NWS serves messages for about 7 days after they are sent.",
+      "description_sha256": "a158316af7be69d09a30a229f544bae9ba3db39593c2dc9da502fd70a0944278",
+      "input_schema_sha256": "1f0687f46b454bb316cc22f24180ae27e99c4cc99331f1ca48aa3de5ba95c0ee",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_alert_counts",
+      "description": "Count active weather alerts nationwide, per state/territory or marine area, and per marine region, in one small response — the answer to \"how many alerts are active, and where\" without fetching the alerts themselves. Counts cover every message status, Test and Exercise included, so totalAlerts can run above the totalCount a national nws_search_alerts search reports under its default status of Actual. An alert counts once in each area its zones fall in, so the area counts can sum past totalAlerts; landAlerts plus marineAlerts equals totalAlerts. Takes no filters. For counts per zone or under a filter, call nws_search_alerts with that zone or filter and read its totalCount.",
+      "description_sha256": "56acf19b347db7874ada05c23191608474d2a97c86c8001abfe25e7ed3aebe43",
+      "input_schema_sha256": "71fc596a20f27da3dec80050e5d1f553eba34aea24c2853b853488a811e6b892",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_forecast",
+      "description": "Get the weather forecast for a US location. Returns either named 12-hour periods (default) or hourly breakdowns.",
+      "description_sha256": "3783e384ed905fea47a920804692643e5d7b491b1582ab773db97153637deb91",
+      "input_schema_sha256": "250809373e3b0aeabe0347f325f6a8228fcbe7c5c52a5589127206e0c1974dfe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_observation_history",
+      "description": "Get a station's recent observation history, newest first — the trend behind the single latest reading nws_get_observations returns (is pressure falling, is the wind picking up). NWS keeps about the last 7 days per station, and a busy airport station reports as often as every 5 minutes, so a day can run past 100 observations: narrow with start (inclusive) and end (exclusive), and page back to older observations with nextCursor. Takes a station ID; use nws_find_stations to find one near a coordinate.",
+      "description_sha256": "d01acd300db6c393cea2a9ceadb7ce37aeb2fa75735a309ca9af2d220d0fd6f4",
+      "input_schema_sha256": "348240f4941867e3dcd166a2d66299946111ba191a28a01cd6bb014ed9e7d9f9",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_observations",
+      "description": "Get current weather observations (actual measured conditions). Accepts coordinates (resolves nearest station automatically) or a station ID directly (e.g., \"KSEA\").",
+      "description_sha256": "066a0c0ae6a32b14e38d06197286196f9484586cc01f4da65638c9a47feb38ca",
+      "input_schema_sha256": "27b86d7fa2bf148a28b1599a98c80da609be558af1dc9d0cb43d830620536352",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_office_discussion",
+      "description": "Get the latest narrative forecast product from a Weather Forecast Office (WFO). The default product is AFD (Area Forecast Discussion), which explains the meteorological reasoning behind the forecast — synoptic setup, model guidance, and forecaster confidence. Other types: HWO (Hazardous Weather Outlook, 1-7 day severe/flood/winter outlook), ZFP (Zone Forecast Product, zone-by-zone text), SPS (Special Weather Statement, short-fuse advisory), FWF (Fire Weather Planning Forecast, one segment per fire weather zone). The office code is the 3-letter WFO identifier returned as the \"office\" field by nws_get_forecast. A product over 24,000 bytes (most ZFPs and FWFs) comes back as an outline of its sections — AFD section names, or ZFP/HWO/SPS/FWF zone segments with their area names — with each section's size, instead of the text; re-call with sections to get the ones you need. sections also works on a product of any size, to read one AFD section or one zone's forecast. For an alert zone typed \"fire\" (Red Flag Warning, Fire Weather Watch), pass the alert's \"office\" field as office, product_type \"FWF\", and the zone code in sections.",
+      "description_sha256": "3291d2b17bea648bca1d98b85e2012b631b7a1490e7567cee16fa402b8ce08b8",
+      "input_schema_sha256": "a995294655d6ebe938dd8056629671ac5390f625663251188af67b1b596d5af3",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_get_zone_forecast",
+      "description": "Get the text forecast for an NWS forecast zone. Returns named forecast periods (e.g., \"Today\", \"Tonight\", \"Monday\") with detailed narrative text — the human-readable, zone-level forecast written by local forecasters. Completes the alert-to-forecast chain: nws_search_alerts returns each affected zone in \"affectedZones\" as a code plus a type, and nws_find_stations returns codes in the \"forecastZone\" column. Only affectedZones entries with type \"forecast\" work here; entries typed \"county\" have no text forecast upstream and will not resolve. An entry typed \"fire\" has its forecast in a segment of the office's Fire Weather Planning Forecast: call nws_get_office_discussion with office set to the alert's \"office\" field, product_type \"FWF\", and sections set to the zone code; a fire zone code that is also a public zone code (e.g., \"NDZ040\") returns that public zone's forecast here, not the fire weather forecast. Marine forecast zones vary: many coastal zones serve a text forecast of wind and seas (e.g., \"PZZ251\"), while offshore zones (e.g., \"GMZ056\") and some coastal ones have none. Zone codes follow the pattern XXZ### (e.g., \"WAZ315\" for the City of Seattle).",
+      "description_sha256": "649bf50322802fc7327eb18f8108a39e3b06dccc5059485cd76855f031588bfc",
+      "input_schema_sha256": "a23571f2e240560e1bbb342019ee269108584548f9c32934b73dc2a716808c79",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_list_alert_types",
+      "description": "List all valid NWS alert event type names. Use to discover valid values for the event filter in nws_search_alerts, or to browse alert categories. No parameters required.",
+      "description_sha256": "58c27c09fb1969f4eda50abd4a73a3f26748b9261532661a3a5c03911587b45a",
+      "input_schema_sha256": "71fc596a20f27da3dec80050e5d1f553eba34aea24c2853b853488a811e6b892",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "nws_search_alerts",
+      "description": "Search active weather alerts (watches, warnings, advisories) across the US. Filter by state, coordinates, zone, land/marine region, event type, severity, urgency, or certainty. area, point, zone, region_type, and region are mutually exclusive — provide at most one. Omit all filters for a national search.",
+      "description_sha256": "8643ef5ad4be529f66ea6a6a89b943431a59782ddc40daf3a834a645374d250c",
+      "input_schema_sha256": "78f537881e0cb170b8c0476eae57e7a9c76df21020e8b28c33fcfcf62ba0763c",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}

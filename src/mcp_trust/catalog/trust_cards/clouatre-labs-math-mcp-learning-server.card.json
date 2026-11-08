@@ -1,0 +1,542 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T14:22:21Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.clouatre-labs/math-mcp-learning-server",
+    "kind": "registry",
+    "server_name": "io.github.clouatre-labs/math-mcp-learning-server",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "0.12.5",
+    "title": "Math MCP Learning",
+    "description": "Educational MCP server with 17 math/stats tools, visualizations, and persistent workspace",
+    "repository_url": "https://github.com/clouatre-labs/math-mcp-learning-server",
+    "package": {
+      "registry_type": "pypi",
+      "identifier": "math-mcp-learning-server",
+      "version": "0.12.5",
+      "transport": "stdio",
+      "runtime_hint": null,
+      "env": [],
+      "arguments": [],
+      "launch_arguments": [],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.clouatre-labs/math-mcp-learning-server."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "pass",
+        "summary": "Repository owner matches GitHub namespace clouatre-labs."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "pypi math-mcp-learning-server 0.12.5 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "PyPI description mcp-name matches io.github.clouatre-labs/math-mcp-learning-server."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "python:3.14-slim (python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2025-11-25",
+    "protocol_era": "legacy",
+    "server_info": {
+      "name": "Math Learning Server",
+      "version": "3.4.11"
+    },
+    "tools": [
+      {
+        "name": "calc_expression",
+        "description": "Safely evaluate mathematical expressions with support for basic <redacted> and math functions.\n\nSupported operations: +, -, *, /, **, ()\nSupported functions: sin, cos, tan, log, sqrt, abs, pow\n\nNote:\n    Use this tool to evaluate a single mathematical expression. To compute descriptive statistics over a list of numbers, use the statistics tool instead.\n\nExamples:\n- \"2 + 3 * 4\" → 14\n- \"sqrt(16)\" → 4.0\n- \"sin(3.14159/2)\" → 1.0",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "calc_statistics",
+        "description": "Perform statistical calculations on a list of numbers.\n\nAvailable operations: mean, median, mode, std_dev, variance\n\nNote:\n    Use this tool to compute descriptive statistics over a list of numbers. To evaluate a single mathematical expression, use the calculate tool instead.\n\nExamples:\n    statistics([1.0, 2.5, 3.0, 4.5, 5.0], \"mean\")  # Returns 3.2\n    statistics([1.0, 2.5, 3.0, 4.5, 5.0], \"std_dev\")  # Returns ~1.58",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "calc_interest",
+        "description": "Calculate compound interest for investments.\n\nFormula: A = P(1 + r/n)^(nt)\nWhere:\n- P = principal amount\n- r = annual interest rate (as decimal)\n- n = number of times interest compounds per year\n- t = time in years\n\nExamples:\n    compound_interest(10000, 0.05, 5)  # $10,000 at 5% for 5 years → $12,762.82\n    compound_interest(5000, 0.03, 10, 12)  # $5,000 at 3% compounded monthly → $6,744.25",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "calc_units",
+        "description": "Convert between different units of measurement.\n\nSupported unit types:\n- length: mm, cm, m, km, in, ft, yd, mi\n- weight: g, kg, oz, lb\n- temperature: c, f, k (Celsius, Fahrenheit, Kelvin)\n\nExamples:\n    convert_units(5, \"km\", \"mi\", \"length\")  # 5 kilometers → 3.11 miles\n    convert_units(150, \"lb\", \"kg\", \"weight\")  # 150 pounds → 68.04 kilograms",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "matrix_multiply",
+        "description": "Multiply two matrices (A × B).\n\nNote:\n    Requires NumPy. Raises ValueError if NumPy is unavailable.\n\nExamples:\n    matrix_multiply([[1, 2], [3, 4]], [[5, 6], [7, 8]])\n    matrix_multiply([[1, 2, 3]], [[1], [2], [3]])",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "matrix_transpose",
+        "description": "Transpose a matrix (swap rows and columns).\n\nNote:\n    Requires NumPy. Raises ValueError if NumPy is unavailable.\n\nExamples:\n    matrix_transpose([[1, 2, 3], [4, 5, 6]])\n    matrix_transpose([[1], [2], [3]])",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "matrix_determinant",
+        "description": "Calculate the determinant of a square matrix.\n\nNote:\n    Requires NumPy. Raises ValueError if NumPy is unavailable.\n\nExamples:\n    matrix_determinant([[1, 2], [3, 4]])\n    matrix_determinant([[1, 0, 0], [0, 1, 0], [0, 0, 1]])  # Identity matrix",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "matrix_inverse",
+        "description": "Calculate the inverse of a square matrix.\n\nNote:\n    Requires NumPy. Raises ValueError if NumPy is unavailable.\n\nExamples:\n    matrix_inverse([[1, 2], [3, 4]])\n    matrix_inverse([[2, 0], [0, 2]])  # Diagonal matrix",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "matrix_eigenvalues",
+        "description": "Calculate the eigenvalues of a square matrix.\n\nNote:\n    Requires NumPy. Raises ValueError if NumPy is unavailable.\n\nExamples:\n    matrix_eigenvalues([[4, 2], [1, 3]])\n    matrix_eigenvalues([[3, 0, 0], [0, 5, 0], [0, 0, 7]])  # Diagonal matrix",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "workspace_save",
+        "description": "Save calculation to persistent workspace (survives restarts).\n\nExamples:\n    save_calculation(\"portfolio_return\", \"10000 * 1.07^5\", 14025.52)\n    save_calculation(\"circle_area\", \"pi * 5^2\", 78.54)",
+        "read_only_hint": false,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "workspace_load",
+        "description": "Load previously saved calculation result from workspace.\n\nExamples:\n    load_variable(\"portfolio_return\")  # Returns saved calculation\n    load_variable(\"circle_area\")       # Access across sessions",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "plot_function",
+        "description": "Generate mathematical function plots (requires matplotlib).\n\nExamples:\n    plot_function(\"x**2\", (-5, 5))\n    plot_function(\"sin(x)\", (-3.14, 3.14))",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "call budget (10) reached"
+      },
+      {
+        "name": "plot_histogram",
+        "description": "Create statistical histograms (requires matplotlib).\n\nExamples:\n    plot_histogram([1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0])\n    plot_histogram([10, 20, 30, 40, 50], bins=5, title=\"Test Scores\")",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "plot_line_chart",
+        "description": "Create a line chart from data points (requires matplotlib).\n\nNote:\n    Use for general XY data. For time-series price data with optional moving average, use plot_financial_line instead.\n\nExamples:\n    plot_line_chart([1, 2, 3, 4], [1, 4, 9, 16], title=\"Squares\")\n    plot_line_chart([0, 1, 2], [0, 1, 4], color='red', x_label='Time', y_label='Distance')",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "plot_scatter",
+        "description": "Create a scatter plot from data points (requires matplotlib).\n\nExamples:\n    plot_scatter([1, 2, 3, 4], [1, 4, 9, 16], title=\"Correlation Study\")\n    plot_scatter([1, 2, 3], [2, 4, 5], color='purple', point_size=100)",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "plot_box_plot",
+        "description": "Create a box plot for comparing distributions (requires matplotlib).\n\nExamples:\n    plot_box_plot([[1, 2, 3, 4, 5], [2, 4, 6, 8, 10]], group_labels=[\"A\", \"B\"])\n    plot_box_plot([[10, 20, 30], [15, 25, 35], [5, 15, 25]], title=\"Comparison\")",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "plot_financial_line",
+        "description": "Generate and plot synthetic financial price data (requires matplotlib).\n\nCreates realistic price movement patterns for educational purposes.\nDoes not use real market data.\n\nNote:\n    Use for time-series price data with optional moving average overlay. For general XY data, use plot_line_chart instead.\n\nExamples:\n    plot_financial_line(days=60, trend='bullish')\n    plot_financial_line(days=90, trend='volatile', start_price=150.0, color='orange')",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "call budget (10) reached"
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [
+      "formula_explainer",
+      "math_tutor"
+    ],
+    "resources": 5,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [
+          {
+            "kind": "dns",
+            "host": "pypi.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "pypi.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "pypi.org",
+            "ip": "198.18.0.1",
+            "port": 443,
+            "sni": "pypi.org",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          }
+        ],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:calc_expression",
+        "tool": "calc_expression",
+        "arguments": {
+          "expression": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:calc_statistics",
+        "tool": "calc_statistics",
+        "arguments": {
+          "numbers": [],
+          "operation": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:calc_interest",
+        "tool": "calc_interest",
+        "arguments": {
+          "principal": 1,
+          "rate": 0,
+          "time": 1
+        },
+        "is_error": false,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:calc_units",
+        "tool": "calc_units",
+        "arguments": {
+          "value": 1,
+          "from_unit": "mcpaudit-synthetic",
+          "to_unit": "mcpaudit-synthetic",
+          "unit_type": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:matrix_multiply",
+        "tool": "matrix_multiply",
+        "arguments": {
+          "matrix_a": [],
+          "matrix_b": []
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:matrix_transpose",
+        "tool": "matrix_transpose",
+        "arguments": {
+          "matrix": []
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:matrix_determinant",
+        "tool": "matrix_determinant",
+        "arguments": {
+          "matrix": []
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:matrix_inverse",
+        "tool": "matrix_inverse",
+        "arguments": {
+          "matrix": []
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:matrix_eigenvalues",
+        "tool": "matrix_eigenvalues",
+        "arguments": {
+          "matrix": []
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:workspace_load",
+        "tool": "workspace_load",
+        "arguments": {
+          "name": "mcpaudit-synthetic"
+        },
+        "is_error": false,
+        "error": null,
+        "file_changes": [
+          {
+            "path": "/scratch/.math-mcp",
+            "change": "added",
+            "in_home": true,
+            "entries_only": false
+          }
+        ],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": false
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [
+    {
+      "severity": "high",
+      "summary": "Declared read-only, but 1 file change(s) appeared during its call: $HOME/.math-mcp.",
+      "tool": "workspace_load",
+      "rule": "TBC-READONLY-WRITE"
+    },
+    {
+      "severity": "medium",
+      "summary": "Tried to reach the network at startup, before any tool was called: pypi.org:443.",
+      "tool": null,
+      "rule": "TBC-UNPROMPTED-NET"
+    }
+  ],
+  "verdict": "do_not_install",
+  "headline": "Do not install: at least one high-severity mismatch between claims and behaviour.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"math-mcp-learning-server\": {\n      \"command\": \"uvx\",\n      \"args\": [\n        \"--from\",\n        \"math-mcp-learning-server==0.12.5\",\n        \"math-mcp-learning-server\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [\n      \"mcp__math-mcp-learning-server__calc_interest\"\n    ],\n    \"ask\": [\n      \"mcp__math-mcp-learning-server__calc_expression\",\n      \"mcp__math-mcp-learning-server__calc_statistics\",\n      \"mcp__math-mcp-learning-server__calc_units\",\n      \"mcp__math-mcp-learning-server__matrix_multiply\",\n      \"mcp__math-mcp-learning-server__matrix_transpose\",\n      \"mcp__math-mcp-learning-server__matrix_determinant\",\n      \"mcp__math-mcp-learning-server__matrix_inverse\",\n      \"mcp__math-mcp-learning-server__matrix_eigenvalues\",\n      \"mcp__math-mcp-learning-server__workspace_save\",\n      \"mcp__math-mcp-learning-server__plot_function\",\n      \"mcp__math-mcp-learning-server__plot_histogram\",\n      \"mcp__math-mcp-learning-server__plot_line_chart\",\n      \"mcp__math-mcp-learning-server__plot_scatter\",\n      \"mcp__math-mcp-learning-server__plot_box_plot\",\n      \"mcp__math-mcp-learning-server__plot_financial_line\"\n    ],\n    \"deny\": [\n      \"mcp__math-mcp-learning-server__workspace_load\"\n    ]\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "review pypi.org:443  # attempted during startup\ndeny *  # nothing else was attempted",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "allow-write $HOME/.math-mcp\ndeny-write *  # nothing else was written",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}

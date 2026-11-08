@@ -1,0 +1,625 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T14:19:25Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.blazickjp/arxiv-mcp-server",
+    "kind": "registry",
+    "server_name": "io.github.blazickjp/arxiv-mcp-server",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "0.8.2",
+    "title": null,
+    "description": "Search arXiv papers, download full text, semantic search, citation graphs, and alerts via MCP.",
+    "repository_url": "https://github.com/blazickjp/arxiv-mcp-server",
+    "package": {
+      "registry_type": "pypi",
+      "identifier": "arxiv-mcp-server",
+      "version": "0.8.2",
+      "transport": "stdio",
+      "runtime_hint": "uvx",
+      "env": [
+        {
+          "name": "ARXIV_STORAGE_PATH",
+          "required": false,
+          "secret": false,
+          "has_default": false,
+          "description": "Optional path for storing downloaded papers locally."
+        }
+      ],
+      "arguments": [
+        "--storage-path",
+        "$mcpaudit-synthetic"
+      ],
+      "launch_arguments": [
+        "--storage-path",
+        "$<set-me>"
+      ],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.blazickjp/arxiv-mcp-server."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "pass",
+        "summary": "Repository owner matches GitHub namespace blazickjp."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "pypi arxiv-mcp-server 0.8.2 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "PyPI description mcp-name matches io.github.blazickjp/arxiv-mcp-server."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "python:3.13-slim (python@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2025-11-25",
+    "protocol_era": "legacy",
+    "server_info": {
+      "name": "arxiv-mcp-server",
+      "version": "0.8.2"
+    },
+    "tools": [
+      {
+        "name": "search_papers",
+        "description": "Search arXiv by query with optional categories, date range, sort, and pagination.\n\nQuery: prefer quoted phrases; ti:/au:/abs:/cat:; AND/OR/ANDNOT. Unprefixed terms match title+abstract (not authors). Use categories (cs.AI, cs.LG, cs.CL, cs.CV, cs.MA, cs.RO, stat.ML, quant-ph). Catalog/examples: README 'search_papers query guide'.\n\nDates YYYY-MM-DD (date_from/date_to). sort_by relevance|date. max_results default 5 (cap 50). abstract_mode none|snippet|full (default snippet). start default 0; response: total_results, returned, has_more, next_start, abstract_mode. Pass next_start with same abstrac",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "download_paper",
+        "description": "Download a paper from arXiv and return its text content. Tries the HTML version first for clean extraction; falls back to PDF conversion if HTML is unavailable. Stores the paper locally. Returned text is bounded to roughly 12,000 characters by default so one call cannot return an unbounded paper body. When is_truncated is true, call again with start=next_start (see next_retrieval) to continue, or pass return_full_text=true for the entire remaining paper. Set force=true to re-fetch and overwrite a cached paper (required to replace a newer stored arXiv version with an older one).",
+        "read_only_hint": false,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "destructive",
+          "file_write",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "list_papers",
+        "description": "List all papers that have been downloaded and stored locally via download_paper. Returns id, title, authors, published, and arxiv_version/versioned_id from local metadata — no live re-fetch. Set compact=true to return arXiv IDs only. Returns an empty list if no papers have been downloaded yet. Workflow: search_papers -> download_paper -> list_papers -> read_paper.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "read_paper",
+        "description": "Read the text content of a paper that was previously downloaded via download_paper. Returns the paper in markdown format, bounded to roughly 12,000 characters by default so one call cannot return an unbounded paper body. When is_truncated is true, call again with start=next_start (see next_retrieval) to continue, or pass return_full_text=true for the entire remaining paper. Will fail with a clear error if the paper has not been downloaded yet — call download_paper first. Workflow: search_papers -> download_paper -> read_paper.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "destructive",
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests destructive, file_write"
+      },
+      {
+        "name": "get_abstract",
+        "description": "Fetch abstract and metadata by arXiv ID without downloading the paper. Use before download_paper to assess relevance. Returns title, authors, abstract, categories, published date, and PDF URL. After compact search, use for one full abstract; skip if search used abstract_mode=full.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "semantic_search",
+        "description": "Semantic similarity search over papers you have already downloaded locally via download_paper. Supports free-text queries (e.g. 'attention mechanisms for long sequences') or finding papers similar to a given paper_id. IMPORTANT: only searches your local downloaded collection — will return empty results if no papers have been downloaded yet. Use search_papers to find papers on arXiv, then download_paper to add them to the local index before using this tool. Requires pro dependencies: uvx --from 'arxiv-mcp-server[pro]' arxiv-mcp-server (or uv tool install 'arxiv-mcp-server[pro]').",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "reindex",
+        "description": "Rebuild the local semantic index for downloaded papers.",
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [
+          "destructive"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "citation_graph",
+        "description": "Return papers citing an arXiv paper and papers that it references using Semantic Scholar's citation graph. Results are bounded (default 50) to stay within the unauthenticated quota. Graphs are cached on disk to reduce repeated API calls. Under load, a free Semantic Scholar API key (https://www.semanticscholar.org/product/api#<redacted> makes this reliable; without a key, persistent rate limits return status=rate_limited with an unmistakable warning instead of failing hard.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "export_citations",
+        "description": "Export BibTeX citations for one or more arXiv papers using authoritative arXiv metadata (title, authors, year, primary category), never model-generated fields. Version suffixes (e.g. '2401.12345v2') are preserved and citation keys are deterministic. Returns the rendered BibTeX plus per-paper status/error. BibTeX only; RIS/CSL-JSON are not yet supported.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests exfiltration"
+      },
+      {
+        "name": "watch_topic",
+        "description": "Save or update a persistent research topic watch. When checked via check_alerts, returns only papers published since the last check — acting as a standing alert for new work on a topic. New watches seed last_checked to creation time so the first check does not dump historical matches. The topic string uses the same query syntax as search_papers (quoted phrases, field specifiers, boolean operators). Examples: '\"diffusion models\" AND ti:\"video generation\"', 'au:\"LeCun\" AND cs.LG'. Calling watch_topic with the same topic string updates the existing watch rather than creating a duplicate. On updat",
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [
+          "destructive",
+          "file_read",
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "check_alerts",
+        "description": "Check all saved topic watches for newly published papers since the last check. Omitting the topic parameter runs ALL saved watches and returns new papers for each. Passing a topic string checks only that specific watch. Advances each watch's drain cursor after running: when a page is truncated by max_results, has_more=true and check_start advances so later calls return the next papers in the same window (Atom date bounds alone are day-granular and would otherwise re-hit the boundary); last_checked tracks the newest returned paper. When the page is not full, last_checked becomes now and the dra",
+        "read_only_hint": false,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "destructive"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "list_watches",
+        "description": "List all saved topic watches without checking for new papers. Returns each watch's topic, categories, last_checked timestamp, and other stored fields. Does not update last_checked — use this to inspect what is saved. Use unwatch_topic to remove a watch, or check_alerts to poll for new papers.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "destructive",
+          "file_read",
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests destructive, file_write"
+      },
+      {
+        "name": "unwatch_topic",
+        "description": "Delete a saved topic watch by exact topic string. The topic must match the stored watch_topic value exactly. Returns a clear not-found error if no matching watch exists. Use list_watches to inspect saved watches before deleting.",
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "open_world_hint": false,
+        "inferred": [
+          "destructive",
+          "file_read",
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "declares destructiveHint"
+      },
+      {
+        "name": "get_paper_latex",
+        "description": "Download, safely process, cache, and return bounded original LaTeX source. Use section tools for targeted reading.",
+        "read_only_hint": false,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read",
+          "network",
+          "shell_execution"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "list_paper_latex_sections",
+        "description": "Return a compact outline of headings from original LaTeX source.",
+        "read_only_hint": false,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_paper_latex_section",
+        "description": "Return one bounded LaTeX section by outline ID or title (whitespace/case normalized; macros expanded).",
+        "read_only_hint": false,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_paper_outline",
+        "description": "Return a paginated heading outline for a downloaded paper (markdown). Stable hierarchical section IDs; use read_paper_section to fetch one.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "read_paper_section",
+        "description": "Return one bounded markdown section by outline ID (or unique title). Does not include sibling or parent sections.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "search_paper_text",
+        "description": "Search a downloaded paper for bounded matching passages with section/source offsets. Suppresses high-overlap near-duplicates and prefers section-diverse hits. Lightweight substring search; no Torch.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [
+      "compare_papers",
+      "deep-paper-analysis",
+      "literature-synthesis",
+      "literature_review",
+      "research-discovery",
+      "research-question",
+      "summarize_paper"
+    ],
+    "resources": null,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:search_papers",
+        "tool": "search_papers",
+        "arguments": {
+          "query": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [
+          {
+            "kind": "dns",
+            "host": "export.arxiv.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "export.arxiv.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "export.arxiv.org",
+            "ip": "198.18.0.1",
+            "port": 443,
+            "sni": "export.arxiv.org",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          },
+          {
+            "kind": "dns",
+            "host": "export.arxiv.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "export.arxiv.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "export.arxiv.org",
+            "ip": "198.18.0.1",
+            "port": 443,
+            "sni": "export.arxiv.org",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          },
+          {
+            "kind": "dns",
+            "host": "export.arxiv.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "export.arxiv.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "export.arxiv.org",
+            "ip": "198.18.0.1",
+            "port": 443,
+            "sni": "export.arxiv.org",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          }
+        ],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:get_abstract",
+        "tool": "get_abstract",
+        "arguments": {
+          "paper_id": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:citation_graph",
+        "tool": "citation_graph",
+        "arguments": {
+          "paper_id": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:get_paper_outline",
+        "tool": "get_paper_outline",
+        "arguments": {
+          "paper_id": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [
+          {
+            "path": "/scratch/$mcpaudit-synthetic",
+            "change": "added",
+            "in_home": true,
+            "entries_only": false
+          }
+        ],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:read_paper_section",
+        "tool": "read_paper_section",
+        "arguments": {
+          "paper_id": "mcpaudit-synthetic",
+          "section_id": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:search_paper_text",
+        "tool": "search_paper_text",
+        "arguments": {
+          "paper_id": "mcpaudit-synthetic",
+          "query": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": false
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [
+    {
+      "severity": "high",
+      "summary": "Declared read-only, but 1 file change(s) appeared during its call: $HOME/$mcpaudit-synthetic.",
+      "tool": "get_paper_outline",
+      "rule": "TBC-READONLY-WRITE"
+    },
+    {
+      "severity": "low",
+      "summary": "Read-only tool reached the network during its call: export.arxiv.org:443.",
+      "tool": "search_papers",
+      "rule": "TBC-READONLY-NET"
+    }
+  ],
+  "verdict": "do_not_install",
+  "headline": "Do not install: at least one high-severity mismatch between claims and behaviour.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"arxiv-mcp-server\": {\n      \"command\": \"uvx\",\n      \"args\": [\n        \"--from\",\n        \"arxiv-mcp-server==0.8.2\",\n        \"arxiv-mcp-server\",\n        \"--storage-path\",\n        \"$<set-me>\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [],\n    \"ask\": [\n      \"mcp__arxiv-mcp-server__search_papers\",\n      \"mcp__arxiv-mcp-server__download_paper\",\n      \"mcp__arxiv-mcp-server__list_papers\",\n      \"mcp__arxiv-mcp-server__read_paper\",\n      \"mcp__arxiv-mcp-server__get_abstract\",\n      \"mcp__arxiv-mcp-server__semantic_search\",\n      \"mcp__arxiv-mcp-server__reindex\",\n      \"mcp__arxiv-mcp-server__citation_graph\",\n      \"mcp__arxiv-mcp-server__export_citations\",\n      \"mcp__arxiv-mcp-server__watch_topic\",\n      \"mcp__arxiv-mcp-server__check_alerts\",\n      \"mcp__arxiv-mcp-server__list_watches\",\n      \"mcp__arxiv-mcp-server__get_paper_latex\",\n      \"mcp__arxiv-mcp-server__list_paper_latex_sections\",\n      \"mcp__arxiv-mcp-server__get_paper_latex_section\",\n      \"mcp__arxiv-mcp-server__read_paper_section\",\n      \"mcp__arxiv-mcp-server__search_paper_text\"\n    ],\n    \"deny\": [\n      \"mcp__arxiv-mcp-server__unwatch_topic\",\n      \"mcp__arxiv-mcp-server__get_paper_outline\"\n    ]\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "review export.arxiv.org:443  # attempted during tool:search_papers\ndeny *  # nothing else was attempted",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "allow-write $HOME/$mcpaudit-synthetic\ndeny-write *  # nothing else was written",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}

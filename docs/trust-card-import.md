@@ -14,6 +14,21 @@ mcp-trust import-card ./mcp-audit-trust/nws-weather-mcp-server/card.json \
 mcp-trust check cyanheads-nws-weather-mcp-server
 ```
 
+## Bundled cards
+
+`src/mcp_trust/catalog/trust_cards/` ships real cards, each with its pin, from
+`mcp-audit trust` runs against servers in the official MCP Registry that need no
+credentials. Load them all into a registry database with:
+
+```bash
+mcp-trust import-cards            # bundled cards; or: mcp-trust import-cards DIR
+```
+
+Each card is imported on its own, atomically; a refused card does not stop the
+rest. They stay demo-classified like any imported verdict. Servers whose run was
+incomplete (for example a package that fails to start) have no card, because
+there is nothing to grade.
+
 ## What is stored
 
 - **Server:** what the card resolved: the npm or PyPI identifier, or the
