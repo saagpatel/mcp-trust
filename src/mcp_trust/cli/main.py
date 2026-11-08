@@ -219,6 +219,49 @@ def import_card(
     _print_scan(record)
 
 
+_BUNDLED_CARDS = Path(__file__).resolve().parents[1] / "catalog" / "trust_cards"
+
+
+@app.command(name="import-cards")
+def import_cards(
+    directory: Annotated[
+        Path,
+        typer.Argument(
+            help="Directory of <slug>.card.json files, each with an optional <slug>.pin.json.",
+            show_default="the cards bundled with mcp-trust",
+        ),
+    ] = _BUNDLED_CARDS,
+    db: Annotated[
+        str,
+        typer.Option("--db", envvar=_DB_ENV, help=_DB_HELP),
+    ] = _DB_DEFAULT,
+) -> None:
+    """Import every Trust Before Connect card in a directory (experimental).
+
+    Each card goes through `import-card` on its own, so each import is atomic and
+    a refused card does not stop the rest. Imported verdicts stay demo-classified.
+    Exits 1 if any card was refused.
+    """
+    cards = sorted(directory.glob("*.card.json")) if directory.is_dir() else []
+    if not cards:
+        typer.echo(f"Error: no *.card.json files in {directory}.", err=True)
+        raise typer.Exit(code=1)
+    refused: list[str] = []
+    for card in cards:
+        pin = card.with_name(card.name.removesuffix(".card.json") + ".pin.json")
+        try:
+            import_card(
+                card, db=db, slug=None, pin_path=pin if pin.is_file() else None, replace=False
+            )
+        except typer.Exit as exc:
+            if exc.exit_code:
+                refused.append(card.name)
+    typer.echo(f"Imported {len(cards) - len(refused)} of {len(cards)} card(s).")
+    if refused:
+        typer.echo("Refused: " + ", ".join(refused), err=True)
+        raise typer.Exit(code=1)
+
+
 def _import_checks(
     conn: sqlite3.Connection,
     server_repo: ServerRepository,

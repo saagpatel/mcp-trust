@@ -133,6 +133,9 @@ evidence remains `UNKNOWN`, and crossing `earliest_stale_after` produces
   observation time. Refuses anything but a complete observation with a graded
   verdict, slugs owned by a different source kind or reference, records beyond the
   repository's admission limits, and (without `--replace`) superseding a real scan.
+- `mcp-trust import-cards [DIR]` — experimental: run `import-card` for every
+  `<slug>.card.json` (with its `<slug>.pin.json`) in a directory, defaulting to the
+  cards bundled in `catalog/trust_cards/`. Each import is independent and atomic.
 - `mcp-trust serve [--host --port]` — run the API (uvicorn).
 - `mcp-trust auth-posture <stable-id> --manifest <path>` — perform bounded
   metadata-only HTTPS discovery for one exact remote Registry candidate. Exit 0

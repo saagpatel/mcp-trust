@@ -662,3 +662,54 @@ def test_import_waits_on_a_concurrent_writer_and_writes_nothing(
     assert result.exit_code == 1 and "busy" in result.output
     holder.rollback()
     assert holder.execute("SELECT COUNT(*) FROM servers").fetchone()[0] == 0
+
+
+# Bundled catalog cards -------------------------------------------------------------
+
+BUNDLED = Path(__file__).parents[1] / "src" / "mcp_trust" / "catalog" / "trust_cards"
+
+
+def test_bundled_cards_are_complete_named_by_slug_and_pinned() -> None:
+    from mcp_trust.catalog.trust_card import load_pin
+
+    cards = sorted(BUNDLED.glob("*.card.json"))
+    assert cards, "no bundled cards"
+    for path in cards:
+        card = load_card(path)
+        assert path.name == f"{default_slug(card)}.card.json"
+        pin = path.with_name(path.name.removesuffix(".card.json") + ".pin.json")
+        assert pin.is_file() and load_pin(pin, card)
+
+
+def test_import_cards_loads_every_bundled_card_as_demo_data(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ScanRepository
+
+    db = str(tmp_path / "r.db")
+    result = runner.invoke(app, ["import-cards", "--db", db])
+    assert result.exit_code == 0, result.output
+    cards = sorted(BUNDLED.glob("*.card.json"))
+    assert f"Imported {len(cards)} of {len(cards)} card(s)." in result.output
+    conn = connect(db)
+    init_schema(conn)
+    scans = ScanRepository(conn)
+    for path in cards:
+        latest = scans.latest(path.name.removesuffix(".card.json"))
+        assert latest is not None and classify(latest) == ScanProvenance.DEMO
+    again = runner.invoke(app, ["import-cards", "--db", db])
+    assert again.exit_code == 0 and again.output.count("already imported") == len(cards)
+
+
+def test_import_cards_reports_refusals_and_continues(tmp_path: Path) -> None:
+    folder = tmp_path / "cards"
+    folder.mkdir()
+    (folder / "good.card.json").write_bytes(CARD.read_bytes())
+    write(folder, synthetic(verdict="incomplete"), "bad.card.json")
+    result = runner.invoke(app, ["import-cards", str(folder), "--db", str(tmp_path / "r.db")])
+    assert result.exit_code == 1
+    assert "Imported 1 of 2 card(s)." in result.output and "bad.card.json" in result.output
+
+
+def test_import_cards_needs_cards(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["import-cards", str(tmp_path), "--db", str(tmp_path / "r.db")])
+    assert result.exit_code == 1 and "no *.card.json" in result.output
