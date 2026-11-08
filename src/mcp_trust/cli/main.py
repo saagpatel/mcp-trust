@@ -121,6 +121,182 @@ def scan(
     _print_scan(record)
 
 
+@app.command(name="import-card")
+def import_card(
+    card_path: Annotated[
+        Path, typer.Argument(help="card.json written by `mcp-audit trust` (experimental).")
+    ],
+    db: Annotated[
+        str,
+        typer.Option("--db", envvar=_DB_ENV, help=_DB_HELP),
+    ] = _DB_DEFAULT,
+    slug: Annotated[
+        str | None, typer.Option("--slug", help="Catalog slug; derived from the card if omitted.")
+    ] = None,
+    pin_path: Annotated[
+        Path | None,
+        typer.Option("--pin", help="pin.json from the same run, for input-schema hashes."),
+    ] = None,
+    replace: Annotated[
+        bool,
+        typer.Option(
+            "--replace",
+            help="Allow the import to supersede a real scan, or an earlier import of the "
+            "same card with different evidence.",
+        ),
+    ] = False,
+) -> None:
+    """Import a Trust Before Connect verdict card as a catalog entry (experimental).
+
+    The card's mismatches become findings and the grade comes from the registry's
+    own rubric. Verdicts from engine `mcp-audit-trust` stay demo-classified.
+    """
+    from mcp_trust.catalog.trust_card import (  # noqa: PLC0415
+        TrustCardError,
+        card_to_result,
+        card_to_server,
+        check_admission,
+        default_slug,
+        load_card_with_digest,
+        load_pin,
+        observed_at,
+    )
+
+    def fail(message: str) -> typer.Exit:
+        typer.echo(f"Error: {message}", err=True)
+        return typer.Exit(code=1)
+
+    try:
+        card, digest = load_card_with_digest(card_path)
+        pin = load_pin(pin_path, card) if pin_path else None
+        server_slug = slug or default_slug(card)
+        server = card_to_server(card, server_slug)
+        result = card_to_result(card, pin)
+        check_admission(result, server)
+        scanned_at = observed_at(card)
+    except (TrustCardError, ValueError, TypeError, OSError) as exc:
+        raise fail(str(exc)) from None
+
+    record = ScanRecord(
+        id=uuid.uuid4().hex,
+        server_slug=server_slug,
+        engine_name=result.engine_name,
+        engine_version=result.engine_version,
+        grade=grading.grade(result.risk),
+        transparency=grading.transparency(result.risk),
+        risk=result.risk,
+        findings=result.findings,
+        evidence=result.evidence,
+        scanned_at=scanned_at,
+        sandbox_image=result.sandbox_image,
+        report_ref=None,
+    )
+    conn, server_repo, scan_repo = _open_db(db)
+    try:
+        # One write-locked transaction: no other import or scan can change the slug's
+        # ownership or latest scan between these checks and the writes below.
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        raise fail("the registry database is busy; try again.") from None
+    try:
+        outcome = _import_checks(
+            conn, server_repo, scan_repo, server, record, replace=replace, digest=digest
+        )
+        if outcome == "unchanged":
+            conn.rollback()
+            typer.echo(f"Card sha256:{digest[:16]} is already imported as {server_slug!r}.")
+            return
+        if outcome == "new-server":
+            server_repo.upsert(server, commit=False)
+        # No receipt: a receipt is a public proof packet stamped with this shell's scan
+        # settings, which describe nothing about the MCPAudit run behind the card.
+        scan_repo.record(record, commit=False)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    typer.echo(f"Imported card sha256:{digest[:16]} as {server_slug!r}.")
+    _print_scan(record)
+
+
+def _import_checks(
+    conn: sqlite3.Connection,
+    server_repo: ServerRepository,
+    scan_repo: ScanRepository,
+    server: object,
+    record: ScanRecord,
+    *,
+    replace: bool,
+    digest: str,
+) -> str:
+    """Decide an import inside the caller's write transaction.
+
+    Returns "unchanged" (identical import already stored), "new-server", or
+    "existing-server"; raises typer.Exit when the import must be refused.
+    """
+    from mcp_trust.core.models import Server  # noqa: PLC0415
+    from mcp_trust.core.provenance import ScanProvenance, classify  # noqa: PLC0415
+
+    assert isinstance(server, Server)
+    slug = record.server_slug
+
+    def refuse(message: str) -> typer.Exit:
+        typer.echo(f"Error: {message}", err=True)
+        return typer.Exit(code=1)
+
+    existing = server_repo.get(slug)
+    row_present = conn.execute("SELECT 1 FROM servers WHERE slug = ?", (slug,)).fetchone()
+    if existing is None and row_present is not None:
+        raise refuse(f"{slug!r} has an unreadable server row; not importing over it.")
+    if existing is not None and (existing.source.kind, existing.source.reference) != (
+        server.source.kind,
+        server.source.reference,
+    ):
+        raise refuse(
+            f"slug {slug!r} already names {existing.source.kind} "
+            f"{existing.source.reference!r}; pass --slug to choose another."
+        )
+    try:
+        latest = scan_repo.latest(slug)
+    except ValueError:
+        raise refuse(f"{slug!r} has an unreadable latest scan; not importing over it.") from None
+    if existing is None and latest is not None:
+        raise refuse(f"{slug!r} has scans but no readable server row; not importing over it.")
+    if latest is not None and (latest.engine_name, latest.scanned_at) == (
+        record.engine_name,
+        record.scanned_at,
+    ):
+        stored = (latest.risk, latest.findings, latest.evidence, latest.grade, latest.sandbox_image)
+        incoming = (
+            record.risk,
+            record.findings,
+            record.evidence,
+            record.grade,
+            record.sandbox_image,
+        )
+        if stored == incoming:
+            return "unchanged"
+        if not replace:
+            raise refuse(
+                f"this card is already imported as {slug!r} with different evidence (for example "
+                "without --pin). Pass --replace to supersede that import."
+            )
+        # Supersede the earlier import of the same card deterministically.
+        conn.execute("DELETE FROM scans WHERE id = ?", (latest.id,))
+        return "existing-server"
+    if (
+        latest is not None
+        and classify(latest) == ScanProvenance.REAL
+        and record.scanned_at >= latest.scanned_at
+        and not replace
+    ):
+        raise refuse(
+            f"{slug!r} has a real scan; an imported verdict is demo-classified and would "
+            "supersede it. Pass --replace to import anyway."
+        )
+    return "new-server" if existing is None else "existing-server"
+
+
 @app.command()
 def check(
     slug: Annotated[str, typer.Argument(help="Server slug to check.")],
