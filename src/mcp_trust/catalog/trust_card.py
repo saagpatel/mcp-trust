@@ -105,7 +105,7 @@ def _read_bytes(path: Path, what: str) -> bytes:
 def _parse_json(raw: bytes, what: str) -> Any:
     try:
         return json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         raise TrustCardError(f"{what} is not UTF-8 JSON") from None
 
 
@@ -198,11 +198,18 @@ def load_pin(path: Path, card: dict[str, Any]) -> dict[str, Any]:
     )
     expected_version = _str(package.get("version")) or _str(target.get("server_version"))
     if (
-        pin.get("server_name") != target.get("server_name")
+        pin.get("target") != target.get("input")
+        or pin.get("server_name") != target.get("server_name")
         or pin.get("package") != expected_package
         or pin.get("version") != expected_version
     ):
-        raise TrustCardError("pin belongs to another server, package or version")
+        raise TrustCardError("pin belongs to another target, server, package or version")
+    if not _str(pin.get("target")) or not (
+        _str(target.get("server_name"))
+        or expected_package
+        or _str(_dict(target.get("remote")).get("url"))
+    ):
+        raise TrustCardError("pin identity cannot be established for this card")
     try:
         created = observed_at({"generated_at": pin.get("created_at")})
     except TrustCardError:
@@ -290,8 +297,9 @@ def _risk(
     raise mismatches on them), so they only count for tools that do not declare
     themselves read-only. Calibration, all on the registry's 0-10 scale:
 
-    - file_access: writes outside home 8, writes in home 3, temporary-entry
-      churn 1; tools not declared read-only add up to 3 by share.
+    - file_access: writes outside home (or a read-only tool writing) 8, writes in
+      home 3, temporary-entry churn 1; tools not declared read-only add up to 3
+      by share.
     - network_access: unprompted egress (startup or shutdown) 6, egress breaking
       a closed-world declaration 8, egress during read-only calls 2; a remote
       server is a network service by nature, 3.

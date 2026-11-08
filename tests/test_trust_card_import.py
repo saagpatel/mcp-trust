@@ -516,3 +516,76 @@ def test_imports_write_no_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     db = str(tmp_path / "r.db")
     assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
     assert not receipts.exists() or not any(receipts.iterdir())
+
+
+# Round-four review fixes ----------------------------------------------------------
+
+
+def remote_card_and_pin(card_url: str, pin_target: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    card = synthetic()
+    card["target"] = {
+        "input": card_url,
+        "kind": "url",
+        "remote": {"type": "streamable-http", "url": card_url},
+    }
+    card["observation"]["mode"] = "outside"
+    card["observation"]["phases"] = []
+    card["mismatches"] = []
+    pin = real_pin()
+    pin.update(target=pin_target, server_name=None, package=None, version=None)
+    return card, pin
+
+
+def test_remote_pin_must_target_the_same_endpoint(tmp_path: Path) -> None:
+    from mcp_trust.catalog.trust_card import load_pin
+
+    card, pin = remote_card_and_pin("https://first.example/mcp", "https://different.example/mcp")
+    with pytest.raises(TrustCardError):
+        load_pin(write(tmp_path, pin, "pin.json"), load_card(write(tmp_path, card)))
+    card, pin = remote_card_and_pin("https://first.example/mcp", "https://first.example/mcp")
+    assert load_pin(write(tmp_path, pin, "pin.json"), load_card(write(tmp_path, card)))
+
+
+def test_reimporting_the_same_card_is_a_no_op(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    again = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert again.exit_code == 0 and "already imported" in again.output
+    conn = connect(db)
+    init_schema(conn)
+    assert conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 1
+
+
+def test_older_card_imports_behind_a_newer_real_scan(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ScanRepository, ServerRepository
+
+    db = str(tmp_path / "r.db")
+    card = load_card(CARD)
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(card_to_server(card, "cyanheads-nws-weather-mcp-server"))
+    ScanRepository(conn).record(
+        ScanRecord(
+            id="c" * 32,
+            server_slug="cyanheads-nws-weather-mcp-server",
+            engine_name="mcpaudit",
+            engine_version="3.0.0",
+            grade=TrustGrade.B,
+            risk=card_to_result(card).risk,
+            scanned_at="2099-01-01T00:00:00Z",
+        )
+    )
+    result = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert result.exit_code == 0, result.output
+    latest = ScanRepository(conn).latest("cyanheads-nws-weather-mcp-server")
+    assert latest is not None and latest.engine_name == "mcpaudit"
+
+
+def test_deeply_nested_json_is_a_clean_error(tmp_path: Path) -> None:
+    path = tmp_path / "card.json"
+    path.write_text("[" * 200_000, encoding="utf-8")
+    with pytest.raises(TrustCardError):
+        load_card(path)

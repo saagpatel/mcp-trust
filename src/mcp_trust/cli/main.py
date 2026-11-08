@@ -200,7 +200,20 @@ def import_card(
         ) from None
     if existing is None and latest is not None:
         raise fail(f"{server_slug!r} has scans but no readable server row; not importing over it.")
-    if latest is not None and classify(latest) == ScanProvenance.REAL and not replace:
+    if (
+        latest is not None
+        and latest.engine_name == result.engine_name
+        and latest.scanned_at == scanned_at
+        and latest.findings == result.findings
+    ):
+        typer.echo(f"Card sha256:{digest[:16]} is already imported as {server_slug!r}.")
+        return
+    if (
+        latest is not None
+        and classify(latest) == ScanProvenance.REAL
+        and scanned_at >= latest.scanned_at
+        and not replace
+    ):
         raise fail(
             f"{server_slug!r} has a real scan; an imported verdict is demo-classified and would "
             "supersede it. Pass --replace to import anyway."

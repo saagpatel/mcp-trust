@@ -50,8 +50,10 @@ mcp-trust check cyanheads-nws-weather-mcp-server
 - A mapped server or scan beyond the repository's admission limits (findings,
   tools, stored JSON size). Nothing is written in that case.
 - A slug whose latest scan or server row cannot be read.
-- Superseding a server whose latest scan is a real scan, unless `--replace` is
-  passed: an imported verdict is demo-classified and would hide the real grade.
+- Superseding a server's real latest scan with a newer card, unless `--replace`
+  is passed: an imported verdict is demo-classified and would hide the real
+  grade. A card older than the real scan imports without it and stays behind it.
+- Re-importing the same card is a no-op.
 
 ## How dimensions are scored
 
@@ -60,7 +62,7 @@ sandbox observed and what tools declared:
 
 | Dimension | Score (0–10) |
 | --- | --- |
-| file_access | writes outside home 8, writes in home 3, temporary-entry churn 1; tools not declared read-only add up to 3 by share |
+| file_access | writes outside home, or any write during a read-only tool's call, 8; writes in home 3, temporary-entry churn 1; tools not declared read-only add up to 3 by share |
 | network_access | closed-world violation 8, unprompted egress (startup or shutdown) 6, remote server 3, egress during read-only calls 2 |
 | shell_execution, exfiltration | 10 × share of tools not declared read-only whose text suggests the capability |
 | destructive | 10 × share of tools declaring `destructiveHint` |
