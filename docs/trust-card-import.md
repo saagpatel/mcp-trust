@@ -53,7 +53,11 @@ mcp-trust check cyanheads-nws-weather-mcp-server
 - Superseding a server's real latest scan with a newer card, unless `--replace`
   is passed: an imported verdict is demo-classified and would hide the real
   grade. A card older than the real scan imports without it and stays behind it.
-- Re-importing the same card is a no-op.
+- Re-importing the same card with the same evidence is a no-op. Re-importing
+  it with different evidence (for example adding `--pin` later) needs
+  `--replace`, which supersedes the earlier import of that card.
+- Concurrent writers: the whole import is one write-locked transaction, so
+  ownership and latest-scan checks cannot be raced; a busy database is refused.
 
 ## How dimensions are scored
 
@@ -62,7 +66,7 @@ sandbox observed and what tools declared:
 
 | Dimension | Score (0–10) |
 | --- | --- |
-| file_access | writes outside home, or any write during a read-only tool's call, 8; writes in home 3, temporary-entry churn 1; tools not declared read-only add up to 3 by share |
+| file_access | writes outside home, any write during a read-only tool's call, or a truncated change list (worst case), 8; writes in home 3, temporary-entry churn 1; tools not declared read-only add up to 3 by share |
 | network_access | closed-world violation 8, unprompted egress (startup or shutdown) 6, remote server 3, egress during read-only calls 2 |
 | shell_execution, exfiltration | 10 × share of tools not declared read-only whose text suggests the capability |
 | destructive | 10 × share of tools declaring `destructiveHint` |

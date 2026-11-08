@@ -49,8 +49,8 @@ class ServerRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def upsert(self, server: Server) -> None:
-        """Insert or replace a server row."""
+    def upsert(self, server: Server, *, commit: bool = True) -> None:
+        """Insert or replace a server row; ``commit=False`` keeps the caller's transaction."""
         self._conn.execute(
             """
             INSERT INTO servers (slug, name, description, source_json, homepage, added_at)
@@ -71,7 +71,8 @@ class ServerRepository:
                 server.added_at.isoformat(),
             ),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     def get(self, slug: str) -> Server | None:
         """Return the server with *slug*, or ``None`` if not found or corrupt."""
@@ -116,8 +117,8 @@ class ScanRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def record(self, scan: ScanRecord) -> None:
-        """Persist a scan record."""
+    def record(self, scan: ScanRecord, *, commit: bool = True) -> None:
+        """Persist a scan record; ``commit=False`` keeps the caller's transaction."""
         self._conn.execute(
             """
             INSERT INTO scans
@@ -141,7 +142,8 @@ class ScanRepository:
                 scan.report_ref,
             ),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
 
     def latest(self, slug: str) -> ScanRecord | None:
         """Return the most recent scan for *slug*, or ``None``.

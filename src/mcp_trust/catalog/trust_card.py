@@ -174,6 +174,9 @@ def _validate_evidence(card: dict[str, Any]) -> None:
             if not isinstance(change.get("entries_only", False), bool):
                 raise TrustCardError("a file change is malformed")
         _records(phase, "network", "phase.")
+        truncated = phase.get("file_changes_truncated", 0)
+        if not isinstance(truncated, int) or isinstance(truncated, bool) or truncated < 0:
+            raise TrustCardError("a phase has a malformed file_changes_truncated count")
     for mismatch in _records(card, "mismatches", ""):
         if mismatch.get("severity") not in _SEVERITY or not isinstance(mismatch.get("rule"), str):
             raise TrustCardError("a mismatch has an unknown severity or no rule")
@@ -220,7 +223,7 @@ def load_pin(path: Path, card: dict[str, Any]) -> dict[str, Any]:
     names = sorted(str(t.get("name")) for t in tools)
     if names != sorted(t["name"] for t in card["observation"]["tools"]):
         raise TrustCardError("pin tool names differ from the card's")
-    if not all(_SHA256.match(str(t.get("input_schema_sha256"))) for t in tools):
+    if not all(_SHA256.fullmatch(str(t.get("input_schema_sha256"))) for t in tools):
         raise TrustCardError("pin has a malformed input-schema hash")
     return pin
 
@@ -238,7 +241,8 @@ def observed_at(card: dict[str, Any], now: datetime | None = None) -> datetime:
         raise TrustCardError("card generated_at has no timezone")
     if stamp > (now or datetime.now(tz=UTC)) + timedelta(minutes=5):
         raise TrustCardError("card generated_at is in the future")
-    return stamp.astimezone(UTC)
+    # Never later than now: a future stamp could keep an import ahead of a real scan.
+    return min(stamp.astimezone(UTC), now or datetime.now(tz=UTC))
 
 
 def default_slug(card: dict[str, Any]) -> str:
@@ -313,7 +317,9 @@ def _risk(
     rules = {f.rule_id for f in findings}
     changes = [_dict(c) for p in phases for c in _list(p.get("file_changes"))]
     lasting = [c for c in changes if not c.get("entries_only")]
-    if any(not c.get("in_home") for c in lasting) or "TBC-READONLY-WRITE" in rules:
+    # A truncated change list may hide writes outside home: score the worst case.
+    truncated = any(p.get("file_changes_truncated", 0) for p in phases)
+    if truncated or any(not c.get("in_home") for c in lasting) or "TBC-READONLY-WRITE" in rules:
         observed_files = 8.0
     elif lasting:
         observed_files = 3.0

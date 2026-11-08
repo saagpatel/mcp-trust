@@ -589,3 +589,76 @@ def test_deeply_nested_json_is_a_clean_error(tmp_path: Path) -> None:
     path.write_text("[" * 200_000, encoding="utf-8")
     with pytest.raises(TrustCardError):
         load_card(path)
+
+
+# Round-five review fixes ----------------------------------------------------------
+
+
+def test_adding_a_pin_later_needs_replace_and_supersedes_cleanly(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ScanRepository
+
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    refused = runner.invoke(app, ["import-card", str(CARD), "--pin", str(PIN), "--db", db])
+    assert refused.exit_code == 1 and "different evidence" in refused.output
+    enriched = runner.invoke(
+        app, ["import-card", str(CARD), "--pin", str(PIN), "--db", db, "--replace"]
+    )
+    assert enriched.exit_code == 0, enriched.output
+    conn = connect(db)
+    init_schema(conn)
+    assert conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 1
+    latest = ScanRepository(conn).latest("cyanheads-nws-weather-mcp-server")
+    assert latest is not None and latest.evidence is not None
+
+
+def test_truncated_change_lists_score_the_worst_case() -> None:
+    card = synthetic()
+    card["observation"]["phases"] = [
+        {"name": "startup", "file_changes": [], "network": [], "file_changes_truncated": 3}
+    ]
+    assert card_to_result(card).risk.file_access == 8.0
+
+
+def test_future_card_time_is_clamped_to_now() -> None:
+    from datetime import UTC, datetime
+
+    from mcp_trust.catalog.trust_card import observed_at
+
+    now = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
+    soon = {"generated_at": "2026-11-08T12:03:00Z"}
+    assert observed_at(soon, now) == now
+
+
+def test_pin_hash_with_trailing_newline_is_refused(tmp_path: Path) -> None:
+    from mcp_trust.catalog.trust_card import load_pin
+
+    pin = real_pin()
+    pin["tools"][0]["input_schema_sha256"] += "\n"
+    with pytest.raises(TrustCardError):
+        load_pin(write(tmp_path, pin, "pin.json"), load_card(CARD))
+
+
+def test_import_waits_on_a_concurrent_writer_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    from mcp_trust.store.db import connect, init_schema
+
+    db = str(tmp_path / "r.db")
+    holder = connect(db)
+    init_schema(holder)
+    holder.execute("BEGIN IMMEDIATE")
+
+    def quick(path: str) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(path), timeout=0.1)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    monkeypatch.setattr("mcp_trust.cli.main.connect", quick)
+    result = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert result.exit_code == 1 and "busy" in result.output
+    holder.rollback()
+    assert holder.execute("SELECT COUNT(*) FROM servers").fetchone()[0] == 0
