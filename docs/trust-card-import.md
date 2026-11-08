@@ -74,17 +74,35 @@ there is nothing to grade.
 - Concurrent writers: the whole import is one write-locked transaction, so
   ownership and latest-scan checks cannot be raced; a busy database is refused.
 
-## How dimensions are scored
+## Calibrated rubric
 
-Keyword-inferred capabilities are weak signal, so the score rests on what the
-sandbox observed and what tools declared:
+An imported card carries two separate judgements:
+
+- **The card verdict**, decided by MCPAudit from claims versus behaviour, is kept
+  as the `TBC-VERDICT` finding.
+- **The registry grade** reflects only what the sandbox observed the server do.
+
+Capabilities the sandbox cannot observe (shell execution, exfiltration,
+destructive actions) and tools it did not call never move the grade. They show
+up on the transparency axis instead: LOW transparency means "cannot verify
+safe", as it does for every other scan.
+
+| Card verdict | Registry grade | What it means |
+| --- | --- | --- |
+| `no_mismatches_observed` | A–B | Nothing observed contradicted the server's claims. **A**: no lasting writes, at most expected egress during tool calls. **B**: lasting writes inside its home directory. |
+| `review`, caused by behaviour | C–D | It did something it didn't announce. **C**: one concern (unprompted egress at startup or shutdown, a contradicted "local" claim, or writes outside home). **D**: more than one. |
+| `review`, caused by metadata only | the behaviour grade (A–B) | Registry or namespace warnings, such as a missing repository URL. The grade covers behaviour only; the verdict stays visible as a finding. |
+| `do_not_install` | D–F | A high-severity contradiction. **F** when observed behaviour broke a declaration (a read-only tool wrote files, or a closed-world tool reached the network). **D** (the critical cap) when the cause is tool text or a failed ownership check. |
+
+The dimensions that implement the rubric under `core.grading`'s frozen weights:
 
 | Dimension | Score (0–10) |
 | --- | --- |
-| file_access | writes outside home, any write during a read-only tool's call, or a truncated change list (worst case), 8; writes in home 3, temporary-entry churn 1; tools not declared read-only add up to 3 by share |
-| network_access | closed-world violation 8, unprompted egress (startup or shutdown) 6, remote server 3, egress during read-only calls 2 |
-| shell_execution, exfiltration | 10 × share of tools not declared read-only whose text suggests the capability |
-| destructive | 10 × share of tools declaring `destructiveHint` |
+| file_access | a write during a read-only tool's call, or a truncated change list (worst case), 8; writes outside home 3; lasting writes in home 2; temporary-entry churn only 1 |
+| network_access | egress breaking a closed-world declaration 8; unprompted egress or a contradicted local claim 3.6; remote server observed from outside 2; egress during tool calls 1 |
+| shell_execution, exfiltration, destructive | 0 (not observable by the sandbox) |
+
+A test checks every bundled card against this rubric.
 
 ## Limits
 

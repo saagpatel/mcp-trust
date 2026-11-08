@@ -85,7 +85,7 @@ def test_real_card_maps_to_a_graded_engine_result() -> None:
     assert result.findings[0].rule_id == "TBC-VERDICT"
     assert result.findings[0].severity == Severity.INFO
     assert {f.rule_id for f in result.findings[1:]} == {"TBC-READONLY-NET"}
-    assert result.risk.network_access == 2.0 and result.risk.file_access == 0.0
+    assert result.risk.network_access == 1.0 and result.risk.file_access == 0.0
     assert grading.grade(result.risk) == TrustGrade.A
     assert result.evidence is not None and result.evidence.tool_count == 10
     assert all(t.has_input_schema and t.input_schema_sha256 for t in result.evidence.tools)
@@ -120,7 +120,7 @@ def test_remote_card_is_marked_outside_only() -> None:
     result = card_to_result(card)
     assert server.slug == "example-remote" and server.source.kind == SourceKind.REMOTE
     assert "TBC-OUTSIDE-ONLY" in {f.rule_id for f in result.findings}
-    assert result.risk.network_access == 3.0
+    assert result.risk.network_access == 2.0
 
 
 def test_do_not_install_caps_the_grade() -> None:
@@ -142,7 +142,7 @@ def test_do_not_install_caps_the_grade() -> None:
 def test_unprompted_egress_scores_higher_than_tool_egress() -> None:
     card = synthetic()
     card["mismatches"] = [{"severity": "medium", "rule": "TBC-UNPROMPTED-NET", "summary": "x"}]
-    assert card_to_result(card).risk.network_access == 6.0
+    assert card_to_result(card).risk.network_access == 3.6
 
 
 def test_keyword_noise_on_read_only_tools_does_not_raise_danger() -> None:
@@ -431,8 +431,15 @@ def phase(*changes: dict[str, Any], network: list[Any] | None = None) -> dict[st
 @pytest.mark.parametrize(
     ("tools", "phases", "mismatches", "dimension", "expected"),
     [
-        ([tool()], [phase({"path": "/tmp/x", "in_home": False})], [], "file_access", 8.0),
-        ([tool()], [phase({"path": "/scratch/x", "in_home": True})], [], "file_access", 3.0),
+        ([tool()], [phase({"path": "/tmp/x", "in_home": False})], [], "file_access", 3.0),
+        ([tool()], [phase({"path": "/scratch/x", "in_home": True})], [], "file_access", 2.0),
+        (
+            [tool()],
+            [],
+            [{"severity": "high", "rule": "TBC-READONLY-WRITE", "summary": "x"}],
+            "file_access",
+            8.0,
+        ),
         (
             [tool()],
             [phase({"path": "/scratch", "in_home": True, "entries_only": True})],
@@ -440,8 +447,8 @@ def phase(*changes: dict[str, Any], network: list[Any] | None = None) -> dict[st
             "file_access",
             1.0,
         ),
-        ([tool("a", None), tool("b", True)], [], [], "file_access", 1.5),
-        ([tool()], [phase(network=[{"kind": "dns"}])], [], "network_access", 2.0),
+        ([tool("a", None), tool("b", True)], [], [], "file_access", 0.0),
+        ([tool()], [phase(network=[{"kind": "dns"}])], [], "network_access", 1.0),
         (
             [tool()],
             [],
@@ -454,9 +461,9 @@ def phase(*changes: dict[str, Any], network: list[Any] | None = None) -> dict[st
             [],
             [],
             "shell_execution",
-            5.0,
+            0.0,
         ),
-        ([tool("a", None, destructive=True), tool("b")], [], [], "destructive", 5.0),
+        ([tool("a", None, destructive=True), tool("b")], [], [], "destructive", 0.0),
     ],
 )
 def test_documented_calibration(
@@ -713,3 +720,63 @@ def test_import_cards_reports_refusals_and_continues(tmp_path: Path) -> None:
 def test_import_cards_needs_cards(tmp_path: Path) -> None:
     result = runner.invoke(app, ["import-cards", str(tmp_path), "--db", str(tmp_path / "r.db")])
     assert result.exit_code == 1 and "no *.card.json" in result.output
+
+
+# Calibrated rubric (issue #119) -----------------------------------------------------
+
+_BEHAVIOURAL_REVIEW = {"TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET", "TBC-WRITE-OUTSIDE-HOME"}
+_BANDS = {
+    "no_mismatches_observed": {TrustGrade.A, TrustGrade.B},
+    "review": {TrustGrade.C, TrustGrade.D},
+    "do_not_install": {TrustGrade.D, TrustGrade.F},
+}
+
+
+@pytest.mark.parametrize("path", sorted(BUNDLED.glob("*.card.json")), ids=lambda p: p.name[:-10])
+def test_bundled_grades_follow_the_verdict_rubric(path: Path) -> None:
+    card = load_card(path)
+    grade = grading.grade(card_to_result(card).risk)
+    rules = {m["rule"] for m in card["mismatches"] if m["severity"] == "medium"}
+    if card["verdict"] == "review" and not rules & _BEHAVIOURAL_REVIEW:
+        # Metadata-only review (registry or namespace warnings): the grade stays the
+        # behaviour grade; the verdict stays visible as the TBC-VERDICT finding.
+        assert grade in {TrustGrade.A, TrustGrade.B}
+    else:
+        assert grade in _BANDS[card["verdict"]], (card["verdict"], grade)
+
+
+@pytest.mark.parametrize(
+    ("phases", "mismatches", "expected"),
+    [
+        (
+            [phase({"path": "/scratch/x", "in_home": True}, network=[{"kind": "tcp"}])],
+            [],
+            {"A", "B"},
+        ),
+        ([], [{"severity": "medium", "rule": "TBC-UNPROMPTED-NET", "summary": "x"}], {"C"}),
+        (
+            [phase({"path": "/tmp/x", "in_home": False})],
+            [
+                {"severity": "medium", "rule": "TBC-WRITE-OUTSIDE-HOME", "summary": "x"},
+                {"severity": "medium", "rule": "TBC-UNPROMPTED-NET", "summary": "y"},
+            ],
+            {"D"},
+        ),
+    ],
+)
+def test_band_edges(phases: Any, mismatches: Any, expected: set[str]) -> None:
+    card = synthetic()
+    card["observation"]["phases"] = phases
+    card["mismatches"] = mismatches
+    assert grading.grade(card_to_result(card).risk).value in expected
+
+
+def test_unobserved_capabilities_never_score() -> None:
+    card = synthetic()
+    for tool in card["observation"]["tools"]:
+        tool.update(
+            read_only_hint=None, destructive_hint=True, inferred=["shell_execution", "exfiltration"]
+        )
+    risk = card_to_result(card).risk
+    assert (risk.shell_execution, risk.exfiltration, risk.destructive) == (0.0, 0.0, 0.0)
+    assert grading.transparency(risk).value in {"high", "medium"}

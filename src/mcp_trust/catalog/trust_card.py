@@ -295,21 +295,21 @@ def _share(tools: list[dict[str, Any]], test: Any) -> float:
 def _risk(
     card: dict[str, Any], findings: list[Finding], counted: list[Finding] | None = None
 ) -> RiskSummary:
-    """Score dimensions from what the sandbox observed and what tools declared.
+    """Score only what the sandbox observed; the calibrated rubric is in the docs.
 
-    Keyword-inferred capabilities are weak signal (the card itself does not
-    raise mismatches on them), so they only count for tools that do not declare
-    themselves read-only. Calibration, all on the registry's 0-10 scale:
+    The registry grade of an imported card reflects observed behaviour. Shell,
+    exfiltration and destructive capabilities are never observed by the sandbox,
+    so they score 0 here; declared hints feed the separate transparency axis.
+    Values are chosen so that, under core.grading's frozen weights, a clean card
+    grades A-B, a behavioural review grades C-D, and do_not_install grades D-F
+    (its critical finding caps it at D or worse):
 
-    - file_access: writes outside home (or a read-only tool writing) 8, writes in
-      home 3, temporary-entry churn 1; tools not declared read-only add up to 3
-      by share.
-    - network_access: unprompted egress (startup or shutdown) 6, egress breaking
-      a closed-world declaration 8, egress during read-only calls 2; a remote
-      server is a network service by nature, 3.
-    - shell_execution and exfiltration: 10 x the share of tools that are not
-      declared read-only and whose text suggests the capability.
-    - destructive: 10 x the share of tools declaring destructiveHint.
+    - file_access: a write during a read-only tool's call, or a truncated change
+      list (worst case), 8; writes outside home 3; lasting writes in home 2;
+      temporary-entry churn only 1.
+    - network_access: egress breaking a closed-world declaration 8; unprompted
+      egress (startup or shutdown) or a contradicted local claim 3.6; a remote
+      server observed from outside 2; egress during tool calls 1.
     """
     observation = _dict(card.get("observation"))
     tools = [_dict(t) for t in _list(observation.get("tools"))]
@@ -317,40 +317,33 @@ def _risk(
     rules = {f.rule_id for f in findings}
     changes = [_dict(c) for p in phases for c in _list(p.get("file_changes"))]
     lasting = [c for c in changes if not c.get("entries_only")]
-    # A truncated change list may hide writes outside home: score the worst case.
     truncated = any(p.get("file_changes_truncated", 0) for p in phases)
-    if truncated or any(not c.get("in_home") for c in lasting) or "TBC-READONLY-WRITE" in rules:
-        observed_files = 8.0
+    if truncated or "TBC-READONLY-WRITE" in rules:
+        file_access = 8.0
+    elif any(not c.get("in_home") for c in lasting):
+        file_access = 3.0
     elif lasting:
-        observed_files = 3.0
+        file_access = 2.0
     elif changes:
-        observed_files = 1.0
+        file_access = 1.0
     else:
-        observed_files = 0.0
-    undeclared = _share(tools, lambda t: t.get("read_only_hint") is not True)
-    file_access = max(observed_files, round(3.0 * undeclared, 2))
+        file_access = 0.0
     if any(f.rule_id == "TBC-READONLY-NET" and f.severity == Severity.HIGH for f in findings):
         network_access = 8.0
     elif "TBC-UNPROMPTED-NET" in rules or "TBC-LOCAL-CLAIM-NET" in rules:
-        network_access = 6.0
+        network_access = 3.6
     elif observation.get("mode") == "outside":
-        network_access = 3.0
-    elif any(_list(p.get("network")) for p in phases):
         network_access = 2.0
+    elif any(_list(p.get("network")) for p in phases):
+        network_access = 1.0
     else:
         network_access = 0.0
-
-    def suggests(capability: str) -> Any:
-        return lambda t: (
-            t.get("read_only_hint") is not True and capability in _list(t.get("inferred"))
-        )
-
     scores = {
         "file_access": file_access,
         "network_access": network_access,
-        "shell_execution": round(10.0 * _share(tools, suggests("shell_execution")), 2),
-        "destructive": round(10.0 * _share(tools, lambda t: t.get("destructive_hint") is True), 2),
-        "exfiltration": round(10.0 * _share(tools, suggests("exfiltration")), 2),
+        "shell_execution": 0.0,
+        "destructive": 0.0,
+        "exfiltration": 0.0,
     }
     counts: dict[Severity, int] = {}
     # Severity counts cover every stored finding so they agree with the record.
