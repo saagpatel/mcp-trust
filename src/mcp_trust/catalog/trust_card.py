@@ -292,12 +292,30 @@ def _share(tools: list[dict[str, Any]], test: Any) -> float:
     return sum(1 for tool in tools if test(tool)) / len(tools) if tools else 0.0
 
 
-# Mismatch rules that mean the server did something it did not announce.
-BEHAVIOURAL_CONCERNS = frozenset(
-    {"TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET", "TBC-WRITE-OUTSIDE-HOME"}
-)
+# Mismatch rules about registry metadata rather than behaviour. Every other mismatch
+# at MEDIUM or above is a concern, so an unknown or new rule fails safe.
+METADATA_RULES = frozenset({"TBC-RESOLVE"})
+# Rules that can describe one and the same unannounced connection count once.
+_CONCERN_KEY = {"TBC-UNPROMPTED-NET": "network", "TBC-LOCAL-CLAIM-NET": "network"}
+_COUNTED = frozenset({Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM})
 # Danger score for one concern (grade C) and for two or more (grade D).
 CONCERN_DANGER = {1: 3.6, 2: 7.2}
+
+
+def concerns_of(findings: list[Finding], lasting_outside_home: bool) -> set[str]:
+    """Distinct behavioural concerns: medium-or-higher non-metadata mismatches,
+    plus any lasting write outside home seen in the observation itself."""
+    concerns = {
+        _CONCERN_KEY.get(f.rule_id, f.rule_id)
+        for f in findings
+        if f.severity in _COUNTED
+        and f.rule_id.startswith("TBC-")
+        and f.rule_id not in METADATA_RULES
+        and f.rule_id not in {"TBC-VERDICT", "TBC-OUTSIDE-ONLY"}
+    }
+    if lasting_outside_home:
+        concerns.add("TBC-WRITE-OUTSIDE-HOME")
+    return concerns
 
 
 def _risk(
@@ -309,9 +327,11 @@ def _risk(
     exfiltration and destructive capabilities are never observed by the sandbox,
     so they score 0; declared hints feed the separate transparency axis.
 
-    - Behavioural concerns (unprompted egress, a contradicted local claim, writes
-      outside home) are counted: one scores danger 3.6 (C), two or more 7.2 (D),
-      carried on file_access (3 for writes outside home) and network_access.
+    - Concerns are counted, not summed: every mismatch at MEDIUM or above that is
+      not registry metadata (METADATA_RULES), plus any lasting write outside home
+      seen in the observation. The two network rules count as one concern. One
+      concern scores danger 3.6 (C), two or more 7.2 (D), carried on file_access
+      (3 for writes outside home) and network_access.
     - With no concern, only expected behaviour remains: lasting writes in home
       file 2, temporary churn 1; a remote observed from outside network 2,
       egress during tool calls 1. That keeps a clean card in A-B.
@@ -328,7 +348,7 @@ def _risk(
     truncated = any(p.get("file_changes_truncated", 0) for p in phases)
     # Behavioural concerns are counted, not summed across dimensions, so one
     # concern always lands in C and two or more in D, whatever else was seen.
-    concerns = rules & BEHAVIOURAL_CONCERNS
+    concerns = concerns_of(findings, any(not c.get("in_home") for c in lasting))
     if concerns:
         target = CONCERN_DANGER[min(len(concerns), 2)]
         file_access = 3.0 if "TBC-WRITE-OUTSIDE-HOME" in concerns else 0.0

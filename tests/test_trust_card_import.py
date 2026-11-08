@@ -730,7 +730,7 @@ def test_import_cards_needs_cards(tmp_path: Path) -> None:
 
 # Calibrated rubric (issue #119) -----------------------------------------------------
 
-_BEHAVIOURAL_REVIEW = {"TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET", "TBC-WRITE-OUTSIDE-HOME"}
+_METADATA = {"TBC-RESOLVE"}
 _BANDS = {
     "no_mismatches_observed": {TrustGrade.A, TrustGrade.B},
     "review": {TrustGrade.C, TrustGrade.D},
@@ -742,8 +742,8 @@ _BANDS = {
 def test_bundled_grades_follow_the_verdict_rubric(path: Path) -> None:
     card = load_card(path)
     grade = grading.grade(card_to_result(card).risk)
-    rules = {m["rule"] for m in card["mismatches"] if m["severity"] == "medium"}
-    if card["verdict"] == "review" and not rules & _BEHAVIOURAL_REVIEW:
+    rules = {m["rule"] for m in card["mismatches"] if m["severity"] in {"medium", "high"}}
+    if card["verdict"] == "review" and rules <= _METADATA:
         # Metadata-only review (registry or namespace warnings): the grade stays the
         # behaviour grade; the verdict stays visible as the TBC-VERDICT finding.
         assert grade in {TrustGrade.A, TrustGrade.B}
@@ -801,8 +801,10 @@ def _mm(*rules: str) -> list[dict[str, str]]:
             _mm("TBC-UNPROMPTED-NET"),
             "C",
         ),
-        # Two network concerns are two concerns: D.
-        ([], _mm("TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET"), "D"),
+        # The two network rules can describe one connection: one concern, C.
+        ([], _mm("TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET"), "C"),
+        # Two distinct concerns: D.
+        ([], _mm("TBC-UNPROMPTED-NET", "TBC-DRIFT"), "D"),
         # Three concerns cap at D for a review.
         (
             [phase({"path": "/tmp/x", "in_home": False})],
@@ -814,6 +816,29 @@ def _mm(*rules: str) -> list[dict[str, str]]:
     ],
 )
 def test_concerns_are_counted_not_summed(phases: Any, mismatches: Any, expected: str) -> None:
+    card = synthetic(verdict="review")
+    card["observation"]["phases"] = phases
+    card["mismatches"] = mismatches
+    assert grading.grade(card_to_result(card).risk).value == expected
+
+
+@pytest.mark.parametrize(
+    ("phases", "mismatches", "expected"),
+    [
+        # An outside-home write counts from the observation even without its label.
+        ([phase({"path": "/etc/x", "in_home": False})], [], "C"),
+        ([phase({"path": "/etc/x", "in_home": False})], _mm("TBC-UNPROMPTED-NET"), "D"),
+        # Non-network concerns and unknown rules fail safe.
+        ([], _mm("TBC-DRIFT"), "C"),
+        ([], _mm("TBC-SOMETHING-NEW"), "C"),
+        # Registry metadata alone keeps the behaviour grade.
+        ([], _mm("TBC-RESOLVE"), "A"),
+        # Low severity never counts.
+        ([], [{"severity": "low", "rule": "TBC-UNPROMPTED-NET", "summary": "x"}], "A"),
+        ([], [{"severity": "low", "rule": "TBC-INSTALL-SCRIPTS", "summary": "x"}], "A"),
+    ],
+)
+def test_concerns_fail_safe(phases: Any, mismatches: Any, expected: str) -> None:
     card = synthetic(verdict="review")
     card["observation"]["phases"] = phases
     card["mismatches"] = mismatches

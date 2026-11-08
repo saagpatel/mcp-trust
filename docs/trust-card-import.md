@@ -90,15 +90,15 @@ safe", as it does for every other scan.
 | Card verdict | Registry grade | What it means |
 | --- | --- | --- |
 | `no_mismatches_observed` | A–B | Nothing observed contradicted the server's claims. **A**: no lasting writes, at most expected egress during tool calls. **B**: lasting writes inside its home directory. |
-| `review`, caused by behaviour | C–D | It did something it didn't announce. **C**: one concern (unprompted egress at startup or shutdown, a contradicted "local" claim, or writes outside home). **D**: more than one. |
-| `review`, caused by metadata only | the behaviour grade (A–B) | Registry or namespace warnings, such as a missing repository URL. The grade covers behaviour only; the verdict stays visible as a finding. |
+| `review`, with any non-metadata concern | C–D | It did or showed something it didn't announce: unprompted or contradicted egress, writes outside home, tool-surface drift, or any other medium-or-higher mismatch. **C**: one concern. **D**: more than one. |
+| `review`, caused only by registry metadata | the behaviour grade (A–B) | Registry or namespace warnings (`TBC-RESOLVE`), such as a missing repository URL. The grade covers behaviour only; the verdict stays visible as a finding. |
 | `do_not_install` | D–F | A high-severity contradiction. **F** when observed behaviour broke a declaration (a read-only tool wrote files, or a closed-world tool reached the network). **D** (the critical cap) when the cause is tool text or a failed ownership check. |
 
 The dimensions that implement the rubric under `core.grading`'s frozen weights:
 
 | Evidence | Scoring (0–10 dimensions) |
 | --- | --- |
-| Behavioural concerns | Counted, not summed: unprompted egress, a contradicted local claim, and writes outside home each count once. One concern scores danger 3.6 (C) and two or more 7.2 (D), carried on file_access (3 when writes outside home are a concern) and network_access. Expected behaviour adds nothing once there is a concern. |
+| Concerns | Counted, not summed. Every card mismatch at medium severity or above is a concern unless it is registry metadata (`TBC-RESOLVE`), so an unknown rule fails safe. A lasting write outside home seen in the observation is a concern even without its label. The two network rules (unprompted egress, contradicted local claim) count as one concern, since one connection can raise both. One concern scores danger 3.6 (C) and two or more 7.2 (D), carried on file_access (3 when writes outside home are a concern) and network_access. Expected behaviour adds nothing once there is a concern. |
 | Expected behaviour only | file_access: lasting writes in home 2, temporary churn 1. network_access: a remote observed from outside 2, egress during tool calls 1. Keeps a clean card in A–B. |
 | High-severity contradictions | A write during a read-only tool's call, or a truncated change list, sets file_access 8; egress breaking a closed-world declaration sets network_access 8. With the critical cap, that's F. |
 | shell_execution, exfiltration, destructive | 0 (not observable by the sandbox) |
