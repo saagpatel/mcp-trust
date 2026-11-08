@@ -121,6 +121,80 @@ def scan(
     _print_scan(record)
 
 
+@app.command(name="import-card")
+def import_card(
+    card_path: Annotated[
+        Path, typer.Argument(help="card.json written by `mcp-audit trust` (experimental).")
+    ],
+    db: Annotated[
+        str,
+        typer.Option("--db", envvar=_DB_ENV, help=_DB_HELP),
+    ] = _DB_DEFAULT,
+    slug: Annotated[
+        str | None, typer.Option("--slug", help="Catalog slug; derived from the card if omitted.")
+    ] = None,
+    pin_path: Annotated[
+        Path | None,
+        typer.Option("--pin", help="pin.json from the same run, for input-schema hashes."),
+    ] = None,
+) -> None:
+    """Import a Trust Before Connect verdict card as a catalog entry (experimental).
+
+    The card's mismatches become findings and the grade comes from the registry's
+    own rubric. Verdicts from engine `mcp-audit-trust` stay demo-classified.
+    """
+    from mcp_trust.catalog.trust_card import (  # noqa: PLC0415
+        TrustCardError,
+        card_digest,
+        card_to_result,
+        card_to_server,
+        default_slug,
+        load_card,
+    )
+
+    try:
+        card = load_card(card_path)
+        pin = json.loads(pin_path.read_text(encoding="utf-8")) if pin_path else None
+        server_slug = slug or default_slug(card)
+        server = card_to_server(card, server_slug)
+        result = card_to_result(card, pin if isinstance(pin, dict) else None)
+    except (TrustCardError, ValueError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+
+    _, server_repo, scan_repo = _open_db(db)
+    existing = server_repo.get(server_slug)
+    if existing is None:
+        server_repo.upsert(server)
+    elif existing.source.reference != server.source.reference:
+        typer.echo(
+            f"Error: slug {server_slug!r} already names {existing.source.reference!r}; "
+            "pass --slug to choose another.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    record = ScanRecord(
+        id=uuid.uuid4().hex,
+        server_slug=server_slug,
+        engine_name=result.engine_name,
+        engine_version=result.engine_version,
+        grade=grading.grade(result.risk),
+        transparency=grading.transparency(result.risk),
+        risk=result.risk,
+        findings=result.findings,
+        evidence=result.evidence,
+        scanned_at=datetime.now(tz=UTC),
+        sandbox_image=result.sandbox_image,
+        report_ref=None,
+    )
+    receipt_ref = write_scan_receipt(existing or server, record)
+    if receipt_ref is not None:
+        record = record.model_copy(update={"report_ref": receipt_ref})
+    scan_repo.record(record)
+    typer.echo(f"Imported card sha256:{card_digest(card_path)[:16]} as {server_slug!r}.")
+    _print_scan(record)
+
+
 @app.command()
 def check(
     slug: Annotated[str, typer.Argument(help="Server slug to check.")],
