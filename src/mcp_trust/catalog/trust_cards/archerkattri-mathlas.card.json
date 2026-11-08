@@ -1,0 +1,485 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T14:24:52Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.Archerkattri/mathlas",
+    "kind": "registry",
+    "server_name": "io.github.Archerkattri/mathlas",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "1.5.0",
+    "title": null,
+    "description": "Airtight math for AI agents: 3.68M-doc theorem search + numeric/Lean verification. No LLM, no key.",
+    "repository_url": "https://github.com/Archerkattri/mathlas",
+    "package": {
+      "registry_type": "pypi",
+      "identifier": "mathlas-mcp",
+      "version": "1.5.0",
+      "transport": "stdio",
+      "runtime_hint": "uvx",
+      "env": [
+        {
+          "name": "MATHLAS_SEED",
+          "required": false,
+          "secret": false,
+          "has_default": false,
+          "description": "Set to 1 to force the lightweight built-in seed corpus and never load the multi-GB prebuilt index (fast cold start)."
+        },
+        {
+          "name": "MATHLAS_INDEX",
+          "required": false,
+          "secret": false,
+          "has_default": false,
+          "description": "Path to a prebuilt index .npz to serve for search_existing_math (optional; the seed corpus is used when absent)."
+        }
+      ],
+      "arguments": [],
+      "launch_arguments": [],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.Archerkattri/mathlas."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "pass",
+        "summary": "Repository owner matches GitHub namespace archerkattri."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "pypi mathlas-mcp 1.5.0 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "PyPI description mcp-name matches io.github.Archerkattri/mathlas."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "python:3.13-slim (python@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2025-06-18",
+    "protocol_era": "legacy",
+    "server_info": {
+      "name": "mathlas",
+      "version": "1.5.0"
+    },
+    "tools": [
+      {
+        "name": "identify_constant",
+        "description": "Identify a real number's closed form, airtight: PSLQ + closed-form search, every candidate independently re-evaluated to 50+ digits, honest UNIDENTIFIED otherwise. Use when you have a numeric constant and want to know what it IS. Args: value (decimal string — give MANY digits, >16), optional basis (constant names like ['pi','e']).",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "identify_sequence",
+        "description": "Match an integer sequence against a LOCAL OEIS copy by EXACT contiguous term-match (no fuzzy scoring; honest UNDETERMINED if the data files are absent). Use when you have >= 4 integer terms and want the named sequence. Args: terms (list of integers), max_results (default 5).",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "search_existing_math",
+        "description": "Find existing theorems/results for a problem from the mathlas 3.68M-doc index (dense + BM25 + RRF, fused with any live web_added findings). Use FIRST for any 'does known math solve this?' question; follow up with applicability_checklist on promising candidates. Args: query (problem/result description), k (default 10), optional corpus_dir (dataset parquets; omit to serve the prebuilt index or seed corpus), optional source_filter / source_weights to down-weight or exclude corpus sources, e.g. exclude web-mined docs when looking for canonical theorem statements.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "destructive",
+          "file_read",
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests destructive, file_write"
+      },
+      {
+        "name": "search_formal_math",
+        "description": "Find mathlib DECLARATIONS (name + type) via the public Loogle (pattern/type queries like '?a * ?b = ?b * ?a') and LeanSearch (natural-language queries) services — the ONE tool that itself calls the web; honest 'service unavailable' if down (though a <=7-day-old cached response for the same query is then served, clearly labeled 'cached' with its age). Use when you need the formal Lean name/type of a result, e.g. before writing a verify_formal snippet. Args: query, k (default 10), backend ('auto'|'loogle'|'leansearch').",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": true,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "verify_numeric",
+        "description": "Airtight check that a closed-form expression equals a numeric value: independent sympy re-evaluation at higher precision, verified only on >= 20 agreeing digits. Use BEFORE asserting any numeric identity. Args: value (decimal string), closed_form (e.g. 'pi**2/6', 'zeta(3)').",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "verify_formal",
+        "description": "Run the REAL Lean 4 kernel (NO LLM). Two modes: (1) pass `lean` (a full snippet, e.g. 'example : 2 + 2 = 4 := rfl') to typecheck it as-is; (2) pass `proof` to PROOF-CHECK — `statement` must then be the Lean 4 proposition and `proof` YOUR proof (term or 'by ...' tactic block); mathlas builds `theorem _mathlas_check : <statement> := <proof>` and the kernel returns proof_status VERIFIED_PROOF / REFUTED (kernel_error carries the kernel's exact complaint — use it to repair the proof and re-call) / UNDETERMINED (no toolchain / timeout / unresolvable import — honest, never fake). sorry/admit are REJE",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read",
+          "shell_execution"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests shell_execution"
+      },
+      {
+        "name": "applicability_checklist",
+        "description": "Decompose a candidate theorem's statement into atomic preconditions + conclusion for YOU to verify one by one against your problem (catches misapplications like using a closed-interval theorem on an open interval). Use after search, before relying on any candidate. Args: candidate_statement (the result's statement text).",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "mapping_scaffold",
+        "description": "Build the needs<->guarantees scaffold (structured questions + fill-in template) between your problem and a candidate result. Use when applicability is non-obvious and you want structure for the judgment (the judging is yours). Args: problem, candidate_statement.",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "conjecture_relation",
+        "description": "Conjecture relations for a real constant — Ramanujan-Machine style: PSLQ over a rich basis + continued-fraction/recurrence search; every candidate numerically VERIFIED to >= 25 digits but NOT proved (provenance 'conjectured_relation'). Use when identify_constant returns UNIDENTIFIED. Args: value (decimal string, MANY digits), max_terms (default 16), cf_depth (default 200).",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "funsearch",
+        "description": "Sandboxed program-search harness (FunSearch): action='evaluate' scores YOUR Python program for problem_id ('cap_set' or 'online_bin_packing') in a no-network/timeout/rlimit sandbox; action='register' stores a scored program in the MAP-Elites DB; action='status' returns the best programs + few-shot context for writing the next variant. Use to iteratively evolve programs — YOU are the generator, mathlas is the deterministic scorer. Args: action, problem_id, then program_src (evaluate/register), score + behavior (register), timeout_s (evaluate), top_k (status).",
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read",
+          "file_write",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "search_directive",
+        "description": "Get a STRUCTURED web-search plan for a problem — arXiv query strings, sub-fields/categories, named results to look for, and which other mathlas tools to run; mathlas makes NO web call (YOU search, then feed results back via add_finding). Use when the local index missed. Args: problem (description).",
+        "read_only_hint": true,
+        "destructive_hint": null,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read",
+          "shell_execution"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write, shell_execution"
+      },
+      {
+        "name": "add_finding",
+        "description": "Ingest a web-found result into the live mathlas corpus so search_existing_math returns it immediately (provenance 'web_added'; BM25 always — no model load; full dense retrieval too if you pass dense_vec embedded in the served index's space). Use after web-searching per search_directive. Args: statement, slogan, source, optional name, optional dense_vec.",
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [],
+    "resources": null,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:identify_constant",
+        "tool": "identify_constant",
+        "arguments": {
+          "value": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:identify_sequence",
+        "tool": "identify_sequence",
+        "arguments": {
+          "terms": []
+        },
+        "is_error": null,
+        "error": "RuntimeError",
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:search_formal_math",
+        "tool": "search_formal_math",
+        "arguments": {
+          "query": "mcpaudit-synthetic"
+        },
+        "is_error": false,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [
+          {
+            "kind": "dns",
+            "host": "loogle.lean-lang.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "loogle.lean-lang.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "loogle.lean-lang.org",
+            "ip": "198.18.0.1",
+            "port": 443,
+            "sni": "loogle.lean-lang.org",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          },
+          {
+            "kind": "dns",
+            "host": "leansearch.net",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "leansearch.net",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "leansearch.net",
+            "ip": "198.18.0.2",
+            "port": 443,
+            "sni": "leansearch.net",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          }
+        ],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:verify_numeric",
+        "tool": "verify_numeric",
+        "arguments": {
+          "value": "mcpaudit-synthetic",
+          "closed_form": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:applicability_checklist",
+        "tool": "applicability_checklist",
+        "arguments": {
+          "candidate_statement": "mcpaudit-synthetic"
+        },
+        "is_error": false,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:mapping_scaffold",
+        "tool": "mapping_scaffold",
+        "arguments": {
+          "problem": "mcpaudit-synthetic",
+          "candidate_statement": "mcpaudit-synthetic"
+        },
+        "is_error": null,
+        "error": "RuntimeError",
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:conjecture_relation",
+        "tool": "conjecture_relation",
+        "arguments": {
+          "value": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [
+    {
+      "severity": "low",
+      "summary": "Read-only tool reached the network during its call: loogle.lean-lang.org:443, leansearch.net:443.",
+      "tool": "search_formal_math",
+      "rule": "TBC-READONLY-NET"
+    }
+  ],
+  "verdict": "no_mismatches_observed",
+  "headline": "No mismatches observed in the sandbox. That is evidence, not a guarantee.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"mathlas\": {\n      \"command\": \"uvx\",\n      \"args\": [\n        \"--from\",\n        \"mathlas-mcp==1.5.0\",\n        \"mathlas-mcp\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [\n      \"mcp__mathlas__applicability_checklist\"\n    ],\n    \"ask\": [\n      \"mcp__mathlas__identify_constant\",\n      \"mcp__mathlas__identify_sequence\",\n      \"mcp__mathlas__search_existing_math\",\n      \"mcp__mathlas__search_formal_math\",\n      \"mcp__mathlas__verify_numeric\",\n      \"mcp__mathlas__verify_formal\",\n      \"mcp__mathlas__mapping_scaffold\",\n      \"mcp__mathlas__conjecture_relation\",\n      \"mcp__mathlas__funsearch\",\n      \"mcp__mathlas__search_directive\",\n      \"mcp__mathlas__add_finding\"\n    ],\n    \"deny\": []\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "review loogle.lean-lang.org:443  # attempted during tool:search_formal_math\nreview leansearch.net:443  # attempted during tool:search_formal_math\ndeny *  # nothing else was attempted",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "deny-write *  # no writes observed",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}

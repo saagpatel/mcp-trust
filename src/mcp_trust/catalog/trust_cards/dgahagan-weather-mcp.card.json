@@ -1,0 +1,238 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T14:21:07Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.dgahagan/weather-mcp",
+    "kind": "registry",
+    "server_name": "io.github.dgahagan/weather-mcp",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "1.35.7",
+    "title": "Weather Data MCP Server",
+    "description": "17 weather tools, no API keys: forecasts, alerts, air quality, marine, radar, lightning, wildfires",
+    "repository_url": null,
+    "package": {
+      "registry_type": "npm",
+      "identifier": "@dangahagan/weather-mcp",
+      "version": "1.35.7",
+      "transport": "stdio",
+      "runtime_hint": null,
+      "env": [],
+      "arguments": [],
+      "launch_arguments": [],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.dgahagan/weather-mcp."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "warn",
+        "summary": "No repository URL declared."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "npm @dangahagan/weather-mcp 1.35.7 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "package.json mcpName matches io.github.dgahagan/weather-mcp."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "node:24-slim (node@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2025-11-25",
+    "protocol_era": "legacy",
+    "server_info": {
+      "name": "weather-mcp",
+      "version": "1.35.7"
+    },
+    "tools": [
+      {
+        "name": "get_weather_summary",
+        "description": "Get a combined weather overview for a location in a SINGLE call — current conditions, forecast and alerts, optionally air quality and lightning. Best for broad questions like \"What's the weather like in Seattle?\", \"Is it safe to hike today?\", or \"Give me a weather rundown\". For a single specific data product (just the forecast, just alerts, etc.), call that specialized tool directly. Sections that are unavailable for a location (e.g. alerts in a country not yet covered) are noted rather than failing the whole summary.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "exfiltration",
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_forecast",
+        "description": "Get future weather forecast for a location. Use this for upcoming weather predictions (e.g., \"tomorrow\", \"this week\", \"next 7 days\", \"hourly forecast\"). Automatically selects the best data source: NOAA for US locations (more detailed), Open-Meteo for international locations. For current weather, use get_current_conditions. For past weather, use get_historical_weather.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "exfiltration",
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_current_conditions",
+        "description": "Get the most recent weather observation for a location. Use this for current weather or when asking about \"today's weather\", \"right now\", or recent conditions without a specific historical date range. Returns NOAA station observations for US locations and Open-Meteo model data for international locations. Automatically includes frostbite-risk and heat-stress (WBGT) context when conditions are extreme. For specific past dates or date ranges, use get_historical_weather instead.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "exfiltration",
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_alerts",
+        "description": "Get active weather alerts, watches, warnings, and advisories for a location. Coverage: the United States (NOAA), Canada (Environment and Climate Change Canada), European MeteoAlarm member countries, Japan (JMA), and the official national CAP feeds of India (NDMA SACHET), the Philippines (PAGASA) and Indonesia (BMKG). All of the above are keyless. With an optional `GOOGLE_WEATHER_API_KEY`, official alerts are also available for ~45+ more territories (Australia, Brazil, Mexico, and others) via the Google Weather API. Use this for safety-critical weather information when asked about \"any alerts?\"",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "exfiltration",
+          "file_read",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "search_location",
+        "description": "Search for locations by name and get their coordinates. Uses Nominatim (OpenStreetMap) for coverage of cities, towns, villages and hamlets worldwide. The weather tools geocode city_name themselves, so use this to disambiguate an ambiguous place name or to show the candidate matches (e.g., \"Springfield\", \"San Francisco, CA\", \"Small Village, County\") — not as a required first step before a weather call.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "check_service_status",
+        "description": "Check whether the upstream weather APIs (NOAA, Open-Meteo) are reachable. Call this after any weather tool returns an error, or before a batch of requests. Returns per-service status and links to the official status pages.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [],
+    "resources": null,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [
+    {
+      "severity": "medium",
+      "summary": "No repository URL declared.",
+      "tool": null,
+      "rule": "TBC-RESOLVE"
+    }
+  ],
+  "verdict": "review",
+  "headline": "Review before installing: what it did differs from what it claims.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"weather-mcp\": {\n      \"command\": \"npx\",\n      \"args\": [\n        \"-y\",\n        \"@dangahagan/weather-mcp@1.35.7\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [],\n    \"ask\": [\n      \"mcp__weather-mcp__get_weather_summary\",\n      \"mcp__weather-mcp__get_forecast\",\n      \"mcp__weather-mcp__get_current_conditions\",\n      \"mcp__weather-mcp__get_alerts\",\n      \"mcp__weather-mcp__search_location\",\n      \"mcp__weather-mcp__check_service_status\"\n    ],\n    \"deny\": []\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "deny *  # no egress attempts observed",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "deny-write *  # no writes observed",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}
