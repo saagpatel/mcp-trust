@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -313,10 +314,13 @@ def validate_npm_lock(
         ]
         if not parent_paths:
             raise DependencyBoundaryError("npm override parent is absent from lock")
-        for child, version in children.items():
+        for parent_path, (child, version) in product(parent_paths, children.items()):
             # npm parent-scoped overrides also apply below an immediate child.
             # Follow dependency edges, rather than path prefixes: npm hoists packages.
-            pending = parent_paths.copy()
+            # Walk each parent copy on its own: a lock entry's dependency fields are
+            # not covered by the tarball integrity, so a copy that drops them must
+            # not borrow another copy's match.
+            pending = [parent_path]
             visited: set[str] = set()
             matches = 0
             while pending:

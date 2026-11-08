@@ -398,11 +398,39 @@ def test_npm_override_checks_every_parent_copy(
     lock_path = tmp_path / "package-lock.json"
     manifest_path.write_text(json.dumps(manifest))
     lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
-    if failure and failure != "missing-child":
-        # A copy that never depends on the child has nothing to override (npm semantics).
+    if failure:
+        # Each copy must reach the child itself; the lock's dependency fields are not
+        # integrity-bound, so a copy that omits the child cannot be trusted to lack it.
         with pytest.raises(dependency_boundary.DependencyBoundaryError, match="override"):
             dependency_boundary.validate_npm_lock(manifest_path, lock_path)
     else:
+        dependency_boundary.validate_npm_lock(manifest_path, lock_path)
+
+
+@pytest.mark.parametrize("parent", ["foo", "@scope/foo"])
+@pytest.mark.parametrize("child_version", ["2.0.0", "1.0.0"])
+def test_npm_override_rejects_nested_parent_copy_without_dependencies(
+    tmp_path: Path, parent: str, child_version: str
+) -> None:
+    # The lock's dependencies field is not covered by the tarball integrity, so a
+    # parent copy that drops it must not borrow the top-level copy's match.
+    child = "child"
+    dependencies = {parent: "1.0.0"}
+    manifest = {"dependencies": dependencies, "overrides": {parent: {child: "2.0.0"}}}
+    nested_parent = f"node_modules/x/node_modules/{parent}"
+    packages = {
+        "": {"dependencies": dependencies},
+        f"node_modules/{parent}": _npm_lock_package(parent, "1.0.0", dependencies={child: "^1"}),
+        f"node_modules/{child}": _npm_lock_package(child, "2.0.0"),
+        "node_modules/x": _npm_lock_package("x", "1.0.0", dependencies={parent: "1.0.0"}),
+        nested_parent: _npm_lock_package(parent, "1.0.0"),
+        f"node_modules/x/node_modules/{child}": _npm_lock_package(child, child_version),
+    }
+    manifest_path = tmp_path / "package.json"
+    lock_path = tmp_path / "package-lock.json"
+    manifest_path.write_text(json.dumps(manifest))
+    lock_path.write_text(json.dumps({"lockfileVersion": 3, "packages": packages}))
+    with pytest.raises(dependency_boundary.DependencyBoundaryError, match="override"):
         dependency_boundary.validate_npm_lock(manifest_path, lock_path)
 
 
