@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +35,19 @@ from mcp_trust.core.models import (
     ToolEvidence,
 )
 from mcp_trust.engine.base import EngineResult
+from mcp_trust.store.repository import (
+    _MAX_STORED_FINDINGS as MAX_STORED_FINDINGS,
+)
+from mcp_trust.store.repository import (
+    _MAX_STORED_JSON_BYTES as MAX_STORED_JSON_BYTES,
+)
+from mcp_trust.store.repository import (
+    _MAX_STORED_TOOLS as MAX_STORED_TOOLS,
+)
 
 CARD_SCHEMA = "mcp-audit.trust-card/1"
+PIN_SCHEMA = "mcp-audit.trust-pin/1"
+GRADED_VERDICTS = frozenset({"no_mismatches_observed", "review", "do_not_install"})
 ENGINE_NAME = "mcp-audit-trust"
 MAX_CARD_BYTES = 4 * 1024 * 1024
 
@@ -81,28 +92,67 @@ def _str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def load_card(path: Path) -> dict[str, Any]:
-    """Read and minimally validate a trust card."""
+def _read_json(path: Path, what: str) -> Any:
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        raise TrustCardError(f"cannot read card ({type(exc).__name__})") from None
+        raise TrustCardError(f"cannot read {what} ({type(exc).__name__})") from None
     if len(raw) > MAX_CARD_BYTES:
-        raise TrustCardError("card exceeds the 4 MiB import limit")
+        raise TrustCardError(f"{what} exceeds the 4 MiB import limit")
     try:
-        card = json.loads(raw.decode("utf-8"))
+        return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
-        raise TrustCardError("card is not UTF-8 JSON") from None
+        raise TrustCardError(f"{what} is not UTF-8 JSON") from None
+
+
+def load_card(path: Path) -> dict[str, Any]:
+    """Read a trust card and refuse anything that is not a complete observation.
+
+    The registry grades only what was observed: the verdict must be one of the
+    card's graded verdicts, the observation status must be exactly ``complete``,
+    and the evidence collections must have the expected types.
+    """
+    card = _read_json(path, "card")
     if not isinstance(card, dict) or card.get("schema") != CARD_SCHEMA:
         raise TrustCardError(f"not a {CARD_SCHEMA} card")
-    if card.get("verdict") == "incomplete" or _dict(card.get("observation")).get("status") in {
-        "failed",
-        "skipped",
-    }:
+    if card.get("verdict") not in GRADED_VERDICTS:
+        raise TrustCardError("card has no graded verdict (incomplete or unknown); nothing to grade")
+    observation = card.get("observation")
+    if not isinstance(observation, dict) or observation.get("status") != "complete":
         raise TrustCardError("card records an incomplete observation; nothing to grade")
-    if not _dict(card.get("target")):
+    if observation.get("mode") not in {"container", "outside"}:
+        raise TrustCardError("card observation mode is not container or outside")
+    if not isinstance(card.get("target"), dict) or not card["target"]:
         raise TrustCardError("card has no target")
+    for key, container in (("tools", observation), ("phases", observation), ("mismatches", card)):
+        value = container.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise TrustCardError(f"card field {key!r} is malformed")
+    observed_at(card)
     return card
+
+
+def load_pin(path: Path) -> dict[str, Any]:
+    pin = _read_json(path, "pin")
+    if not isinstance(pin, dict) or pin.get("schema") != PIN_SCHEMA:
+        raise TrustCardError(f"not a {PIN_SCHEMA} pin")
+    return pin
+
+
+def observed_at(card: dict[str, Any], now: datetime | None = None) -> datetime:
+    """When the card was generated; imports keep observation time, not import time."""
+    raw = card.get("generated_at")
+    if not isinstance(raw, str):
+        raise TrustCardError("card has no generated_at timestamp")
+    try:
+        stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        raise TrustCardError("card generated_at is not an ISO-8601 timestamp") from None
+    if stamp.tzinfo is None:
+        raise TrustCardError("card generated_at has no timezone")
+    if stamp > (now or datetime.now(tz=UTC)) + timedelta(minutes=5):
+        raise TrustCardError("card generated_at is in the future")
+    return stamp.astimezone(UTC)
 
 
 def default_slug(card: dict[str, Any]) -> str:
@@ -150,7 +200,9 @@ def _share(tools: list[dict[str, Any]], test: Any) -> float:
     return sum(1 for tool in tools if test(tool)) / len(tools) if tools else 0.0
 
 
-def _risk(card: dict[str, Any], findings: list[Finding]) -> RiskSummary:
+def _risk(
+    card: dict[str, Any], findings: list[Finding], counted: list[Finding] | None = None
+) -> RiskSummary:
     """Score dimensions from what the sandbox observed and what tools declared.
 
     Keyword-inferred capabilities are weak signal (the card itself does not
@@ -206,7 +258,8 @@ def _risk(card: dict[str, Any], findings: list[Finding]) -> RiskSummary:
         "exfiltration": round(10.0 * _share(tools, suggests("exfiltration")), 2),
     }
     counts: dict[Severity, int] = {}
-    for finding in findings:
+    # Severity counts cover every stored finding so they agree with the record.
+    for finding in counted if counted is not None else findings:
         counts[finding.severity] = counts.get(finding.severity, 0) + 1
     annotated = _share(
         tools,
@@ -289,16 +342,35 @@ def card_to_result(card: dict[str, Any], pin: dict[str, Any] | None = None) -> E
             for tool in tools
         ],
         prompt_count=len(_list(observation.get("prompts"))),
-        resource_count=int(observation.get("resources") or 0),
+        resource_count=_count(observation.get("resources")),
     )
     return EngineResult(
         engine_name=ENGINE_NAME,
         engine_version=_str(card.get("mcp_audit_version")) or "unknown",
-        risk=_risk(card, mismatches),
+        risk=_risk(card, mismatches, findings),
         findings=findings,
         evidence=evidence,
         sandbox_image=_str(observation.get("image")),
     )
+
+
+def _count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def check_admission(result: EngineResult) -> None:
+    """Refuse a mapped record the repository could not read back, before any write."""
+    if len(result.findings) > MAX_STORED_FINDINGS:
+        raise TrustCardError(f"card maps to more than {MAX_STORED_FINDINGS} findings")
+    if result.evidence is not None and len(result.evidence.tools) > MAX_STORED_TOOLS:
+        raise TrustCardError(f"card lists more than {MAX_STORED_TOOLS} tools")
+    stored = [
+        result.risk.model_dump_json(),
+        json.dumps([f.model_dump(mode="json") for f in result.findings]),
+        result.evidence.model_dump_json() if result.evidence is not None else "",
+    ]
+    if any(len(value.encode("utf-8")) > MAX_STORED_JSON_BYTES for value in stored):
+        raise TrustCardError("card maps to a record larger than the repository admits")
 
 
 def card_digest(path: Path) -> str:

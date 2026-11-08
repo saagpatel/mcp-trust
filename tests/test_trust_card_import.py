@@ -194,3 +194,115 @@ def test_cli_refuses_incomplete_cards(tmp_path: Path) -> None:
     path = write(tmp_path, synthetic(verdict="incomplete"))
     result = runner.invoke(app, ["import-card", str(path), "--db", str(tmp_path / "r.db")])
     assert result.exit_code == 1 and "incomplete" in result.output
+
+
+# Review fixes ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c.pop("observation"),
+        lambda c: c["observation"].pop("status"),
+        lambda c: c["observation"].update(status="partial"),
+        lambda c: c.pop("verdict"),
+        lambda c: c.update(verdict="maybe"),
+        lambda c: c["observation"].update(tools="nope"),
+        lambda c: c["observation"].update(phases=[1, 2]),
+        lambda c: c.update(mismatches={"x": 1}),
+        lambda c: c.pop("generated_at"),
+        lambda c: c.update(generated_at="2999-01-01T00:00:00Z"),
+        lambda c: c.update(generated_at="not a time"),
+    ],
+)
+def test_only_complete_well_formed_cards_load(tmp_path: Path, mutate: Any) -> None:
+    card = real_card()
+    mutate(card)
+    with pytest.raises(TrustCardError):
+        load_card(write(tmp_path, card))
+
+
+def test_pin_must_be_a_trust_pin(tmp_path: Path) -> None:
+    db = str(tmp_path / "r.db")
+    bad = write(tmp_path, {"schema": "other"}, "pin.json")
+    result = runner.invoke(app, ["import-card", str(CARD), "--pin", str(bad), "--db", db])
+    assert result.exit_code == 1 and "trust-pin" in result.output
+
+
+def test_malformed_resources_field_counts_as_zero() -> None:
+    card = synthetic()
+    card["observation"]["resources"] = ["a", "b"]
+    result = card_to_result(card)
+    assert result.evidence is not None and result.evidence.resource_count == 0
+
+
+def test_severity_counts_cover_every_stored_finding() -> None:
+    result = card_to_result(load_card(CARD))
+    counted = sum(result.risk.findings_by_severity.values())
+    assert counted == len(result.findings)
+
+
+def test_scan_keeps_observation_time_and_older_cards_do_not_supersede(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ScanRepository
+
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    older = synthetic(generated_at="2026-01-01T00:00:00Z", verdict="review", headline="older")
+    assert (
+        runner.invoke(app, ["import-card", str(write(tmp_path, older)), "--db", db]).exit_code == 0
+    )
+    conn = connect(db)
+    init_schema(conn)
+    latest = ScanRepository(conn).latest("cyanheads-nws-weather-mcp-server")
+    assert latest is not None
+    assert latest.scanned_at.isoformat().startswith(real_card()["generated_at"][:19])
+    assert latest.findings[0].detail != "older"
+
+
+def test_same_name_in_another_registry_is_refused(tmp_path: Path) -> None:
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    pypi = synthetic()
+    pypi["target"]["package"]["registry_type"] = "pypi"
+    result = runner.invoke(app, ["import-card", str(write(tmp_path, pypi)), "--db", db])
+    assert result.exit_code == 1 and "npm" in result.output
+
+
+def test_real_scan_is_not_superseded_without_replace(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ScanRepository, ServerRepository
+
+    db = str(tmp_path / "r.db")
+    card = load_card(CARD)
+    conn = connect(db)
+    init_schema(conn)
+    ServerRepository(conn).upsert(card_to_server(card, "cyanheads-nws-weather-mcp-server"))
+    real = ScanRecord(
+        id="b" * 32,
+        server_slug="cyanheads-nws-weather-mcp-server",
+        engine_name="mcpaudit",
+        engine_version="3.0.0",
+        grade=TrustGrade.B,
+        risk=card_to_result(card).risk,
+        scanned_at="2026-01-01T00:00:00Z",
+    )
+    ScanRepository(conn).record(real)
+    refused = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert refused.exit_code == 1 and "--replace" in refused.output
+    replaced = runner.invoke(app, ["import-card", str(CARD), "--db", db, "--replace"])
+    assert replaced.exit_code == 0, replaced.output
+
+
+def test_records_beyond_admission_limits_are_refused_before_any_write(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ServerRepository
+
+    card = synthetic()
+    card["mismatches"] = [{"severity": "low", "rule": "TBC-DRIFT", "summary": "x"}] * 1024
+    db = str(tmp_path / "r.db")
+    result = runner.invoke(app, ["import-card", str(write(tmp_path, card)), "--db", db])
+    assert result.exit_code == 1 and "1024" in result.output
+    conn = connect(db)
+    init_schema(conn)
+    assert ServerRepository(conn).get("cyanheads-nws-weather-mcp-server") is None

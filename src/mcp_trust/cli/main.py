@@ -137,6 +137,13 @@ def import_card(
         Path | None,
         typer.Option("--pin", help="pin.json from the same run, for input-schema hashes."),
     ] = None,
+    replace: Annotated[
+        bool,
+        typer.Option(
+            "--replace",
+            help="Allow the imported (demo-classified) verdict to supersede a real scan.",
+        ),
+    ] = False,
 ) -> None:
     """Import a Trust Before Connect verdict card as a catalog entry (experimental).
 
@@ -148,31 +155,47 @@ def import_card(
         card_digest,
         card_to_result,
         card_to_server,
+        check_admission,
         default_slug,
         load_card,
+        load_pin,
+        observed_at,
     )
+    from mcp_trust.core.provenance import ScanProvenance, classify  # noqa: PLC0415
+
+    def fail(message: str) -> typer.Exit:
+        typer.echo(f"Error: {message}", err=True)
+        return typer.Exit(code=1)
 
     try:
         card = load_card(card_path)
-        pin = json.loads(pin_path.read_text(encoding="utf-8")) if pin_path else None
+        pin = load_pin(pin_path) if pin_path else None
         server_slug = slug or default_slug(card)
         server = card_to_server(card, server_slug)
-        result = card_to_result(card, pin if isinstance(pin, dict) else None)
-    except (TrustCardError, ValueError, OSError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from None
+        result = card_to_result(card, pin)
+        check_admission(result)
+        scanned_at = observed_at(card)
+    except (TrustCardError, ValueError, TypeError, OSError) as exc:
+        raise fail(str(exc)) from None
 
     _, server_repo, scan_repo = _open_db(db)
     existing = server_repo.get(server_slug)
+    if existing is not None and (existing.source.kind, existing.source.reference) != (
+        server.source.kind,
+        server.source.reference,
+    ):
+        raise fail(
+            f"slug {server_slug!r} already names {existing.source.kind} "
+            f"{existing.source.reference!r}; pass --slug to choose another."
+        )
+    latest = scan_repo.latest(server_slug) if existing is not None else None
+    if latest is not None and classify(latest) == ScanProvenance.REAL and not replace:
+        raise fail(
+            f"{server_slug!r} has a real scan; an imported verdict is demo-classified and would "
+            "supersede it. Pass --replace to import anyway."
+        )
     if existing is None:
         server_repo.upsert(server)
-    elif existing.source.reference != server.source.reference:
-        typer.echo(
-            f"Error: slug {server_slug!r} already names {existing.source.reference!r}; "
-            "pass --slug to choose another.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
     record = ScanRecord(
         id=uuid.uuid4().hex,
         server_slug=server_slug,
@@ -183,7 +206,7 @@ def import_card(
         risk=result.risk,
         findings=result.findings,
         evidence=result.evidence,
-        scanned_at=datetime.now(tz=UTC),
+        scanned_at=scanned_at,
         sandbox_image=result.sandbox_image,
         report_ref=None,
     )

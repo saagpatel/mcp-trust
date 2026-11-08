@@ -27,7 +27,20 @@ mcp-trust check cyanheads-nws-weather-mcp-server
   severity. A `do_not_install` verdict adds a critical finding, which caps the
   grade.
 - **Evidence:** tool names, annotation presence, and input-schema hashes when
-  `--pin` is given.
+  `--pin` (a `mcp-audit.trust-pin/1` file) is given.
+- **Time:** the scan is stamped with the card's `generated_at`, not the import
+  time, so importing an old card never supersedes newer evidence.
+
+## What is refused
+
+- Anything but a complete observation with a graded verdict
+  (`no_mismatches_observed`, `review` or `do_not_install`), or a card whose
+  evidence fields have the wrong types.
+- A slug already owned by a different source kind or reference.
+- A mapped record beyond the repository's admission limits (findings, tools,
+  stored JSON size). Nothing is written in that case.
+- Superseding a server whose latest scan is a real scan, unless `--replace` is
+  passed: an imported verdict is demo-classified and would hide the real grade.
 
 ## How dimensions are scored
 

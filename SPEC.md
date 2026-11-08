@@ -127,10 +127,12 @@ evidence remains `UNKNOWN`, and crossing `earliest_stale_after` produces
 - `mcp-trust seed` — load the seed catalog into the DB.
 - `mcp-trust scan <slug>` — scan a catalog server, print grade + top findings, persist.
 - `mcp-trust check <slug>` — print the latest stored grade (no scan).
-- `mcp-trust import-card <card.json> [--pin pin.json] [--slug]` — experimental:
-  register the server a Trust Before Connect card resolved and store its verdict
-  as a scan graded by `core.grading`. Refuses incomplete cards and slugs already
-  owned by another source.
+- `mcp-trust import-card <card.json> [--pin pin.json] [--slug] [--replace]` —
+  experimental: register the server a Trust Before Connect card resolved and store
+  its verdict as a scan graded by `core.grading`, timestamped with the card's
+  observation time. Refuses anything but a complete observation with a graded
+  verdict, slugs owned by a different source kind or reference, records beyond the
+  repository's admission limits, and (without `--replace`) superseding a real scan.
 - `mcp-trust serve [--host --port]` — run the API (uvicorn).
 - `mcp-trust auth-posture <stable-id> --manifest <path>` — perform bounded
   metadata-only HTTPS discovery for one exact remote Registry candidate. Exit 0
