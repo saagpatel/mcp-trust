@@ -292,6 +292,14 @@ def _share(tools: list[dict[str, Any]], test: Any) -> float:
     return sum(1 for tool in tools if test(tool)) / len(tools) if tools else 0.0
 
 
+# Mismatch rules that mean the server did something it did not announce.
+BEHAVIOURAL_CONCERNS = frozenset(
+    {"TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET", "TBC-WRITE-OUTSIDE-HOME"}
+)
+# Danger score for one concern (grade C) and for two or more (grade D).
+CONCERN_DANGER = {1: 3.6, 2: 7.2}
+
+
 def _risk(
     card: dict[str, Any], findings: list[Finding], counted: list[Finding] | None = None
 ) -> RiskSummary:
@@ -299,17 +307,17 @@ def _risk(
 
     The registry grade of an imported card reflects observed behaviour. Shell,
     exfiltration and destructive capabilities are never observed by the sandbox,
-    so they score 0 here; declared hints feed the separate transparency axis.
-    Values are chosen so that, under core.grading's frozen weights, a clean card
-    grades A-B, a behavioural review grades C-D, and do_not_install grades D-F
-    (its critical finding caps it at D or worse):
+    so they score 0; declared hints feed the separate transparency axis.
 
-    - file_access: a write during a read-only tool's call, or a truncated change
-      list (worst case), 8; writes outside home 3; lasting writes in home 2;
-      temporary-entry churn only 1.
-    - network_access: egress breaking a closed-world declaration 8; unprompted
-      egress (startup or shutdown) or a contradicted local claim 3.6; a remote
-      server observed from outside 2; egress during tool calls 1.
+    - Behavioural concerns (unprompted egress, a contradicted local claim, writes
+      outside home) are counted: one scores danger 3.6 (C), two or more 7.2 (D),
+      carried on file_access (3 for writes outside home) and network_access.
+    - With no concern, only expected behaviour remains: lasting writes in home
+      file 2, temporary churn 1; a remote observed from outside network 2,
+      egress during tool calls 1. That keeps a clean card in A-B.
+    - A write during a read-only tool's call or a truncated change list sets
+      file_access 8; egress breaking a closed-world declaration sets
+      network_access 8. With do_not_install's critical cap, that is F.
     """
     observation = _dict(card.get("observation"))
     tools = [_dict(t) for t in _list(observation.get("tools"))]
@@ -318,26 +326,32 @@ def _risk(
     changes = [_dict(c) for p in phases for c in _list(p.get("file_changes"))]
     lasting = [c for c in changes if not c.get("entries_only")]
     truncated = any(p.get("file_changes_truncated", 0) for p in phases)
+    # Behavioural concerns are counted, not summed across dimensions, so one
+    # concern always lands in C and two or more in D, whatever else was seen.
+    concerns = rules & BEHAVIOURAL_CONCERNS
+    if concerns:
+        target = CONCERN_DANGER[min(len(concerns), 2)]
+        file_access = 3.0 if "TBC-WRITE-OUTSIDE-HOME" in concerns else 0.0
+        network_access = round(max(0.0, target - 1.2 * file_access), 2)
+    else:
+        # No concern: expected behaviour only, which keeps a clean card in A-B.
+        if lasting:
+            file_access = 2.0
+        elif changes:
+            file_access = 1.0
+        else:
+            file_access = 0.0
+        if observation.get("mode") == "outside":
+            network_access = 2.0
+        elif any(_list(p.get("network")) for p in phases):
+            network_access = 1.0
+        else:
+            network_access = 0.0
+    # High-severity contradictions observed in behaviour push the grade to F.
     if truncated or "TBC-READONLY-WRITE" in rules:
         file_access = 8.0
-    elif any(not c.get("in_home") for c in lasting):
-        file_access = 3.0
-    elif lasting:
-        file_access = 2.0
-    elif changes:
-        file_access = 1.0
-    else:
-        file_access = 0.0
     if any(f.rule_id == "TBC-READONLY-NET" and f.severity == Severity.HIGH for f in findings):
         network_access = 8.0
-    elif "TBC-UNPROMPTED-NET" in rules or "TBC-LOCAL-CLAIM-NET" in rules:
-        network_access = 3.6
-    elif observation.get("mode") == "outside":
-        network_access = 2.0
-    elif any(_list(p.get("network")) for p in phases):
-        network_access = 1.0
-    else:
-        network_access = 0.0
     scores = {
         "file_access": file_access,
         "network_access": network_access,

@@ -431,7 +431,13 @@ def phase(*changes: dict[str, Any], network: list[Any] | None = None) -> dict[st
 @pytest.mark.parametrize(
     ("tools", "phases", "mismatches", "dimension", "expected"),
     [
-        ([tool()], [phase({"path": "/tmp/x", "in_home": False})], [], "file_access", 3.0),
+        (
+            [tool()],
+            [phase({"path": "/tmp/x", "in_home": False})],
+            [{"severity": "medium", "rule": "TBC-WRITE-OUTSIDE-HOME", "summary": "x"}],
+            "file_access",
+            3.0,
+        ),
         ([tool()], [phase({"path": "/scratch/x", "in_home": True})], [], "file_access", 2.0),
         (
             [tool()],
@@ -780,3 +786,35 @@ def test_unobserved_capabilities_never_score() -> None:
     risk = card_to_result(card).risk
     assert (risk.shell_execution, risk.exfiltration, risk.destructive) == (0.0, 0.0, 0.0)
     assert grading.transparency(risk).value in {"high", "medium"}
+
+
+def _mm(*rules: str) -> list[dict[str, str]]:
+    return [{"severity": "medium", "rule": r, "summary": r} for r in rules]
+
+
+@pytest.mark.parametrize(
+    ("phases", "mismatches", "expected"),
+    [
+        # One concern stays C even with permitted home writes and tool egress.
+        (
+            [phase({"path": "/scratch/db", "in_home": True}, network=[{"kind": "tcp"}])],
+            _mm("TBC-UNPROMPTED-NET"),
+            "C",
+        ),
+        # Two network concerns are two concerns: D.
+        ([], _mm("TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET"), "D"),
+        # Three concerns cap at D for a review.
+        (
+            [phase({"path": "/tmp/x", "in_home": False})],
+            _mm("TBC-UNPROMPTED-NET", "TBC-LOCAL-CLAIM-NET", "TBC-WRITE-OUTSIDE-HOME"),
+            "D",
+        ),
+        # Writes outside home alone are one concern: C.
+        ([phase({"path": "/tmp/x", "in_home": False})], _mm("TBC-WRITE-OUTSIDE-HOME"), "C"),
+    ],
+)
+def test_concerns_are_counted_not_summed(phases: Any, mismatches: Any, expected: str) -> None:
+    card = synthetic(verdict="review")
+    card["observation"]["phases"] = phases
+    card["mismatches"] = mismatches
+    assert grading.grade(card_to_result(card).risk).value == expected

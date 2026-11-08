@@ -96,10 +96,11 @@ safe", as it does for every other scan.
 
 The dimensions that implement the rubric under `core.grading`'s frozen weights:
 
-| Dimension | Score (0–10) |
+| Evidence | Scoring (0–10 dimensions) |
 | --- | --- |
-| file_access | a write during a read-only tool's call, or a truncated change list (worst case), 8; writes outside home 3; lasting writes in home 2; temporary-entry churn only 1 |
-| network_access | egress breaking a closed-world declaration 8; unprompted egress or a contradicted local claim 3.6; remote server observed from outside 2; egress during tool calls 1 |
+| Behavioural concerns | Counted, not summed: unprompted egress, a contradicted local claim, and writes outside home each count once. One concern scores danger 3.6 (C) and two or more 7.2 (D), carried on file_access (3 when writes outside home are a concern) and network_access. Expected behaviour adds nothing once there is a concern. |
+| Expected behaviour only | file_access: lasting writes in home 2, temporary churn 1. network_access: a remote observed from outside 2, egress during tool calls 1. Keeps a clean card in A–B. |
+| High-severity contradictions | A write during a read-only tool's call, or a truncated change list, sets file_access 8; egress breaking a closed-world declaration sets network_access 8. With the critical cap, that's F. |
 | shell_execution, exfiltration, destructive | 0 (not observable by the sandbox) |
 
 A test checks every bundled card against this rubric.
