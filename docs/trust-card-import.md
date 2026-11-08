@@ -74,17 +74,41 @@ there is nothing to grade.
 - Concurrent writers: the whole import is one write-locked transaction, so
   ownership and latest-scan checks cannot be raced; a busy database is refused.
 
-## How dimensions are scored
+## Calibrated rubric
 
-Keyword-inferred capabilities are weak signal, so the score rests on what the
-sandbox observed and what tools declared:
+An imported card carries two separate judgements:
 
-| Dimension | Score (0–10) |
+- **The card verdict**, decided by MCPAudit from claims versus behaviour, is kept
+  as the `TBC-VERDICT` finding.
+- **The registry grade** reflects only what the sandbox observed the server do.
+
+Capabilities the sandbox cannot observe (shell execution, exfiltration,
+destructive actions) and tools it did not call never move the grade. They show
+up on the transparency axis instead: LOW transparency means "cannot verify
+safe", as it does for every other scan.
+
+| Card verdict | Registry grade | What it means |
+| --- | --- | --- |
+| `no_mismatches_observed` | A–B | Nothing observed contradicted the server's claims. **A**: no lasting writes, at most expected egress during tool calls. **B**: lasting writes inside its home directory. |
+| `review`, with any non-metadata concern | C–D | It did or showed something it didn't announce: unprompted or contradicted egress, writes outside home, tool-surface drift, or any other medium-or-higher mismatch. **C**: one concern. **D**: more than one. |
+| `review`, caused only by registry metadata | the behaviour grade (A–B) | Registry or namespace warnings (`TBC-RESOLVE`), such as a missing repository URL. The grade covers behaviour only; the verdict stays visible as a finding. |
+| `do_not_install` | D–F | A high-severity contradiction. **F** when observed behaviour broke a declaration (a read-only tool wrote files, or a closed-world tool reached the network). **D** (the critical cap) when the cause is tool text or a failed ownership check. |
+
+Worst-case evidence overrides the verdict band. A truncated change list (writes
+the card could not list in full) or a high-severity read-only contradiction
+grades F whatever the card's verdict, because the omitted or contradicted
+behaviour may be the worst kind.
+
+The dimensions that implement the rubric under `core.grading`'s frozen weights:
+
+| Evidence | Scoring (0–10 dimensions) |
 | --- | --- |
-| file_access | writes outside home, any write during a read-only tool's call, or a truncated change list (worst case), 8; writes in home 3, temporary-entry churn 1; tools not declared read-only add up to 3 by share |
-| network_access | closed-world violation 8, unprompted egress (startup or shutdown) 6, remote server 3, egress during read-only calls 2 |
-| shell_execution, exfiltration | 10 × share of tools not declared read-only whose text suggests the capability |
-| destructive | 10 × share of tools declaring `destructiveHint` |
+| Concerns | Counted, not summed. Every card mismatch at medium severity or above is a concern unless it is registry metadata (`TBC-RESOLVE`), so an unknown rule, whatever its prefix, fails safe. A lasting write outside home seen in the observation is a concern even without its label. The two network rules (unprompted egress, contradicted local claim) count as one concern, since one connection can raise both. One concern scores danger 3.6 (C) and two or more 7.2 (D), carried on file_access (3 when writes outside home are a concern) and network_access. Expected behaviour adds nothing once there is a concern. |
+| Expected behaviour only | file_access: lasting writes in home 2, temporary churn 1. network_access: a remote observed from outside 2, egress during tool calls 1. Keeps a clean card in A–B. |
+| High-severity contradictions | A write during a read-only tool's call, or a truncated change list, sets file_access 8; egress breaking a closed-world declaration sets network_access 8. With the critical cap, that's F. |
+| shell_execution, exfiltration, destructive | 0 (not observable by the sandbox) |
+
+A test checks every bundled card against this rubric.
 
 ## Limits
 

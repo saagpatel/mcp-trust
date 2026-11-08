@@ -292,24 +292,53 @@ def _share(tools: list[dict[str, Any]], test: Any) -> float:
     return sum(1 for tool in tools if test(tool)) / len(tools) if tools else 0.0
 
 
+# Mismatch rules about registry metadata rather than behaviour. Every other mismatch
+# at MEDIUM or above is a concern, so an unknown or new rule fails safe.
+METADATA_RULES = frozenset({"TBC-RESOLVE"})
+# Rules that can describe one and the same unannounced connection count once.
+_CONCERN_KEY = {"TBC-UNPROMPTED-NET": "network", "TBC-LOCAL-CLAIM-NET": "network"}
+_COUNTED = frozenset({Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM})
+# Findings the importer adds itself to describe the card, never concerns.
+_INFORMATIONAL = frozenset({"TBC-VERDICT", "TBC-OUTSIDE-ONLY"})
+# Danger score for one concern (grade C) and for two or more (grade D).
+CONCERN_DANGER = {1: 3.6, 2: 7.2}
+
+
+def concerns_of(findings: list[Finding], lasting_outside_home: bool) -> set[str]:
+    """Distinct behavioural concerns: medium-or-higher non-metadata mismatches,
+    plus any lasting write outside home seen in the observation itself."""
+    concerns = {
+        _CONCERN_KEY.get(f.rule_id, f.rule_id)
+        for f in findings
+        if f.severity in _COUNTED
+        and f.rule_id not in METADATA_RULES
+        and f.rule_id not in _INFORMATIONAL
+    }
+    if lasting_outside_home:
+        concerns.add("TBC-WRITE-OUTSIDE-HOME")
+    return concerns
+
+
 def _risk(
     card: dict[str, Any], findings: list[Finding], counted: list[Finding] | None = None
 ) -> RiskSummary:
-    """Score dimensions from what the sandbox observed and what tools declared.
+    """Score only what the sandbox observed; the calibrated rubric is in the docs.
 
-    Keyword-inferred capabilities are weak signal (the card itself does not
-    raise mismatches on them), so they only count for tools that do not declare
-    themselves read-only. Calibration, all on the registry's 0-10 scale:
+    The registry grade of an imported card reflects observed behaviour. Shell,
+    exfiltration and destructive capabilities are never observed by the sandbox,
+    so they score 0; declared hints feed the separate transparency axis.
 
-    - file_access: writes outside home (or a read-only tool writing) 8, writes in
-      home 3, temporary-entry churn 1; tools not declared read-only add up to 3
-      by share.
-    - network_access: unprompted egress (startup or shutdown) 6, egress breaking
-      a closed-world declaration 8, egress during read-only calls 2; a remote
-      server is a network service by nature, 3.
-    - shell_execution and exfiltration: 10 x the share of tools that are not
-      declared read-only and whose text suggests the capability.
-    - destructive: 10 x the share of tools declaring destructiveHint.
+    - Concerns are counted, not summed: every mismatch at MEDIUM or above that is
+      not registry metadata (METADATA_RULES), plus any lasting write outside home
+      seen in the observation. The two network rules count as one concern. One
+      concern scores danger 3.6 (C), two or more 7.2 (D), carried on file_access
+      (3 for writes outside home) and network_access.
+    - With no concern, only expected behaviour remains: lasting writes in home
+      file 2, temporary churn 1; a remote observed from outside network 2,
+      egress during tool calls 1. That keeps a clean card in A-B.
+    - A write during a read-only tool's call or a truncated change list sets
+      file_access 8; egress breaking a closed-world declaration sets
+      network_access 8. With do_not_install's critical cap, that is F.
     """
     observation = _dict(card.get("observation"))
     tools = [_dict(t) for t in _list(observation.get("tools"))]
@@ -317,40 +346,39 @@ def _risk(
     rules = {f.rule_id for f in findings}
     changes = [_dict(c) for p in phases for c in _list(p.get("file_changes"))]
     lasting = [c for c in changes if not c.get("entries_only")]
-    # A truncated change list may hide writes outside home: score the worst case.
     truncated = any(p.get("file_changes_truncated", 0) for p in phases)
-    if truncated or any(not c.get("in_home") for c in lasting) or "TBC-READONLY-WRITE" in rules:
-        observed_files = 8.0
-    elif lasting:
-        observed_files = 3.0
-    elif changes:
-        observed_files = 1.0
+    # Behavioural concerns are counted, not summed across dimensions, so one
+    # concern always lands in C and two or more in D, whatever else was seen.
+    concerns = concerns_of(findings, any(not c.get("in_home") for c in lasting))
+    if concerns:
+        target = CONCERN_DANGER[min(len(concerns), 2)]
+        file_access = 3.0 if "TBC-WRITE-OUTSIDE-HOME" in concerns else 0.0
+        network_access = round(max(0.0, target - 1.2 * file_access), 2)
     else:
-        observed_files = 0.0
-    undeclared = _share(tools, lambda t: t.get("read_only_hint") is not True)
-    file_access = max(observed_files, round(3.0 * undeclared, 2))
+        # No concern: expected behaviour only, which keeps a clean card in A-B.
+        if lasting:
+            file_access = 2.0
+        elif changes:
+            file_access = 1.0
+        else:
+            file_access = 0.0
+        if observation.get("mode") == "outside":
+            network_access = 2.0
+        elif any(_list(p.get("network")) for p in phases):
+            network_access = 1.0
+        else:
+            network_access = 0.0
+    # High-severity contradictions observed in behaviour push the grade to F.
+    if truncated or "TBC-READONLY-WRITE" in rules:
+        file_access = 8.0
     if any(f.rule_id == "TBC-READONLY-NET" and f.severity == Severity.HIGH for f in findings):
         network_access = 8.0
-    elif "TBC-UNPROMPTED-NET" in rules or "TBC-LOCAL-CLAIM-NET" in rules:
-        network_access = 6.0
-    elif observation.get("mode") == "outside":
-        network_access = 3.0
-    elif any(_list(p.get("network")) for p in phases):
-        network_access = 2.0
-    else:
-        network_access = 0.0
-
-    def suggests(capability: str) -> Any:
-        return lambda t: (
-            t.get("read_only_hint") is not True and capability in _list(t.get("inferred"))
-        )
-
     scores = {
         "file_access": file_access,
         "network_access": network_access,
-        "shell_execution": round(10.0 * _share(tools, suggests("shell_execution")), 2),
-        "destructive": round(10.0 * _share(tools, lambda t: t.get("destructive_hint") is True), 2),
-        "exfiltration": round(10.0 * _share(tools, suggests("exfiltration")), 2),
+        "shell_execution": 0.0,
+        "destructive": 0.0,
+        "exfiltration": 0.0,
     }
     counts: dict[Severity, int] = {}
     # Severity counts cover every stored finding so they agree with the record.
