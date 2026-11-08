@@ -1,0 +1,23 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T14:18:52Z",
+  "target": "io.github.cyanheads/calculator-mcp-server",
+  "server_name": "io.github.cyanheads/calculator-mcp-server",
+  "package": "npm:@cyanheads/calculator-mcp-server",
+  "version": "0.5.3",
+  "protocol_version": "2026-07-28",
+  "surface_sha256": "ff3ec410063db07cef3abfd33f08c25fe0c6523619dc482339a22966909afb1d",
+  "tools": [
+    {
+      "name": "calculate",
+      "description": "Evaluate math expressions, simplify algebraic expressions, or compute symbolic derivatives. One expression per call. Supports arithmetic, trigonometry, statistics, matrices, complex numbers, units, and combinatorics.",
+      "description_sha256": "89ce496b8644449bfbda413783ae09a2ad0fb1da834921d4e9be3769aa88defc",
+      "input_schema_sha256": "281e13b419044dfe66323cbb089e87db01cdd73d97c9814ef2acc6de57bd3715",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": null,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

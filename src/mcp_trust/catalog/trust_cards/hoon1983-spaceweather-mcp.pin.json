@@ -1,0 +1,177 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T14:23:21Z",
+  "target": "io.github.hoon1983/spaceweather-mcp",
+  "server_name": "io.github.hoon1983/spaceweather-mcp",
+  "package": "pypi:spaceweather-mcp",
+  "version": "0.1.0",
+  "protocol_version": "2026-07-28",
+  "surface_sha256": "7c4d8f5fb896b54b23381fb16f5e7dd3897345f3262d52558def62c2aee01717",
+  "tools": [
+    {
+      "name": "get_27day_outlook",
+      "description": "SWPC 27-day outlook: daily F10.7 cm radio flux, planetary Ap, largest Kp.\n\nA 4-week look-ahead driven by the ~27-day solar rotation. Coarser than the\n3-day Kp forecast but useful for longer-range planning.",
+      "description_sha256": "622e9c74154b84562ea10492196648e13c54924ccee0d1bea13a100634b47c00",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_alerts",
+      "description": "Most recent NOAA SWPC alerts, watches, and warnings (newest first).\n\nPlain-text bulletins for events like geomagnetic storm watches, radio\nblackouts, and solar radiation storms.",
+      "description_sha256": "487c563b7b2cbe09564960f107a34e773ac8156ccdfef3456b20b31a7676c44a",
+      "input_schema_sha256": "a4d89d7e53105bb282949bdc03978997fb5275ee4678c6a57c94ac46beb3022a",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_aurora_forecast",
+      "description": "OVATION short-term (~30-90 min) auroral-oval forecast.\n\nPass `latitude`/`longitude` to get the auroral activity probability (%) at\nthat location — the \"will I see aurora tonight?\" answer. Without coordinates,\nreturns the peak probability over the oval.",
+      "description_sha256": "a5665c0dda033e236d6f0753b0148b79a3fd4b00b27ef903ed8251086d982abf",
+      "input_schema_sha256": "129bb29d5200c5a95e989cf4cc7dce587645a4834511deb90c1056f12f05bb10",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_conditions_now",
+      "description": "Single-call snapshot of current space weather.\n\nReturns the latest planetary Kp, interplanetary Bz/Bt, solar wind speed and\ndensity, the current NOAA G/S/R scale levels, whether a geomagnetic storm is\nin progress (Kp >= 5), and a human-readable one-line summary. Best first call\nfor \"what's space weather doing right now / will I see aurora\" questions.",
+      "description_sha256": "a7dbbec2e42c6f7cc78dbd5bc472daeae4f70f187c92c511bbe153e5f9139757",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_dst",
+      "description": "Hourly Dst (disturbance storm-time) index over the last `days`, in nT.\n\nDst tracks the ring-current depression of a geomagnetic storm: roughly\n> -30 quiet, -50..-100 moderate, < -100 intense, < -250 great storm.\n\nNON-COMMERCIAL data from the WDC for Geomagnetism, Kyoto. Cite \"WDC for\nGeomagnetism, Kyoto\" and the Dst DOI; real-time/quicklook values are\nprovisional and not licensed for commercial use. Kept separate from the\npublic-domain NOAA/USGS feeds for this reason.",
+      "description_sha256": "5c82a5442c6dc4903a37d700d7c909bb9984f556f9217a7fa83e28a7ffbedbed",
+      "input_schema_sha256": "ae5bb696afd3483d5871de45dc000bacb4369dab0c34ca631877c6baa890add8",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_kp_forecast",
+      "description": "NOAA's 3-day planetary Kp forecast (3-hour resolution).\n\nEach point is tagged observed/estimated/predicted. Useful for aurora-watch\nplanning and anticipating geomagnetic disturbance.",
+      "description_sha256": "1e69062341964f088e0e85b984f975cbe14a7b43da23245cf2d9ec23c6f0cfb7",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_kp_index",
+      "description": "Observed planetary K-index time series (3-hour cadence, ~last week).\n\nKp ranges 0-9; Kp >= 5 indicates a geomagnetic storm (G1+). Use for trend\nand history; for the single current value use `get_conditions_now`.",
+      "description_sha256": "3b4b48f1d9bdfe5fcedc95ffd77ea0184d8ee2b309110496bba3bdc405e78fa9",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_noaa_scales",
+      "description": "NOAA G (geomagnetic), S (solar radiation), R (radio blackout) scales.\n\nReturns today (index 0) plus the next 3 forecast days, each with a 0-5\nscale level and label. The headline 'how bad is it' summary used by SWPC.",
+      "description_sha256": "3b0c67969ed02fba46be3dc101eab43baed573fe2adbdedacb2d0b8aa3bf956d",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_observatory",
+      "description": "Ground magnetometer time series for one USGS observatory (nT).\n\n`station` is an IAGA code from `list_observatories` (e.g. 'BOU'). Returns the\nrequested field components (default X,Y,Z,F) over the last `hours`, plus the\nlatest finite value per element. Use 60s sampling for trends, 1s for detail\n(heavier). Data is U.S. public domain (credit USGS); near-real-time values\nare preliminary.",
+      "description_sha256": "53f24b45e0a9f9bd979847524d932fd1548b1e2da6ee8cc9cdc75bceacf498dd",
+      "input_schema_sha256": "e41e6e406daf88479366317bdf513f56579ac3739e06883e3fbced60dff9c6ec",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_radiation_storm",
+      "description": "Current solar radiation (energetic proton) environment and NOAA S-scale.\n\nLatest GOES integral proton flux per energy threshold (pfu) plus the S\n(radiation storm) scale 0-5 derived from the >=10 MeV flux. Relevant to\nsatellite operations, polar flights, and astronaut radiation exposure.",
+      "description_sha256": "35683e2d8e525ce2b8efac9573a85aa35506413a991678ea30f7fe256e5c76eb",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_solar_flares",
+      "description": "Recent GOES X-ray solar flares (events with peak class C/M/X), last `days`.\n\nDiscrete flare events with begin/peak/end times and peak class (e.g. 'M2.1').\nBest for \"biggest recent flare?\" / current flare activity.",
+      "description_sha256": "f22321ae24c25e55edc79ac918210b654232f3359ea8cbf51359d4ffca620a01",
+      "input_schema_sha256": "58248e6732ee012758490c374fc93dca082b68259af64cf4f9d88fa6731be207",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_solar_regions",
+      "description": "Today's active sunspot regions with C/M/X flare probabilities (NOAA SWPC).\n\nPer-region location, area, spot/magnetic class, and flare/proton probabilities.\nAnswers \"how many sunspot regions / which is most likely to flare?\"",
+      "description_sha256": "9d8dbe364443355844bc1262324e064f382dddec35024ba4b273937ca019bb3d",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_solar_wind",
+      "description": "Real-time solar wind from DSCOVR/ACE at L1: magnetic field + plasma.\n\nReturns `mag` (Bx/By/Bz/Bt in nT, GSM) and `plasma` (density cm^-3, speed\nkm/s, temperature K) series for the chosen window. Sustained southward Bz\n(negative) plus elevated speed is the classic geomagnetic-storm driver.",
+      "description_sha256": "d4e2295197b7484a6baa19c52fe714959f31362609c10231db0fe2f977916b2a",
+      "input_schema_sha256": "b875b883f125786afdc8c71247b0085b795e22be4f860bfb834a62c264006277",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_space_weather_events",
+      "description": "Catalogued space-weather events from NASA DONKI (newest first).\n\n`event_type`: CME (coronal mass ejection), GST (geomagnetic storm), FLR\n(solar flare), SEP (solar energetic particle), IPS (interplanetary shock),\nHSS (high-speed stream). Each event carries a type-specific summary (e.g.\nGST max Kp, FLR class, CME speed) and a DONKI link for full detail. This is\nthe structured \"what space-weather events happened recently, and how are\nthey linked?\" view that complements the real-time SWPC feeds. Public domain\n(NASA/CCMC).",
+      "description_sha256": "11d1059af9e4387d3bc7b7a442cb6c46a919b2766b252eb88a81df3fef864c0d",
+      "input_schema_sha256": "87604a68c834c04eb10f75b5053d7e2f1bed7224051bb03d4ad9d42cd9d243cc",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "list_observatories",
+      "description": "The USGS-operated magnetic observatories you can query with get_observatory.\n\nReturns 3-letter IAGA codes (BOU, HON, GUA, …) with names and coordinates,\nso an agent can pick a station near a region of interest.",
+      "description_sha256": "1eccddd2f7fa1bbd4fe9b9ae370702af7b423d9e0e069a6e4a61391c1565934d",
+      "input_schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}

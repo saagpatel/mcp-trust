@@ -1,0 +1,355 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T14:23:21Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.hoon1983/spaceweather-mcp",
+    "kind": "registry",
+    "server_name": "io.github.hoon1983/spaceweather-mcp",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "0.1.0",
+    "title": null,
+    "description": "Space weather & geomagnetic conditions (NOAA SWPC, NASA DONKI, USGS, Kyoto) via MCP.",
+    "repository_url": "https://github.com/hoon1983/spaceweather-mcp",
+    "package": {
+      "registry_type": "pypi",
+      "identifier": "spaceweather-mcp",
+      "version": "0.1.0",
+      "transport": "stdio",
+      "runtime_hint": null,
+      "env": [],
+      "arguments": [],
+      "launch_arguments": [],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.hoon1983/spaceweather-mcp."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "pass",
+        "summary": "Repository owner matches GitHub namespace hoon1983."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "pypi spaceweather-mcp 0.1.0 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "PyPI description mcp-name matches io.github.hoon1983/spaceweather-mcp."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "python:3.13-slim (python@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2026-07-28",
+    "protocol_era": "modern",
+    "server_info": {
+      "name": "spaceweather-mcp",
+      "version": "4.1.6"
+    },
+    "tools": [
+      {
+        "name": "get_conditions_now",
+        "description": "Single-call snapshot of current space weather.\n\nReturns the latest planetary Kp, interplanetary Bz/Bt, solar wind speed and\ndensity, the current NOAA G/S/R scale levels, whether a geomagnetic storm is\nin progress (Kp >= 5), and a human-readable one-line summary. Best first call\nfor \"what's space weather doing right now / will I see aurora\" questions.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_kp_index",
+        "description": "Observed planetary K-index time series (3-hour cadence, ~last week).\n\nKp ranges 0-9; Kp >= 5 indicates a geomagnetic storm (G1+). Use for trend\nand history; for the single current value use `get_conditions_now`.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_kp_forecast",
+        "description": "NOAA's 3-day planetary Kp forecast (3-hour resolution).\n\nEach point is tagged observed/estimated/predicted. Useful for aurora-watch\nplanning and anticipating geomagnetic disturbance.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_solar_wind",
+        "description": "Real-time solar wind from DSCOVR/ACE at L1: magnetic field + plasma.\n\nReturns `mag` (Bx/By/Bz/Bt in nT, GSM) and `plasma` (density cm^-3, speed\nkm/s, temperature K) series for the chosen window. Sustained southward Bz\n(negative) plus elevated speed is the classic geomagnetic-storm driver.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_alerts",
+        "description": "Most recent NOAA SWPC alerts, watches, and warnings (newest first).\n\nPlain-text bulletins for events like geomagnetic storm watches, radio\nblackouts, and solar radiation storms.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_noaa_scales",
+        "description": "NOAA G (geomagnetic), S (solar radiation), R (radio blackout) scales.\n\nReturns today (index 0) plus the next 3 forecast days, each with a 0-5\nscale level and label. The headline 'how bad is it' summary used by SWPC.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_27day_outlook",
+        "description": "SWPC 27-day outlook: daily F10.7 cm radio flux, planetary Ap, largest Kp.\n\nA 4-week look-ahead driven by the ~27-day solar rotation. Coarser than the\n3-day Kp forecast but useful for longer-range planning.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "list_observatories",
+        "description": "The USGS-operated magnetic observatories you can query with get_observatory.\n\nReturns 3-letter IAGA codes (BOU, HON, GUA, …) with names and coordinates,\nso an agent can pick a station near a region of interest.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_observatory",
+        "description": "Ground magnetometer time series for one USGS observatory (nT).\n\n`station` is an IAGA code from `list_observatories` (e.g. 'BOU'). Returns the\nrequested field components (default X,Y,Z,F) over the last `hours`, plus the\nlatest finite value per element. Use 60s sampling for trends, 1s for detail\n(heavier). Data is U.S. public domain (credit USGS); near-real-time values\nare preliminary.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_dst",
+        "description": "Hourly Dst (disturbance storm-time) index over the last `days`, in nT.\n\nDst tracks the ring-current depression of a geomagnetic storm: roughly\n> -30 quiet, -50..-100 moderate, < -100 intense, < -250 great storm.\n\nNON-COMMERCIAL data from the WDC for Geomagnetism, Kyoto. Cite \"WDC for\nGeomagnetism, Kyoto\" and the Dst DOI; real-time/quicklook values are\nprovisional and not licensed for commercial use. Kept separate from the\npublic-domain NOAA/USGS feeds for this reason.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_solar_flares",
+        "description": "Recent GOES X-ray solar flares (events with peak class C/M/X), last `days`.\n\nDiscrete flare events with begin/peak/end times and peak class (e.g. 'M2.1').\nBest for \"biggest recent flare?\" / current flare activity.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_radiation_storm",
+        "description": "Current solar radiation (energetic proton) environment and NOAA S-scale.\n\nLatest GOES integral proton flux per energy threshold (pfu) plus the S\n(radiation storm) scale 0-5 derived from the >=10 MeV flux. Relevant to\nsatellite operations, polar flights, and astronaut radiation exposure.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_solar_regions",
+        "description": "Today's active sunspot regions with C/M/X flare probabilities (NOAA SWPC).\n\nPer-region location, area, spot/magnetic class, and flare/proton probabilities.\nAnswers \"how many sunspot regions / which is most likely to flare?\"",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_aurora_forecast",
+        "description": "OVATION short-term (~30-90 min) auroral-oval forecast.\n\nPass `latitude`/`longitude` to get the auroral activity probability (%) at\nthat location — the \"will I see aurora tonight?\" answer. Without coordinates,\nreturns the peak probability over the oval.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "get_space_weather_events",
+        "description": "Catalogued space-weather events from NASA DONKI (newest first).\n\n`event_type`: CME (coronal mass ejection), GST (geomagnetic storm), FLR\n(solar flare), SEP (solar energetic particle), IPS (interplanetary shock),\nHSS (high-speed stream). Each event carries a type-specific summary (e.g.\nGST max Kp, FLR class, CME speed) and a DONKI link for full detail. This is\nthe structured \"what space-weather events happened recently, and how are\nthey linked?\" view that complements the real-time SWPC feeds. Public domain\n(NASA/CCMC).",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [],
+    "resources": 0,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [
+          {
+            "kind": "dns",
+            "host": "pypi.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 1
+          },
+          {
+            "kind": "dns",
+            "host": "pypi.org",
+            "ip": null,
+            "port": null,
+            "sni": null,
+            "http_method": null,
+            "http_host": null,
+            "qtype": 28
+          },
+          {
+            "kind": "tcp",
+            "host": "pypi.org",
+            "ip": "198.18.0.1",
+            "port": 443,
+            "sni": "pypi.org",
+            "http_method": null,
+            "http_host": null,
+            "qtype": null
+          }
+        ],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [
+    {
+      "severity": "medium",
+      "summary": "Tried to reach the network at startup, before any tool was called: pypi.org:443.",
+      "tool": null,
+      "rule": "TBC-UNPROMPTED-NET"
+    }
+  ],
+  "verdict": "review",
+  "headline": "Review before installing: what it did differs from what it claims.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"spaceweather-mcp\": {\n      \"command\": \"uvx\",\n      \"args\": [\n        \"--from\",\n        \"spaceweather-mcp==0.1.0\",\n        \"spaceweather-mcp\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [],\n    \"ask\": [\n      \"mcp__spaceweather-mcp__get_conditions_now\",\n      \"mcp__spaceweather-mcp__get_kp_index\",\n      \"mcp__spaceweather-mcp__get_kp_forecast\",\n      \"mcp__spaceweather-mcp__get_solar_wind\",\n      \"mcp__spaceweather-mcp__get_alerts\",\n      \"mcp__spaceweather-mcp__get_noaa_scales\",\n      \"mcp__spaceweather-mcp__get_27day_outlook\",\n      \"mcp__spaceweather-mcp__list_observatories\",\n      \"mcp__spaceweather-mcp__get_observatory\",\n      \"mcp__spaceweather-mcp__get_dst\",\n      \"mcp__spaceweather-mcp__get_solar_flares\",\n      \"mcp__spaceweather-mcp__get_radiation_storm\",\n      \"mcp__spaceweather-mcp__get_solar_regions\",\n      \"mcp__spaceweather-mcp__get_aurora_forecast\",\n      \"mcp__spaceweather-mcp__get_space_weather_events\"\n    ],\n    \"deny\": []\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "review pypi.org:443  # attempted during startup\ndeny *  # nothing else was attempted",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "deny-write *  # no writes observed",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}

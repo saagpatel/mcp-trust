@@ -1,0 +1,78 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T14:21:07Z",
+  "target": "io.github.dgahagan/weather-mcp",
+  "server_name": "io.github.dgahagan/weather-mcp",
+  "package": "npm:@dangahagan/weather-mcp",
+  "version": "1.35.7",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "de26896c9f9c9e85100ce455add4a2b14e324f558be09abfc2d4ee88b746c15d",
+  "tools": [
+    {
+      "name": "check_service_status",
+      "description": "Check whether the upstream weather APIs (NOAA, Open-Meteo) are reachable. Call this after any weather tool returns an error, or before a batch of requests. Returns per-service status and links to the official status pages.",
+      "description_sha256": "28ee36deaac6be1bd759983437fab27218c87eca8db48c33a11ebf436d68fb75",
+      "input_schema_sha256": "c8a1ac469a826ea3547ac220c7bbfdcd6b58080d4ec596ff2a0149c5ccb9b699",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_alerts",
+      "description": "Get active weather alerts, watches, warnings, and advisories for a location. Coverage: the United States (NOAA), Canada (Environment and Climate Change Canada), European MeteoAlarm member countries, Japan (JMA), and the official national CAP feeds of India (NDMA SACHET), the Philippines (PAGASA) and Indonesia (BMKG). All of the above are keyless. With an optional `GOOGLE_WEATHER_API_KEY`, official alerts are also available for ~45+ more territories (Australia, Brazil, Mexico, and others) via the Google Weather API. Use this for safety-critical weather information when asked about \"any alerts?\", \"weather warnings?\", \"is it safe?\", \"dangerous weather?\", or \"weather watches?\". For forecast data, use get_forecast instead.",
+      "description_sha256": "7d15ecd47469afbc3f50b9fbe7580735af4b3f15aa3c776e87a275198e88b589",
+      "input_schema_sha256": "5cb55c7693213f74b4606fdb1417a3227e7bcf2733e4b19f919859ae7f94fe20",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_current_conditions",
+      "description": "Get the most recent weather observation for a location. Use this for current weather or when asking about \"today's weather\", \"right now\", or recent conditions without a specific historical date range. Returns NOAA station observations for US locations and Open-Meteo model data for international locations. Automatically includes frostbite-risk and heat-stress (WBGT) context when conditions are extreme. For specific past dates or date ranges, use get_historical_weather instead.",
+      "description_sha256": "132e22ebea239c7dee86b1de10ec6ef7cf71bce973ef641a794a0ddc131682a9",
+      "input_schema_sha256": "46059603f379f340e5615b827af9f1e40997b89ae912d32ae99da8eae640d629",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_forecast",
+      "description": "Get future weather forecast for a location. Use this for upcoming weather predictions (e.g., \"tomorrow\", \"this week\", \"next 7 days\", \"hourly forecast\"). Automatically selects the best data source: NOAA for US locations (more detailed), Open-Meteo for international locations. For current weather, use get_current_conditions. For past weather, use get_historical_weather.",
+      "description_sha256": "605b33ed419f62261c83749f0e331f87a915660096c8e0236a2958e7298ca605",
+      "input_schema_sha256": "214bbcd126f07b007d52f53ca3926086804b4b529b454060ac2857ee09f74065",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "get_weather_summary",
+      "description": "Get a combined weather overview for a location in a SINGLE call — current conditions, forecast and alerts, optionally air quality and lightning. Best for broad questions like \"What's the weather like in Seattle?\", \"Is it safe to hike today?\", or \"Give me a weather rundown\". For a single specific data product (just the forecast, just alerts, etc.), call that specialized tool directly. Sections that are unavailable for a location (e.g. alerts in a country not yet covered) are noted rather than failing the whole summary.",
+      "description_sha256": "2df6177d8ac20fae910a2e14cbf73310e28f0fddd7fc18db6ad46651b97c994e",
+      "input_schema_sha256": "4bcc674c5b167de867d654c9e3fe36a5c81472e4bf598ca6c7d196e2331c4d99",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "search_location",
+      "description": "Search for locations by name and get their coordinates. Uses Nominatim (OpenStreetMap) for coverage of cities, towns, villages and hamlets worldwide. The weather tools geocode city_name themselves, so use this to disambiguate an ambiguous place name or to show the candidate matches (e.g., \"Springfield\", \"San Francisco, CA\", \"Small Village, County\") — not as a required first step before a weather call.",
+      "description_sha256": "86b68eee1e709214da1de9189172ae1165c4a64236e995e0874b0c8289ad3faa",
+      "input_schema_sha256": "568d68c83a08d964b09451d7ffd29a46a61371e3c69dfdb6ec231b9b4cc2cf9d",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}
