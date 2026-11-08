@@ -88,27 +88,44 @@ def _str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _read_json(path: Path, what: str) -> Any:
+def _read_bytes(path: Path, what: str) -> bytes:
+    """Read at most MAX_CARD_BYTES + 1 from a regular file; never stream devices."""
     try:
-        raw = path.read_bytes()
+        if not path.is_file():
+            raise TrustCardError(f"{what} is not a regular file")
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_CARD_BYTES + 1)
     except OSError as exc:
         raise TrustCardError(f"cannot read {what} ({type(exc).__name__})") from None
     if len(raw) > MAX_CARD_BYTES:
         raise TrustCardError(f"{what} exceeds the 4 MiB import limit")
+    return raw
+
+
+def _parse_json(raw: bytes, what: str) -> Any:
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise TrustCardError(f"{what} is not UTF-8 JSON") from None
 
 
+def _read_json(path: Path, what: str) -> Any:
+    return _parse_json(_read_bytes(path, what), what)
+
+
 def load_card(path: Path) -> dict[str, Any]:
+    return load_card_with_digest(path)[0]
+
+
+def load_card_with_digest(path: Path) -> tuple[dict[str, Any], str]:
     """Read a trust card and refuse anything that is not a complete observation.
 
     The registry grades only what was observed: the verdict must be one of the
     card's graded verdicts, the observation status must be exactly ``complete``,
     and the evidence collections must have the expected types.
     """
-    card = _read_json(path, "card")
+    raw = _read_bytes(path, "card")
+    card = _parse_json(raw, "card")
     if not isinstance(card, dict) or card.get("schema") != CARD_SCHEMA:
         raise TrustCardError(f"not a {CARD_SCHEMA} card")
     if card.get("verdict") not in GRADED_VERDICTS:
@@ -122,7 +139,7 @@ def load_card(path: Path) -> dict[str, Any]:
         raise TrustCardError("card has no target")
     _validate_evidence(card)
     observed_at(card)
-    return card
+    return card, hashlib.sha256(raw).hexdigest()
 
 
 _HINTS = ("read_only_hint", "destructive_hint", "open_world_hint")
@@ -143,9 +160,9 @@ def _validate_evidence(card: dict[str, Any]) -> None:
     for tool in _records(observation, "tools", "observation."):
         if not isinstance(tool.get("name"), str) or not tool["name"]:
             raise TrustCardError("a tool has no name")
-        if any(not isinstance(tool.get(h), bool | None) for h in _HINTS):
-            raise TrustCardError(f"tool {tool['name']!r} has a non-boolean annotation hint")
-        inferred = tool.get("inferred", [])
+        if any(h not in tool or not isinstance(tool[h], bool | None) for h in _HINTS):
+            raise TrustCardError(f"tool {tool['name']!r} has a missing or non-boolean hint")
+        inferred = tool.get("inferred")
         if not isinstance(inferred, list) or not all(isinstance(c, str) for c in inferred):
             raise TrustCardError(f"tool {tool['name']!r} has malformed inferred capabilities")
     for phase in _records(observation, "phases", "observation."):
@@ -374,6 +391,18 @@ def card_to_result(card: dict[str, Any], pin: dict[str, Any] | None = None) -> E
                 detail=_str(mismatch.get("summary")) or "",
             )
         )
+    poisoned = [m for m in mismatches if m.rule_id == "TBC-INJECTION"]
+    if poisoned:
+        # Tool-poisoning text is disqualifying in the registry rubric (critical cap).
+        mismatches.append(
+            Finding(
+                rule_id="TBC-INJECTION-CAP",
+                title="Tool text matches prompt-injection patterns",
+                severity=Severity.CRITICAL,
+                category="injection",
+                detail=poisoned[0].detail,
+            )
+        )
     if card.get("verdict") == "do_not_install":
         # The card's own strongest verdict caps the registry grade (critical cap).
         mismatches.append(
@@ -445,7 +474,3 @@ def check_admission(result: EngineResult, server: Server) -> None:
     ]
     if any(len(value.encode("utf-8")) > MAX_STORED_JSON_BYTES for value in stored):
         raise TrustCardError("card maps to a record larger than the repository admits")
-
-
-def card_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()

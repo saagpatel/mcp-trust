@@ -24,8 +24,13 @@ mcp-trust check cyanheads-nws-weather-mcp-server
 - **Scan:** engine `mcp-audit-trust`, graded by the registry's own rubric
   (`core.grading`). Findings are the card's verdict (`TBC-VERDICT`, info), an
   outside-only note for remote servers, and each card mismatch at its own
-  severity. A `do_not_install` verdict adds a critical finding, which caps the
-  grade.
+  severity. A `do_not_install` verdict, or tool text matching prompt-injection
+  patterns, adds a critical finding, which caps the grade. Other mismatches
+  (for example `TBC-DRIFT`) are listed but do not cap it; the card's own verdict
+  stays visible as `TBC-VERDICT`.
+- **No receipt:** imports never write a scan receipt. A receipt is a public
+  proof packet stamped with the importing shell's scan settings, which say
+  nothing about the MCPAudit run behind the card.
 - **Evidence:** tool names, annotation presence and input-schema hashes, only
   when `--pin` is given. The pin must come from the same run as the card: same
   server, package and version, created within five minutes of the card, with

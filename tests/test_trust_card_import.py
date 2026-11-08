@@ -400,4 +400,119 @@ def test_scans_without_a_readable_server_row_are_refused(tmp_path: Path) -> None
     conn.execute("UPDATE servers SET source_json = 'not json'")
     conn.commit()
     result = runner.invoke(app, ["import-card", str(CARD), "--db", db])
-    assert result.exit_code == 1 and "no readable server row" in result.output
+    assert result.exit_code == 1 and "unreadable server row" in result.output
+
+
+# Round-three review fixes ---------------------------------------------------------
+
+
+def scored(tools: list[dict[str, Any]], phases: list[dict[str, Any]], mismatches: list[Any]) -> Any:
+    card = synthetic()
+    card["observation"]["tools"] = tools
+    card["observation"]["phases"] = phases
+    card["mismatches"] = mismatches
+    return card_to_result(card).risk
+
+
+def tool(name: str = "t", read_only: bool | None = True, **extra: Any) -> dict[str, Any]:
+    return {
+        "name": name,
+        "read_only_hint": read_only,
+        "destructive_hint": extra.pop("destructive", None),
+        "open_world_hint": None,
+        "inferred": extra.pop("inferred", []),
+    }
+
+
+def phase(*changes: dict[str, Any], network: list[Any] | None = None) -> dict[str, Any]:
+    return {"name": "startup", "file_changes": list(changes), "network": network or []}
+
+
+@pytest.mark.parametrize(
+    ("tools", "phases", "mismatches", "dimension", "expected"),
+    [
+        ([tool()], [phase({"path": "/tmp/x", "in_home": False})], [], "file_access", 8.0),
+        ([tool()], [phase({"path": "/scratch/x", "in_home": True})], [], "file_access", 3.0),
+        (
+            [tool()],
+            [phase({"path": "/scratch", "in_home": True, "entries_only": True})],
+            [],
+            "file_access",
+            1.0,
+        ),
+        ([tool("a", None), tool("b", True)], [], [], "file_access", 1.5),
+        ([tool()], [phase(network=[{"kind": "dns"}])], [], "network_access", 2.0),
+        (
+            [tool()],
+            [],
+            [{"severity": "high", "rule": "TBC-READONLY-NET", "summary": "x"}],
+            "network_access",
+            8.0,
+        ),
+        (
+            [tool("a", None, inferred=["shell_execution"]), tool("b")],
+            [],
+            [],
+            "shell_execution",
+            5.0,
+        ),
+        ([tool("a", None, destructive=True), tool("b")], [], [], "destructive", 5.0),
+    ],
+)
+def test_documented_calibration(
+    tools: Any, phases: Any, mismatches: Any, dimension: str, expected: float
+) -> None:
+    assert getattr(scored(tools, phases, mismatches), dimension) == expected
+
+
+def test_injection_caps_the_grade() -> None:
+    risk = scored(
+        [tool()], [], [{"severity": "high", "rule": "TBC-INJECTION", "summary": "ignore previous"}]
+    )
+    assert risk.count(Severity.CRITICAL) == 1 and grading.grade(risk) in {
+        TrustGrade.D,
+        TrustGrade.F,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c["observation"]["tools"][0].pop("inferred"),
+        lambda c: c["observation"]["tools"][0].pop("read_only_hint"),
+    ],
+)
+def test_missing_scoring_fields_are_refused(tmp_path: Path, mutate: Any) -> None:
+    card = real_card()
+    mutate(card)
+    with pytest.raises(TrustCardError):
+        load_card(write(tmp_path, card))
+
+
+def test_unreadable_server_row_without_scans_is_left_alone(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    conn = connect(db)
+    init_schema(conn)
+    conn.execute("DELETE FROM scans")
+    conn.execute("UPDATE servers SET source_json = 'not json'")
+    conn.commit()
+    result = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert result.exit_code == 1 and "unreadable server row" in result.output
+    row = conn.execute("SELECT source_json FROM servers").fetchone()
+    assert row[0] == "not json"
+
+
+def test_non_regular_files_are_refused(tmp_path: Path) -> None:
+    with pytest.raises(TrustCardError):
+        load_card(tmp_path)
+
+
+def test_imports_write_no_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipts = tmp_path / "receipts"
+    monkeypatch.setenv("MCP_TRUST_RECEIPTS_DIR", str(receipts))
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    assert not receipts.exists() or not any(receipts.iterdir())

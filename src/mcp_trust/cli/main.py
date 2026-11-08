@@ -152,12 +152,11 @@ def import_card(
     """
     from mcp_trust.catalog.trust_card import (  # noqa: PLC0415
         TrustCardError,
-        card_digest,
         card_to_result,
         card_to_server,
         check_admission,
         default_slug,
-        load_card,
+        load_card_with_digest,
         load_pin,
         observed_at,
     )
@@ -168,7 +167,7 @@ def import_card(
         return typer.Exit(code=1)
 
     try:
-        card = load_card(card_path)
+        card, digest = load_card_with_digest(card_path)
         pin = load_pin(pin_path, card) if pin_path else None
         server_slug = slug or default_slug(card)
         server = card_to_server(card, server_slug)
@@ -178,8 +177,13 @@ def import_card(
     except (TrustCardError, ValueError, TypeError, OSError) as exc:
         raise fail(str(exc)) from None
 
-    _, server_repo, scan_repo = _open_db(db)
+    conn, server_repo, scan_repo = _open_db(db)
     existing = server_repo.get(server_slug)
+    row_present = (
+        conn.execute("SELECT 1 FROM servers WHERE slug = ?", (server_slug,)).fetchone() is not None
+    )
+    if existing is None and row_present:
+        raise fail(f"{server_slug!r} has an unreadable server row; not importing over it.")
     if existing is not None and (existing.source.kind, existing.source.reference) != (
         server.source.kind,
         server.source.reference,
@@ -217,11 +221,10 @@ def import_card(
         sandbox_image=result.sandbox_image,
         report_ref=None,
     )
-    receipt_ref = write_scan_receipt(existing or server, record)
-    if receipt_ref is not None:
-        record = record.model_copy(update={"report_ref": receipt_ref})
+    # No receipt: a receipt is a public proof packet stamped with this shell's scan
+    # settings, which describe nothing about the MCPAudit run behind the card.
     scan_repo.record(record)
-    typer.echo(f"Imported card sha256:{card_digest(card_path)[:16]} as {server_slug!r}.")
+    typer.echo(f"Imported card sha256:{digest[:16]} as {server_slug!r}.")
     _print_scan(record)
 
 
