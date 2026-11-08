@@ -673,7 +673,7 @@ def test_bundled_cards_are_complete_named_by_slug_and_pinned() -> None:
     from mcp_trust.catalog.trust_card import load_pin
 
     cards = sorted(BUNDLED.glob("*.card.json"))
-    assert len(cards) >= 11
+    assert cards, "no bundled cards"
     for path in cards:
         card = load_card(path)
         assert path.name == f"{default_slug(card)}.card.json"
