@@ -1,0 +1,78 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:16:47Z",
+  "target": "io.github.aimsise/color-engine-mcp",
+  "server_name": "io.github.aimsise/color-engine-mcp",
+  "package": "npm:color-engine-mcp",
+  "version": "1.0.1",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "755c0757afae6d25d2a7642e038c84e7505f7e1d4e5ce50459eb29e8735ede89",
+  "tools": [
+    {
+      "name": "contrast",
+      "description": "Compute the WCAG 2.1 contrast ratio between two fully opaque CSS color strings and return WCAG tier flags (AA/AAA normal/large text). Set apca:true to also get the signed APCA-W3 Lc for text `a` over background `b`.",
+      "description_sha256": "b76abe1e20c0746d71f907fadccc24ee4ba391df3cb6820ea8a82ce3dfe145e2",
+      "input_schema_sha256": "f7c4612954b99bf3ec17e70dc05d6a7c3ead93750f9d3b285c76a81efd2aa783",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "convert_color",
+      "description": "Convert a CSS color string into a canonical hex, rgb, hsl, or oklch format string.",
+      "description_sha256": "b9d5c68e6331395b33c2afd037b3a864cc4a235f29bff977efd2130544bf2077",
+      "input_schema_sha256": "54bb11397e456357019e431e4d7ceea10c4b2d09ee1b84da09f3ba00380200a0",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "gamut_map",
+      "description": "Map any CSS color string into the sRGB gamut via perceptual OKLCH chroma reduction. Returns the nearest in-gamut hex, raw OKLCH components, and a `clamped` flag indicating whether the input was out-of-gamut.",
+      "description_sha256": "b4df6d18d0286172f88a4888a81b6c0c3ed08ba08c361d09433386a0c31f82db",
+      "input_schema_sha256": "fb1c6bcc4c67dfa898208cf08df273c3b1f2a9ed1496c63d792949ff8f9a9ff7",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "generate_ramp",
+      "description": "Generate a tint-to-shade color ramp from a base CSS color. Returns an ordered list of swatches (light → dark) each with its in-gamut hex, display-rounded OKLCH components (l/c 5dp, h 2dp), WCAG contrast ratios (2dp) + tiers vs white and black, and an in-gamut flag. Optionally emits the ramp as design tokens via tokenFormat (\"tailwind\" JSON or a \"css-variables\" :root block).",
+      "description_sha256": "bee869619efc32fdf369ad0d342014f0f2a7f7c3ef37244e2d86fd72f3a46d71",
+      "input_schema_sha256": "1b3b3f949d4427be37e4a1374331594c007df06c70a7e894319114512e21bead",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "parse_color",
+      "description": "Parse a CSS color string and return hex, rgb, oklch, and gamut info.",
+      "description_sha256": "dfe4f805e089050337fcf0154789ec7b3229b41ff4390816edbe58bd16768d73",
+      "input_schema_sha256": "5b055412deccf7422e8201732cb923abacb04a9f153994d039ae0a748731519e",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "solve_for_contrast",
+      "description": "Find a foreground color that meets one or more WCAG 2.1 contrast targets against a background. Binary-searches OKLCH lightness (holding hue/chroma fixed) and returns the nearest-compliant hex plus the achieved ratio. Pass `target` for one target or `targets` for several; `prefer` selects lighter/darker/either; `hue`/`chroma` pin the foreground chromaticity. If BOTH `target` and `targets` are provided, `targets` takes precedence. The response shape differs by mode: a single `target` returns `{ met, color, ratio }` (with an optional `nearMiss` flag); `targets` returns `{ results: [{ met, color, ratio, nearMiss? }, ...] }`. The output schema is an all-optional superset of both shapes (SDK 1.29 single-shape limitation). An unparseable background returns the PARSE_FAILED error; a translucent background (alpha < 1, e.g. rgba()/hsla()/#rgba/#rrggbbaa) returns ALPHA_UNSUPPORTED — composite it over its backdrop first.",
+      "description_sha256": "49960b6b78739fc93fde2f9bb20da7a62cc2c98ec86e0c97c07fb883dc450839",
+      "input_schema_sha256": "6ef340abdeee9a217cf19e2e96f42435875c5fe033325e298448c70e797eb85f",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

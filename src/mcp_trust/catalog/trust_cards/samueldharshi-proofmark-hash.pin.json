@@ -1,0 +1,34 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:17:40Z",
+  "target": "io.github.SamuelDharshi/proofmark-hash",
+  "server_name": "io.github.SamuelDharshi/proofmark-hash",
+  "package": "npm:proofmark-hash",
+  "version": "1.0.0",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "9f1425a80a9bb00ac98f0cfd923ef090d701f7bc2d5887a4e32f498c54cfbaa5",
+  "tools": [
+    {
+      "name": "hash_text",
+      "description": "Hash UTF-8 text with sha256 (default), sha512 or sha3-256. Returns lowercase hex.",
+      "description_sha256": "51b64b78af2ffbc676fdd67274ac217b5077b40a0e8234dfd37b3f6196f847eb",
+      "input_schema_sha256": "d77a9bbbf90290d8cbc49a2d1047dbd992ea4de36d68414ff77269a6171c7398",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "verify_hash",
+      "description": "Check whether text hashes to an expected hex digest, in constant time.",
+      "description_sha256": "0338a509ff2425a69ca251e34b05789ab56912d67cfd4a36db83e1e10345e1eb",
+      "input_schema_sha256": "9c3a1b708abee6b58f5c0ae646fa40780bf41909cf2ab56bb7452208fec97906",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}

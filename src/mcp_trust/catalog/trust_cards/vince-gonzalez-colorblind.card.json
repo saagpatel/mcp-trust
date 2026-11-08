@@ -1,0 +1,198 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T15:16:57Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.vince-gonzalez/colorblind",
+    "kind": "registry",
+    "server_name": "io.github.vince-gonzalez/colorblind",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "0.2.0",
+    "title": null,
+    "description": "See a color or image as a colorblind person does; recolor images and make Ishihara plates.",
+    "repository_url": "https://github.com/vince-gonzalez/opticquiz.com",
+    "package": {
+      "registry_type": "npm",
+      "identifier": "colorblind-mcp",
+      "version": "0.2.0",
+      "transport": "stdio",
+      "runtime_hint": null,
+      "env": [],
+      "arguments": [],
+      "launch_arguments": [],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.vince-gonzalez/colorblind."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "pass",
+        "summary": "Repository owner matches GitHub namespace vince-gonzalez."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "npm colorblind-mcp 0.2.0 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "package.json mcpName matches io.github.vince-gonzalez/colorblind."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "node:24-slim (node@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2025-11-25",
+    "protocol_era": "legacy",
+    "server_info": {
+      "name": "colorblind",
+      "version": "0.2.0"
+    },
+    "tools": [
+      {
+        "name": "simulateColor",
+        "description": "Return how a single hex color appears to someone with a given type of color-vision deficiency (protan, deutan, or tritan). Set severity 0..1 for a partial deficiency (anomalous trichromacy); 1 is the full dichromat case.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "compareVision",
+        "description": "Return how a single hex color appears under protanopia, deuteranopia and tritanopia at once, for a side-by-side comparison.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "simulateImage",
+        "description": "Recolor an image, chart, screenshot or mockup the way someone with color-vision deficiency sees it, and return the recolored image. Use this to SHOW what a design looks like through colorblindness (to check whether it stays readable, pair it with cvdsafe's checkImage). Reads PNG and JPEG — pass `path` for a local file, or a base64 `dataUri`. `type` picks the deficiency (default deutan); `severity` 0..1 sets strength.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      },
+      {
+        "name": "plate",
+        "description": "Generate a pseudoisochromatic (Ishihara-style) test plate: a digit hidden in a field of dots whose colors are distinct to normal vision but collapse under the chosen deficiency. Returns the plate image. Use when asked to create a colorblindness test plate or demonstrate what a plate looks like. Reproducible from a seed.",
+        "read_only_hint": null,
+        "destructive_hint": null,
+        "open_world_hint": null,
+        "inferred": [
+          "file_write"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "not declared read-only (readOnlyHint)"
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [],
+    "resources": null,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [],
+  "verdict": "no_mismatches_observed",
+  "headline": "No mismatches observed in the sandbox. That is evidence, not a guarantee.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"colorblind\": {\n      \"command\": \"npx\",\n      \"args\": [\n        \"-y\",\n        \"colorblind-mcp@0.2.0\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [],\n    \"ask\": [\n      \"mcp__colorblind__simulateColor\",\n      \"mcp__colorblind__compareVision\",\n      \"mcp__colorblind__simulateImage\",\n      \"mcp__colorblind__plate\"\n    ],\n    \"deny\": []\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "deny *  # no egress attempts observed",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "deny-write *  # no writes observed",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}

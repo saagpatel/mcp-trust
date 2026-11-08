@@ -1,0 +1,34 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:17:06Z",
+  "target": "io.github.socraticstatic/chart-color-audit",
+  "server_name": "io.github.socraticstatic/chart-color-audit",
+  "package": "npm:chart-color-audit",
+  "version": "0.2.5",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "975454c337ab4b4b3abec55bd3f2ddab8cd62e8de38519e9434d58725ef010a0",
+  "tools": [
+    {
+      "name": "audit_palette",
+      "description": "Audit chart colors for accessibility: pairwise OKLab ΔE separation under normal vision, deuteranopia, protanopia, tritanopia (published Machado 2009 matrices) and grayscale, plus WCAG 2.2 SC 1.4.11 non-text contrast (≥3:1) against the background. Returns per-vision findings with human-word bands and a pass/fail verdict with reasons.",
+      "description_sha256": "3728f4d850e44376fff7888ffe60de1d5933939592f9b24ea284a578abf8c99e",
+      "input_schema_sha256": "cdf826a867093c1c836332bff470fb36cdd743ea732e1031393a96fecce1c7b4",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "audit_tokens",
+      "description": "Run the same audit against a chartaudit.config.json on disk — the config names a CSS or design-tokens file plus which tokens are the categorical palette, background, and semantic roles.",
+      "description_sha256": "49cb7cb6f14696b419bc5926e88c96ad2bcbe89be4ac9dd77b3c48569a76bd91",
+      "input_schema_sha256": "d8d4d55c0f860f2c043c73ed78f85f0c0cde17d401d0c2f51ba51b9d4d151ca9",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:16:18Z",
+  "target": "io.github.ryudi84/regex-lab",
+  "server_name": "io.github.ryudi84/regex-lab",
+  "package": "npm:regex-lab-mcp",
+  "version": "1.0.4",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "86c20e891ee3aa8dc12d21d1d57920991ae0c47fd8eaedaeebf31d77ae56e340",
+  "tools": [
+    {
+      "name": "replace_regex",
+      "description": "Replace matches in a string using a regex pattern and replacement string.",
+      "description_sha256": "b5ef94fc3bc5bbdd16069691b9c809fa37db0e5ca3abf3d79e157790c624eeb1",
+      "input_schema_sha256": "9c10b83d2c34744b251422cf0d0835de0ebf3f6a40132863420a9ec5c89a1365",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "test_regex",
+      "description": "Test a regex pattern against a string. Returns all matches with positions and capture groups.",
+      "description_sha256": "0d9c8dd55284aa231078640d85ef92591fcc92c1ce911013efc00738558d22b3",
+      "input_schema_sha256": "cfa651fea29de6908639fec00400407a675c8e6408aaa1f2b812c9487357588e",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "validate_regex",
+      "description": "Check if a regex pattern is syntactically valid.",
+      "description_sha256": "7a4d0fae784521fbfae6a803645337375a4a6233d13661ae1804c423706520c4",
+      "input_schema_sha256": "77afb0930ab7e068a66c4202fb4444ce4539d9f0063bfc59e0794b3f982d2b2c",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}
