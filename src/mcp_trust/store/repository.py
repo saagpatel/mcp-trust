@@ -16,6 +16,10 @@ _log = logging.getLogger(__name__)
 _MAX_STORED_JSON_BYTES = 1_048_576
 _MAX_STORED_FINDINGS = 1_024
 _MAX_STORED_TOOLS = 2_048
+# Public names for writers that must check admission before persisting.
+MAX_STORED_JSON_BYTES = _MAX_STORED_JSON_BYTES
+MAX_STORED_FINDINGS = _MAX_STORED_FINDINGS
+MAX_STORED_TOOLS = _MAX_STORED_TOOLS
 
 
 def _load_stored_json(value: object) -> object:

@@ -36,18 +36,15 @@ from mcp_trust.core.models import (
 )
 from mcp_trust.engine.base import EngineResult
 from mcp_trust.store.repository import (
-    _MAX_STORED_FINDINGS as MAX_STORED_FINDINGS,
-)
-from mcp_trust.store.repository import (
-    _MAX_STORED_JSON_BYTES as MAX_STORED_JSON_BYTES,
-)
-from mcp_trust.store.repository import (
-    _MAX_STORED_TOOLS as MAX_STORED_TOOLS,
+    MAX_STORED_FINDINGS,
+    MAX_STORED_JSON_BYTES,
+    MAX_STORED_TOOLS,
 )
 
 CARD_SCHEMA = "mcp-audit.trust-card/1"
 PIN_SCHEMA = "mcp-audit.trust-pin/1"
 GRADED_VERDICTS = frozenset({"no_mismatches_observed", "review", "do_not_install"})
+PIN_RUN_WINDOW = timedelta(minutes=5)
 ENGINE_NAME = "mcp-audit-trust"
 MAX_CARD_BYTES = 4 * 1024 * 1024
 
@@ -71,7 +68,6 @@ _RULE_CATEGORY = {
     "TBC-PIN-OTHER-SERVER": "drift",
     "TBC-INSTALL-SCRIPTS": "supply_chain",
 }
-# Card capability names (inferred per tool) -> registry risk dimensions.
 _SLUG_PART = re.compile(r"[^a-z0-9]+")
 _ENV_KEY = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
@@ -124,18 +120,84 @@ def load_card(path: Path) -> dict[str, Any]:
         raise TrustCardError("card observation mode is not container or outside")
     if not isinstance(card.get("target"), dict) or not card["target"]:
         raise TrustCardError("card has no target")
-    for key, container in (("tools", observation), ("phases", observation), ("mismatches", card)):
-        value = container.get(key, [])
-        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
-            raise TrustCardError(f"card field {key!r} is malformed")
+    _validate_evidence(card)
     observed_at(card)
     return card
 
 
-def load_pin(path: Path) -> dict[str, Any]:
+_HINTS = ("read_only_hint", "destructive_hint", "open_world_hint")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _records(container: dict[str, Any], key: str, where: str) -> list[dict[str, Any]]:
+    """A required list of objects; absence or any other shape is malformed evidence."""
+    value = container.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise TrustCardError(f"card field {where}{key!r} is missing or malformed")
+    return value
+
+
+def _validate_evidence(card: dict[str, Any]) -> None:
+    """Every field scoring reads must be present and well-typed; absence is never 'clean'."""
+    observation = card["observation"]
+    for tool in _records(observation, "tools", "observation."):
+        if not isinstance(tool.get("name"), str) or not tool["name"]:
+            raise TrustCardError("a tool has no name")
+        if any(not isinstance(tool.get(h), bool | None) for h in _HINTS):
+            raise TrustCardError(f"tool {tool['name']!r} has a non-boolean annotation hint")
+        inferred = tool.get("inferred", [])
+        if not isinstance(inferred, list) or not all(isinstance(c, str) for c in inferred):
+            raise TrustCardError(f"tool {tool['name']!r} has malformed inferred capabilities")
+    for phase in _records(observation, "phases", "observation."):
+        for change in _records(phase, "file_changes", "phase."):
+            if not isinstance(change.get("path"), str) or not isinstance(
+                change.get("in_home"), bool
+            ):
+                raise TrustCardError("a file change is malformed")
+            if not isinstance(change.get("entries_only", False), bool):
+                raise TrustCardError("a file change is malformed")
+        _records(phase, "network", "phase.")
+    for mismatch in _records(card, "mismatches", ""):
+        if mismatch.get("severity") not in _SEVERITY or not isinstance(mismatch.get("rule"), str):
+            raise TrustCardError("a mismatch has an unknown severity or no rule")
+        if not isinstance(mismatch.get("summary"), str):
+            raise TrustCardError("a mismatch has no summary")
+
+
+def load_pin(path: Path, card: dict[str, Any]) -> dict[str, Any]:
+    """A pin is used only if it comes from the same run as the card.
+
+    Same server, package and version; created within PIN_RUN_WINDOW of the card;
+    the same tool names; and well-formed hashes. Otherwise its hashes would be
+    attributed to an observation they did not come from.
+    """
     pin = _read_json(path, "pin")
     if not isinstance(pin, dict) or pin.get("schema") != PIN_SCHEMA:
         raise TrustCardError(f"not a {PIN_SCHEMA} pin")
+    target = card["target"]
+    package = _dict(target.get("package"))
+    expected_package = (
+        f"{package.get('registry_type')}:{package.get('identifier')}" if package else None
+    )
+    expected_version = _str(package.get("version")) or _str(target.get("server_version"))
+    if (
+        pin.get("server_name") != target.get("server_name")
+        or pin.get("package") != expected_package
+        or pin.get("version") != expected_version
+    ):
+        raise TrustCardError("pin belongs to another server, package or version")
+    try:
+        created = observed_at({"generated_at": pin.get("created_at")})
+    except TrustCardError:
+        raise TrustCardError("pin has no valid created_at") from None
+    if abs((created - observed_at(card)).total_seconds()) > PIN_RUN_WINDOW.total_seconds():
+        raise TrustCardError("pin was not produced by the same run as the card")
+    tools = _records(pin, "tools", "pin.")
+    names = sorted(str(t.get("name")) for t in tools)
+    if names != sorted(t["name"] for t in card["observation"]["tools"]):
+        raise TrustCardError("pin tool names differ from the card's")
+    if not all(_SHA256.match(str(t.get("input_schema_sha256"))) for t in tools):
+        raise TrustCardError("pin has a malformed input-schema hash")
     return pin
 
 
@@ -175,6 +237,8 @@ def card_to_server(card: dict[str, Any], slug: str, now: datetime | None = None)
     if package.get("registry_type") in {"npm", "pypi"}:
         kind = SourceKind(package["registry_type"])
         reference = _str(package.get("identifier")) or ""
+        if not reference:
+            raise TrustCardError("card names a package with no identifier")
     elif _str(remote.get("url")):
         kind, reference = SourceKind.REMOTE, str(remote["url"])
     else:
@@ -327,22 +391,28 @@ def card_to_result(card: dict[str, Any], pin: dict[str, Any] | None = None) -> E
         for t in map(_dict, _list((pin or {}).get("tools")))
     }
     tools = [_dict(t) for t in _list(observation.get("tools"))]
-    evidence = ScanEvidence(
-        tool_count=len(tools),
-        tools=[
-            ToolEvidence(
-                name=str(tool.get("name")),
-                has_input_schema=hashes.get(str(tool.get("name"))) is not None,
-                input_schema_sha256=hashes.get(str(tool.get("name"))),
-                has_annotations=any(
-                    tool.get(k) is not None
-                    for k in ("read_only_hint", "destructive_hint", "open_world_hint")
-                ),
-            )
-            for tool in tools
-        ],
-        prompt_count=len(_list(observation.get("prompts"))),
-        resource_count=_count(observation.get("resources")),
+    # Without a pin from the same run, schema presence is unknown: store no
+    # evidence rather than claim the tools have no input schema.
+    evidence = (
+        None
+        if pin is None
+        else ScanEvidence(
+            tool_count=len(tools),
+            tools=[
+                ToolEvidence(
+                    name=str(tool.get("name")),
+                    has_input_schema=hashes.get(str(tool.get("name"))) is not None,
+                    input_schema_sha256=hashes.get(str(tool.get("name"))),
+                    has_annotations=any(
+                        tool.get(k) is not None
+                        for k in ("read_only_hint", "destructive_hint", "open_world_hint")
+                    ),
+                )
+                for tool in tools
+            ],
+            prompt_count=len(_list(observation.get("prompts"))),
+            resource_count=_count(observation.get("resources")),
+        )
     )
     return EngineResult(
         engine_name=ENGINE_NAME,
@@ -358,13 +428,17 @@ def _count(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
-def check_admission(result: EngineResult) -> None:
-    """Refuse a mapped record the repository could not read back, before any write."""
+def check_admission(result: EngineResult, server: Server) -> None:
+    """Refuse a mapped server or scan the repository could not read back, before any write."""
     if len(result.findings) > MAX_STORED_FINDINGS:
         raise TrustCardError(f"card maps to more than {MAX_STORED_FINDINGS} findings")
     if result.evidence is not None and len(result.evidence.tools) > MAX_STORED_TOOLS:
         raise TrustCardError(f"card lists more than {MAX_STORED_TOOLS} tools")
     stored = [
+        server.source.model_dump_json(),
+        server.name,
+        server.description,
+        server.homepage or "",
         result.risk.model_dump_json(),
         json.dumps([f.model_dump(mode="json") for f in result.findings]),
         result.evidence.model_dump_json() if result.evidence is not None else "",

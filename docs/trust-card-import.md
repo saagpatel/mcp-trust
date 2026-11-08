@@ -26,19 +26,25 @@ mcp-trust check cyanheads-nws-weather-mcp-server
   outside-only note for remote servers, and each card mismatch at its own
   severity. A `do_not_install` verdict adds a critical finding, which caps the
   grade.
-- **Evidence:** tool names, annotation presence, and input-schema hashes when
-  `--pin` (a `mcp-audit.trust-pin/1` file) is given.
+- **Evidence:** tool names, annotation presence and input-schema hashes, only
+  when `--pin` is given. The pin must come from the same run as the card: same
+  server, package and version, created within five minutes of the card, with
+  the same tool names and well-formed hashes. Without a pin, no tool evidence
+  is stored rather than implying the tools have no schema.
 - **Time:** the scan is stamped with the card's `generated_at`, not the import
   time, so importing an old card never supersedes newer evidence.
 
 ## What is refused
 
 - Anything but a complete observation with a graded verdict
-  (`no_mismatches_observed`, `review` or `do_not_install`), or a card whose
-  evidence fields have the wrong types.
+  (`no_mismatches_observed`, `review` or `do_not_install`). Every evidence field
+  scoring reads (tools, phases, file changes, network events, mismatches) must
+  be present and well-typed; missing evidence is never read as "nothing seen".
+- A package card with no identifier, and a pin from another run.
 - A slug already owned by a different source kind or reference.
-- A mapped record beyond the repository's admission limits (findings, tools,
-  stored JSON size). Nothing is written in that case.
+- A mapped server or scan beyond the repository's admission limits (findings,
+  tools, stored JSON size). Nothing is written in that case.
+- A slug whose latest scan or server row cannot be read.
 - Superseding a server whose latest scan is a real scan, unless `--replace` is
   passed: an imported verdict is demo-classified and would hide the real grade.
 

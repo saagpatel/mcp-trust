@@ -169,11 +169,11 @@ def import_card(
 
     try:
         card = load_card(card_path)
-        pin = load_pin(pin_path) if pin_path else None
+        pin = load_pin(pin_path, card) if pin_path else None
         server_slug = slug or default_slug(card)
         server = card_to_server(card, server_slug)
         result = card_to_result(card, pin)
-        check_admission(result)
+        check_admission(result, server)
         scanned_at = observed_at(card)
     except (TrustCardError, ValueError, TypeError, OSError) as exc:
         raise fail(str(exc)) from None
@@ -188,7 +188,14 @@ def import_card(
             f"slug {server_slug!r} already names {existing.source.kind} "
             f"{existing.source.reference!r}; pass --slug to choose another."
         )
-    latest = scan_repo.latest(server_slug) if existing is not None else None
+    try:
+        latest = scan_repo.latest(server_slug)
+    except ValueError:
+        raise fail(
+            f"{server_slug!r} has an unreadable latest scan; not importing over it."
+        ) from None
+    if existing is None and latest is not None:
+        raise fail(f"{server_slug!r} has scans but no readable server row; not importing over it.")
     if latest is not None and classify(latest) == ScanProvenance.REAL and not replace:
         raise fail(
             f"{server_slug!r} has a real scan; an imported verdict is demo-classified and would "

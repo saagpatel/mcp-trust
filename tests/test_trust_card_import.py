@@ -232,7 +232,7 @@ def test_pin_must_be_a_trust_pin(tmp_path: Path) -> None:
 def test_malformed_resources_field_counts_as_zero() -> None:
     card = synthetic()
     card["observation"]["resources"] = ["a", "b"]
-    result = card_to_result(card)
+    result = card_to_result(card, json.loads(PIN.read_text(encoding="utf-8")))
     assert result.evidence is not None and result.evidence.resource_count == 0
 
 
@@ -306,3 +306,98 @@ def test_records_beyond_admission_limits_are_refused_before_any_write(tmp_path: 
     conn = connect(db)
     init_schema(conn)
     assert ServerRepository(conn).get("cyanheads-nws-weather-mcp-server") is None
+
+
+# Round-two review fixes -----------------------------------------------------------
+
+
+def real_pin() -> dict[str, Any]:
+    return json.loads(PIN.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c["observation"].pop("tools"),
+        lambda c: c["observation"].pop("phases"),
+        lambda c: c.pop("mismatches"),
+        lambda c: c["observation"]["tools"][0].update(read_only_hint="yes"),
+        lambda c: c["observation"]["tools"][0].update(inferred="file_read"),
+        lambda c: c["observation"]["tools"][0].pop("name"),
+        lambda c: c["observation"]["phases"][0].update(file_changes="none"),
+        lambda c: c["observation"]["phases"][0].update(network="none"),
+        lambda c: c["observation"]["phases"][0].update(file_changes=[{"path": "/x"}]),
+        lambda c: c["mismatches"].append({"severity": "severe", "rule": "X", "summary": "s"}),
+        lambda c: c["target"]["package"].update(identifier=""),
+    ],
+)
+def test_missing_or_malformed_evidence_is_refused(tmp_path: Path, mutate: Any) -> None:
+    card = real_card()
+    mutate(card)
+    with pytest.raises(TrustCardError):
+        server = card_to_server(load_card(write(tmp_path, card)), "x")
+        assert server  # unreachable when refused
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p.update(server_name="io.github.someone/else"),
+        lambda p: p.update(version="0.11.0"),
+        lambda p: p.update(package="pypi:@cyanheads/nws-weather-mcp-server"),
+        lambda p: p.update(created_at="2026-01-01T00:00:00Z"),
+        lambda p: p["tools"].pop(),
+        lambda p: p["tools"][0].update(input_schema_sha256="not-a-hash"),
+    ],
+)
+def test_pins_from_another_run_are_refused(tmp_path: Path, mutate: Any) -> None:
+    from mcp_trust.catalog.trust_card import load_pin
+
+    pin = real_pin()
+    mutate(pin)
+    with pytest.raises(TrustCardError):
+        load_pin(write(tmp_path, pin, "pin.json"), load_card(CARD))
+
+
+def test_no_pin_means_no_schema_claims() -> None:
+    assert card_to_result(load_card(CARD)).evidence is None
+
+
+def test_oversized_server_fields_are_refused_before_any_write(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+    from mcp_trust.store.repository import ServerRepository
+
+    card = synthetic()
+    card["target"]["description"] = "d" * (1_100_000)
+    db = str(tmp_path / "r.db")
+    result = runner.invoke(app, ["import-card", str(write(tmp_path, card)), "--db", db])
+    assert result.exit_code == 1 and "admits" in result.output
+    conn = connect(db)
+    init_schema(conn)
+    assert ServerRepository(conn).get("cyanheads-nws-weather-mcp-server") is None
+
+
+def test_unreadable_latest_scan_is_an_error_not_a_traceback(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    conn = connect(db)
+    init_schema(conn)
+    conn.execute("UPDATE scans SET findings_json = 'not json'")
+    conn.commit()
+    result = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert result.exit_code == 1 and "unreadable latest scan" in result.output
+
+
+def test_scans_without_a_readable_server_row_are_refused(tmp_path: Path) -> None:
+    from mcp_trust.store.db import connect, init_schema
+
+    db = str(tmp_path / "r.db")
+    assert runner.invoke(app, ["import-card", str(CARD), "--db", db]).exit_code == 0
+    conn = connect(db)
+    init_schema(conn)
+    conn.execute("UPDATE servers SET source_json = 'not json'")
+    conn.commit()
+    result = runner.invoke(app, ["import-card", str(CARD), "--db", db])
+    assert result.exit_code == 1 and "no readable server row" in result.output
