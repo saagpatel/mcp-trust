@@ -1,0 +1,23 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:16:09Z",
+  "target": "io.github.nolindnaidoo/regex-le",
+  "server_name": "io.github.nolindnaidoo/regex-le",
+  "package": "npm:regex-le-mcp",
+  "version": "2.6.0",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "c1bc0be52e08eb72f91ad5282831aa263cf61e0d731043f2376741ce77df7ae9",
+  "tools": [
+    {
+      "name": "extract_patterns",
+      "description": "Extract every regular expression from source code — JavaScript and TypeScript literals and RegExp constructors, and the call sites Python, Rust, Go, Java, Ruby, PHP and C# write a pattern at — with its flags, 1-based position, and a ReDoS verdict saying whether the pattern can be driven into catastrophic backtracking. Duplicate pattern-and-flags pairs are reported once, at first occurrence: the output is a pattern list, not an occurrence list.",
+      "description_sha256": "f731b18b0baaf59fdd9de52cfd6a699be4e99c992944f53ec8a287d133c1045c",
+      "input_schema_sha256": "3d11278da99009076e10abc8be2d7b478dd1f0adfd7ab63537fad6d66ea0688b",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}

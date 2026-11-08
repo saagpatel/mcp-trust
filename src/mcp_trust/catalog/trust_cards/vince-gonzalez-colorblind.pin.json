@@ -1,0 +1,56 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:16:57Z",
+  "target": "io.github.vince-gonzalez/colorblind",
+  "server_name": "io.github.vince-gonzalez/colorblind",
+  "package": "npm:colorblind-mcp",
+  "version": "0.2.0",
+  "protocol_version": "2025-11-25",
+  "surface_sha256": "2fccaa8c0cbeabeaff3c221441390f5c204522b49d7d72a536cf724b74156197",
+  "tools": [
+    {
+      "name": "compareVision",
+      "description": "Return how a single hex color appears under protanopia, deuteranopia and tritanopia at once, for a side-by-side comparison.",
+      "description_sha256": "4e34168a3e75d95671c58bb97381b19308ee21ab201d8f189c13a8c12761fbb7",
+      "input_schema_sha256": "ec561ace780eb79c670a28b519e863ce6e88ab000ebfffdd3dfd523868f53905",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "plate",
+      "description": "Generate a pseudoisochromatic (Ishihara-style) test plate: a digit hidden in a field of dots whose colors are distinct to normal vision but collapse under the chosen deficiency. Returns the plate image. Use when asked to create a colorblindness test plate or demonstrate what a plate looks like. Reproducible from a seed.",
+      "description_sha256": "56dac3ecc4d7ae752529971ed78007905e4e4e3691e0389fa5940dd453a9f7ee",
+      "input_schema_sha256": "18fc34b79daa81bbc179955c2d08fe4135e4368f49652015ff46659d62093f29",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "simulateColor",
+      "description": "Return how a single hex color appears to someone with a given type of color-vision deficiency (protan, deutan, or tritan). Set severity 0..1 for a partial deficiency (anomalous trichromacy); 1 is the full dichromat case.",
+      "description_sha256": "08d075566445f568c7ea1ebb9f31fe063730f76d9ddd7971d845a0c417db33d9",
+      "input_schema_sha256": "c51ea32cc5d448621d015618848600598689326d2564e2b4620af432e983cede",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "simulateImage",
+      "description": "Recolor an image, chart, screenshot or mockup the way someone with color-vision deficiency sees it, and return the recolored image. Use this to SHOW what a design looks like through colorblindness (to check whether it stays readable, pair it with cvdsafe's checkImage). Reads PNG and JPEG — pass `path` for a local file, or a base64 `dataUri`. `type` picks the deficiency (default deutan); `severity` 0..1 sets strength.",
+      "description_sha256": "3c1a1a4de4d176c382f2581038be073fe36acad7937485cd2f01c46ed270b775",
+      "input_schema_sha256": "03c7f1b1f8ecd9b8c433a144e5d8773a1d7a7882ea122c87e2947fc2ef3109e4",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}

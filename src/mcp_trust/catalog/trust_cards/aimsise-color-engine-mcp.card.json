@@ -1,0 +1,262 @@
+{
+  "schema": "mcp-audit.trust-card/1",
+  "generated_at": "2026-11-08T15:16:47Z",
+  "mcp_audit_version": "3.0.0",
+  "target": {
+    "input": "io.github.aimsise/color-engine-mcp",
+    "kind": "registry",
+    "server_name": "io.github.aimsise/color-engine-mcp",
+    "registry_listed": true,
+    "registry_status": "active",
+    "server_version": "1.0.1",
+    "title": null,
+    "description": "Six pure, in-memory CSS color tools: parse, convert, WCAG/APCA contrast, gamut map, ramps, solver",
+    "repository_url": "https://github.com/aimsise/color-engine-mcp",
+    "package": {
+      "registry_type": "npm",
+      "identifier": "color-engine-mcp",
+      "version": "1.0.1",
+      "transport": "stdio",
+      "runtime_hint": null,
+      "env": [],
+      "arguments": [],
+      "launch_arguments": [],
+      "install_scripts": []
+    },
+    "remote": null,
+    "checks": [
+      {
+        "id": "registry.listed",
+        "status": "pass",
+        "summary": "Listed in the MCP Registry as io.github.aimsise/color-engine-mcp."
+      },
+      {
+        "id": "registry.status",
+        "status": "pass",
+        "summary": "Registry status is active."
+      },
+      {
+        "id": "server_json.shape",
+        "status": "pass",
+        "summary": "server.json has the expected shape."
+      },
+      {
+        "id": "namespace.repository",
+        "status": "pass",
+        "summary": "Repository owner matches GitHub namespace aimsise."
+      },
+      {
+        "id": "package.exists",
+        "status": "pass",
+        "summary": "npm color-engine-mcp 1.0.1 exists."
+      },
+      {
+        "id": "namespace.package_ownership",
+        "status": "pass",
+        "summary": "package.json mcpName matches io.github.aimsise/color-engine-mcp."
+      }
+    ]
+  },
+  "observation": {
+    "mode": "container",
+    "status": "complete",
+    "error": null,
+    "runtime": "docker 29.5.2 linux/arm64",
+    "image": "node:24-slim (node@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9)",
+    "network_policy": "sinkhole: DNS is answered with placeholder addresses and every TCP connection and UDP datagram is captured inside the sandbox; nothing leaves it",
+    "protocol_version": "2025-11-25",
+    "protocol_era": "legacy",
+    "server_info": {
+      "name": "color-engine",
+      "version": "1.0.1"
+    },
+    "tools": [
+      {
+        "name": "parse_color",
+        "description": "Parse a CSS color string and return hex, rgb, oklch, and gamut info.",
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "convert_color",
+        "description": "Convert a CSS color string into a canonical hex, rgb, hsl, or oklch format string.",
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "contrast",
+        "description": "Compute the WCAG 2.1 contrast ratio between two fully opaque CSS color strings and return WCAG tier flags (AA/AAA normal/large text). Set apca:true to also get the signed APCA-W3 Lc for text `a` over background `b`.",
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests file_write"
+      },
+      {
+        "name": "gamut_map",
+        "description": "Map any CSS color string into the sRGB gamut via perceptual OKLCH chroma reduction. Returns the nearest in-gamut hex, raw OKLCH components, and a `clamped` flag indicating whether the input was out-of-gamut.",
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [],
+        "injection": [],
+        "exercised": true,
+        "skip_reason": null
+      },
+      {
+        "name": "generate_ramp",
+        "description": "Generate a tint-to-shade color ramp from a base CSS color. Returns an ordered list of swatches (light → dark) each with its in-gamut hex, display-rounded OKLCH components (l/c 5dp, h 2dp), WCAG contrast ratios (2dp) + tiers vs white and black, and an in-gamut flag. Optionally emits the ramp as design tokens via tokenFormat (\"tailwind\" JSON or a \"css-variables\" :root block).",
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [
+          "exfiltration",
+          "network"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests exfiltration"
+      },
+      {
+        "name": "solve_for_contrast",
+        "description": "Find a foreground color that meets one or more WCAG 2.1 contrast targets against a background. Binary-searches OKLCH lightness (holding hue/chroma fixed) and returns the nearest-compliant hex plus the achieved ratio. Pass `target` for one target or `targets` for several; `prefer` selects lighter/darker/either; `hue`/`chroma` pin the foreground chromaticity. If BOTH `target` and `targets` are provided, `targets` takes precedence. The response shape differs by mode: a single `target` returns `{ met, color, ratio }` (with an optional `nearMiss` flag); `targets` returns `{ results: [{ met, color, ",
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "open_world_hint": false,
+        "inferred": [
+          "exfiltration",
+          "file_read"
+        ],
+        "injection": [],
+        "exercised": false,
+        "skip_reason": "description suggests exfiltration, file_write"
+      }
+    ],
+    "tools_listed": true,
+    "prompts": [],
+    "resources": null,
+    "phases": [
+      {
+        "name": "startup",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:parse_color",
+        "tool": "parse_color",
+        "arguments": {
+          "input": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:convert_color",
+        "tool": "convert_color",
+        "arguments": {
+          "input": "mcpaudit-synthetic",
+          "to": "hex"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "tool:gamut_map",
+        "tool": "gamut_map",
+        "arguments": {
+          "input": "mcpaudit-synthetic"
+        },
+        "is_error": true,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      },
+      {
+        "name": "shutdown",
+        "tool": null,
+        "arguments": null,
+        "is_error": null,
+        "error": null,
+        "file_changes": [],
+        "file_changes_truncated": 0,
+        "network": [],
+        "rewrites_checked": true
+      }
+    ],
+    "synthetic_env": [],
+    "sandbox": [
+      "Host mounts: none.",
+      "Capabilities dropped: [\"ALL\"]; added: none.",
+      "Network: container namespace of the sinkhole (no route out).",
+      "User: 10001:10001.",
+      "Security options: [\"no-new-privileges\"]."
+    ],
+    "limits": [
+      "Install ran in a separate container with unrestricted network access (to fetch the package), with install scripts and source builds disabled.",
+      "File reads are not recorded; writes are measured against the freshly installed image.",
+      "Writes to tmpfs mounts such as /dev/shm are not visible.",
+      "Only tools declared read-only (or named with --safe-tool) were called, with synthetic inputs; every other tool's behaviour is unobserved.",
+      "Effects are attributed to the phase in which they appeared; background activity can land in a neighbouring phase.",
+      "One short session was observed; delayed or conditional behaviour may not have triggered.",
+      "Rewrites of files already changed in an earlier phase are detected by size and modification time while the server runs; a rewrite that keeps both, or one during shutdown, is not seen.",
+      "Non-DNS UDP is counted without its destination."
+    ]
+  },
+  "mismatches": [],
+  "verdict": "no_mismatches_observed",
+  "headline": "No mismatches observed in the sandbox. That is evidence, not a guarantee.",
+  "suggestions": [
+    {
+      "title": "Pinned launch entry",
+      "format": "json",
+      "body": "{\n  \"mcpServers\": {\n    \"color-engine-mcp\": {\n      \"command\": \"npx\",\n      \"args\": [\n        \"-y\",\n        \"color-engine-mcp@1.0.1\"\n      ]\n    }\n  }\n}",
+      "note": "Generated from published metadata with the exact version. MCPAudit never reads or edits your client configuration; paste it yourself after review."
+    },
+    {
+      "title": "Tool permissions (Claude Code settings)",
+      "format": "json",
+      "body": "{\n  \"permissions\": {\n    \"allow\": [],\n    \"ask\": [\n      \"mcp__color-engine-mcp__parse_color\",\n      \"mcp__color-engine-mcp__convert_color\",\n      \"mcp__color-engine-mcp__contrast\",\n      \"mcp__color-engine-mcp__gamut_map\",\n      \"mcp__color-engine-mcp__generate_ramp\",\n      \"mcp__color-engine-mcp__solve_for_contrast\"\n    ],\n    \"deny\": []\n  }\n}",
+      "note": "allow: declared read-only and called successfully with no effects seen. deny: declared destructive, injection-matching, or a high-severity mismatch. ask: everything not proven either way."
+    },
+    {
+      "title": "Network egress",
+      "format": "text",
+      "body": "deny *  # no egress attempts observed",
+      "note": "Hosts are attempts recorded by the sinkhole; none were reached. Allow only what the tools you use need."
+    },
+    {
+      "title": "Filesystem writes",
+      "format": "text",
+      "body": "deny-write *  # no writes observed",
+      "note": "Paths are where it wrote during the observed session; reads were not recorded."
+    }
+  ]
+}

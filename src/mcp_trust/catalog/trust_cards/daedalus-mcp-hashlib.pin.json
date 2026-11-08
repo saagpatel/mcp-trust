@@ -1,0 +1,254 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:16:35Z",
+  "target": "io.github.daedalus/mcp-hashlib",
+  "server_name": "io.github.daedalus/mcp-hashlib",
+  "package": "pypi:mcp-hashlib",
+  "version": "0.1.2",
+  "protocol_version": "2026-07-28",
+  "surface_sha256": "8b5dd90e7f15bf22dc5e1cf51edeff52cb25e89848128975b64ed59e590505f7",
+  "tools": [
+    {
+      "name": "hash_blake2b",
+      "description": "Compute BLAKE2b hash (512-bit)",
+      "description_sha256": "e2e35b0767c4c5b37f9b16b91a98fe337a7e7af2aa7a40a9e307026286016e63",
+      "input_schema_sha256": "b22bd1bc8a342da6a6bcd39409cb10ff791fbfc169d20edd6246b7d60af74b79",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_blake2s",
+      "description": "Compute BLAKE2s hash (256-bit)",
+      "description_sha256": "f597e620edd8df7c4ff12f9789e06877ec90238590df2b93542416106fbc4489",
+      "input_schema_sha256": "e8c3f8ff2c316c4e8b455f024b35a1d6f0359c0b34f6a60ff6bb6423894de508",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_copy",
+      "description": "Create a copy of a hash object",
+      "description_sha256": "a52a17ef57e80142db5044dc1bc24f7c49c70049c5a352dd0d4914f71bdf4b93",
+      "input_schema_sha256": "18a9013cb2dbdedadc5c513f9831590141136c1af868a0d24272f838b04a38ae",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_file_digest",
+      "description": "Compute hash of a file-like object",
+      "description_sha256": "22d777bbce81d3480743b302ad533897410b1664e99d80841bef13169663b364",
+      "input_schema_sha256": "52a1afa4b66f0a4bda320c5e3eb37867ec17550246d0c205220b1eb23a3c7f9f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_info",
+      "description": "Get information about available hash algorithms",
+      "description_sha256": "712be4812e59711d7a3aa247af9e322dec3e4694886d76994c452ea3f20f53cd",
+      "input_schema_sha256": "4752768e1b0eb7d0ed2a0ead68a2620cf70d5b06d95830f02c616115f6388be4",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_md5",
+      "description": "Compute MD5 hash",
+      "description_sha256": "d786787bbf8a0c1a4dce1df1330be24cb8d8718f9d3a75c5104c7a619bb90056",
+      "input_schema_sha256": "eb69a19e8183c253c9050719996dde2a369bfbb8557b49c64d41012719bbb06f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_new",
+      "description": "Create hash object using any available algorithm",
+      "description_sha256": "b013170c061efb9bc6dca6d7913e900eda23792f9071eb682c90490c33a51f56",
+      "input_schema_sha256": "08b0ca82923de2684439d186ea897620ad894563fc7c7d415f107327cf229b46",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_pbkdf2_hmac",
+      "description": "PBKDF2-HMAC key derivation",
+      "description_sha256": "836e0d17e15ab538a92a95055c33a7191329afff403c542c2d4115823153b6d4",
+      "input_schema_sha256": "423504bcc3b380455f1aadb4435b2940b4b5d048041e346cf00404cfc968b043",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_properties",
+      "description": "Get properties of a hash algorithm",
+      "description_sha256": "6225050c0ddd2b0d83ed41e174fbbb7f4b296015b2dc158023382d114e911094",
+      "input_schema_sha256": "e71b3fadd8cfd071993dfe201d567a1edd109eae4afbeec563a80627f59b6069",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_scrypt",
+      "description": "Scrypt key derivation",
+      "description_sha256": "e1105ec3f64238f5772a2bfbd0af4e1ebab4c0c7f07570e0944950a50811b824",
+      "input_schema_sha256": "7beb3356806ecf457d95db9d41c45b12fea5bba728e3b649818c5231b02df13f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha1",
+      "description": "Compute SHA1 hash",
+      "description_sha256": "52519e17d40ae87dee8129da7753109a8ede779cde33e9b7e512d4b7187a1842",
+      "input_schema_sha256": "eb69a19e8183c253c9050719996dde2a369bfbb8557b49c64d41012719bbb06f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha224",
+      "description": "Compute SHA224 hash",
+      "description_sha256": "ca737af6a38231cc7360db1a32d8b81daef4f6ebaa38d8bc6f38a2471db44051",
+      "input_schema_sha256": "eb69a19e8183c253c9050719996dde2a369bfbb8557b49c64d41012719bbb06f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha256",
+      "description": "Compute SHA256 hash",
+      "description_sha256": "485133c7fee3e27145ec9c592da08c7c4ff1d1b7bc4665c18e21ea7156ccc152",
+      "input_schema_sha256": "eb69a19e8183c253c9050719996dde2a369bfbb8557b49c64d41012719bbb06f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha384",
+      "description": "Compute SHA384 hash",
+      "description_sha256": "a4b8db847470afa25f8b7a6c36fde64810364c4e5ba1d4dc252fff8f279a70d5",
+      "input_schema_sha256": "eb69a19e8183c253c9050719996dde2a369bfbb8557b49c64d41012719bbb06f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha3_224",
+      "description": "Compute SHA3-224 hash",
+      "description_sha256": "3012503aa9bb4f80389294c9143c64c1c0458be44145e04f2d10672589486506",
+      "input_schema_sha256": "ffcd7e6159fb4f1211c72fd3ed852581edbc6a3efcad0a0653eb852efa93668c",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha3_256",
+      "description": "Compute SHA3-256 hash",
+      "description_sha256": "c27aed2e9b567c293b1ef2a0d396d15858cff249ff2eaf0134770c6a8682d2a5",
+      "input_schema_sha256": "ffcd7e6159fb4f1211c72fd3ed852581edbc6a3efcad0a0653eb852efa93668c",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha3_384",
+      "description": "Compute SHA3-384 hash",
+      "description_sha256": "625480ac3152b440b87acfac46580b3015e6de96df637c2b22a879d5b30adf53",
+      "input_schema_sha256": "ffcd7e6159fb4f1211c72fd3ed852581edbc6a3efcad0a0653eb852efa93668c",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha3_512",
+      "description": "Compute SHA3-512 hash",
+      "description_sha256": "623969a813e64067a62c1be2cb35072bf5aa67edd9c45c13ce10a7898ae5bf10",
+      "input_schema_sha256": "ffcd7e6159fb4f1211c72fd3ed852581edbc6a3efcad0a0653eb852efa93668c",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_sha512",
+      "description": "Compute SHA512 hash",
+      "description_sha256": "87b6423831685b6ad92366d3a54e73d155c9c91a749567b76f577e3cb7e3d97e",
+      "input_schema_sha256": "eb69a19e8183c253c9050719996dde2a369bfbb8557b49c64d41012719bbb06f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_shake_128",
+      "description": "Compute SHAKE-128 XOF hash (variable length)",
+      "description_sha256": "fae61158b3af7ddb06ea1272dc9cb978d4ab50b46d9225f3bee013fd4df48adc",
+      "input_schema_sha256": "f7ed7bed4862d898741a658d7b0abe63dd33d43a5e8e37af47f53b64f7c3f2d1",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_shake_256",
+      "description": "Compute SHAKE-256 XOF hash (variable length)",
+      "description_sha256": "32f0b547e6fe65e96700adb05349bb1197dc565049fdb5885bd5723d813c6f79",
+      "input_schema_sha256": "e18618912ffec1765fce4ba71fc66d45a2f319a9cb2e61d336f8731b27b6c64f",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    },
+    {
+      "name": "hash_update",
+      "description": "Compute hash incrementally with multiple updates",
+      "description_sha256": "93ff80d2323d03ee80c293d2e49373517fc2d6557dbf76cf48735f80391cf647",
+      "input_schema_sha256": "2ded89a8f473a756c3af964619ae900e12e985ba65928286bf0c3c2f587a9258",
+      "annotations": {
+        "readOnlyHint": null,
+        "destructiveHint": null,
+        "openWorldHint": null
+      }
+    }
+  ]
+}

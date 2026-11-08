@@ -1,0 +1,45 @@
+{
+  "schema": "mcp-audit.trust-pin/1",
+  "created_at": "2026-11-08T15:17:28Z",
+  "target": "io.github.kumarprabhashanand/loremfile",
+  "server_name": "io.github.kumarprabhashanand/loremfile",
+  "package": "npm:loremfile",
+  "version": "0.2.0",
+  "protocol_version": "2026-07-28",
+  "surface_sha256": "2232c8911e08c5a8e78af21d176b239443446346e44dacf2988b1a041f0efc27",
+  "tools": [
+    {
+      "name": "describe_fixture",
+      "description": "The published manifest entry for one fixture: its URL, MIME type, size, SHA-256, tags, description and measured properties. Metadata only; fetch the URL for the file.",
+      "description_sha256": "05882777e931789e768f0f47746139c0fdc5de9725367673669a5e1b575fab8a",
+      "input_schema_sha256": "5fb885780a9b887df8e326d40f77cc66b5a53e334e39aecb3df3ba71bd5362de",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_fixtures",
+      "description": "One page of the published sample files, filtered by format, tag and size. Each comes with its URL and a description of what it is for. `total` counts every match and `next_offset` fetches the next page; it is null on the last.",
+      "description_sha256": "1410f15330f4fbd3f45391df6c74bcbad4b6dad5a18c79e509efdcf1e0268251",
+      "input_schema_sha256": "1c9b5a4f5c4fb423f6da431d858b1647a7bd6f61dbcce52546924339db25ee6c",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "verify_file",
+      "description": "Hash a file on this machine and compare it with the published SHA-256 and size of a fixture. `status` is ok, changed or missing. The file is read only to hash it.",
+      "description_sha256": "d3151772db8e2fa765c5de3e756d7064cf19d4765ec1714add9835a40ba93755",
+      "input_schema_sha256": "48a938ea6869f26bbae294a4c3eecbb8ccd5dbe6a89573629d5741eb9a55993d",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ]
+}
