@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -397,6 +397,71 @@ def test_scan_latest_all(conn, server_repo, scan_repo) -> None:
 
 def test_scan_latest_all_empty(scan_repo) -> None:
     assert scan_repo.latest_all() == {}
+
+
+def test_scan_order_uses_instants_for_offsets_and_legacy_naive_times(
+    server_repo, scan_repo
+) -> None:
+    server_repo.upsert(_make_server())
+    older = _make_scan().model_copy(
+        update={
+            "id": "older",
+            "scanned_at": datetime(2026, 1, 2, 0, tzinfo=timezone(timedelta(hours=14))),
+        }
+    )
+    legacy = _make_scan().model_copy(
+        update={"id": "legacy", "scanned_at": datetime(2026, 1, 1, 22)}
+    )
+    newest = _make_scan().model_copy(
+        update={"id": "newest", "scanned_at": datetime(2026, 1, 1, 23, tzinfo=UTC)}
+    )
+    for scan in (newest, older, legacy):
+        scan_repo.record(scan)
+    assert scan_repo.latest("test-server").id == "newest"
+    assert scan_repo.latest_all()["test-server"].id == "newest"
+    assert [s.id for s in scan_repo.history("test-server")] == ["newest", "legacy", "older"]
+
+
+def test_equal_instants_and_microseconds_order_consistently(server_repo, scan_repo) -> None:
+    server_repo.upsert(_make_server())
+    scans = [
+        _make_scan().model_copy(
+            update={"id": "tie-a", "scanned_at": datetime(2026, 1, 1, 12, tzinfo=UTC)}
+        ),
+        _make_scan().model_copy(
+            update={
+                "id": "tie-z",
+                "scanned_at": datetime(2026, 1, 1, 14, tzinfo=timezone(timedelta(hours=2))),
+            }
+        ),
+        _make_scan().model_copy(
+            update={"id": "after", "scanned_at": datetime(2026, 1, 1, 12, 0, 0, 1, tzinfo=UTC)}
+        ),
+    ]
+    for scan in scans:
+        scan_repo.record(scan)
+    assert [s.id for s in scan_repo.history("test-server")] == ["after", "tie-z", "tie-a"]
+    assert scan_repo.latest("test-server").id == scan_repo.latest_all()["test-server"].id == "after"
+
+
+@pytest.mark.parametrize("bad_time", ["not-a-date", "0"])
+def test_invalid_timestamp_never_falls_back_to_an_older_grade(
+    conn, server_repo, scan_repo, bad_time
+) -> None:
+    server_repo.upsert(_make_server())
+    old = _make_scan().model_copy(update={"id": "valid"})
+    invalid = _make_scan().model_copy(update={"id": "invalid"})
+    scan_repo.record(old)
+    scan_repo.record(invalid)
+    conn.execute("UPDATE scans SET scanned_at = ? WHERE id = ?", (bad_time, invalid.id))
+    conn.commit()
+    readback = scan_repo.latest_all_readback()
+    assert readback.records == {}
+    assert readback.unreadable_slugs == frozenset({"test-server"})
+    with pytest.raises(ValueError):
+        scan_repo.latest("test-server")
+    with pytest.raises(ValueError):
+        scan_repo.history("test-server", limit=1)
 
 
 def test_scan_latest_all_rejects_oversized_stored_json_without_fallback(

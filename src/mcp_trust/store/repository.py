@@ -7,6 +7,7 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
@@ -33,6 +34,22 @@ def _load_stored_json(value: object) -> object:
 def _row_digest(value: object) -> str:
     text = value if isinstance(value, str) else type(value).__name__
     return hashlib.sha256(text[:1_024].encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+def _scan_time_key(value: object) -> str:
+    """Order instants at microsecond precision; unknown timestamps sort first.
+
+    An unreadable timestamp cannot safely be assumed older than a valid one.
+    Naive legacy timestamps are interpreted as UTC, matching freshness handling.
+    """
+    try:
+        if not isinstance(value, str):
+            return "~"
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+        return parsed.isoformat(timespec="microseconds")
+    except (ValueError, OverflowError):
+        return "~"
 
 
 @dataclass(frozen=True)
@@ -116,6 +133,7 @@ class ScanRepository:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+        self._conn.create_function("scan_time_key", 1, _scan_time_key, deterministic=True)
 
     def record(self, scan: ScanRecord, *, commit: bool = True) -> None:
         """Persist a scan record; ``commit=False`` keeps the caller's transaction."""
@@ -155,7 +173,7 @@ class ScanRepository:
             """
             SELECT * FROM scans
             WHERE server_slug = ?
-            ORDER BY scanned_at DESC, id DESC
+            ORDER BY scan_time_key(scanned_at) DESC, id DESC
             LIMIT 1
             """,
             (slug,),
@@ -171,7 +189,10 @@ class ScanRepository:
         before it. ``id DESC`` breaks ``scanned_at`` ties deterministically,
         consistent with ``latest()`` and ``latest_all()``.
         """
-        sql = "SELECT * FROM scans WHERE server_slug = ? ORDER BY scanned_at DESC, id DESC"
+        sql = (
+            "SELECT * FROM scans WHERE server_slug = ? "
+            "ORDER BY scan_time_key(scanned_at) DESC, id DESC"
+        )
         params: list[object] = [slug]
         if limit is not None:
             sql += " LIMIT ?"
@@ -187,15 +208,12 @@ class ScanRepository:
         """Return latest scans without falling back past an unreadable newest row."""
         rows = self._conn.execute(
             """
-            SELECT s.*
-            FROM scans s
-            INNER JOIN (
-                SELECT server_slug, MAX(scanned_at) AS max_at
-                FROM scans
-                GROUP BY server_slug
-            ) latest ON s.server_slug = latest.server_slug
-                     AND s.scanned_at = latest.max_at
-            ORDER BY s.id ASC
+            SELECT * FROM (
+                SELECT s.*, ROW_NUMBER() OVER (
+                    PARTITION BY server_slug ORDER BY scan_time_key(scanned_at) DESC, id DESC
+                ) AS scan_rank
+                FROM scans s
+            ) WHERE scan_rank = 1
             """
         ).fetchall()
         records: dict[str, ScanRecord] = {}
@@ -226,6 +244,8 @@ class ScanRepository:
             TrustGrade,
         )
 
+        if _scan_time_key(row["scanned_at"]) == "~":
+            raise ValueError(f"Corrupt scan record [row:{_row_digest(row['id'])}]")
         try:
             risk = RiskSummary.model_validate(_load_stored_json(row["risk_json"]))
             findings_raw = _load_stored_json(row["findings_json"])
