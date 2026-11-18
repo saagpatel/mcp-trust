@@ -41,3 +41,6 @@ docker/refresh/.artifacts/
 # Supply-chain outputs (release job uploads these as workflow artifacts)
 *.cdx.json
 supply-chain/
+
+# Throwaway venv holding the pinned uv (see README Prerequisites).
+.uv-tool/
