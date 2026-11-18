@@ -80,16 +80,9 @@ Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
   fails on a shallow clone.
 - [`uv`](https://docs.astral.sh/uv/) (used for dependency management and running the project)
 
-The project requires exactly `uv==0.13.0` (`required-version` in
-`pyproject.toml`); any other uv version refuses to run. Check with
-`uv --version`. If yours differs, install the pinned version into a
-throwaway virtualenv, which writes nothing outside that directory:
-
-```bash
-python3 -m venv .uv-tool && .uv-tool/bin/pip install uv==0.13.0
-export PATH="$PWD/.uv-tool/bin:$PATH"
-uv --version   # uv 0.13.0
-```
+The project requires uv 0.13.9 or any later 0.13.x (for example the current
+Homebrew uv); `required-version` in `pyproject.toml` is `>=0.13.9,<0.14`.
+Check with `uv --version`.
 
 Run the commands below from the repository root; `uv sync` creates the project
 virtualenv using the committed lockfile.

@@ -30,8 +30,8 @@ operator runbook describe separately authorized operator workflows.
 ## Setup
 
 Use Python 3.12 or newer. `.python-version` pins Python 3.15.0, and `uv.lock`
-locks the project and development dependencies. Install the pinned uv version
-(`0.13.0`) and run:
+locks the project and development dependencies. Install uv 0.13.9 or any
+later 0.13.x and run:
 
 ```bash
 make setup
