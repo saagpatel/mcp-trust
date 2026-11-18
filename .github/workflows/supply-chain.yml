@@ -1,0 +1,50 @@
+name: Supply chain
+
+# Runs the release job's reproducibility and SBOM steps on every change, with
+# read-only permissions and no publishing authority.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  reproducible-build:
+    name: Reproducible build and SBOM
+    runs-on: ubuntu-24.04
+    env:
+      UV_PYTHON: "3.15"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        run: python -m pip install uv==0.13.0
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v6.0.0
+        with:
+          python-version: "3.15"
+
+      - name: Build twice from fresh clones and compare SHA-256
+        run: |
+          mkdir -p supply-chain
+          python3 scripts/check_reproducible_build.py \
+            --report supply-chain/reproducible-build.json \
+            --build 'uv build --no-create-gitignore --out-dir {out}'
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          uv export --preview-features sbom-export --format cyclonedx1.5 --locked --no-dev --extra engine \
+            --output-file supply-chain/mcp-trust.cdx.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: supply-chain
+          path: supply-chain/
+          if-no-files-found: error
+          retention-days: 14
