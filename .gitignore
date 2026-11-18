@@ -37,3 +37,6 @@ target/
 # Local content-addressed dependency bundles for network-none image builds.
 # Tracked descriptors under docker/refresh/artifact-manifests bind these bytes.
 docker/refresh/.artifacts/
+
+# Throwaway venv holding the pinned uv (see README Prerequisites).
+.uv-tool/
