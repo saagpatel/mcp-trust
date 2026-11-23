@@ -10,6 +10,10 @@ not proof that a server starts, connects, authenticates, exposes the expected
 tools or resources, is trusted by the host, is adopted by a user, or is safe to
 run.
 
+Host inspection requires a supplied `args` field to be an array of strings.
+Codex `enabled` must be a TOML boolean such as `enabled = false`. A value
+of the wrong type produces an input error.
+
 ## Research basis
 
 Research was refreshed on **2026-08-11** from official primary sources. A host

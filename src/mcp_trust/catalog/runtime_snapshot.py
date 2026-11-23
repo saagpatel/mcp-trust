@@ -13,6 +13,9 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, TypeGuard
 
+from mcp_trust.core.grading import DANGER_DIMENSIONS, danger_score
+from mcp_trust.core.models import RiskSummary
+
 _SCHEMA_VERSION = 2
 _GRADES = frozenset({"A", "B", "C", "D", "F"})
 _TRANSPARENCY_LEVELS = frozenset({"high", "medium", "low"})
@@ -30,9 +33,6 @@ _GRADE_CHANGE_CAUSES = frozenset(
     {"surface-changed", "engine-changed", "score-moved", "undetermined", "no-change"}
 )
 _SURFACE_COMPARISONS = frozenset({"changed", "unchanged", "unknown"})
-_DIMENSIONS = frozenset(
-    {"file_access", "network_access", "shell_execution", "destructive", "exfiltration"}
-)
 _SERVER_REQUIRED_FIELDS = frozenset(
     {
         "slug",
@@ -60,7 +60,7 @@ _SERVER_REQUIRED_FIELDS = frozenset(
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _CREDENTIAL_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_MAX_RAW_BYTES = 1024 * 1024
+MAX_RAW_BYTES = 1024 * 1024
 _MAX_SERVERS = 256
 _MAX_FINDINGS = 1024
 _MAX_TOOLS = 2048
@@ -80,6 +80,13 @@ class CatalogSnapshotValidationError(ValueError):
 
 def _reject_nonstandard_constant(_value: str) -> NoReturn:
     raise ValueError("non-standard JSON constant")
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON number is out of range")
+    return number
 
 
 def parse_catalog_snapshot(raw_text: str) -> dict[str, Any]:
@@ -106,12 +113,13 @@ def parse_catalog_snapshot(raw_text: str) -> dict[str, Any]:
     # UTF-8 never uses fewer bytes than Python characters, so the character
     # check is a safe fast path; the encoding check catches smaller non-ASCII
     # strings whose byte representation crosses the same wire-size budget.
-    if len(raw_text) > _MAX_RAW_BYTES or len(raw_text.encode("utf-8")) > _MAX_RAW_BYTES:
+    if len(raw_text) > MAX_RAW_BYTES or len(raw_text.encode("utf-8")) > MAX_RAW_BYTES:
         raise CatalogSnapshotValidationError({"JSON_TOO_LARGE"})
     try:
         snapshot = json.loads(
             raw_text,
             object_pairs_hook=object_pairs,
+            parse_float=_finite_float,
             parse_constant=_reject_nonstandard_constant,
         )
     except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
@@ -164,19 +172,18 @@ def _validation_reasons(snapshot: dict[str, Any]) -> set[str]:
     if not _timezone_aware_datetime(generated_at_value):
         reasons.add("GENERATED_AT_INVALID")
     generated_from = snapshot.get("generated_from_scan_at")
-    if not (
-        isinstance(generated_from, str)
-        and (
-            _timezone_aware_datetime(generated_from)
-            or (generated_from == "" and servers is not None and not servers)
-        )
-    ):
+    if servers == []:
+        if generated_from != "":
+            reasons.add("GENERATED_FROM_SCAN_AT_INVALID")
+    elif not _timezone_aware_datetime(generated_from):
         reasons.add("GENERATED_FROM_SCAN_AT_INVALID")
 
     if servers is not None and len(servers) > _MAX_SERVERS:
         reasons.add("SERVER_LIMIT_EXCEEDED")
     elif servers is not None:
-        _validate_servers(servers, reasons, generated_at=generated_at_value)
+        latest = _validate_servers(servers, reasons, generated_at=generated_at_value)
+        if latest is not None and _parse_aware_datetime(generated_from) != latest:
+            reasons.add("GENERATED_FROM_SCAN_AT_INVALID")
     return reasons
 
 
@@ -185,7 +192,8 @@ def _validate_servers(
     reasons: set[str],
     *,
     generated_at: Any,
-) -> None:
+) -> datetime | None:
+    latest: datetime | None = None
     slugs: set[str] = set()
     source_coordinates: set[tuple[str, str]] = set()
 
@@ -209,10 +217,9 @@ def _validate_servers(
 
         _validate_basic_fields(server, reasons)
         _validate_grade_fields(server, reasons)
-        _validate_dimensions(server.get("dimensions"), reasons)
         _validate_findings(server.get("findings"), reasons)
         _validate_grade_binding(server, reasons)
-        _validate_evidence(server.get("evidence"), reasons)
+        _validate_evidence(server, reasons)
 
         coordinate, has_credentials = _validate_source(server.get("source"), reasons)
         if coordinate is not None:
@@ -230,26 +237,29 @@ def _validate_servers(
         scan_mode = server.get("scan_mode")
         if not _supported_string(scan_mode, _SCAN_MODES):
             reasons.add("SCAN_MODE_UNSUPPORTED")
+        if scan_mode == "mcpaudit-remote-live-network" and coordinate and coordinate[0] != "remote":
+            reasons.add("SCAN_MODE_SOURCE_MISMATCH")
         _validate_sandbox(server.get("sandbox"), scan_mode, reasons)
 
-        if not _timezone_aware_datetime(server.get("scanned_at")):
+        scanned_at = _parse_aware_datetime(server.get("scanned_at"))
+        if scanned_at is None:
             reasons.add("SCANNED_AT_INVALID")
-        if not _number_in_range(server.get("scan_age_days"), minimum=0):
-            reasons.add("SCAN_AGE_INVALID")
+        elif latest is None or scanned_at > latest:
+            latest = scanned_at
         _validate_freshness_binding(server, generated_at, reasons)
         _validate_grade_change(server.get("grade_change"), server.get("grade"), reasons)
+
+    return latest
 
 
 def _parse_aware_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        parsed = datetime.fromisoformat(value)
+        return parsed.astimezone(UTC) if parsed.tzinfo is not None else None
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.astimezone(UTC)
 
 
 def _validate_freshness_binding(
@@ -260,6 +270,9 @@ def _validate_freshness_binding(
     generated_at = _parse_aware_datetime(generated_at_value)
     scanned_at = _parse_aware_datetime(server.get("scanned_at"))
     recorded_age = server.get("scan_age_days")
+    valid_age = _number_in_range(recorded_age, minimum=0)
+    if not valid_age:
+        reasons.add("SCAN_AGE_INVALID")
     if generated_at is None or scanned_at is None:
         return
     age_seconds = (generated_at - scanned_at).total_seconds()
@@ -267,14 +280,14 @@ def _validate_freshness_binding(
         reasons.add("SCANNED_AT_AFTER_GENERATED_AT")
         return
     expected_age = round(age_seconds / 86400, 6)
-    if type(recorded_age) not in {int, float} or abs(float(recorded_age) - expected_age) > 0.000001:
+    if valid_age and abs(recorded_age - expected_age) > 0.000001:
         reasons.add("SCAN_AGE_MISMATCH")
     if "stale_after" not in server:
         return
     stale_after = _parse_aware_datetime(server.get("stale_after"))
     if stale_after is None:
         reasons.add("STALE_AFTER_INVALID")
-    elif stale_after != scanned_at + timedelta(days=90):
+    elif stale_after - scanned_at != timedelta(days=90):
         reasons.add("STALE_AFTER_MISMATCH")
 
 
@@ -312,6 +325,7 @@ def _validate_basic_fields(server: dict[str, Any], reasons: set[str]) -> None:
     if not _nonempty_string(server.get("engine_version")):
         reasons.add("SERVER_FIELD_TYPE_INVALID")
     public_strings = (
+        server.get("slug"),
         server.get("name"),
         server.get("description"),
         server.get("homepage"),
@@ -326,8 +340,6 @@ def _validate_grade_fields(server: dict[str, Any], reasons: set[str]) -> None:
         reasons.add("GRADE_UNSUPPORTED")
     if not _supported_string(server.get("transparency"), _TRANSPARENCY_LEVELS):
         reasons.add("TRANSPARENCY_UNSUPPORTED")
-    if not _number_in_range(server.get("danger_score"), minimum=0, maximum=10):
-        reasons.add("DANGER_SCORE_INVALID")
     if not _number_in_range(server.get("annotation_coverage"), minimum=0, maximum=1):
         reasons.add("ANNOTATION_COVERAGE_INVALID")
 
@@ -352,31 +364,44 @@ def _transparency_band(coverage: float) -> str:
     return "low"
 
 
-def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
-    """Bind public letters to the rounded values shipped in the snapshot.
+def _rounding_bounds(value: float) -> tuple[float, float]:
+    """First and last floats in [0, 10] that round to a given hundredth."""
+    # Form the exact half-cent boundaries as integer ratios before converting
+    # to float. Move inward if the nearest float rounds to the adjacent cent.
+    cents = round(value * 100)
+    low = max(0.0, (2 * cents - 1) / 200)
+    high = min(10.0, (2 * cents + 1) / 200)
+    if round(low, 2) != value:
+        low = math.nextafter(low, math.inf)
+    if round(high, 2) != value:
+        high = math.nextafter(high, -math.inf)
+    return low, high
 
-    The producer rounds scores and coverage to two decimals. Values exactly at
-    a rubric boundary can therefore represent either adjacent pre-rounding
-    band, so admission allows both sides of a half-cent interval while still
-    rejecting material contradictions.
-    """
+
+def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
     grade = server.get("grade")
     danger = server.get("danger_score")
     findings = server.get("findings")
-    if _supported_string(grade, _GRADES) and _number_in_range(danger, minimum=0, maximum=10):
-        numeric = float(danger)
-        candidates = {
-            _danger_band(max(0.0, numeric - 0.005)),
-            _danger_band(min(10.0, numeric + 0.005)),
-        }
+    dimension_bounds = _dimension_score_bounds(server.get("dimensions"), reasons)
+    if _number_in_range(danger, minimum=0, maximum=10) and round(danger, 2) == danger:
+        low, high = _rounding_bounds(danger)
+        if dimension_bounds is not None:
+            dimension_low, dimension_high = dimension_bounds
+            if dimension_low > high or dimension_high < low:
+                reasons.add("DANGER_DIMENSIONS_MISMATCH")
+            else:
+                low, high = max(low, dimension_low), min(high, dimension_high)
+        candidates = {_danger_band(low), _danger_band(high)}
         has_critical = isinstance(findings, list) and any(
             isinstance(finding, dict) and finding.get("severity") == "critical"
             for finding in findings
         )
         if has_critical:
             candidates = {candidate if candidate in {"D", "F"} else "D" for candidate in candidates}
-        if grade not in candidates:
+        if _supported_string(grade, _GRADES) and grade not in candidates:
             reasons.add("GRADE_DANGER_MISMATCH")
+    else:
+        reasons.add("DANGER_SCORE_INVALID")
 
     transparency = server.get("transparency")
     coverage = server.get("annotation_coverage")
@@ -392,17 +417,25 @@ def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
             reasons.add("TRANSPARENCY_COVERAGE_MISMATCH")
 
 
-def _validate_dimensions(value: Any, reasons: set[str]) -> None:
-    if not isinstance(value, dict):
-        reasons.add("DIMENSIONS_INVALID")
-        return
-    if not _DIMENSIONS.issubset(value):
-        reasons.add("DIMENSIONS_INVALID")
-    if any(
-        key in value and not _number_in_range(value[key], minimum=0, maximum=10)
-        for key in _DIMENSIONS
+def _dimension_score_bounds(value: Any, reasons: set[str]) -> tuple[float, float] | None:
+    if not isinstance(value, dict) or not all(
+        _number_in_range(value.get(dim), minimum=0, maximum=10)
+        and round(value[dim], 2) == value[dim]
+        for dim in DANGER_DIMENSIONS
     ):
         reasons.add("DIMENSIONS_INVALID")
+        return None
+
+    # The weighted score increases monotonically in each dimension.
+    low: dict[str, float] = {}
+    high: dict[str, float] = {}
+    for dim in DANGER_DIMENSIONS:
+        low[dim], high[dim] = _rounding_bounds(value[dim])
+
+    def score(dims: dict[str, float]) -> float:
+        return danger_score(RiskSummary.model_validate({"composite": 0, **dims}))
+
+    return score(low), score(high)
 
 
 def _validate_findings(value: Any, reasons: set[str]) -> None:
@@ -423,7 +456,8 @@ def _validate_findings(value: Any, reasons: set[str]) -> None:
             reasons.add("FINDING_INVALID")
 
 
-def _validate_evidence(value: Any, reasons: set[str]) -> None:
+def _validate_evidence(server: dict[str, Any], reasons: set[str]) -> None:
+    value = server.get("evidence")
     if value is None:
         return
     required = frozenset(
@@ -448,6 +482,7 @@ def _validate_evidence(value: Any, reasons: set[str]) -> None:
     if _is_integer(value["tool_count"]) and value["tool_count"] != len(tools):
         reasons.add("EVIDENCE_INVALID")
 
+    annotated = 0
     names: set[str] = set()
     tool_required = frozenset(
         {"name", "has_input_schema", "input_schema_sha256", "has_annotations"}
@@ -465,12 +500,23 @@ def _validate_evidence(value: Any, reasons: set[str]) -> None:
         has_annotations = tool["has_annotations"]
         if not isinstance(has_input_schema, bool) or not isinstance(has_annotations, bool):
             reasons.add("EVIDENCE_INVALID")
+        annotated += has_annotations is True
         schema_hash = tool["input_schema_sha256"]
         if has_input_schema is True:
             if not isinstance(schema_hash, str) or _SHA256_RE.fullmatch(schema_hash) is None:
                 reasons.add("EVIDENCE_INVALID")
         elif schema_hash is not None:
             reasons.add("EVIDENCE_INVALID")
+
+    if len(tools) == value["tool_count"]:
+        exact_coverage = annotated / len(tools) if tools else 0.0
+        if server.get("annotation_coverage") != round(exact_coverage, 2):
+            reasons.add("COVERAGE_EVIDENCE_MISMATCH")
+        transparency = server.get("transparency")
+        if _supported_string(
+            transparency, _TRANSPARENCY_LEVELS
+        ) and transparency != _transparency_band(exact_coverage):
+            reasons.add("TRANSPARENCY_COVERAGE_MISMATCH")
 
 
 def _validate_source(
@@ -576,14 +622,7 @@ def _validate_grade_change(value: Any, current_grade: Any, reasons: set[str]) ->
 
 
 def _timezone_aware_datetime(value: Any) -> bool:
-    if not isinstance(value, str) or not value:
-        return False
-    normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return False
-    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+    return _parse_aware_datetime(value) is not None
 
 
 def _nonempty_string(value: Any) -> bool:

@@ -621,3 +621,19 @@ def test_cli_schema_command() -> None:
     result = runner.invoke(app, ["portability", "schema"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["title"] == "NeutralConfig"
+
+
+@pytest.mark.parametrize(
+    ("host", "document"),
+    [
+        ("claude-code", '{"mcpServers":{"x":{"command":"x","args":"ab"}}}'),
+        ("codex", '[mcp_servers.x]\ncommand="x"\nargs="ab"'),
+        ("codex", '[mcp_servers.x]\ncommand="x"\nenabled="false"'),
+        ("claude-code", '{"mcpServers":{"x":{"command":"x","args":[1]}}}'),
+        ("codex", '[mcp_servers.x]\ncommand="x"\nargs=[1]'),
+    ],
+    ids=["json-args", "toml-args", "quoted-enabled", "json-item", "toml-item"],
+)
+def test_inspection_rejects_mistyped_host_fields(host: str, document: str) -> None:
+    with pytest.raises(PortabilityInputError):
+        inspect_host(document, host)

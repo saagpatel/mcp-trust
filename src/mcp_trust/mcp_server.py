@@ -18,6 +18,7 @@ from importlib.resources import files
 from typing import Any
 
 from mcp_trust.catalog.runtime_snapshot import (
+    MAX_RAW_BYTES,
     CatalogSnapshotValidationError,
     parse_catalog_snapshot,
 )
@@ -54,10 +55,9 @@ Honesty model:
   records without that proof say network or provenance unknown. Remote endpoint
   scanning necessarily uses live network transport and is labeled as such;
   none of these modes proves runtime behavior beyond the observed tool surface.
-- Credential-gated local-process servers are scanned with NON-FUNCTIONAL dummy
-  values so they reach tool enumeration; the network is off, so nothing can
-  authenticate. The enumerated tool surface is real; dummy values are never
-  recorded.
+- Operators can enable dummy values for tool enumeration in eligible local
+  scans. The record lists declared credential names. Its scan mode describes
+  the recorded network evidence.
 - A grade is an automated signal, not an endorsement or a certification.
 
 Freshness:
@@ -72,7 +72,11 @@ Freshness:
 
 
 def _read_snapshot_text() -> str:
-    return (files("mcp_trust") / "catalog_snapshot.json").read_text(encoding="utf-8")
+    with (files("mcp_trust") / "catalog_snapshot.json").open("rb") as resource:
+        raw = resource.read(MAX_RAW_BYTES + 1)
+    if len(raw) > MAX_RAW_BYTES:
+        raise CatalogSnapshotValidationError({"JSON_TOO_LARGE"})
+    return raw.decode("utf-8")
 
 
 @lru_cache(maxsize=1)
@@ -97,6 +101,7 @@ def _catalog_snapshot_error_payload(error: CatalogSnapshotValidationError) -> st
             "reason_codes": list(error.reason_codes),
             "server_count_served": 0,
         },
+        allow_nan=False,
         indent=2,
     )
 
@@ -165,7 +170,7 @@ def list_servers_payload(*, now: datetime | None = None) -> str:
                 "stale": record["stale"],
             }
         )
-    return json.dumps({"server_count": len(rows), "servers": rows}, indent=2)
+    return json.dumps({"server_count": len(rows), "servers": rows}, indent=2, allow_nan=False)
 
 
 def check_server_payload(slug: str, *, now: datetime | None = None) -> str:
@@ -176,12 +181,13 @@ def check_server_payload(slug: str, *, now: datetime | None = None) -> str:
         return _catalog_snapshot_error_payload(error)
     for s in servers:
         if s["slug"] == slug:
-            return json.dumps(_current_server_record(s, now=now), indent=2)
+            return json.dumps(_current_server_record(s, now=now), indent=2, allow_nan=False)
     return json.dumps(
         {
             "error": f"No graded server with slug {slug!r}.",
             "known_slugs": [s["slug"] for s in servers],
         },
+        allow_nan=False,
         indent=2,
     )
 

@@ -10,6 +10,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from mcp_trust.portability.errors import PortabilityInputError
+
 NEUTRAL_SCHEMA_VERSION = "mcp-config-intent.v1"
 REPORT_SCHEMA_VERSION = "mcp-config-portability-report.v1"
 RESEARCH_AS_OF = "2026-08-11"
@@ -288,16 +290,15 @@ def placeholder_text(source: ValueSource) -> str:
     return f"${{env:{source.key}}}"
 
 
-def redact_host_args(
-    values: list[object], *, server: str
-) -> tuple[list[str], list[SemanticChange]]:
-    """Convert host arguments to strings while removing probable secret values."""
+def redact_host_args(values: object, *, server: str) -> tuple[list[str], list[SemanticChange]]:
+    """Validate the host argument list and redact probable secret values."""
+    if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+        raise PortabilityInputError("args must be an array of strings")
     result: list[str] = []
     changes: list[SemanticChange] = []
     previous_secret_flag = False
     redaction_index = 1
-    for raw in values:
-        value = str(raw)
+    for value in values:
         redact = previous_secret_flag or bool(
             _OBVIOUS_SECRET_RE.search(value) or _SENSITIVE_ASSIGNMENT_RE.search(value)
         )
