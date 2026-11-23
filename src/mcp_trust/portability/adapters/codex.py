@@ -282,6 +282,7 @@ class CodexAdapter:
             if not isinstance(raw_value, dict):
                 raise PortabilityInputError(f"Codex server {name!r} must be a table")
             raw = dict(raw_value)
+            args, redactions = redact_host_args(raw.get("args", []), server=name)
             has_command = isinstance(raw.get("command"), str)
             has_url = isinstance(raw.get("url"), str)
             if has_command == has_url:
@@ -289,7 +290,6 @@ class CodexAdapter:
                     f"Codex server {name!r} must contain exactly one of command or url"
                 )
             if has_command:
-                args, redactions = redact_host_args(list(raw.get("args") or []), server=name)
                 changes.extend(redactions)
                 transport = StdioTransport(command=raw["command"], args=args, cwd=raw.get("cwd"))
                 changes.append(
@@ -425,6 +425,9 @@ class CodexAdapter:
                     )
                 )
 
+            enabled = raw.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise PortabilityInputError("Codex enabled must be a boolean")
             if "enabled" not in raw:
                 changes.append(
                     change(
@@ -455,7 +458,7 @@ class CodexAdapter:
                 transport=transport,
                 environment=[environment[key] for key in sorted(environment)],
                 auth=auth,
-                enabled=bool(raw.get("enabled", True)),
+                enabled=enabled,
                 tools=ScopePolicy(
                     allow=sorted(str(item) for item in raw.get("enabled_tools") or []),
                     deny=sorted(str(item) for item in raw.get("disabled_tools") or []),
