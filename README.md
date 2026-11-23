@@ -23,17 +23,23 @@ mcp-trust mcp-serve          # from a source/dev install (works today)
 uvx mcp-trust mcp-serve      # once published to PyPI
 ```
 
+MCP discovery (`tools/list`) supplies the canonical tool inventory below.
+The [Registry manifest](server.json) describes how to launch this server.
+
 | Tool | Description |
 |---|---|
-| `list_servers` | Every graded MCP server with its A-F grade, transparency, and danger score. |
-| `check_server` | Full grade, risk dimensions, and findings for one server by slug. |
-| `get_methodology` | How the A-F grade and transparency axis are computed, plus the honesty model. |
+| `list_servers()` | List every graded MCP server with its trust grade and scan freshness. Returns JSON; each row carries scanned_at, scan_age_days, and a stale flag alongside the grade. |
+| `check_server(slug)` | Look up the full trust grade, dimensions, and findings for one server by slug. |
+| `get_methodology()` | Explain how trust grades are computed and the honesty model behind them. |
 
 The MCP runtime admits the packaged catalog only after deterministic schema-v2
 validation, including duplicate-key rejection, required field/type checks, unique
 slugs and source coordinates, supported enums, sandbox/scan-mode agreement, and
-timezone-aware scan timestamps. Admission also binds grade to danger score,
-transparency to annotation coverage, and critical findings to the grade cap.
+timezone-aware scan timestamps. Admission checks the score against the rounded risk
+dimensions, the grade against the score and critical-finding cap, and annotation
+coverage against complete, nonempty tool evidence. Remote-live scans require a remote
+source. The latest-scan timestamp identifies the newest included scan and is empty
+for an empty catalog.
 Raw JSON is limited to 1 MiB, with deterministic server, finding, tool, and
 public-string ceilings. Schema v2 preserves additive unknown fields; missing or
 invalid required fields and unknown schema versions fail closed.
