@@ -70,11 +70,9 @@ Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
 
 ## Prerequisites
 
-- Python 3.12 or newer; `.python-version` pins 3.15.0 for local setup. If the
-  3.15.0 build of `pydantic-core` fails to load on your machine (seen on macOS
-  with an `ImportError` about a mis-aligned LINKEDIT string pool), select a
-  supported 3.14 instead with `export UV_PYTHON=3.14` before any `uv` command.
-  CI covers 3.12 through 3.15.
+- Python 3.12 or newer; `.python-version` pins 3.15.0 for local setup. The lock
+  uses a `pydantic-core` release that ships CPython 3.15 wheels, so that
+  extension is not built from source. CI covers 3.12 through 3.15.
 - A full git clone, not `--depth 1`: tests resolve source commits from history
   (CI uses `fetch-depth: 0`), and `tests/test_reference_corpus_evidence.py`
   fails on a shallow clone.
