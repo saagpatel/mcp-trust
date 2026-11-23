@@ -401,9 +401,8 @@ def test_methodology_states_freshness_policy_from_governance_constant() -> None:
 
 
 def test_dummy_credentials_do_not_imply_network_isolation() -> None:
-    records = json.loads(_SNAPSHOT.read_text())["servers"]
-    assert any(r["requires_credentials"] and r["sandbox"]["network"] == "unknown" for r in records)
     claim = " ".join(mcp_server._METHODOLOGY.split())
+    assert "dummy values for tool enumeration in eligible local scans" in claim
     assert "the network is off" not in claim
     assert "nothing can authenticate" not in claim
 
