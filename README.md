@@ -71,8 +71,8 @@ Think OSV.dev / Socket.dev / haveibeenpwned, scoped to MCP servers.
 ## Prerequisites
 
 - Python 3.12 or newer; `.python-version` pins 3.15.0 for local setup. The lock
-  uses a `pydantic-core` release that ships CPython 3.15 wheels, so nothing is
-  built from source. CI covers 3.12 through 3.15.
+  uses a `pydantic-core` release that ships CPython 3.15 wheels, so that
+  extension is not built from source. CI covers 3.12 through 3.15.
 - A full git clone, not `--depth 1`: tests resolve source commits from history
   (CI uses `fetch-depth: 0`), and `tests/test_reference_corpus_evidence.py`
   fails on a shallow clone.
