@@ -408,6 +408,13 @@ def test_dummy_credentials_do_not_imply_network_isolation() -> None:
     assert "nothing can authenticate" not in claim
 
 
+def test_methodology_distinguishes_declared_keys_from_optional_dummy_values() -> None:
+    claim = " ".join(mcp_server._METHODOLOGY.lower().split())
+    assert "operators can enable dummy values" in claim
+    assert "declared credential names" in claim
+    assert "scan mode describes the recorded network evidence" in claim
+
+
 def test_snapshot_resource_limit_counts_crlf_bytes(monkeypatch) -> None:
     snapshot = json.loads(_SNAPSHOT.read_text())
     snapshot.update(servers=[], server_count=0, generated_from_scan_at="")

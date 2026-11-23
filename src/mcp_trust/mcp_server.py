@@ -55,9 +55,9 @@ Honesty model:
   records without that proof say network or provenance unknown. Remote endpoint
   scanning necessarily uses live network transport and is labeled as such;
   none of these modes proves runtime behavior beyond the observed tool surface.
-- Credential-gated local-process scans use dummy values to reach tool
-  enumeration. Check the record's scan mode for verified network isolation.
-  The record lists credential names and omits the dummy values.
+- Operators can enable dummy values for tool enumeration in eligible local
+  scans. The record lists declared credential names. Its scan mode describes
+  the recorded network evidence.
 - A grade is an automated signal, not an endorsement or a certification.
 
 Freshness:
