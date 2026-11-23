@@ -69,7 +69,7 @@ def build_snapshot_from_connection(
     latest = latest_readback.records
 
     servers: list[dict[str, object]] = []
-    newest = ""
+    newest: datetime | None = None
     for server in sorted(server_repo.list(), key=lambda item: item.slug):
         if server.slug in excluded_slugs or server.slug in masked_slugs:
             continue
@@ -92,8 +92,9 @@ def build_snapshot_from_connection(
         assert freshness.scan_age_days is not None
         assert freshness.stale_after is not None
         scan_age_days = freshness.scan_age_days
-        scanned_at_text = scan.scanned_at.isoformat()
-        newest = max(newest, scanned_at_text)
+        scanned_at_text = scanned_at.isoformat()
+        if newest is None or scanned_at > newest:
+            newest = scanned_at
         remote_live = server.source.kind == SourceKind.REMOTE and server.source.command is None
         if remote_live:
             scan_mode = "mcpaudit-remote-live-network"
@@ -172,7 +173,7 @@ def build_snapshot_from_connection(
     return {
         "schema_version": 2,
         "generated_at": fixed_now.isoformat(),
-        "generated_from_scan_at": newest,
+        "generated_from_scan_at": newest.isoformat() if newest else "",
         "server_count": len(servers),
         "servers": servers,
     }

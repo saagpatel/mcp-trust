@@ -6,7 +6,10 @@ import hashlib
 import json
 from copy import deepcopy
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
+from zipfile import Path as ZipPath
+from zipfile import ZipFile
 
 from mcp_trust import mcp_server
 
@@ -395,3 +398,27 @@ def test_methodology_states_freshness_policy_from_governance_constant() -> None:
     methodology = mcp_server._METHODOLOGY  # pyright: ignore[reportPrivateUsage]
     assert f"{STALE_AFTER_DAYS} days" in methodology
     assert "stale" in methodology
+
+
+def test_dummy_credentials_do_not_imply_network_isolation() -> None:
+    records = json.loads(_SNAPSHOT.read_text())["servers"]
+    assert any(r["requires_credentials"] and r["sandbox"]["network"] == "unknown" for r in records)
+    claim = " ".join(mcp_server._METHODOLOGY.split())
+    assert "the network is off" not in claim
+    assert "nothing can authenticate" not in claim
+
+
+def test_snapshot_resource_limit_counts_crlf_bytes(monkeypatch) -> None:
+    snapshot = json.loads(_SNAPSHOT.read_text())
+    snapshot.update(servers=[], server_count=0, generated_from_scan_at="")
+    raw = json.dumps(snapshot).encode().ljust(2**20 - 1) + b"\r\n"
+    with ZipFile(BytesIO(), "w") as archive:
+        archive.writestr("catalog_snapshot.json", raw)
+        monkeypatch.setattr(mcp_server, "files", lambda _: ZipPath(archive))
+        mcp_server._snapshot.cache_clear()
+        try:
+            payload = json.loads(mcp_server.list_servers_payload())
+            assert payload.get("reason_codes") == ["JSON_TOO_LARGE"]
+            assert payload["server_count_served"] == 0
+        finally:
+            mcp_server._snapshot.cache_clear()
