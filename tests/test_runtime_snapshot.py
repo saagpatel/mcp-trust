@@ -310,6 +310,25 @@ def test_danger_score_must_be_attainable_from_dimensions() -> None:
     _assert_invalid(snapshot, "DANGER_DIMENSIONS_MISMATCH")
 
 
+def test_rounded_dimensions_and_score_must_admit_the_same_grade() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(danger_score=2.0, grade="B", findings=[], grade_change=None)
+    server["dimensions"] = dict.fromkeys(server["dimensions"], 0)
+    server["dimensions"].update(file_access=1.01, network_access=0.80)
+
+    # E.g. 1.0055 * 1.2 + 0.7955 gives 2.0021, which displays as 2.00.
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    server["grade"] = "A"
+    _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
+
+    # With these dimensions the score can genuinely fall on either side of 2.00.
+    server["dimensions"].update(file_access=1.00)
+    for grade in ("A", "B"):
+        server["grade"] = grade
+        assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+
+
 def test_package_source_cannot_claim_remote_live_mode() -> None:
     snapshot = _valid_snapshot()
     snapshot["servers"][0].update(
@@ -324,6 +343,25 @@ def test_coverage_must_agree_with_complete_tool_evidence() -> None:
     for tool in snapshot["servers"][0]["evidence"]["tools"]:
         tool["has_annotations"] = True
     _assert_invalid(snapshot, "COVERAGE_EVIDENCE_MISMATCH")
+
+
+@pytest.mark.parametrize(("annotated", "total", "expected"), [(16, 23, "medium"), (7, 10, "high")])
+def test_complete_tool_evidence_determines_transparency(
+    annotated: int, total: int, expected: str
+) -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(annotation_coverage=0.70, transparency=expected)
+    evidence = server["evidence"]
+    template = evidence["tools"][0]
+    evidence["tool_count"] = total
+    evidence["tools"] = [
+        {**template, "name": f"tool-{i}", "has_annotations": i < annotated} for i in range(total)
+    ]
+
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    server["transparency"] = "high" if expected == "medium" else "medium"
+    _assert_invalid(snapshot, "TRANSPARENCY_COVERAGE_MISMATCH")
 
 
 def test_additive_overflowing_float_is_invalid_json() -> None:
