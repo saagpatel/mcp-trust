@@ -83,6 +83,8 @@ def build_snapshot_from_connection(
             if all(is_real_engine(item.engine_name) for item in history)
             else None
         )
+        if grade_change is not None and grade_change.changed_at.tzinfo is None:
+            grade_change.changed_at = grade_change.changed_at.replace(tzinfo=UTC)
         scanned_at = scan.scanned_at
         if scanned_at.tzinfo is None:
             scanned_at = scanned_at.replace(tzinfo=UTC)

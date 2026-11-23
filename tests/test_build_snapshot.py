@@ -88,16 +88,21 @@ def test_build_snapshot_compares_instants_and_emits_legacy_time_as_utc(tmp_path:
     db = str(tmp_path / "registry.db")
     conn = connect(db)
     init_schema(conn)
-    for slug, timestamp in (
-        ("earlier", "2026-06-28T10:00:00+02:00"),
-        ("latest", "2026-06-28T09:30:00+00:00"),
-        ("legacy", "2026-06-28T07:00:00"),
-    ):
+    history = (
+        ("earlier", "2026-06-28T10:00:00+02:00", TrustGrade.A),
+        ("latest", "2026-06-28T09:30:00+00:00", TrustGrade.A),
+        ("legacy", "2026-06-28T06:00:00", TrustGrade.B),
+        ("legacy", "2026-06-28T07:00:00", TrustGrade.A),
+        ("legacy", "2026-06-28T07:30:00", TrustGrade.A),
+    )
+    for scan_id, (slug, timestamp, grade) in enumerate(history):
         ServerRepository(conn).upsert(_server(slug))
         scan = _scan(slug, "mcpaudit").model_copy(
             update={
+                "id": str(scan_id),
                 "scanned_at": datetime.fromisoformat(timestamp),
-                "grade": TrustGrade.A,
+                "grade": grade,
+                "risk": RiskSummary(composite=0, network_access=3 if grade == TrustGrade.B else 0),
             }
         )
         ScanRepository(conn).record(scan)
@@ -108,8 +113,11 @@ def test_build_snapshot_compares_instants_and_emits_legacy_time_as_utc(tmp_path:
         2026, 6, 28, 9, 30, tzinfo=UTC
     )
     legacy = next(row for row in snapshot["servers"] if row["slug"] == "legacy")
-    assert legacy["scanned_at"] == "2026-06-28T07:00:00+00:00"
+    assert legacy["scanned_at"] == "2026-06-28T07:30:00+00:00"
     assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    assert datetime.fromisoformat(legacy["grade_change"]["changed_at"]) == datetime(
+        2026, 6, 28, 7, tzinfo=UTC
+    )
 
 
 def test_build_snapshot_only_claims_network_off_with_per_scan_proof(tmp_path) -> None:
