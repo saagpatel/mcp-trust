@@ -508,8 +508,8 @@ def _validate_evidence(server: dict[str, Any], reasons: set[str]) -> None:
         elif schema_hash is not None:
             reasons.add("EVIDENCE_INVALID")
 
-    if tools and len(tools) == value["tool_count"]:
-        exact_coverage = annotated / len(tools)
+    if len(tools) == value["tool_count"]:
+        exact_coverage = annotated / len(tools) if tools else 0.0
         if server.get("annotation_coverage") != round(exact_coverage, 2):
             reasons.add("COVERAGE_EVIDENCE_MISMATCH")
         transparency = server.get("transparency")

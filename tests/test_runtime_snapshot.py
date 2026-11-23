@@ -345,6 +345,23 @@ def test_coverage_must_agree_with_complete_tool_evidence() -> None:
     _assert_invalid(snapshot, "COVERAGE_EVIDENCE_MISMATCH")
 
 
+@pytest.mark.parametrize(
+    ("coverage", "transparency"), [(0.0, "low"), (0.01, "low"), (0.5, "medium"), (1.0, "high")]
+)
+def test_complete_zero_tool_evidence_requires_zero_coverage(
+    coverage: float, transparency: str
+) -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(engine_version="2.7.0", annotation_coverage=coverage, transparency=transparency)
+    server["evidence"].update(tool_count=0, tools=[])
+
+    if coverage == 0.0:
+        assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    else:
+        _assert_invalid(snapshot, "COVERAGE_EVIDENCE_MISMATCH")
+
+
 @pytest.mark.parametrize(("annotated", "total", "expected"), [(16, 23, "medium"), (7, 10, "high")])
 def test_complete_tool_evidence_determines_transparency(
     annotated: int, total: int, expected: str

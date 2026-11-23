@@ -37,7 +37,8 @@ validation, including duplicate-key rejection, required field/type checks, uniqu
 slugs and source coordinates, supported enums, sandbox/scan-mode agreement, and
 timezone-aware scan timestamps. Admission checks the score against the rounded risk
 dimensions, the grade against the score and critical-finding cap, and annotation
-coverage against complete, nonempty tool evidence. Remote-live scans require a remote
+coverage against complete tool evidence. A scan that observed zero tools must report
+zero annotation coverage and low transparency. Remote-live scans require a remote
 source. The latest-scan timestamp identifies the newest included scan and is empty
 for an empty catalog.
 Raw JSON is limited to 1 MiB, with deterministic server, finding, tool, and
