@@ -626,13 +626,28 @@ def test_cli_schema_command() -> None:
 @pytest.mark.parametrize(
     ("host", "document"),
     [
+        ("claude-code", '{"mcpServers":{"x":{"command":"x","args":null}}}'),
+        (
+            "vscode",
+            '{"servers":{"x":{"type":"http","url":"https://fixture.invalid","args":"bad"}}}',
+        ),
+        ("codex", '[mcp_servers.x]\nurl="https://fixture.invalid"\nargs="bad"'),
         ("claude-code", '{"mcpServers":{"x":{"command":"x","args":"ab"}}}'),
         ("codex", '[mcp_servers.x]\ncommand="x"\nargs="ab"'),
         ("codex", '[mcp_servers.x]\ncommand="x"\nenabled="false"'),
         ("claude-code", '{"mcpServers":{"x":{"command":"x","args":[1]}}}'),
         ("codex", '[mcp_servers.x]\ncommand="x"\nargs=[1]'),
     ],
-    ids=["json-args", "toml-args", "quoted-enabled", "json-item", "toml-item"],
+    ids=[
+        "json-null",
+        "json-url-args",
+        "toml-url-args",
+        "json-args",
+        "toml-args",
+        "quoted-enabled",
+        "json-item",
+        "toml-item",
+    ],
 )
 def test_inspection_rejects_mistyped_host_fields(host: str, document: str) -> None:
     with pytest.raises(PortabilityInputError):
