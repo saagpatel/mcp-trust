@@ -329,3 +329,10 @@ def test_catalog_scan_mode_agrees_with_declared_launcher(source, remote_scan, ad
         assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
     else:
         _assert_invalid(snapshot, "SCAN_MODE_SOURCE_MISMATCH")
+
+
+def test_additive_overflowing_float_is_invalid_json() -> None:
+    raw = _SNAPSHOT_TEXT.replace('"engine_version":', '"extra":1e309,"engine_version":', 1)
+    with pytest.raises(CatalogSnapshotValidationError) as raised:
+        parse_catalog_snapshot(raw)
+    assert raised.value.reason_codes == ("JSON_INVALID",)

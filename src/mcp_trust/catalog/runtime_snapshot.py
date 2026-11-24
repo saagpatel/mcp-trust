@@ -82,6 +82,13 @@ def _reject_nonstandard_constant(_value: str) -> NoReturn:
     raise ValueError("non-standard JSON constant")
 
 
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON number is out of range")
+    return number
+
+
 def parse_catalog_snapshot(raw_text: str) -> dict[str, Any]:
     """Parse and validate one schema-v2 snapshot, preserving additive fields.
 
@@ -112,6 +119,7 @@ def parse_catalog_snapshot(raw_text: str) -> dict[str, Any]:
         snapshot = json.loads(
             raw_text,
             object_pairs_hook=object_pairs,
+            parse_float=_finite_float,
             parse_constant=_reject_nonstandard_constant,
         )
     except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
