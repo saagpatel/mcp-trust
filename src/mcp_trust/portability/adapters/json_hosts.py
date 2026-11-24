@@ -413,6 +413,7 @@ class _JsonHostAdapter:
             if not isinstance(raw_value, dict):
                 raise PortabilityInputError(f"{self.host} server {name!r} must be an object")
             raw = dict(raw_value)
+            args, redactions = redact_host_args(raw.get("args", []), server=name)
             server_type = raw.get("type")
             if server_type is None:
                 if "url" in raw:
@@ -433,7 +434,6 @@ class _JsonHostAdapter:
                     raise PortabilityInputError(
                         f"{self.host} stdio server {name!r} requires command"
                     )
-                args, redactions = redact_host_args(list(raw.get("args") or []), server=name)
                 changes.extend(redactions)
                 transport = StdioTransport(
                     command=raw["command"],
