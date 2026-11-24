@@ -395,3 +395,17 @@ def test_methodology_states_freshness_policy_from_governance_constant() -> None:
     methodology = mcp_server._METHODOLOGY  # pyright: ignore[reportPrivateUsage]
     assert f"{STALE_AFTER_DAYS} days" in methodology
     assert "stale" in methodology
+
+
+def test_dummy_credentials_do_not_imply_network_isolation() -> None:
+    claim = " ".join(mcp_server._METHODOLOGY.split())
+    assert "dummy values for tool enumeration in eligible local scans" in claim
+    assert "the network is off" not in claim
+    assert "nothing can authenticate" not in claim
+
+
+def test_methodology_distinguishes_declared_keys_from_optional_dummy_values() -> None:
+    claim = " ".join(mcp_server._METHODOLOGY.lower().split())
+    assert "operators can enable dummy values" in claim
+    assert "declared credential names" in claim
+    assert "scan mode describes the recorded network evidence" in claim
