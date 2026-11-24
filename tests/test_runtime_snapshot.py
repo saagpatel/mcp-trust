@@ -300,3 +300,32 @@ def test_snapshot_public_strings_have_a_deterministic_ceiling() -> None:
     snapshot["servers"][0]["name"] = "x" * 4097
 
     _assert_invalid(snapshot, "SERVER_STRING_LIMIT_EXCEEDED")
+
+
+@pytest.mark.parametrize(
+    ("source", "remote_scan", "admit"),
+    [
+        ({"kind": "npm"}, True, False),
+        ({"kind": "remote", "command": "fixture-launcher"}, True, False),
+        ({"kind": "remote", "command": ""}, True, False),
+        ({"kind": "remote"}, True, True),
+        ({"kind": "remote", "command": None}, True, True),
+        ({"kind": "remote", "command": "fixture-launcher"}, False, True),
+    ],
+)
+def test_catalog_scan_mode_agrees_with_declared_launcher(source, remote_scan, admit):
+    snapshot = _valid_snapshot()
+    record = snapshot["servers"][0]
+    record["source"] = {"reference": "https://fixture.invalid/mcp", "env_keys": [], **source}
+    record["requires_credentials"] = False
+    snapshot.update(servers=[record], server_count=1, generated_from_scan_at=record["scanned_at"])
+    if remote_scan:
+        record["scan_mode"] = "mcpaudit-remote-live-network"
+        record["sandbox"] = {"mode": "not_applicable", "reason": "remote_endpoint_no_local_process"}
+    else:
+        record["scan_mode"] = "mcpaudit-local-provenance-unknown"
+        record["sandbox"] = {"mode": "unknown", "network": "unknown", "image": None}
+    if admit:
+        assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    else:
+        _assert_invalid(snapshot, "SCAN_MODE_SOURCE_MISMATCH")
