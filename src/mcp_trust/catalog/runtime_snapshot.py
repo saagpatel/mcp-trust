@@ -219,7 +219,7 @@ def _validate_servers(
         _validate_grade_fields(server, reasons)
         _validate_findings(server.get("findings"), reasons)
         _validate_grade_binding(server, reasons)
-        _validate_evidence(server.get("evidence"), reasons)
+        _validate_evidence(server, reasons)
 
         coordinate, has_credentials = _validate_source(server.get("source"), reasons)
         if coordinate is not None:
@@ -456,7 +456,8 @@ def _validate_findings(value: Any, reasons: set[str]) -> None:
             reasons.add("FINDING_INVALID")
 
 
-def _validate_evidence(value: Any, reasons: set[str]) -> None:
+def _validate_evidence(server: dict[str, Any], reasons: set[str]) -> None:
+    value = server.get("evidence")
     if value is None:
         return
     required = frozenset(
@@ -481,6 +482,7 @@ def _validate_evidence(value: Any, reasons: set[str]) -> None:
     if _is_integer(value["tool_count"]) and value["tool_count"] != len(tools):
         reasons.add("EVIDENCE_INVALID")
 
+    annotated = 0
     names: set[str] = set()
     tool_required = frozenset(
         {"name", "has_input_schema", "input_schema_sha256", "has_annotations"}
@@ -498,12 +500,23 @@ def _validate_evidence(value: Any, reasons: set[str]) -> None:
         has_annotations = tool["has_annotations"]
         if not isinstance(has_input_schema, bool) or not isinstance(has_annotations, bool):
             reasons.add("EVIDENCE_INVALID")
+        annotated += has_annotations is True
         schema_hash = tool["input_schema_sha256"]
         if has_input_schema is True:
             if not isinstance(schema_hash, str) or _SHA256_RE.fullmatch(schema_hash) is None:
                 reasons.add("EVIDENCE_INVALID")
         elif schema_hash is not None:
             reasons.add("EVIDENCE_INVALID")
+
+    if len(tools) == value["tool_count"]:
+        exact_coverage = annotated / len(tools) if tools else 0.0
+        if server.get("annotation_coverage") != round(exact_coverage, 2):
+            reasons.add("COVERAGE_EVIDENCE_MISMATCH")
+        transparency = server.get("transparency")
+        if _supported_string(
+            transparency, _TRANSPARENCY_LEVELS
+        ) and transparency != _transparency_band(exact_coverage):
+            reasons.add("TRANSPARENCY_COVERAGE_MISMATCH")
 
 
 def _validate_source(
