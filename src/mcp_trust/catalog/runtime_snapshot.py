@@ -230,6 +230,13 @@ def _validate_servers(
         scan_mode = server.get("scan_mode")
         if not _supported_string(scan_mode, _SCAN_MODES):
             reasons.add("SCAN_MODE_UNSUPPORTED")
+        source = server.get("source")
+        if (
+            scan_mode == "mcpaudit-remote-live-network"
+            and isinstance(source, dict)
+            and (source.get("kind") != "remote" or source.get("command") is not None)
+        ):
+            reasons.add("SCAN_MODE_SOURCE_MISMATCH")
         _validate_sandbox(server.get("sandbox"), scan_mode, reasons)
 
         if not _timezone_aware_datetime(server.get("scanned_at")):
