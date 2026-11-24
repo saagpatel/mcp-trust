@@ -387,3 +387,28 @@ def test_rounded_dimensions_and_score_must_admit_the_same_grade() -> None:
     for grade in ("A", "B"):
         server["grade"] = grade
         assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+
+
+def test_dimension_rounding_endpoints_at_grade_boundary() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(
+        danger_score=7.50,
+        grade="F",
+        findings=[
+            {
+                "rule_id": "fixture",
+                "title": "Synthetic finding",
+                "severity": "critical",
+                "category": "fixture",
+            }
+        ],
+        grade_change=None,
+    )
+    server["dimensions"] = dict.fromkeys(server["dimensions"], 0)
+    server["dimensions"].update(shell_execution=3.13, exfiltration=3.13)
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    server["grade"] = "D"
+    _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
+    server["dimensions"].update(shell_execution=3.38, exfiltration=1.88)
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
