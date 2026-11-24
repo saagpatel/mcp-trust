@@ -249,8 +249,6 @@ def _validate_servers(
 
         if not _timezone_aware_datetime(server.get("scanned_at")):
             reasons.add("SCANNED_AT_INVALID")
-        if not _number_in_range(server.get("scan_age_days"), minimum=0):
-            reasons.add("SCAN_AGE_INVALID")
         _validate_freshness_binding(server, generated_at, reasons)
         _validate_grade_change(server.get("grade_change"), server.get("grade"), reasons)
 
@@ -259,12 +257,10 @@ def _parse_aware_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        parsed = datetime.fromisoformat(value)
+        return parsed.astimezone(UTC) if parsed.tzinfo is not None else None
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.astimezone(UTC)
 
 
 def _validate_freshness_binding(
@@ -275,6 +271,9 @@ def _validate_freshness_binding(
     generated_at = _parse_aware_datetime(generated_at_value)
     scanned_at = _parse_aware_datetime(server.get("scanned_at"))
     recorded_age = server.get("scan_age_days")
+    valid_age = _number_in_range(recorded_age, minimum=0)
+    if not valid_age:
+        reasons.add("SCAN_AGE_INVALID")
     if generated_at is None or scanned_at is None:
         return
     age_seconds = (generated_at - scanned_at).total_seconds()
@@ -282,14 +281,14 @@ def _validate_freshness_binding(
         reasons.add("SCANNED_AT_AFTER_GENERATED_AT")
         return
     expected_age = round(age_seconds / 86400, 6)
-    if type(recorded_age) not in {int, float} or abs(float(recorded_age) - expected_age) > 0.000001:
+    if valid_age and abs(recorded_age - expected_age) > 0.000001:
         reasons.add("SCAN_AGE_MISMATCH")
     if "stale_after" not in server:
         return
     stale_after = _parse_aware_datetime(server.get("stale_after"))
     if stale_after is None:
         reasons.add("STALE_AFTER_INVALID")
-    elif stale_after != scanned_at + timedelta(days=90):
+    elif stale_after - scanned_at != timedelta(days=90):
         reasons.add("STALE_AFTER_MISMATCH")
 
 
@@ -592,14 +591,7 @@ def _validate_grade_change(value: Any, current_grade: Any, reasons: set[str]) ->
 
 
 def _timezone_aware_datetime(value: Any) -> bool:
-    if not isinstance(value, str) or not value:
-        return False
-    normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return False
-    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+    return _parse_aware_datetime(value) is not None
 
 
 def _nonempty_string(value: Any) -> bool:
