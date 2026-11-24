@@ -412,3 +412,87 @@ def test_dimension_rounding_endpoints_at_grade_boundary() -> None:
     _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
     server["dimensions"].update(shell_execution=3.38, exfiltration=1.88)
     assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+
+
+def test_coverage_must_agree_with_complete_tool_evidence() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(annotation_coverage=0, transparency="low")
+    server["evidence"].update(
+        tool_count=1,
+        tools=[
+            {
+                **{
+                    "name": "fixture-tool",
+                    "has_input_schema": False,
+                    "input_schema_sha256": None,
+                    "has_annotations": False,
+                },
+                "has_annotations": True,
+            }
+        ],
+    )
+    _assert_invalid(snapshot, "COVERAGE_EVIDENCE_MISMATCH")
+
+
+@pytest.mark.parametrize(
+    ("coverage", "transparency"), [(0.0, "low"), (0.01, "low"), (0.5, "medium"), (1.0, "high")]
+)
+def test_complete_zero_tool_evidence_requires_zero_coverage(
+    coverage: float, transparency: str
+) -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(engine_version="2.7.0", annotation_coverage=coverage, transparency=transparency)
+    server["evidence"].update(tool_count=0, tools=[])
+
+    if coverage == 0.0:
+        assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    else:
+        _assert_invalid(snapshot, "COVERAGE_EVIDENCE_MISMATCH")
+
+
+@pytest.mark.parametrize(("annotated", "total", "expected"), [(16, 23, "medium"), (7, 10, "high")])
+def test_complete_tool_evidence_determines_transparency(
+    annotated: int, total: int, expected: str
+) -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(annotation_coverage=0.70, transparency=expected)
+    evidence = server["evidence"]
+    template = {
+        "name": "fixture-tool",
+        "has_input_schema": False,
+        "input_schema_sha256": None,
+        "has_annotations": False,
+    }
+    evidence["tool_count"] = total
+    evidence["tools"] = [
+        {**template, "name": f"tool-{i}", "has_annotations": i < annotated} for i in range(total)
+    ]
+
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    server["transparency"] = "high" if expected == "medium" else "medium"
+    _assert_invalid(snapshot, "TRANSPARENCY_COVERAGE_MISMATCH")
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        {"name": "incomplete", "has_annotations": True, "has_input_schema": False},
+        {
+            "name": "invalid-flag",
+            "has_annotations": "yes",
+            "has_input_schema": False,
+            "input_schema_sha256": None,
+        },
+    ],
+)
+def test_incomplete_annotation_rows_do_not_imply_mismatches(tool):
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(annotation_coverage=1.0, transparency="high")
+    server["evidence"].update(tool_count=1, tools=[tool])
+    with pytest.raises(CatalogSnapshotValidationError) as raised:
+        parse_catalog_snapshot(json.dumps(snapshot))
+    assert raised.value.reason_codes == ("EVIDENCE_INVALID",)
