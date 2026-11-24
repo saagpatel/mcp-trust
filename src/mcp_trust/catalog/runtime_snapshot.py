@@ -483,6 +483,7 @@ def _validate_evidence(server: dict[str, Any], reasons: set[str]) -> None:
         reasons.add("EVIDENCE_INVALID")
 
     annotated = 0
+    known_annotation_flags = 0
     names: set[str] = set()
     tool_required = frozenset(
         {"name", "has_input_schema", "input_schema_sha256", "has_annotations"}
@@ -500,7 +501,9 @@ def _validate_evidence(server: dict[str, Any], reasons: set[str]) -> None:
         has_annotations = tool["has_annotations"]
         if not isinstance(has_input_schema, bool) or not isinstance(has_annotations, bool):
             reasons.add("EVIDENCE_INVALID")
-        annotated += has_annotations is True
+        if isinstance(has_annotations, bool):
+            known_annotation_flags += 1
+            annotated += has_annotations
         schema_hash = tool["input_schema_sha256"]
         if has_input_schema is True:
             if not isinstance(schema_hash, str) or _SHA256_RE.fullmatch(schema_hash) is None:
@@ -508,7 +511,10 @@ def _validate_evidence(server: dict[str, Any], reasons: set[str]) -> None:
         elif schema_hash is not None:
             reasons.add("EVIDENCE_INVALID")
 
-    if len(tools) == value["tool_count"]:
+    if (
+        _is_integer(value["tool_count"])
+        and known_annotation_flags == len(tools) == value["tool_count"]
+    ):
         exact_coverage = annotated / len(tools) if tools else 0.0
         if server.get("annotation_coverage") != round(exact_coverage, 2):
             reasons.add("COVERAGE_EVIDENCE_MISMATCH")

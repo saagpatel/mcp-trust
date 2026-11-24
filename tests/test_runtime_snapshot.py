@@ -474,3 +474,25 @@ def test_complete_tool_evidence_determines_transparency(
     assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
     server["transparency"] = "high" if expected == "medium" else "medium"
     _assert_invalid(snapshot, "TRANSPARENCY_COVERAGE_MISMATCH")
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        {"name": "incomplete", "has_annotations": True, "has_input_schema": False},
+        {
+            "name": "invalid-flag",
+            "has_annotations": "yes",
+            "has_input_schema": False,
+            "input_schema_sha256": None,
+        },
+    ],
+)
+def test_incomplete_annotation_rows_do_not_imply_mismatches(tool):
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(annotation_coverage=1.0, transparency="high")
+    server["evidence"].update(tool_count=1, tools=[tool])
+    with pytest.raises(CatalogSnapshotValidationError) as raised:
+        parse_catalog_snapshot(json.dumps(snapshot))
+    assert raised.value.reason_codes == ("EVIDENCE_INVALID",)
