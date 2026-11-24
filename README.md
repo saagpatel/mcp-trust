@@ -23,11 +23,14 @@ mcp-trust mcp-serve          # from a source/dev install (works today)
 uvx mcp-trust mcp-serve      # once published to PyPI
 ```
 
+MCP discovery (`tools/list`) supplies the canonical tool inventory below.
+The [Registry manifest](server.json) describes how to launch this server.
+
 | Tool | Description |
 |---|---|
-| `list_servers` | Every graded MCP server with its A-F grade, transparency, and danger score. |
-| `check_server` | Full grade, risk dimensions, and findings for one server by slug. |
-| `get_methodology` | How the A-F grade and transparency axis are computed, plus the honesty model. |
+| `list_servers()` | List every graded MCP server with its trust grade and scan freshness. Returns JSON; each row carries scanned_at, scan_age_days, and a stale flag alongside the grade. |
+| `check_server(slug)` | Look up the full trust grade, dimensions, and findings for one server by slug. |
+| `get_methodology()` | Explain how trust grades are computed and the honesty model behind them. |
 
 The MCP runtime admits the packaged catalog only after deterministic schema-v2
 validation, including duplicate-key rejection, required field/type checks, unique

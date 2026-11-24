@@ -4,7 +4,7 @@
   "authority_id": "mcp-trust-repository",
   "project_key": "saagpatel/mcp-trust",
   "owner": "MCP Trust Registry repository",
-  "generated_at": "2026-09-06T07:16:46Z",
+  "generated_at": "2026-11-23T12:33:04Z",
   "aging_after_ms": 604800000,
   "stale_after_ms": 2592000000,
   "canonicality": "Canonical only for the stable repository-owned product and interface facts declared here. Scan records, grades, deployment state, external adoption, and portfolio projections remain outside this authority.",
@@ -37,7 +37,7 @@
       "fact_id": "readonly-mcp-interface-v1",
       "fact_key": "project.readonly_mcp_interface",
       "source_item_id": "README.md#use-as-an-mcp-server",
-      "observed_at": "2026-09-06T07:16:46Z",
+      "observed_at": "2026-11-23T12:33:04Z",
       "metadata": {
         "kind": "owner-declared-interface",
         "tools": [
@@ -45,7 +45,23 @@
           "check_server",
           "get_methodology"
         ],
-        "mutation_authority": false
+        "mutation_authority": false,
+        "tool_inventory": {
+          "list_servers": {
+            "required": [],
+            "description": "List every graded MCP server with its trust grade and scan freshness. Returns JSON; each row carries scanned_at, scan_age_days, and a stale flag alongside the grade."
+          },
+          "check_server": {
+            "required": [
+              "slug"
+            ],
+            "description": "Look up the full trust grade, dimensions, and findings for one server by slug."
+          },
+          "get_methodology": {
+            "required": [],
+            "description": "Explain how trust grades are computed and the honesty model behind them."
+          }
+        }
       },
       "content": "The packaged MCP interface is read-only and exposes catalog listing, exact server lookup, and grading methodology tools."
     }
