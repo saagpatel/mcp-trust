@@ -337,3 +337,17 @@ def test_additive_overflowing_float_is_invalid_json() -> None:
     with pytest.raises(CatalogSnapshotValidationError) as raised:
         parse_catalog_snapshot(raw)
     assert raised.value.reason_codes == ("JSON_INVALID",)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("generated_at", "0001-01-01T00:00:00+00:01", "GENERATED_AT_INVALID"),
+        ("scan_age_days", 10**309, "SCAN_AGE_INVALID"),
+    ],
+)
+def test_freshness_overflow_is_a_validation_error(field: str, value: Any, reason: str) -> None:
+    snapshot = _valid_snapshot()
+    target = snapshot if field == "generated_at" else snapshot["servers"][0]
+    target[field] = value
+    _assert_invalid(snapshot, reason)
