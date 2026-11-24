@@ -351,3 +351,13 @@ def test_freshness_overflow_is_a_validation_error(field: str, value: Any, reason
     target = snapshot if field == "generated_at" else snapshot["servers"][0]
     target[field] = value
     _assert_invalid(snapshot, reason)
+
+
+def test_late_calendar_deadline_remains_a_validation_error() -> None:
+    snapshot = _valid_snapshot()
+    snapshot["servers"] = [snapshot["servers"][0]]
+    snapshot["generated_at"] = "9999-12-01T00:00:00Z"
+    snapshot["servers"][0].update(
+        scanned_at=snapshot["generated_at"], scan_age_days=0, stale_after="9999-12-31T00:00:00Z"
+    )
+    _assert_invalid(snapshot, "STALE_AFTER_MISMATCH")
