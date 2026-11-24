@@ -60,7 +60,7 @@ _SERVER_REQUIRED_FIELDS = frozenset(
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _CREDENTIAL_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_MAX_RAW_BYTES = 1024 * 1024
+MAX_RAW_BYTES = 1024 * 1024
 _MAX_SERVERS = 256
 _MAX_FINDINGS = 1024
 _MAX_TOOLS = 2048
@@ -113,7 +113,7 @@ def parse_catalog_snapshot(raw_text: str) -> dict[str, Any]:
     # UTF-8 never uses fewer bytes than Python characters, so the character
     # check is a safe fast path; the encoding check catches smaller non-ASCII
     # strings whose byte representation crosses the same wire-size budget.
-    if len(raw_text) > _MAX_RAW_BYTES or len(raw_text.encode("utf-8")) > _MAX_RAW_BYTES:
+    if len(raw_text) > MAX_RAW_BYTES or len(raw_text.encode("utf-8")) > MAX_RAW_BYTES:
         raise CatalogSnapshotValidationError({"JSON_TOO_LARGE"})
     try:
         snapshot = json.loads(

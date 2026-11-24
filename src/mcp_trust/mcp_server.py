@@ -18,6 +18,7 @@ from importlib.resources import files
 from typing import Any
 
 from mcp_trust.catalog.runtime_snapshot import (
+    MAX_RAW_BYTES,
     CatalogSnapshotValidationError,
     parse_catalog_snapshot,
 )
@@ -71,7 +72,11 @@ Freshness:
 
 
 def _read_snapshot_text() -> str:
-    return (files("mcp_trust") / "catalog_snapshot.json").read_text(encoding="utf-8")
+    with (files("mcp_trust") / "catalog_snapshot.json").open("rb") as resource:
+        raw = resource.read(MAX_RAW_BYTES + 1)
+    if len(raw) > MAX_RAW_BYTES:
+        raise CatalogSnapshotValidationError({"JSON_TOO_LARGE"})
+    return raw.decode("utf-8")
 
 
 @lru_cache(maxsize=1)

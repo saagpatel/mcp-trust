@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from io import BytesIO
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
+from zipfile import Path as ZipPath
+from zipfile import ZipFile
 
 from mcp_trust import mcp_server
 
@@ -409,3 +412,19 @@ def test_methodology_distinguishes_declared_keys_from_optional_dummy_values() ->
     assert "operators can enable dummy values" in claim
     assert "declared credential names" in claim
     assert "scan mode describes the recorded network evidence" in claim
+
+
+def test_snapshot_resource_limit_counts_crlf_bytes(monkeypatch) -> None:
+    snapshot = json.loads(_SNAPSHOT.read_text())
+    snapshot.update(servers=[], server_count=0, generated_from_scan_at="")
+    raw = json.dumps(snapshot).encode().ljust(2**20 - 1) + b"\r\n"
+    with ZipFile(BytesIO(), "w") as archive:
+        archive.writestr("catalog_snapshot.json", raw)
+        monkeypatch.setattr(mcp_server, "files", lambda _: ZipPath(archive))
+        mcp_server._snapshot.cache_clear()
+        try:
+            payload = json.loads(mcp_server.list_servers_payload())
+            assert payload.get("reason_codes") == ["JSON_TOO_LARGE"]
+            assert payload["server_count_served"] == 0
+        finally:
+            mcp_server._snapshot.cache_clear()
