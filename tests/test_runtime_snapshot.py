@@ -361,3 +361,54 @@ def test_late_calendar_deadline_remains_a_validation_error() -> None:
         scanned_at=snapshot["generated_at"], scan_age_days=0, stale_after="9999-12-31T00:00:00Z"
     )
     _assert_invalid(snapshot, "STALE_AFTER_MISMATCH")
+
+
+def test_danger_score_must_be_attainable_from_dimensions() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server["dimensions"] = dict.fromkeys(server["dimensions"], 0)
+    _assert_invalid(snapshot, "DANGER_DIMENSIONS_MISMATCH")
+
+
+def test_rounded_dimensions_and_score_must_admit_the_same_grade() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(danger_score=2.0, grade="B", findings=[], grade_change=None)
+    server["dimensions"] = dict.fromkeys(server["dimensions"], 0)
+    server["dimensions"].update(file_access=1.01, network_access=0.80)
+
+    # E.g. 1.0055 * 1.2 + 0.7955 gives 2.0021, which displays as 2.00.
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    server["grade"] = "A"
+    _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
+
+    # With these dimensions the score can genuinely fall on either side of 2.00.
+    server["dimensions"].update(file_access=1.00)
+    for grade in ("A", "B"):
+        server["grade"] = grade
+        assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+
+
+def test_dimension_rounding_endpoints_at_grade_boundary() -> None:
+    snapshot = _valid_snapshot()
+    server = snapshot["servers"][0]
+    server.update(
+        danger_score=7.50,
+        grade="F",
+        findings=[
+            {
+                "rule_id": "fixture",
+                "title": "Synthetic finding",
+                "severity": "critical",
+                "category": "fixture",
+            }
+        ],
+        grade_change=None,
+    )
+    server["dimensions"] = dict.fromkeys(server["dimensions"], 0)
+    server["dimensions"].update(shell_execution=3.13, exfiltration=3.13)
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot
+    server["grade"] = "D"
+    _assert_invalid(snapshot, "GRADE_DANGER_MISMATCH")
+    server["dimensions"].update(shell_execution=3.38, exfiltration=1.88)
+    assert parse_catalog_snapshot(json.dumps(snapshot)) == snapshot

@@ -13,6 +13,9 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, TypeGuard
 
+from mcp_trust.core.grading import DANGER_DIMENSIONS, danger_score
+from mcp_trust.core.models import RiskSummary
+
 _SCHEMA_VERSION = 2
 _GRADES = frozenset({"A", "B", "C", "D", "F"})
 _TRANSPARENCY_LEVELS = frozenset({"high", "medium", "low"})
@@ -30,9 +33,6 @@ _GRADE_CHANGE_CAUSES = frozenset(
     {"surface-changed", "engine-changed", "score-moved", "undetermined", "no-change"}
 )
 _SURFACE_COMPARISONS = frozenset({"changed", "unchanged", "unknown"})
-_DIMENSIONS = frozenset(
-    {"file_access", "network_access", "shell_execution", "destructive", "exfiltration"}
-)
 _SERVER_REQUIRED_FIELDS = frozenset(
     {
         "slug",
@@ -217,7 +217,6 @@ def _validate_servers(
 
         _validate_basic_fields(server, reasons)
         _validate_grade_fields(server, reasons)
-        _validate_dimensions(server.get("dimensions"), reasons)
         _validate_findings(server.get("findings"), reasons)
         _validate_grade_binding(server, reasons)
         _validate_evidence(server.get("evidence"), reasons)
@@ -341,8 +340,6 @@ def _validate_grade_fields(server: dict[str, Any], reasons: set[str]) -> None:
         reasons.add("GRADE_UNSUPPORTED")
     if not _supported_string(server.get("transparency"), _TRANSPARENCY_LEVELS):
         reasons.add("TRANSPARENCY_UNSUPPORTED")
-    if not _number_in_range(server.get("danger_score"), minimum=0, maximum=10):
-        reasons.add("DANGER_SCORE_INVALID")
     if not _number_in_range(server.get("annotation_coverage"), minimum=0, maximum=1):
         reasons.add("ANNOTATION_COVERAGE_INVALID")
 
@@ -367,31 +364,44 @@ def _transparency_band(coverage: float) -> str:
     return "low"
 
 
-def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
-    """Bind public letters to the rounded values shipped in the snapshot.
+def _rounding_bounds(value: float) -> tuple[float, float]:
+    """First and last floats in [0, 10] that round to a given hundredth."""
+    # Form the exact half-cent boundaries as integer ratios before converting
+    # to float. Move inward if the nearest float rounds to the adjacent cent.
+    cents = round(value * 100)
+    low = max(0.0, (2 * cents - 1) / 200)
+    high = min(10.0, (2 * cents + 1) / 200)
+    if round(low, 2) != value:
+        low = math.nextafter(low, math.inf)
+    if round(high, 2) != value:
+        high = math.nextafter(high, -math.inf)
+    return low, high
 
-    The producer rounds scores and coverage to two decimals. Values exactly at
-    a rubric boundary can therefore represent either adjacent pre-rounding
-    band, so admission allows both sides of a half-cent interval while still
-    rejecting material contradictions.
-    """
+
+def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
     grade = server.get("grade")
     danger = server.get("danger_score")
     findings = server.get("findings")
-    if _supported_string(grade, _GRADES) and _number_in_range(danger, minimum=0, maximum=10):
-        numeric = float(danger)
-        candidates = {
-            _danger_band(max(0.0, numeric - 0.005)),
-            _danger_band(min(10.0, numeric + 0.005)),
-        }
+    dimension_bounds = _dimension_score_bounds(server.get("dimensions"), reasons)
+    if _number_in_range(danger, minimum=0, maximum=10) and round(danger, 2) == danger:
+        low, high = _rounding_bounds(danger)
+        if dimension_bounds is not None:
+            dimension_low, dimension_high = dimension_bounds
+            if dimension_low > high or dimension_high < low:
+                reasons.add("DANGER_DIMENSIONS_MISMATCH")
+            else:
+                low, high = max(low, dimension_low), min(high, dimension_high)
+        candidates = {_danger_band(low), _danger_band(high)}
         has_critical = isinstance(findings, list) and any(
             isinstance(finding, dict) and finding.get("severity") == "critical"
             for finding in findings
         )
         if has_critical:
             candidates = {candidate if candidate in {"D", "F"} else "D" for candidate in candidates}
-        if grade not in candidates:
+        if _supported_string(grade, _GRADES) and grade not in candidates:
             reasons.add("GRADE_DANGER_MISMATCH")
+    else:
+        reasons.add("DANGER_SCORE_INVALID")
 
     transparency = server.get("transparency")
     coverage = server.get("annotation_coverage")
@@ -407,17 +417,25 @@ def _validate_grade_binding(server: dict[str, Any], reasons: set[str]) -> None:
             reasons.add("TRANSPARENCY_COVERAGE_MISMATCH")
 
 
-def _validate_dimensions(value: Any, reasons: set[str]) -> None:
-    if not isinstance(value, dict):
-        reasons.add("DIMENSIONS_INVALID")
-        return
-    if not _DIMENSIONS.issubset(value):
-        reasons.add("DIMENSIONS_INVALID")
-    if any(
-        key in value and not _number_in_range(value[key], minimum=0, maximum=10)
-        for key in _DIMENSIONS
+def _dimension_score_bounds(value: Any, reasons: set[str]) -> tuple[float, float] | None:
+    if not isinstance(value, dict) or not all(
+        _number_in_range(value.get(dim), minimum=0, maximum=10)
+        and round(value[dim], 2) == value[dim]
+        for dim in DANGER_DIMENSIONS
     ):
         reasons.add("DIMENSIONS_INVALID")
+        return None
+
+    # The weighted score increases monotonically in each dimension.
+    low: dict[str, float] = {}
+    high: dict[str, float] = {}
+    for dim in DANGER_DIMENSIONS:
+        low[dim], high[dim] = _rounding_bounds(value[dim])
+
+    def score(dims: dict[str, float]) -> float:
+        return danger_score(RiskSummary.model_validate({"composite": 0, **dims}))
+
+    return score(low), score(high)
 
 
 def _validate_findings(value: Any, reasons: set[str]) -> None:
