@@ -327,6 +327,7 @@ def _validate_basic_fields(server: dict[str, Any], reasons: set[str]) -> None:
     if not _nonempty_string(server.get("engine_version")):
         reasons.add("SERVER_FIELD_TYPE_INVALID")
     public_strings = (
+        server.get("slug"),
         server.get("name"),
         server.get("description"),
         server.get("homepage"),
