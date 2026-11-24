@@ -15,6 +15,7 @@ def test_published_tool_inventories_match_discovery() -> None:
     rows = ["| Tool | Description |", "|---|---|"]
     for tool in tools:
         required = tool.inputSchema.get("required", [])
+        assert set(tool.inputSchema.get("properties", {})) == set(required)
         description = " ".join(tool.description.split())
         inventory[tool.name] = {"required": required, "description": description}
         signature = f"{tool.name}({', '.join(required)})"
