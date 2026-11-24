@@ -295,9 +295,10 @@ def test_snapshot_nested_collections_have_deterministic_ceilings() -> None:
     _assert_invalid(snapshot, "TOOLS_LIMIT_EXCEEDED")
 
 
-def test_snapshot_public_strings_have_a_deterministic_ceiling() -> None:
+@pytest.mark.parametrize("field", ["name", "slug"])
+def test_snapshot_public_strings_have_a_deterministic_ceiling(field: str) -> None:
     snapshot = _valid_snapshot()
-    snapshot["servers"][0]["name"] = "x" * 4097
+    snapshot["servers"][0][field] = "x" * 4097
 
     _assert_invalid(snapshot, "SERVER_STRING_LIMIT_EXCEEDED")
 
